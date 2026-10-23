@@ -8,8 +8,10 @@
 |---|---|---|---|
 | `alm --help` | — | 0 | 列出命令与退出码约定 |
 | `alm --version` | — | 0 | 输出包版本 |
-| `alm index` | `--root <dir>` `--json` | 0 成功 / 1 有解析错误 / 2 用法错误 | 输出资产索引 `alm.index/v1`（当前仅 YAML 资产） |
-| `alm check` | `--root <dir>` `--json` | 0 通过 / 1 门禁失败 / 2 用法错误 | 运行 `ID-001`、`REL-001`；输出 `alm.check/v1` |
+| `alm index` | `--root <dir>` `--json` | 0 成功 / 1 有解析错误 / 2 用法错误 | 输出资产索引 `alm.index/v1` |
+| `alm check` | `--root <dir>` `--base <ref>` `--out <file>` `--json` | 0 通过 / 1 门禁失败 / 2 用法错误 | 运行 R1；`--out` 写 `alm.evidence/v1` |
+| `alm baseline create` | `--root <dir>` `--commit <sha>` `--tag <name>` `--approval <file>` `[--id <id>]` `[--out <dir>]` `--json` | 0 成功/幂等 / 1 同 id 内容冲突 / 2 用法错误 | 生成不可变基线清单 |
+| `alm baseline verify` | `--root <dir>` `--manifest <file>` `--json` | 0 一致 / 1 有差异 / 2 用法错误 | 从 commit 重算哈希并比对 |
 | `alm contract verify` | `--json` | 0 全部有效 / 1 缺失或 `$id` 不符 | 校验五类契约文件 |
 
 ## 计划中（未实现，不得作为验收依据）
@@ -21,9 +23,7 @@
 | `alm diff` | ALM-02.04 | 结构化差异 `alm.diff/v1` |
 | `alm impact` | ALM-02.04 | 影响闭包 |
 | `alm trace` | ALM-02.04 | 需求追踪链 |
-| `alm baseline create` | ALM-04.03 | 生成不可变基线清单 |
-| `alm baseline verify` | ALM-04.03 | 从 commit 重建并比对哈希 |
-| `alm evidence show` | ALM-02.05 | 读取门禁证据 |
+| `alm evidence show` | ALM-03.01 | 读取门禁证据 |
 | `alm approval record` | ALM-04.01 | 记录绑定 SHA 的人工审批 |
 | `alm approval verify` | ALM-04.01 | 校验审批是否满足当前 head |
 | `alm workspace create/status` | ALM-03.04 | 变更工作区与写权限边界 |

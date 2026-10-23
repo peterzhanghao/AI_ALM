@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { verifyContracts } from './contracts/verify.mjs'
 import { checkReport, indexReport } from './commands.mjs'
+import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
+import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
+
+const PACK = JSON.parse(readFileSync(new URL('./gates/pack.json', import.meta.url), 'utf8'))
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
@@ -15,7 +19,9 @@ Usage:
 
 Commands:
   index             Print the asset index for a repository
-  check             Run the ID-001 and REL-001 gates
+  check             Run the R1 gates
+  baseline create   Write an immutable baseline manifest for a commit
+  baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
   help              Show this help
   version           Print the CLI version
@@ -23,6 +29,7 @@ Commands:
 Options:
   --root <dir>      Repository root for index/check (default: cwd)
   --base <ref>      Base git ref for check (enables STATE-001)
+  --out <path>      check: write alm.evidence/v1; baseline create: output dir
   --json            Machine-readable output where supported
   --help, -h        Show this help
   --version, -v     Print the CLI version
@@ -54,6 +61,13 @@ function parseReportOptions(args) {
       const value = args[i + 1]
       if (!value || value.startsWith('--')) return { error: '--base requires a git ref' }
       options.base = value
+      i += 1
+      continue
+    }
+    if (arg === '--out') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('--')) return { error: '--out requires a path' }
+      options.out = value
       i += 1
       continue
     }
@@ -100,6 +114,20 @@ export async function run(argv, io = {}) {
         return 2
       }
 
+      if (options.out) {
+        if (command !== 'check') {
+          err.write('alm: --out is only supported by check\n')
+          return 2
+        }
+        try {
+          const evidence = buildEvidence({ root: report.root, report, baseRef: options.base })
+          report.evidencePath = writeEvidence(options.out, evidence)
+        } catch (error) {
+          err.write(`alm: ${error.message}\n`)
+          return 2
+        }
+      }
+
       if (options.json) {
         out.write(`${JSON.stringify(report, null, 2)}\n`)
       } else if (command === 'index') {
@@ -118,10 +146,90 @@ export async function run(argv, io = {}) {
           }
         }
         out.write(`check: ${report.result}\n`)
+        if (report.evidencePath) out.write(`evidence: ${report.evidencePath}\n`)
       }
 
       if (command === 'index') return report.errors.length > 0 ? 1 : 0
       return report.result === 'pass' ? 0 : 1
+    }
+
+    if (command === 'baseline' && (rest[0] === 'create' || rest[0] === 'verify')) {
+      const sub = rest[0]
+      const args = rest.slice(1)
+      const options = { root: process.cwd(), out: '.alm/baselines', json: false }
+      for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (['--commit', '--tag', '--approval', '--id', '--out', '--root', '--manifest'].includes(arg)) {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        err.write(`alm: unknown option: ${arg}\n\n${HELP}`)
+        return 2
+      }
+
+      if (sub === 'create') {
+        if (!options.commit || !options.tag || !options.approval) {
+          err.write('alm: baseline create requires --commit, --tag and --approval\n')
+          return 2
+        }
+        try {
+          const result = createBaseline({
+            root: options.root,
+            outDir: options.out,
+            commit: options.commit,
+            tag: options.tag,
+            approvalFile: options.approval,
+            id: options.id,
+            packVersion: PACK.version,
+            toolVersion: VERSION,
+          })
+          if (options.json) {
+            out.write(`${JSON.stringify({ schema: 'alm.baseline.create/v1', status: result.status, path: result.path, baseline: result.baseline }, null, 2)}\n`)
+          } else {
+            out.write(`baseline ${result.baseline.baselineId} ${result.status} files=${result.baseline.files.length}\n`)
+            out.write(`contentHash ${result.baseline.contentHash}\n`)
+            out.write(`manifest ${result.path}\n`)
+          }
+          return 0
+        } catch (error) {
+          if (error instanceof BaselineConflictError) {
+            err.write(`alm: ${error.message}\n`)
+            return 1
+          }
+          err.write(`alm: ${error.message}\n`)
+          return 2
+        }
+      }
+
+      if (!options.manifest) {
+        err.write('alm: baseline verify requires --manifest\n')
+        return 2
+      }
+      try {
+        const result = verifyBaseline({ root: options.root, manifestPath: options.manifest })
+        if (options.json) {
+          out.write(`${JSON.stringify({ schema: 'alm.baseline.verify/v1', ...result }, null, 2)}\n`)
+        } else {
+          for (const mismatch of result.mismatches) {
+            out.write(`mismatch ${mismatch.path} expected=${mismatch.expected} actual=${mismatch.actual}\n`)
+          }
+          out.write(result.ok ? 'baseline verify: ok\n' : 'baseline verify: failed\n')
+        }
+        return result.ok ? 0 : 1
+      } catch (error) {
+        err.write(`alm: ${error.message}\n`)
+        return 2
+      }
     }
 
     if (command === 'contract' && rest[0] === 'verify') {
