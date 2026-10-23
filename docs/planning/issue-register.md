@@ -36,9 +36,9 @@
 | ALM-02.02 | 部分退款样例资产与负例夹具 | task | @peterzhanghao | P0 | core | done | ALM-02.01（#7，已关闭） | 确认发布 | #8 | #17 | in-sync | 2026-10-23 17:02 |
 | ALM-02.03 | 硬门禁规则集 R1 | task | @peterzhanghao | P0 | core | done | ALM-02.02（#8，已关闭）、ALM-01.03（#5，已关闭） | 确认发布 | #9 | #18 | in-sync | 2026-10-23 17:22 |
 | ALM-02.04 | 语义差异与影响闭包 | task | @peterzhanghao | P1 | core | blocked | ALM-02.03（#9） | 待确认 | — | — | local-newer | — |
-| ALM-02.05 | 证据模型与基线清单 | task | @peterzhanghao | P0 | core | ready | ALM-02.03（#9，已关闭） | 确认发布 | #19 | — | in-sync | 2026-10-23 17:23 |
-| ALM-03 | 跟踪：共享核心服务与双插件 | tracking | @peterzhanghao | P0 | plugin | blocked | ALM-00 | 待确认 | — | — | local-newer | — |
-| ALM-03.01 | core 服务契约与 Agent 工具 | task | @peterzhanghao | P0 | plugin | blocked | ALM-01.02（#4）、ALM-02.01（#7） | 待确认 | — | — | local-newer | — |
+| ALM-02.05 | 证据模型与基线清单 | task | @peterzhanghao | P0 | core | done | ALM-02.03（#9，已关闭） | 确认发布 | #19 | #20 | in-sync | 2026-10-23 18:50 |
+| ALM-03 | 跟踪：共享核心服务与双插件 | tracking | @peterzhanghao | P0 | plugin | backlog | ALM-00 | 确认发布 | #21 | — | in-sync | 2026-10-23 18:52 |
+| ALM-03.01 | core 服务契约与 Agent 工具 | task | @peterzhanghao | P0 | plugin | ready | ALM-01.02（#4，已关闭）、ALM-02.01（#7，已关闭） | 确认发布 | #22 | — | in-sync | 2026-10-23 18:52 |
 | ALM-03.02 | 需求插件（页面 + 工具） | task | @peterzhanghao | P1 | plugin | blocked | ALM-03.01、ALM-02.04 | 待确认 | — | — | local-newer | — |
 | ALM-03.03 | 架构插件（页面 + 工具） | task | @peterzhanghao | P1 | plugin | blocked | ALM-03.01、ALM-02.04 | 待确认 | — | — | local-newer | — |
 | ALM-03.04 | 跨插件联合变更与写权限边界 | task | @peterzhanghao | P1 | plugin | blocked | ALM-03.02、ALM-03.03 | 待确认 | — | — | local-newer | — |
