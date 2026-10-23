@@ -1,0 +1,3 @@
+- insert:
+    - id: alm-architecture
+      name: '@ai-alm/dsh-plugin-architecture'
