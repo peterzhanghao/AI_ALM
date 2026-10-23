@@ -19,7 +19,7 @@
 | 批次 1（P0） | ALM-01.01–01.03、ALM-02.01–02.03、ALM-05.03 | 工程骨架、宿主验证、`alm check` 切片、样例资产、门禁 R1、开发技能 | 样例仓库上正例通过 + 5 类负例失败；插件安装记录 |
 | 批次 2（P0） | ALM-02.05、ALM-03.01、ALM-05.01 | 证据/基线契约、core 服务与工具、变更工作流技能 | 工具可调用；证据可复跑；技能可加载 |
 | 批次 3（P1） | ALM-02.04、ALM-03.02–03.04、ALM-05.02 | 差异/影响、双插件、联合变更 | 验收 1–3；两插件同一 ChangeSet |
-| 批次 4（P1） | ALM-04.01–04.04、ALM-05.04 | SCM/CI、审批失效、基线、故障恢复、技能校验 | 验收 4–7 |
+| 批次 4（P1） | ALM-04.01–04.04、ALM-05.04–05.05 | SCM/CI、审批失效、基线、故障恢复、技能校验与发布技能 | 验收 4–7 |
 | 批次 5（P2） | ALM-06.01–06.02 | 试点演练与文档 | 验收 8 + 验证报告 |
 
 ## 台账
@@ -51,9 +51,10 @@
 | ALM-04.04 | 故障、重试与恢复演练 | task | @peterzhanghao | P1 | release | done | ALM-04.03（#39，已关闭） | 确认发布 | #41 | #42 | in-sync | 2026-10-23 22:35 |
 | ALM-05 | 跟踪：AI 技能与 Agent 契约 | tracking | @peterzhanghao | P0 | skills | backlog | ALM-00 | 确认发布 | #10 | — | in-sync | 2026-10-23 14:49 |
 | ALM-05.01 | 产品技能：变更工作流 | task | @peterzhanghao | P0 | skills | done | ALM-03.04（#30，已关闭） | 确认发布 | #32 | #33 | in-sync | 2026-10-23 20:45 |
-| ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | blocked | ALM-03.02、ALM-03.03 | 待确认 | — | — | local-newer | — |
+| ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | ready | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | — | — | local-newer | — |
 | ALM-05.03 | 开发技能：alm-mvp-dev | task | @peterzhanghao | P0 | skills | done | ALM-01.01（#3，已关闭） | 确认发布 | #11 | #14 | in-sync | 2026-10-23 16:07 |
-| ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | blocked | ALM-05.01–05.03 | 待确认 | — | — | local-newer | — |
+| ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | ready | ALM-05.01（#32，已关闭）、ALM-05.02、ALM-05.03（#11，已关闭） | 确认发布 | — | — | local-newer | — |
+| ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | ready | ALM-04.04（#41，已关闭） | 确认发布 | — | — | local-newer | — |
 | ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | deferred | ALM-00 | 暂缓 | — | — | local-newer | — |
 | ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | deferred | ALM-04.04 | 暂缓 | — | — | local-newer | — |
 | ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | deferred | ALM-06.01 | 暂缓 | — | — | local-newer | — |
@@ -68,6 +69,7 @@
 > ALM-01.03 已合并：PR `#15` → merge commit `872e06e`，Issue `#5` 已关闭并置 `status::done`。
 > `REN-002`（StrictDoc 渲染证据，warn 非阻断，`strictdoc==0.30.4` 固定版本）由 ALM-02.03 承接，见 `ce27add`。
 > `暂缓` 仅因批次 5 依赖 MVP-2 完成，不是范围否决；前置关闭后改 `待确认` 并重走发布门禁。
+> 批次 5 前收尾：`ALM-05.02`、`ALM-05.04` 前置已全部关闭，`确认结论` 改为 `确认发布` 并创建远端工作项；新增 `ALM-05.05`（`ALM-04.02–04.04` 卡片引用、但此前未交付的 `alm-release-verify` 产品技能），否则这些卡的“技能可加载”验收无判定依据。
 
 ## 维护规则
 

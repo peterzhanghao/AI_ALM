@@ -287,6 +287,23 @@
   - 反例：CLI 删除某命令后技能未更新 → 校验失败并指出技能与行号
 - 证据：CI 运行记录、故意失配的失败样例
 
+### ALM-05.05 产品技能：发布校验
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-04.04（#41，已关闭）
+- 技能：`alm-release-verify`（自身）、`alm-mvp-dev`（交付纪律）
+- 实施范围：`packages/alm-skills/alm-release-verify/{SKILL.md,references/}`
+- 不在范围：审批与合并（ALM-04.01）、插件页面（ALM-03.*）、试点演练（ALM-06.01）
+- 接口：只读命令面 `alm ci status`、`alm release verify`、`alm baseline verify`、`alm contract verify`；写入命令仅 `alm ci run`（写 `.alm/ci/`）、`alm release publish|rollback`（写 `.alm/published/`），且只由人确认后执行
+- 交付物：
+  - [ ] 发布前链路：`contract verify` → `check --out` → `baseline create` → `release publish` → `release verify`
+  - [ ] 幂等与写一次语义：重复 `ci run` 返回 `unchanged`；`release publish` 已存在且内容不同则拒绝并保留旧记录
+  - [ ] 回滚语义：`release rollback --to` 先校验目标再移动 `current.json`，历史基线不被删除
+  - [ ] 失败诊断表：哈希不一致、未发布、目标未通过校验、包版本不匹配
+- 验收：
+  - 正例：样例仓库走完 `publish → verify → rollback`，`release verify` 退出 0；同 SHA 重复 `ci run` 输出 `unchanged` 且 `ci status` 仍为 `ok`
+  - 反例：篡改已发布 `bundle.tar` → `release verify` 退出 1 并列出 `bundle.tar` mismatch；`release rollback --to` 指向未发布基线 → 退出 1 且 `current.json` 不变
+- 证据：`node --test packages/alm-core/test/integration/release.test.mjs`、`scripts/check-alm-skill.mjs` 通过、按技能演练的命令记录
+
 ---
 
 ## 批次 5（P2，暂缓）
