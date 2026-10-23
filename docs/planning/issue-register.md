@@ -26,7 +26,7 @@
 
 | 规划键 | 标题 | 类型 | Owner | 优先级 | 领域 | 状态 | 前置 | 确认结论 | GitHub # | PR | 同步状态 | 最后回读 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| ALM-00 | 总控：AI Native ALM MVP | tracking | @peterzhanghao | P0 | core | backlog | 无 | 确认发布 | #1 | — | in-sync | 2026-10-23 14:49 |
+| ALM-00 | 总控：AI Native ALM MVP | tracking | @peterzhanghao | P0 | core | done | 无 | 确认发布 | #1 | — | in-sync | 2026-10-23 22:20 |
 | ALM-01 | 跟踪：宿主与工程基线 | tracking | @peterzhanghao | P0 | core | done | ALM-00 | 确认发布 | #2 | — | in-sync | 2026-10-23 21:45 |
 | ALM-01.01 | 工程骨架、命令面与 CI | task | @peterzhanghao | P0 | core | done | 无 | 确认发布 | #3 | #12 | in-sync | 2026-10-23 15:20 |
 | ALM-01.02 | DSH 44.7.0 插件能力验证 | task | @peterzhanghao | P0 | core | done | ALM-01.01（#3，已关闭） | 确认发布 | #4 | #13 | in-sync | 2026-10-23 16:07 |
@@ -55,9 +55,9 @@
 | ALM-05.03 | 开发技能：alm-mvp-dev | task | @peterzhanghao | P0 | skills | done | ALM-01.01（#3，已关闭） | 确认发布 | #11 | #14 | in-sync | 2026-10-23 16:07 |
 | ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | done | ALM-05.01（#32，已关闭）、ALM-05.02（#50，已关闭）、ALM-05.03（#11，已关闭） | 确认发布 | #51 | #54 | in-sync | 2026-10-23 21:35 |
 | ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | done | ALM-04.04（#41，已关闭） | 确认发布 | #52 | #55 | in-sync | 2026-10-23 21:45 |
-| ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | ready | ALM-00 | 确认发布 | #57 | — | in-sync | 2026-10-23 22:05 |
-| ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | done | ALM-04.04（#41，已关闭） | 确认发布 | #58 | #61 | in-sync | 2026-10-23 22:15 |
-| ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | review | ALM-06.01（#58，已关闭） | 确认发布 | #59 | — | in-sync | 2026-10-23 22:15 |
+| ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | done | ALM-00 | 确认发布 | #57 | — | in-sync | 2026-10-23 22:20 |
+| ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | done | ALM-04.04（#41，已关闭） | 确认发布 | #58 | #61 | in-sync | 2026-10-23 22:20 |
+| ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | done | ALM-06.01（#58，已关闭） | 确认发布 | #59 | #62 | in-sync | 2026-10-23 22:20 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
@@ -74,6 +74,7 @@
 > 批次 5 前收尾：`ALM-05.02`、`ALM-05.04` 前置已全部关闭，`确认结论` 改为 `确认发布` 并创建远端工作项；新增 `ALM-05.05`（`ALM-04.02–04.04` 卡片引用、但此前未交付的 `alm-release-verify` 产品技能），否则这些卡的“技能可加载”验收无判定依据。
 > `ALM-05.02`/`05.04`/`05.05` 已合并：PR `#53`/`#54`/`#55`，Issue `#50`/`#51`/`#52` 已关闭并置 `status::done`。产品技能现有四个：需求、架构、变更工作流、发布校验；`scripts/check-alm-skill.mjs` 在 CI 校验命令存在性、链接与权限-工具一致性。
 > 领域跟踪 Issue `#2`（ALM-01）、`#6`（ALM-02）、`#21`（ALM-03）、`#34`（ALM-04）、`#10`（ALM-05）已关闭；`#1`（ALM-00）保持打开，等待批次 5（`ALM-06.01`/`06.02`）收口。
+> 批次 5 已收口：`ALM-06.01`（PR `#61`）、`ALM-06.02`（PR `#62`）、`#57`（ALM-06）与 `#1`（ALM-00）全部关闭并置 `status::done`。最终证据见 [验证报告](verification-report.md)：119 测试、3 演练 / 21 步、UI 28/28（本地 + 宿主）。`#60`（ALM-03.07 分隔符乱码）经复查为终端解码误报，已关闭且未改代码。
 
 ## 维护规则
 
