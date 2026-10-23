@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     初始化 GitHub 仓库的标签、develop 分支与分支保护。
