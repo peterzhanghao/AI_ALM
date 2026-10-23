@@ -93,7 +93,7 @@
 | acceptance-test | `.sdoc` 或 Markdown + frontmatter | 必须声明 `verifies: [REQ-*]`，与 `verified_by` 双向一致 |
 | architecture-decision | Markdown + YAML frontmatter | `id/type/title/status/owner/links`；正文含 Context/Decision/Consequences |
 | module | `.yml` | `id/type/title/owner/links/depends_on` |
-| interface | OpenAPI `.yml` + 关联 `.md` | `operationId` 作为 `id` 兜底；`links.constrained_by` 指向 ADR |
+| interface | OpenAPI `.yml` + 关联 `.md` | `info.x-alm-id` 与 `info.x-alm-owner` 必填；`x-alm-links` 映射关系；`operationId` 记入 `extra` |
 | data-model | `.yml` | 实体/字段；`links` 指向 interface |
 | risk | `.yml` | 关联需求/决策 |
 

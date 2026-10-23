@@ -8,7 +8,7 @@
     "schema_version": { "const": 1 },
     "id": {
       "type": "string",
-      "pattern": "^(REQ|ADR|MOD|IF|DM|TEST|RISK)-[A-Z0-9]+-[0-9]{3}$"
+      "pattern": "^(REQ|ADR|MOD|IF|DM|TEST|RISK)-[A-Z0-9]+(-[A-Z0-9]+)*$"
     },
     "type": {
       "enum": [
@@ -40,11 +40,23 @@
               "supersedes"
             ]
           },
-          "target": { "type": "string" }
+          "target": { "type": "string" },
+          "line": { "type": "integer", "minimum": 1 }
         },
         "additionalProperties": false
       }
-    }
+    },
+    "source": {
+      "type": "object",
+      "required": ["path", "format", "line"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "format": { "enum": ["yaml", "sdoc", "markdown", "openapi"] },
+        "line": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "extra": { "type": "object" }
   },
   "additionalProperties": true
 }

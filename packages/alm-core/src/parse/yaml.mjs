@@ -1,16 +1,11 @@
 import { parse } from 'yaml'
 import { AssetError, normalizeAsset } from '../model/asset.mjs'
-
-/** 1-based line of the first occurrence of `needle`, or 1 when absent. */
-function lineOf(text, needle) {
-  const index = text.indexOf(needle)
-  if (index === -1) return 1
-  return text.slice(0, index).split('\n').length
-}
+import { lineOf } from './locator.mjs'
+import { parseOpenApiAsset } from './openapi.mjs'
 
 /**
- * Parse one YAML asset document. Link lines are recovered from the source text
- * so dangling-reference findings can point at the offending line.
+ * Parse one YAML file. A document with `openapi`/`swagger` becomes an
+ * `interface` asset via the OpenAPI reader; otherwise it is a plain asset.
  */
 export function parseYamlAsset(text, file) {
   let doc
@@ -24,6 +19,8 @@ export function parseYamlAsset(text, file) {
   if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) {
     throw new AssetError('asset must be a mapping', { rule: 'FMT-001', file, line: 1 })
   }
+
+  if (doc.openapi || doc.swagger) return parseOpenApiAsset(doc, text, file)
 
   const asset = normalizeAsset(doc, { path: file, format: 'yaml', line: 1 })
   asset.links = asset.links.map((link) => ({ ...link, line: lineOf(text, link.target) }))

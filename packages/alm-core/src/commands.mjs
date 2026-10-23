@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { buildIndex } from './index/index.mjs'
-import { loadYamlRepo } from './parse/load.mjs'
+import { loadRepo as loadParserRepo } from './parse/load.mjs'
 import { runGates } from './gates/run.mjs'
 
 export function loadRepo(root) {
@@ -9,7 +9,7 @@ export function loadRepo(root) {
   if (!existsSync(absolute) || !statSync(absolute).isDirectory()) {
     return { ok: false, error: `not a directory: ${absolute}` }
   }
-  const { assets, errors } = loadYamlRepo(absolute)
+  const { assets, errors } = loadParserRepo(absolute)
   return { ok: true, root: absolute, assets, errors }
 }
 
