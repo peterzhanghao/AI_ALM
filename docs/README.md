@@ -20,3 +20,4 @@
 
 - `ai-github-issue-workflow/`：Issue 拆分、发布门禁、写入回读、台账同步。
 - `ai-github-pr-workflow/`：分支、提交、PR、评审、合并收口。
+- `alm-mvp-dev/`：ALM MVP 开发技能（布局、命令、契约、门禁、交付纪律）。

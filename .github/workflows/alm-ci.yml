@@ -37,3 +37,6 @@ jobs:
         run: |
           node packages/alm-core/bin/alm.mjs --help
           node packages/alm-core/bin/alm.mjs contract verify
+
+      - name: Skill/CLI consistency
+        run: node scripts/check-alm-skill.mjs
