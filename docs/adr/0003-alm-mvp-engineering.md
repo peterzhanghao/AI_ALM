@@ -10,7 +10,7 @@
 MVP 需要在 DeepSeek Harness 44.7.0 中交付两个业务插件、一个共享 core、一套确定性门禁和可重建基线。现状约束：
 
 1. 本仓库已有 Issue/PR 技能、CI 校验与台账，产品代码尚无落点。
-2. 本机有 Node 26.7.0、pnpm 10.30.3、git 2.48.1，`python` 不在 PATH。
+2. 本机有 Node 26.7.0、pnpm 10.30.3、git 2.48.1；Python 3.13.2 已安装（`py` / `py -3.13` 可用，pip 25.0.1），但 `python`/`python3` 不在 PATH，StrictDoc 未安装。
 3. DSH 插件通过 Cordis bundle 安装；Host 侧注册 Service/Tool，Client 侧注册 Slot。
 4. 蓝图要求 StrictDoc 与 Gitea，但两者都会把外部依赖压进关键路径。
 
@@ -32,7 +32,7 @@ MVP 需要在 DeepSeek Harness 44.7.0 中交付两个业务插件、一个共享
 
 解析器覆盖 `[DOCUMENT]/[SECTION]/[REQUIREMENT]/[RELATION]` 与 `UID/TITLE/STATUS/OWNER` 字段；StrictDoc 渲染作为可选证据（`REN-001` 的增强项），不进入必须路径。
 
-**备选**：StrictDoc 硬依赖。**否决原因**：本机无 Python，pip 安装与版本锁定会成为开工阻塞；格式兼容性用样例 + 可选渲染验证兜底。风险：真实 StrictDoc 语法超出子集时需扩展解析器，已用 `FMT-001` 明确报错而非静默丢弃。
+**备选**：StrictDoc 硬依赖。**否决原因**：StrictDoc 未安装且 `python` 不在 PATH，把渲染放进核心路径会引入 pip/venv 与版本锁定成本；格式兼容性用样例 + 可选渲染验证兜底。风险：真实 StrictDoc 语法超出子集时需扩展解析器，已用 `FMT-001` 明确报错而非静默丢弃。
 
 ### D4. SCM 抽象为适配器，本地 Git 先行
 

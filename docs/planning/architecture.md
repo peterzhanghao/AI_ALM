@@ -60,6 +60,7 @@
 | 运行时依赖 | `yaml` | 仅解析 YAML/OpenAPI；其余用标准库 |
 | 测试 | `node:test` + `assert` | 零额外依赖；`node --test` |
 | 插件宿主 | DSH 44.7.0 Cordis | 安装方式：`plugin_manager install_bundle`（工作区 bundle） |
+| 可选渲染 | Python 3.13.2（`py -3.13`）+ StrictDoc | 不在核心路径；StrictDoc 未安装，渲染证据在单独 venv 中生成，缺失时 `REN-001` 只做结构检查 |
 | CLI 退出码 | 0 通过 / 1 门禁失败 / 2 用法错误 / 3 内部错误 | CI 与 Agent 都按退出码判定 |
 
 ## 4. 领域模型

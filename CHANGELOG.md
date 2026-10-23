@@ -13,10 +13,14 @@
 - 新增 `docs/adr/0003-alm-mvp-engineering.md`：monorepo、Node ESM 无构建、SDoc 子集解析、SCM 本地先行、技能一等公民。
 - 新增 ALM-00～06 领域跟踪与 22 张执行卡（`docs/planning/issue-register.md`、`task-breakdown.md`），按 5 个批次推进。
 
-### 待确认
+### 已确认
 
-- Q1 产品代码落点、Q2 SCM/CI 路线、Q3 StrictDoc 定位、Q4 技能定位，见需求评审第 6 节。
-- 台账全部为 `待确认` / `暂缓`，尚未在 GitHub 创建远端工作项。
+- Q1 本仓库 `packages/` monorepo ｜ Q2 本地 Git 先行、Gitea 后置 ｜ Q3 自研 SDoc 子集 + 可选渲染 ｜ Q4 技能作为一等交付物。
+- 批次 1 的 11 个工作项已创建并回读（`#1`–`#11`）；首个执行卡 ALM-01.01 已提 PR #12。
+
+### 修正
+
+- 修正环境描述：Python 3.13.2 已安装（`py` / `py -3.13`，pip 25.0.1），`python`/`python3` 不在 PATH，StrictDoc 未安装。Q3 决策不变，理由改为“不把 pip/venv 引入核心路径”。
 
 ## [3.0.0] - 2026-10-23
 
