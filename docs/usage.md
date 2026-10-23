@@ -78,6 +78,7 @@ PR #18 检查全绿且评审通过，走收口：合并、回读 merge commit、
 | 加载后提示资源不存在 | 相对路径写错 | 资源路径相对技能目录解析，用 `references/xxx.md` |
 | `gh` 报未认证 | 未登录或 token 过期 | `gh auth login` / `gh auth refresh` |
 | 合并后 Issue 没关 | closing 关键字只对默认分支生效 | 显式 `gh issue close <n>` |
+| DSH 内置浏览器打开 `/alm/...` 报 `ERR_CONNECTION_REFUSED` | 内置浏览器的 `127.0.0.1` 与宿主不在同一网络上下文（宿主侧 `Invoke-WebRequest` 已返回 200） | 用系统浏览器打开，或走 DSH 内 Settings → Requirements/Architecture |
 
 校验命令：
 
