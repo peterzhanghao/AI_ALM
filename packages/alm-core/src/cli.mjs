@@ -20,6 +20,7 @@ Commands:
 Options:
   --json            Machine-readable output where supported
   --help, -h        Show this help
+  --version, -v     Print the CLI version
 
 Exit codes:
   0 pass   1 gate failure   2 usage error   3 internal error
