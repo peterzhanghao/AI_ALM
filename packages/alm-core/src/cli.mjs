@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { verifyContracts } from './contracts/verify.mjs'
-import { checkReport, indexReport, queryReport, showReport } from './commands.mjs'
+import { checkReport, diffReport, impactReport, indexReport, queryReport, showReport, traceReport } from './commands.mjs'
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
 
@@ -22,6 +22,9 @@ Commands:
   check             Run the R1 gates
   show <ID>         Print one asset by id
   query             List assets filtered by type/status/owner
+  diff              Diff a base ref against the worktree or another ref
+  impact --asset    List assets affected by a change
+  trace <ID>        Print the forward relation chain from one asset
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
@@ -224,6 +227,88 @@ export async function run(argv, io = {}) {
         for (const asset of report.assets) {
           out.write(`${asset.id}  ${asset.type}  ${asset.status}  ${asset.owner}\n`)
         }
+      }
+      return 0
+    }
+
+    if (command === 'diff' || command === 'impact' || command === 'trace') {
+      const options = { json: false, root: process.cwd() }
+      const positional = []
+      const valueFlags = new Set(['--root', '--base', '--head', '--asset'])
+
+      for (let i = 0; i < rest.length; i += 1) {
+        const arg = rest[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (valueFlags.has(arg)) {
+          const value = rest[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        if (arg.startsWith('--')) {
+          err.write(`alm: unknown option: ${arg}\n`)
+          return 2
+        }
+        positional.push(arg)
+      }
+
+      if (command === 'diff') {
+        if (!options.base) {
+          err.write('alm: diff requires --base\n')
+          return 2
+        }
+        const report = diffReport(options.root, { base: options.base, head: options.head })
+        if (report.ok === false) {
+          err.write(`alm: ${report.error}\n`)
+          return 2
+        }
+        if (options.json) {
+          out.write(`${JSON.stringify(report, null, 2)}\n`)
+        } else {
+          out.write(`diff ${report.base}..${report.head} added=${report.summary.added} removed=${report.summary.removed} changed=${report.summary.changed}\n`)
+          for (const entry of report.added) out.write(`+ ${entry.id}  ${entry.type}\n`)
+          for (const entry of report.removed) out.write(`- ${entry.id}  ${entry.type}\n`)
+          for (const entry of report.changed) {
+            const fields = entry.fields.map((field) => `${field.field} ${String(field.from)} -> ${String(field.to)}`).join('; ')
+            const links = [...entry.links.added.map((link) => `+${link}`), ...entry.links.removed.map((link) => `-${link}`)].join('; ')
+            out.write(`~ ${entry.id}  ${[fields, links].filter(Boolean).join('; ')}\n`)
+          }
+        }
+        return 0
+      }
+
+      const assetId = command === 'impact' ? options.asset : positional[0]
+      if (!assetId) {
+        err.write(`alm: ${command} requires an asset id\n`)
+        return 2
+      }
+      const report = command === 'impact' ? impactReport(options.root, assetId) : traceReport(options.root, assetId)
+      if (report.ok === false) {
+        err.write(`alm: ${report.error}\n`)
+        return report.notFound ? 1 : 2
+      }
+      if (options.json) {
+        out.write(`${JSON.stringify(report, null, 2)}\n`)
+      } else if (command === 'impact') {
+        out.write(`impact ${assetId}: ${report.impacted.length} assets\n`)
+        for (const entry of report.impacted) {
+          out.write(`${entry.id}  depth=${entry.depth}  via=${entry.via}\n`)
+        }
+      } else {
+        out.write(`trace ${assetId}: ${report.nodes.length} assets\n`)
+        for (const entry of report.nodes) {
+          out.write(`${entry.id}  depth=${entry.depth}  via=${entry.via}\n`)
+        }
+      }
+      for (const cycle of report.cycles) {
+        out.write(`cycle: ${cycle.join(' -> ')}\n`)
       }
       return 0
     }
