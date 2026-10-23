@@ -6,7 +6,8 @@
   "description": "SCM provider policy and local-git merge for the ALM MVP",
   "exports": {
     "./policy": "./src/policy.mjs",
-    "./local": "./src/local.mjs"
+    "./local": "./src/local.mjs",
+    "./gitea": "./src/gitea.mjs"
   },
   "files": [
     "src"

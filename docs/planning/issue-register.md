@@ -49,8 +49,8 @@
 | ALM-04.02 | CI 必需检查与幂等证据 | task | @peterzhanghao | P1 | release | done | ALM-04.01（#35，已关闭）、ALM-02.05（#19，已关闭） | 确认发布 | #37 | #38 | in-sync | 2026-10-23 21:50 |
 | ALM-04.03 | 不可变基线与重建校验 | task | @peterzhanghao | P1 | release | done | ALM-04.02（#37，已关闭） | 确认发布 | #39 | #40 | in-sync | 2026-10-23 22:10 |
 | ALM-04.04 | 故障、重试与恢复演练 | task | @peterzhanghao | P1 | release | done | ALM-04.03（#39，已关闭） | 确认发布 | #41 | #42 | in-sync | 2026-10-23 22:35 |
-| ALM-04.05 | UI 验证的按需 CI 任务 | task | @peterzhanghao | P1 | release | review | ALM-04.04（#41，已关闭）、ALM-06.01（#58，已关闭） | 确认发布 | #64 | — | in-sync | 2026-10-24 05:55 |
-| ALM-04.06 | Gitea SCM 适配器 | task | @peterzhanghao | P1 | release | ready | ALM-04.01（#35，已关闭） | 确认发布 | — | — | local-newer | — |
+| ALM-04.05 | UI 验证的按需 CI 任务 | task | @peterzhanghao | P1 | release | done | ALM-04.04（#41，已关闭）、ALM-06.01（#58，已关闭） | 确认发布 | #64 | #66 | in-sync | 2026-10-24 06:05 |
+| ALM-04.06 | Gitea SCM 适配器 | task | @peterzhanghao | P1 | release | review | ALM-04.01（#35，已关闭） | 确认发布 | #65 | — | in-sync | 2026-10-24 06:05 |
 | ALM-05 | 跟踪：AI 技能与 Agent 契约 | tracking | @peterzhanghao | P0 | skills | done | ALM-00 | 确认发布 | #10 | — | in-sync | 2026-10-23 21:45 |
 | ALM-05.01 | 产品技能：变更工作流 | task | @peterzhanghao | P0 | skills | done | ALM-03.04（#30，已关闭） | 确认发布 | #32 | #33 | in-sync | 2026-10-23 20:45 |
 | ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | done | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #50 | #53 | in-sync | 2026-10-23 21:48 |
