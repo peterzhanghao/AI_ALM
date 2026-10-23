@@ -29,7 +29,7 @@ const TYPE_PREFIX = {
   risk: 'RISK',
 }
 
-export const ID_PATTERN = /^(REQ|ADR|MOD|IF|DM|TEST|RISK)-[A-Z0-9]+-[0-9]{3}$/
+export const ID_PATTERN = /^(REQ|ADR|MOD|IF|DM|TEST|RISK)-[A-Z0-9]+(-[A-Z0-9]+)*$/
 
 export class AssetError extends Error {
   constructor(message, { rule = 'FMT-002', file, line = 1 } = {}) {
