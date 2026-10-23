@@ -57,6 +57,24 @@ export function publishBaseline({ root, manifestPath, outDir = RELEASE_DIR }) {
     publishedAt: new Date().toISOString(),
   }
   writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+
+  // Publishing makes the baseline current; rollback is the explicit way back.
+  const pointerPath = join(resolve(root, outDir), 'current.json')
+  let previous = null
+  if (existsSync(pointerPath)) {
+    previous = JSON.parse(readFileSync(pointerPath, 'utf8')).baselineId ?? null
+  }
+  const pointer = {
+    schema: 'alm.release.pointer/v1',
+    baselineId: manifest.baselineId,
+    sourceCommit: manifest.sourceCommit,
+    contentHash: manifest.contentHash,
+    previous,
+    actor: 'release',
+    updatedAt: new Date().toISOString(),
+  }
+  writeFileSync(pointerPath, `${JSON.stringify(pointer, null, 2)}\n`, 'utf8')
+
   return { status: 'published', dir, ...record }
 }
 
@@ -95,4 +113,33 @@ export function verifyRelease({ root, baselineId, outDir = RELEASE_DIR }) {
     sourceCommit: record.sourceCommit,
     mismatches,
   }
+}
+
+/**
+ * Switch the current release pointer. History is never rewritten: the target
+ * must still verify, and the previous pointer is recorded.
+ */
+export function rollbackRelease({ root, to, outDir = RELEASE_DIR, actor = 'human:local' }) {
+  const verification = verifyRelease({ root, baselineId: to, outDir })
+  if (!verification.ok) throw new Error(`release: ${to} failed verification`)
+
+  const dir = resolve(root, outDir)
+  const record = JSON.parse(readFileSync(join(dir, to, 'release.json'), 'utf8'))
+  const pointerPath = join(dir, 'current.json')
+  let previous = null
+  if (existsSync(pointerPath)) {
+    previous = JSON.parse(readFileSync(pointerPath, 'utf8')).baselineId ?? null
+  }
+
+  const pointer = {
+    schema: 'alm.release.pointer/v1',
+    baselineId: to,
+    sourceCommit: record.sourceCommit,
+    contentHash: record.contentHash,
+    previous,
+    actor,
+    updatedAt: new Date().toISOString(),
+  }
+  writeFileSync(pointerPath, `${JSON.stringify(pointer, null, 2)}\n`, 'utf8')
+  return pointer
 }

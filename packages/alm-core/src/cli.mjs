@@ -4,7 +4,7 @@ import { verifyContracts } from './contracts/verify.mjs'
 import { checkReport, diffReport, impactReport, indexReport, queryReport, showReport, traceReport } from './commands.mjs'
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
-import { publishBaseline, verifyRelease } from './baseline/release.mjs'
+import { publishBaseline, rollbackRelease, verifyRelease } from './baseline/release.mjs'
 import { WorkspaceError, createWorkspace, guardWrite, statusWorkspace } from './workspace/workspace.mjs'
 import { loadApprovals, recordApproval, verifyApproval } from './approvals/approval.mjs'
 import { ciStatus, recordEvidence, runCi } from './ci/ci.mjs'
@@ -43,6 +43,7 @@ Commands:
   ci status         Check whether the commit has a passing CI record
   release publish   Publish a verified baseline into the write-once store
   release verify    Rebuild and compare a published baseline
+  release rollback  Switch the current release pointer to a baseline
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
@@ -713,7 +714,7 @@ export async function run(argv, io = {}) {
       }
     }
 
-    if (command === 'release' && (rest[0] === 'publish' || rest[0] === 'verify')) {
+    if (command === 'release' && (rest[0] === 'publish' || rest[0] === 'verify' || rest[0] === 'rollback')) {
       const sub = rest[0]
       const args = rest.slice(1)
       const options = { root: process.cwd(), out: '.alm/published', json: false }
@@ -724,7 +725,7 @@ export async function run(argv, io = {}) {
           options.json = true
           continue
         }
-        if (['--root', '--manifest', '--baseline', '--out'].includes(arg)) {
+        if (['--root', '--manifest', '--baseline', '--out', '--to'].includes(arg)) {
           const value = args[i + 1]
           if (!value || value.startsWith('--')) {
             err.write(`alm: ${arg} requires a value\n`)
@@ -747,6 +748,17 @@ export async function run(argv, io = {}) {
           const result = publishBaseline({ root: options.root, manifestPath: options.manifest, outDir: options.out })
           if (options.json) out.write(`${JSON.stringify(result, null, 2)}\n`)
           else out.write(`release ${result.status} ${result.baselineId} ${result.bundleSha256?.slice(0, 12) ?? ''}\n`)
+          return 0
+        }
+
+        if (sub === 'rollback') {
+          if (!options.to) {
+            err.write('alm: release rollback requires --to\n')
+            return 2
+          }
+          const pointer = rollbackRelease({ root: options.root, to: options.to, outDir: options.out })
+          if (options.json) out.write(`${JSON.stringify(pointer, null, 2)}\n`)
+          else out.write(`rollback ${pointer.previous ?? 'none'} -> ${pointer.baselineId}\n`)
           return 0
         }
 
