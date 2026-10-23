@@ -91,7 +91,7 @@ export function checkReport(root, options = {}) {
           })),
         })),
       }
-    : runGates({ index, root: loaded.root, baseAssets })
+    : runGates({ index, root: loaded.root, baseAssets, requireApproval: options.pr === true, prHeadSha: options.headSha })
 
   return {
     schema: 'alm.check/v1',

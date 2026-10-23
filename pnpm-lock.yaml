@@ -10,11 +10,20 @@ importers:
 
   packages/alm-core:
     dependencies:
+      '@ai-alm/alm-scm':
+        specifier: workspace:*
+        version: link:../alm-scm
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
 
+  packages/alm-scm: {}
+
   packages/dsh-plugin-alm-core: {}
+
+  packages/dsh-plugin-architecture: {}
+
+  packages/dsh-plugin-requirements: {}
 
 packages:
 

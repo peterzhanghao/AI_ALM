@@ -5,8 +5,8 @@ import { rules } from './registry.mjs'
  * object `{ status, findings, message }`. Only failing `block` rules make the
  * run fail; `warn` and `skip` never change the result.
  */
-export function runGates({ index, root, baseAssets }) {
-  const context = { assets: index.assets, index, root, baseAssets }
+export function runGates({ index, root, baseAssets, requireApproval = false }) {
+  const context = { assets: index.assets, index, root, baseAssets, requireApproval }
   const checks = rules.map((rule) => {
     const outcome = rule.check(context)
     const findings = Array.isArray(outcome) ? outcome : (outcome.findings ?? [])
