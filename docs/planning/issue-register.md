@@ -27,34 +27,34 @@
 | 规划键 | 标题 | 类型 | Owner | 优先级 | 领域 | 状态 | 前置 | 确认结论 | GitHub # | PR | 同步状态 | 最后回读 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | ALM-00 | 总控：AI Native ALM MVP | tracking | @peterzhanghao | P0 | core | backlog | 无 | 确认发布 | #1 | — | in-sync | 2026-10-23 14:49 |
-| ALM-01 | 跟踪：宿主与工程基线 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #2 | — | in-sync | 2026-10-23 14:49 |
+| ALM-01 | 跟踪：宿主与工程基线 | tracking | @peterzhanghao | P0 | core | done | ALM-00 | 确认发布 | #2 | — | in-sync | 2026-10-23 21:45 |
 | ALM-01.01 | 工程骨架、命令面与 CI | task | @peterzhanghao | P0 | core | done | 无 | 确认发布 | #3 | #12 | in-sync | 2026-10-23 15:20 |
 | ALM-01.02 | DSH 44.7.0 插件能力验证 | task | @peterzhanghao | P0 | core | done | ALM-01.01（#3，已关闭） | 确认发布 | #4 | #13 | in-sync | 2026-10-23 16:07 |
 | ALM-01.03 | `alm index` 与 `alm check` 最小回路 | task | @peterzhanghao | P0 | core | done | ALM-01.01（#3，已关闭） | 确认发布 | #5 | #15 | in-sync | 2026-10-23 16:32 |
-| ALM-02 | 跟踪：资产契约与确定性门禁 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #6 | — | in-sync | 2026-10-23 14:49 |
+| ALM-02 | 跟踪：资产契约与确定性门禁 | tracking | @peterzhanghao | P0 | core | done | ALM-00 | 确认发布 | #6 | — | in-sync | 2026-10-23 21:45 |
 | ALM-02.01 | 资产模型与解析器 | task | @peterzhanghao | P0 | core | done | ALM-01.01（#3，已关闭） | 确认发布 | #7 | #16 | in-sync | 2026-10-23 16:54 |
 | ALM-02.02 | 部分退款样例资产与负例夹具 | task | @peterzhanghao | P0 | core | done | ALM-02.01（#7，已关闭） | 确认发布 | #8 | #17 | in-sync | 2026-10-23 17:02 |
 | ALM-02.03 | 硬门禁规则集 R1 | task | @peterzhanghao | P0 | core | done | ALM-02.02（#8，已关闭）、ALM-01.03（#5，已关闭） | 确认发布 | #9 | #18 | in-sync | 2026-10-23 17:22 |
 | ALM-02.04 | 语义差异与影响闭包 | task | @peterzhanghao | P1 | core | done | ALM-02.03（#9，已关闭） | 确认发布 | #24 | #25 | in-sync | 2026-10-23 19:20 |
 | ALM-02.05 | 证据模型与基线清单 | task | @peterzhanghao | P0 | core | done | ALM-02.03（#9，已关闭） | 确认发布 | #19 | #20 | in-sync | 2026-10-23 18:50 |
-| ALM-03 | 跟踪：共享核心服务与双插件 | tracking | @peterzhanghao | P0 | plugin | backlog | ALM-00 | 确认发布 | #21 | — | in-sync | 2026-10-23 18:52 |
+| ALM-03 | 跟踪：共享核心服务与双插件 | tracking | @peterzhanghao | P0 | plugin | done | ALM-00 | 确认发布 | #21 | — | in-sync | 2026-10-23 21:45 |
 | ALM-03.01 | core 服务契约与 Agent 工具 | task | @peterzhanghao | P0 | plugin | done | ALM-01.02（#4，已关闭）、ALM-02.01（#7，已关闭） | 确认发布 | #22 | #23 | in-sync | 2026-10-23 19:05 |
 | ALM-03.02 | 需求插件（页面 + 工具） | task | @peterzhanghao | P1 | plugin | done | ALM-03.01（#22，已关闭）、ALM-02.04（#24，已关闭） | 确认发布 | #26 | #27 | in-sync | 2026-10-23 19:35 |
 | ALM-03.03 | 架构插件（页面 + 工具） | task | @peterzhanghao | P1 | plugin | done | ALM-03.01（#22，已关闭）、ALM-02.04（#24，已关闭） | 确认发布 | #28 | #29 | in-sync | 2026-10-23 19:50 |
 | ALM-03.04 | 跨插件联合变更与写权限边界 | task | @peterzhanghao | P1 | plugin | done | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #30 | #31 | in-sync | 2026-10-23 20:20 |
 | ALM-03.05 | 插件页面无法从浏览器直接打开（GUI 401） | bug | @peterzhanghao | P0 | plugin | done | ALM-03.02、ALM-03.03 | 确认发布 | #43 | #44 | in-sync | 2026-10-23 20:40 |
 | ALM-03.06 | 插件重载后路由残留导致无法激活 | bug | @peterzhanghao | P1 | plugin | done | ALM-03.05 | 确认发布 | #46 | #44 | in-sync | 2026-10-23 20:50 |
-| ALM-04 | 跟踪：评审、集成与发布 | tracking | @peterzhanghao | P1 | release | backlog | ALM-00 | 确认发布 | #34 | — | in-sync | 2026-10-23 21:00 |
+| ALM-04 | 跟踪：评审、集成与发布 | tracking | @peterzhanghao | P1 | release | done | ALM-00 | 确认发布 | #34 | — | in-sync | 2026-10-23 21:45 |
 | ALM-04.01 | SCM 适配器与审批绑定 SHA | task | @peterzhanghao | P1 | release | done | ALM-02.03（#9，已关闭）、ALM-03.01（#22，已关闭） | 确认发布 | #35 | #36 | in-sync | 2026-10-23 21:30 |
 | ALM-04.02 | CI 必需检查与幂等证据 | task | @peterzhanghao | P1 | release | done | ALM-04.01（#35，已关闭）、ALM-02.05（#19，已关闭） | 确认发布 | #37 | #38 | in-sync | 2026-10-23 21:50 |
 | ALM-04.03 | 不可变基线与重建校验 | task | @peterzhanghao | P1 | release | done | ALM-04.02（#37，已关闭） | 确认发布 | #39 | #40 | in-sync | 2026-10-23 22:10 |
 | ALM-04.04 | 故障、重试与恢复演练 | task | @peterzhanghao | P1 | release | done | ALM-04.03（#39，已关闭） | 确认发布 | #41 | #42 | in-sync | 2026-10-23 22:35 |
-| ALM-05 | 跟踪：AI 技能与 Agent 契约 | tracking | @peterzhanghao | P0 | skills | backlog | ALM-00 | 确认发布 | #10 | — | in-sync | 2026-10-23 14:49 |
+| ALM-05 | 跟踪：AI 技能与 Agent 契约 | tracking | @peterzhanghao | P0 | skills | done | ALM-00 | 确认发布 | #10 | — | in-sync | 2026-10-23 21:45 |
 | ALM-05.01 | 产品技能：变更工作流 | task | @peterzhanghao | P0 | skills | done | ALM-03.04（#30，已关闭） | 确认发布 | #32 | #33 | in-sync | 2026-10-23 20:45 |
 | ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | done | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #50 | #53 | in-sync | 2026-10-23 21:48 |
 | ALM-05.03 | 开发技能：alm-mvp-dev | task | @peterzhanghao | P0 | skills | done | ALM-01.01（#3，已关闭） | 确认发布 | #11 | #14 | in-sync | 2026-10-23 16:07 |
 | ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | done | ALM-05.01（#32，已关闭）、ALM-05.02（#50，已关闭）、ALM-05.03（#11，已关闭） | 确认发布 | #51 | #54 | in-sync | 2026-10-23 21:35 |
-| ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | review | ALM-04.04（#41，已关闭） | 确认发布 | #52 | — | in-sync | 2026-10-23 21:35 |
+| ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | done | ALM-04.04（#41，已关闭） | 确认发布 | #52 | #55 | in-sync | 2026-10-23 21:45 |
 | ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | deferred | ALM-00 | 暂缓 | — | — | local-newer | — |
 | ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | deferred | ALM-04.04 | 暂缓 | — | — | local-newer | — |
 | ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | deferred | ALM-06.01 | 暂缓 | — | — | local-newer | — |
@@ -63,13 +63,16 @@
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
 > ALM-01.02 已合并：PR `#13` → merge commit `c117170`；ALM-05.03 已合并：PR `#14` → merge commit `7fcffe2`。`#4`、`#11` 已关闭并置 `status::done`。
 > **批次 1 已完成**（01.01/01.02/01.03/02.01/02.02/02.03/05.03）。
-> 批次 2 进展：ALM-02.05、ALM-03.01、ALM-02.04、ALM-05.01 已完成。\n> 批次 3 已完成（03.01–03.04）；批次 4 已完成（04.01–04.04）。MVP 本地端到端闭环可运行。
+> 批次 2 进展：ALM-02.05、ALM-03.01、ALM-02.04、ALM-05.01 已完成。
+> 批次 3 已完成（03.01–03.04）；批次 4 已完成（04.01–04.04）。MVP 本地端到端闭环可运行。
 > ALM-02.02 已合并：PR `#17` → merge commit `f889d2e`，Issue `#8` 已关闭并置 `status::done`。
 > ALM-02.01 已合并：PR `#16` → merge commit `60c9d83`，Issue `#7` 已关闭并置 `status::done`。
 > ALM-01.03 已合并：PR `#15` → merge commit `872e06e`，Issue `#5` 已关闭并置 `status::done`。
 > `REN-002`（StrictDoc 渲染证据，warn 非阻断，`strictdoc==0.30.4` 固定版本）由 ALM-02.03 承接，见 `ce27add`。
 > `暂缓` 仅因批次 5 依赖 MVP-2 完成，不是范围否决；前置关闭后改 `待确认` 并重走发布门禁。
 > 批次 5 前收尾：`ALM-05.02`、`ALM-05.04` 前置已全部关闭，`确认结论` 改为 `确认发布` 并创建远端工作项；新增 `ALM-05.05`（`ALM-04.02–04.04` 卡片引用、但此前未交付的 `alm-release-verify` 产品技能），否则这些卡的“技能可加载”验收无判定依据。
+> `ALM-05.02`/`05.04`/`05.05` 已合并：PR `#53`/`#54`/`#55`，Issue `#50`/`#51`/`#52` 已关闭并置 `status::done`。产品技能现有四个：需求、架构、变更工作流、发布校验；`scripts/check-alm-skill.mjs` 在 CI 校验命令存在性、链接与权限-工具一致性。
+> 领域跟踪 Issue `#2`（ALM-01）、`#6`（ALM-02）、`#21`（ALM-03）、`#34`（ALM-04）、`#10`（ALM-05）已关闭；`#1`（ALM-00）保持打开，因为批次 5（`ALM-06.01`/`06.02`）仍 `deferred`，需要三次人工演练与验证报告。
 
 ## 维护规则
 
