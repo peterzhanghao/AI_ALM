@@ -56,8 +56,8 @@
 | ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | done | ALM-05.01（#32，已关闭）、ALM-05.02（#50，已关闭）、ALM-05.03（#11，已关闭） | 确认发布 | #51 | #54 | in-sync | 2026-10-23 21:35 |
 | ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | done | ALM-04.04（#41，已关闭） | 确认发布 | #52 | #55 | in-sync | 2026-10-23 21:45 |
 | ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | ready | ALM-00 | 确认发布 | #57 | — | in-sync | 2026-10-23 22:05 |
-| ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | review | ALM-04.04（#41，已关闭） | 确认发布 | #58 | — | in-sync | 2026-10-23 22:05 |
-| ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | blocked | ALM-06.01（#58） | 确认发布 | #59 | — | in-sync | 2026-10-23 22:05 |
+| ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | done | ALM-04.04（#41，已关闭） | 确认发布 | #58 | #61 | in-sync | 2026-10-23 22:15 |
+| ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | review | ALM-06.01（#58，已关闭） | 确认发布 | #59 | — | in-sync | 2026-10-23 22:15 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
