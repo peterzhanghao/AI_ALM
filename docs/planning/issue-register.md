@@ -30,7 +30,7 @@
 | ALM-01 | 跟踪：宿主与工程基线 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #2 | — | in-sync | 2026-10-23 14:49 |
 | ALM-01.01 | 工程骨架、命令面与 CI | task | @peterzhanghao | P0 | core | done | 无 | 确认发布 | #3 | #12 | in-sync | 2026-10-23 15:20 |
 | ALM-01.02 | DSH 44.7.0 插件能力验证 | task | @peterzhanghao | P0 | core | done | ALM-01.01（#3，已关闭） | 确认发布 | #4 | #13 | in-sync | 2026-10-23 16:07 |
-| ALM-01.03 | `alm index` 与 `alm check` 最小回路 | task | @peterzhanghao | P0 | core | ready | ALM-01.01（#3，已关闭） | 确认发布 | #5 | — | in-sync | 2026-10-23 15:20 |
+| ALM-01.03 | `alm index` 与 `alm check` 最小回路 | task | @peterzhanghao | P0 | core | done | ALM-01.01（#3，已关闭） | 确认发布 | #5 | #15 | in-sync | 2026-10-23 16:32 |
 | ALM-02 | 跟踪：资产契约与确定性门禁 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #6 | — | in-sync | 2026-10-23 14:49 |
 | ALM-02.01 | 资产模型与解析器 | task | @peterzhanghao | P0 | core | ready | ALM-01.01（#3，已关闭） | 确认发布 | #7 | — | in-sync | 2026-10-23 15:20 |
 | ALM-02.02 | 部分退款样例资产与负例夹具 | task | @peterzhanghao | P0 | core | blocked | ALM-02.01（#7） | 确认发布 | #8 | — | in-sync | 2026-10-23 14:49 |
@@ -59,7 +59,8 @@
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
 > ALM-01.02 已合并：PR `#13` → merge commit `c117170`；ALM-05.03 已合并：PR `#14` → merge commit `7fcffe2`。`#4`、`#11` 已关闭并置 `status::done`。
-> 批次 1 剩余：`#5`（`index/check` 回路）、`#7`（解析器）已 ready；`#8` 待 `#7`、`#9` 待 `#8`+`#5`。
+> 批次 1 剩余：`#7`（解析器）ready；`#8` 待 `#7`、`#9` 待 `#8`（`#5` 已关闭）。
+> ALM-01.03 已合并：PR `#15` → merge commit `872e06e`，Issue `#5` 已关闭并置 `status::done`。
 > `REN-002`（StrictDoc 渲染证据，warn 非阻断，`strictdoc==0.30.4` 固定版本）由 ALM-02.03 承接，见 `ce27add`。
 > `暂缓` 仅因批次 5 依赖 MVP-2 完成，不是范围否决；前置关闭后改 `待确认` 并重走发布门禁。
 
