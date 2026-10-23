@@ -101,3 +101,32 @@ export function checkReport(root, options = {}) {
     summary: { assets: loaded.assets.length, errors: loaded.errors.length },
   }
 }
+
+export function showReport(root, id) {
+  const loaded = loadRepo(root)
+  if (!loaded.ok) return loaded
+  const asset = loaded.assets.find((entry) => entry.id === id)
+  if (!asset) return { ok: false, notFound: true, error: `asset not found: ${id}` }
+  return { schema: 'alm.show/v1', root: loaded.root, asset }
+}
+
+export function queryReport(root, filter = {}) {
+  const loaded = loadRepo(root)
+  if (!loaded.ok) return loaded
+  const effective = {}
+  for (const key of ['type', 'status', 'owner']) {
+    if (typeof filter[key] === 'string' && filter[key] !== '') effective[key] = filter[key]
+  }
+  const assets = loaded.assets.filter(
+    (asset) =>
+      (!effective.type || asset.type === effective.type) &&
+      (!effective.status || asset.status === effective.status) &&
+      (!effective.owner || asset.owner === effective.owner),
+  )
+  return {
+    schema: 'alm.query/v1',
+    root: loaded.root,
+    filter: effective,
+    assets,
+  }
+}

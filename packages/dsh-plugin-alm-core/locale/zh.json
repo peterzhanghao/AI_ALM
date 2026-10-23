@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "ALM 探针",
-    "description": "AI Native ALM MVP 的宿主服务与工具能力验证插件。"
+    "title": "ALM 核心",
+    "description": "只读 ALM 服务与 Agent 工具：index、check、show、query。"
   }
 }

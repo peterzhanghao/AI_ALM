@@ -8,7 +8,7 @@
   },
   "scripts": {
     "alm": "node packages/alm-core/bin/alm.mjs",
-    "test": "node --test \"packages/alm-core/test/**/*.test.mjs\"",
-    "ci": "node --test \"packages/alm-core/test/**/*.test.mjs\" && node packages/alm-core/bin/alm.mjs contract verify"
+    "test": "node --test \"packages/*/test/**/*.test.mjs\"",
+    "ci": "node --test \"packages/*/test/**/*.test.mjs\" && node packages/alm-core/bin/alm.mjs contract verify"
   }
 }

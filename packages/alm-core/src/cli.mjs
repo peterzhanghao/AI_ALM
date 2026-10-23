@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { verifyContracts } from './contracts/verify.mjs'
-import { checkReport, indexReport } from './commands.mjs'
+import { checkReport, indexReport, queryReport, showReport } from './commands.mjs'
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
 
@@ -20,6 +20,8 @@ Usage:
 Commands:
   index             Print the asset index for a repository
   check             Run the R1 gates
+  show <ID>         Print one asset by id
+  query             List assets filtered by type/status/owner
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
@@ -151,6 +153,79 @@ export async function run(argv, io = {}) {
 
       if (command === 'index') return report.errors.length > 0 ? 1 : 0
       return report.result === 'pass' ? 0 : 1
+    }
+
+    if (command === 'show' || command === 'query') {
+      const options = { json: false, root: process.cwd() }
+      const positional = []
+      const valueFlags = new Set(['--root', '--type', '--status', '--owner'])
+
+      for (let i = 0; i < rest.length; i += 1) {
+        const arg = rest[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (valueFlags.has(arg)) {
+          const value = rest[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        if (arg.startsWith('--')) {
+          err.write(`alm: unknown option: ${arg}\n`)
+          return 2
+        }
+        positional.push(arg)
+      }
+
+      if (command === 'show') {
+        if (positional.length !== 1) {
+          err.write('alm: show requires exactly one asset id\n')
+          return 2
+        }
+        const report = showReport(options.root, positional[0])
+        if (report.ok === false) {
+          err.write(`alm: ${report.error}\n`)
+          return report.notFound ? 1 : 2
+        }
+        if (options.json) {
+          out.write(`${JSON.stringify(report, null, 2)}\n`)
+        } else {
+          const { asset } = report
+          out.write(`${asset.id}  ${asset.type}  ${asset.status}\n`)
+          out.write(`title: ${asset.title}\n`)
+          out.write(`owner: ${asset.owner}\n`)
+          out.write(`file: ${asset.source.path}\n`)
+          for (const link of asset.links) {
+            out.write(`link: ${link.type} -> ${link.target}\n`)
+          }
+        }
+        return 0
+      }
+
+      const report = queryReport(options.root, {
+        type: options.type,
+        status: options.status,
+        owner: options.owner,
+      })
+      if (report.ok === false) {
+        err.write(`alm: ${report.error}\n`)
+        return 2
+      }
+      if (options.json) {
+        out.write(`${JSON.stringify(report, null, 2)}\n`)
+      } else {
+        out.write(`${report.assets.length} assets in ${report.root}\n`)
+        for (const asset of report.assets) {
+          out.write(`${asset.id}  ${asset.type}  ${asset.status}  ${asset.owner}\n`)
+        }
+      }
+      return 0
     }
 
     if (command === 'baseline' && (rest[0] === 'create' || rest[0] === 'verify')) {
