@@ -9,6 +9,11 @@
   "scripts": {
     "alm": "node packages/alm-core/bin/alm.mjs",
     "test": "node --test \"packages/*/test/**/*.test.mjs\"",
+    "test:ui": "node scripts/ui-verify.mjs",
+    "drill": "node scripts/drill.mjs",
     "ci": "node --test \"packages/*/test/**/*.test.mjs\" && node packages/alm-core/bin/alm.mjs contract verify"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }
