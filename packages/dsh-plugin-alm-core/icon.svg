@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ALM Probe">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0f3d5c"/>
+  <path d="M20 42V26l12-8 12 8v16l-12 8z" fill="none" stroke="#7fd1ff" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="32" cy="20" r="4" fill="#7fd1ff"/>
+  <circle cx="20" cy="42" r="4" fill="#7fd1ff"/>
+  <circle cx="44" cy="42" r="4" fill="#7fd1ff"/>
+  <path d="M32 24v10M26 38l-4 2M38 38l4 2" stroke="#7fd1ff" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
