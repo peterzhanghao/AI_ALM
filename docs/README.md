@@ -6,6 +6,7 @@
 | [`development/recovery.md`](development/recovery.md) | 发布与恢复操作手册（中断、幂等、回滚、旧基线重建） |
 | [`development/permissions.md`](development/permissions.md) | 权限模型：身份、目录白名单、工具边界、审批与发布分离 |
 | [`development/upgrade.md`](development/upgrade.md) | 升级与兼容：契约/规则包版本、基线存储、回滚窗口 |
+| [`development/gitea-adapter.md`](development/gitea-adapter.md) | Gitea SCM 适配器：PR/检查/评论/合并的接口与错误语义 |
 | [`planning/architecture.md`](planning/architecture.md) | ALM MVP 模块边界、契约、命令面与门禁规则 |
 | [`planning/verification-report.md`](planning/verification-report.md) | 验证报告：版本、命令矩阵、演练与 UI 证据、缺口 |
 | [`planning/issue-register.md`](planning/issue-register.md) | 规划键、GitHub 编号、状态与同步台账 |
