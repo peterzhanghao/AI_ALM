@@ -7,5 +7,3 @@ owner: team-payments
 links:
   - type: constrained_by
     target: ADR-PAY-003
-  - type: allocated_to
-    target: MOD-PAY-REFUND
