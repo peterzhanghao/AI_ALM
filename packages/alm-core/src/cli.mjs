@@ -6,6 +6,7 @@ import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
 import { WorkspaceError, createWorkspace, guardWrite, statusWorkspace } from './workspace/workspace.mjs'
 import { loadApprovals, recordApproval, verifyApproval } from './approvals/approval.mjs'
+import { ciStatus, recordEvidence, runCi } from './ci/ci.mjs'
 import { evaluateMerge } from '@ai-alm/alm-scm/policy'
 import { currentBranch, mergeBase, mergeLocal, resolveSha } from '@ai-alm/alm-scm/local'
 
@@ -36,6 +37,9 @@ Commands:
   approval verify   Verify the approval for a commit SHA
   pr status         Show merge readiness for a base/head pair
   pr merge          Merge after approval and required checks
+  ci run            Re-run gates and store idempotent CI evidence
+  ci record         Accept an evidence file after a server re-check
+  ci status         Check whether the commit has a passing CI record
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
@@ -646,6 +650,60 @@ export async function run(argv, io = {}) {
           out.write(`merged ${options.head} into ${options.base} at ${merged.mergeSha}\n`)
         }
         return 0
+      } catch (error) {
+        err.write(`alm: ${error.message}\n`)
+        return 1
+      }
+    }
+
+    if (command === 'ci' && (rest[0] === 'run' || rest[0] === 'record' || rest[0] === 'status')) {
+      const sub = rest[0]
+      const args = rest.slice(1)
+      const options = { root: process.cwd(), json: false }
+
+      for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (['--root', '--base', '--evidence', '--sha'].includes(arg)) {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        err.write(`alm: unknown option: ${arg}\n`)
+        return 2
+      }
+
+      try {
+        if (sub === 'run') {
+          const result = runCi({ root: options.root, base: options.base })
+          if (options.json) out.write(`${JSON.stringify(result, null, 2)}\n`)
+          else out.write(`ci ${result.status} ${result.headSha.slice(0, 8)} ${result.result} ${result.runId}\n`)
+          return 0
+        }
+
+        if (sub === 'record') {
+          if (!options.evidence) {
+            err.write('alm: ci record requires --evidence\n')
+            return 2
+          }
+          const result = recordEvidence({ root: options.root, evidencePath: options.evidence })
+          if (options.json) out.write(`${JSON.stringify(result, null, 2)}\n`)
+          else out.write(`ci ${result.status} ${result.headSha.slice(0, 8)} ${result.result}\n`)
+          return 0
+        }
+
+        const status = ciStatus({ root: options.root, sha: options.sha })
+        if (options.json) out.write(`${JSON.stringify(status, null, 2)}\n`)
+        else out.write(status.ok ? `ci ok ${status.sha.slice(0, 8)} ${status.runId}\n` : `ci failed: ${status.reason}\n`)
+        return status.ok ? 0 : 1
       } catch (error) {
         err.write(`alm: ${error.message}\n`)
         return 1

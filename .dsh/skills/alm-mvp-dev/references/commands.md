@@ -22,6 +22,9 @@
 | `alm approval verify` | `--sha <sha>` `--root <dir>` `--json` | 0 有效 / 1 无效 / 2 用法错误 | 校验审批与自批 |
 | `alm pr status` | `--base <branch>` `--head <branch>` `--root <dir>` `--json` | 0 输出状态 / 2 用法错误 | head 必须已检出；输出可合并原因 |
 | `alm pr merge` | `--base <branch>` `--head <branch>` `--root <dir>` `--json` | 0 合并 / 1 被拒 / 2 用法错误 | 审批 + 检查通过后本地合并 |
+| `alm ci run` | `--base <ref>` `--root <dir>` `--json` | 0 成功 / 1 失败 | 服务端复跑并落幂等证据 |
+| `alm ci record` | `--evidence <file>` `--root <dir>` `--json` | 0 接收 / 1 拒绝 | 与复跑结果比对后接收 |
+| `alm ci status` | `--sha <ref>` `--root <dir>` `--json` | 0 通过 / 1 不通过 | 必需检查是否满足 |
 | `alm baseline create` | `--root <dir>` `--commit <sha>` `--tag <name>` `--approval <file>` `[--id <id>]` `[--out <dir>]` `--json` | 0 成功/幂等 / 1 同 id 内容冲突 / 2 用法错误 | 生成不可变基线清单 |
 | `alm baseline verify` | `--root <dir>` `--manifest <file>` `--json` | 0 一致 / 1 有差异 / 2 用法错误 | 从 commit 重算哈希并比对 |
 | `alm contract verify` | `--json` | 0 全部有效 / 1 缺失或 `$id` 不符 | 校验五类契约文件 |
