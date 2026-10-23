@@ -77,13 +77,27 @@ MVP 的“改资产 → 门禁 → 差异/影响 → 基线 → 发布/回滚”
 - 对运行中的 DSH 宿主（真实端口 60860）同样 28/28，说明插件路由与页面在宿主上可用。
 - 负例：`--require REQ-PAY-999` 退出 1，证明断言失败会让流程失败。
 
+### 按需 CI：`alm-ui.yml`
+
+PR 流程不跑浏览器；需要可归档的 UI 证据时手动触发：
+
+```bash
+gh workflow run alm-ui.yml --ref develop                       # 默认 fixtures/order-refund
+gh workflow run alm-ui.yml --ref develop -f require=REQ-PAY-999  # 负例：run 必红
+gh run download <run-id> -n ui-report -D tmp/ui-ci             # report.json + 两张 PNG
+```
+
+- workflow 安装 Chromium 与 `fonts-noto-cjk`（中文截图可读），artifact `ui-report` 保留 7 天。
+- job summary 由 `scripts/ui-summary.mjs` 生成，列出检查总数、失败项与截图名。
+- 失败时 `if: always()` 仍上传 artifact，日志保留 `FAIL` 行。
+
 ## 6. 已知缺口
 
 | 缺口 | 影响 | 现状 / 承接 |
 |---|---|---|
-| Gitea 适配器 | 只能本地 git 与 GitHub 工作流 | `alm-scm` 预留接口，未实现 |
+| Gitea 适配器 | 只能本地 git 与 GitHub 工作流 | `alm-scm` 预留接口，未接入 CLI；ALM-04.06 实现客户端与 mock 测试 |
 | DSH 内置浏览器无法访问宿主 loopback | 内置浏览器打开 `/alm/*` 报 `ERR_CONNECTION_REFUSED` | 用系统浏览器或 Settings → Requirements/Architecture，见 [usage](../usage.md) |
-| CI 不跑 UI 测试 | 浏览器未在 runner 安装 | 本地 `pnpm test:ui`；CI 跑 `plugin-pages` 的 4 个无浏览器测试 |
+| PR 流程不跑 UI 测试 | 浏览器下载与时长不适合每次 PR | `alm-ui.yml` 按需手动触发（Chromium + CJK 字体、artifact）；PR 仍只跑 4 个无浏览器测试 |
 | `REN-002` 需要 StrictDoc | 未安装时 `skip` | `scripts/strictdoc-render.ps1` 隔离 venv，`strictdoc==0.30.4` |
 | `STATE-001` 需要 `--base` | 无基线时 `skip` | 门禁命令一律带 `--base`，报告里标注 |
 | 采纳率/漏检/误报 | 指标不完整 | 标注“未采集”，不估算 |

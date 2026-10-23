@@ -90,6 +90,20 @@ node scripts/check-alm-skill.mjs
 - `validate-skills.ps1`：`.dsh/skills` 的 frontmatter、命名、相对链接与体积。
 - `check-alm-skill.mjs`：全部 ALM 技能（`.dsh/skills` + `packages/alm-skills`）的命令存在性、链接、权限声明与工具清单，在 `alm-ci.yml` 中执行，失败退出 1。
 
+## 按需 UI 验证（GitHub Actions）
+
+PR 流程不装浏览器；需要可归档的页面证据时手动触发：
+
+```powershell
+gh workflow run alm-ui.yml --ref develop
+gh run watch
+gh run download <run-id> -n ui-report -D tmp/ui-ci
+```
+
+- 输入：`root`（默认 `fixtures/order-refund`）、`require`（逗号分隔的必含文本）、`base`（可选，指向已运行宿主）。
+- 产物：`ui-report` artifact 含 `report.json`、`requirements.png`、`architecture.png`，保留 7 天。
+- 负例：`gh workflow run alm-ui.yml -f require=REQ-PAY-999` 会让 run 失败，用于验证断言确实生效。
+
 ## 维护约定
 
 - 改动技能后必须跑校验；校验失败不合并。
