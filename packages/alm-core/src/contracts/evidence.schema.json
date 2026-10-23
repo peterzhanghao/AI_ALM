@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alm.evidence/v1",
+  "title": "ALM Gate Evidence",
+  "type": "object",
+  "required": [
+    "schema",
+    "runId",
+    "baseSha",
+    "headSha",
+    "result",
+    "rules",
+    "tool",
+    "checks"
+  ],
+  "properties": {
+    "schema": { "const": "alm.evidence/v1" },
+    "runId": { "type": "string", "minLength": 1 },
+    "baseSha": { "type": "string", "minLength": 7 },
+    "headSha": { "type": "string", "minLength": 7 },
+    "result": { "enum": ["pass", "fail"] },
+    "rules": {
+      "type": "object",
+      "required": ["packVersion"],
+      "properties": { "packVersion": { "type": "string" } },
+      "additionalProperties": true
+    },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "node": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "enum": ["pass", "fail", "skip"] },
+          "assets": { "type": "array", "items": { "type": "string" } },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alm.finding/v1",
+  "title": "ALM AI Finding (advisory)",
+  "description": "AI review output. Advisory only: never changes the deterministic gate result or exit code.",
+  "type": "object",
+  "required": ["schema", "source", "ruleHint", "severity", "evidence"],
+  "properties": {
+    "schema": { "const": "alm.finding/v1" },
+    "source": { "const": "ai" },
+    "ruleHint": { "type": "string" },
+    "assetId": { "type": "string" },
+    "file": { "type": "string" },
+    "locator": {
+      "type": "object",
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "severity": { "enum": ["info", "warning", "error"] },
+    "evidence": { "type": "string", "minLength": 1 },
+    "suggestion": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alm.baseline/v1",
+  "title": "ALM Immutable Baseline",
+  "type": "object",
+  "required": [
+    "schema",
+    "baselineId",
+    "sourceCommit",
+    "rules",
+    "tool",
+    "createdAt",
+    "approval",
+    "files",
+    "contentHash"
+  ],
+  "properties": {
+    "schema": { "const": "alm.baseline/v1" },
+    "baselineId": { "type": "string", "minLength": 1 },
+    "sourceCommit": { "type": "string", "minLength": 40, "maxLength": 40 },
+    "tag": { "type": "string" },
+    "rules": {
+      "type": "object",
+      "required": ["packVersion"],
+      "properties": { "packVersion": { "type": "string" } },
+      "additionalProperties": true
+    },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "approval": { "$ref": "alm.approval/v1" },
+    "evidenceRunId": { "type": "string" },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "size"],
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "size": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "contentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

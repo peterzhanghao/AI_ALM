@@ -1,0 +1,20 @@
+{
+  "name": "@ai-alm/alm-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Native ALM domain core, gates and CLI",
+  "bin": {
+    "alm": "./bin/alm.mjs"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\""
+  }
+}

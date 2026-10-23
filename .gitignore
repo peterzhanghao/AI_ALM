@@ -13,6 +13,11 @@ Desktop.ini
 tmp/
 .tmp/
 
+# Node
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
 # Local agent state
 .dsh/*.local.*
 .dsh/cache/

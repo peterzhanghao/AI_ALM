@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alm.approval/v1",
+  "title": "ALM Approval",
+  "type": "object",
+  "required": ["schema", "changeId", "headSha", "actor", "kind", "decision", "at"],
+  "properties": {
+    "schema": { "const": "alm.approval/v1" },
+    "changeId": { "type": "string", "minLength": 1 },
+    "headSha": { "type": "string", "minLength": 7 },
+    "actor": { "type": "string", "pattern": "^(human|agent):" },
+    "kind": { "const": "human" },
+    "decision": { "enum": ["approve", "reject"] },
+    "at": { "type": "string", "format": "date-time" },
+    "evidenceRunId": { "type": "string" }
+  },
+  "additionalProperties": false
+}
