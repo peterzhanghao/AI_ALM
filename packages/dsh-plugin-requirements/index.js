@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
+import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const DEFAULT_ROOT = fileURLToPath(new URL('../../fixtures/order-refund', import.meta.url))
@@ -30,13 +31,33 @@ export default class RequirementsService {
     this.version = pkg.version
     this.root = config?.root ? resolve(config.root) : DEFAULT_ROOT
 
-    ctx.webServer.register({
+    // Own every registration through a Cordis effect: on reload the old routes
+    // and tools are disposed, otherwise re-activation hits duplicate errors.
+    const disposers = []
+    ctx.effect(() => () => {
+      for (const dispose of disposers.splice(0)) dispose()
+    })
+    const webServer = { register: (route) => disposers.push(ctx.webServer.register(route)) }
+    const tools = { register: (definition) => disposers.push(ctx.tools.register(definition)) }
+
+    this.webServer = webServer
+    this.tools = tools
+
+    webServer.register({
       kind: 'exact',
       path: '/api/alm/requirements',
       handler: (req, res) => this.handle(req, res),
     })
 
-    ctx.tools.register({
+    // Standalone read-only page: the GUI origin itself needs the dsh web token,
+    // so expose an HTML view that can be opened directly from a browser.
+    webServer.register({
+      kind: 'exact',
+      path: '/alm/requirements',
+      handler: (_req, res) => this.handlePage(res),
+    })
+
+    tools.register({
       name: 'alm_requirements',
       description:
         'Return the requirements list, their acceptance coverage and tracking gaps for the ALM workspace.',
@@ -48,6 +69,17 @@ export default class RequirementsService {
       output: OUTPUT,
       execute: async (args) => ({ result: jsonSafe(query.requirements(args.root ?? this.root)) }),
     })
+  }
+
+  handlePage(res) {
+    try {
+      const payload = query.requirements(this.root)
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(renderRequirementsPage(payload))
+    } catch (error) {
+      res.writeHead(500, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(renderErrorPage(error?.message ?? String(error), 500))
+    }
   }
 
   handle(_req, res) {

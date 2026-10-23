@@ -5,9 +5,17 @@
 | 项 | 内容 |
 |---|---|
 | 路由 | `GET /api/alm/requirements` → `alm.requirements/v1` |
+| 页面路由 | `GET /alm/requirements` → 只读 HTML（免 token，可直接在浏览器打开） |
 | 工具 | `alm_requirements [root]` |
 | 页面 | Settings → Requirements；`main` 面板 key `requirements` |
 | 数据 | 复用 `alm-core` 的 index + check；缺口来自 COV-001/COV-002 |
+
+## 打开页面
+
+1. DSH 内：Settings → Requirements，或页面里的 “Open as main panel”。
+2. 浏览器直接打开：`http://127.0.0.1:<DSH 端口>/alm/requirements`（服务端渲染、只读、无需 token）。
+
+> 注意：`http://127.0.0.1:<端口>/` 是 DSH GUI 入口，必须使用 `dsh web` 打印的带 token URL；直接打开会返回 401 `dsh web authentication required`。插件页面请用上面的 `/alm/requirements` 或 DSH 内的 Settings。
 
 ## 约束
 

@@ -5,11 +5,19 @@
 | 项 | 内容 |
 |---|---|
 | 路由 | `GET /api/alm/architecture` → `alm.architecture/v1` |
+| 页面路由 | `GET /alm/architecture` → 只读 HTML（免 token，可直接在浏览器打开） |
 | 工具 | `alm_architecture [root]` |
 | 页面 | Settings → Architecture；`main` 面板 key `architecture` |
 | 数据 | `alm-core` index + check + 反向闭包；缺口取 REL-001/REL-002 |
 
 页面包含节点表（含 impact 计数）、依赖边、按资产的反向影响查询、关系缺口。影响计算在浏览器内用同一份 `edges` 完成，不额外请求。
+
+## 打开页面
+
+1. DSH 内：Settings → Architecture，或页面里的 “Open as main panel”。
+2. 浏览器直接打开：`http://127.0.0.1:<DSH 端口>/alm/architecture`（服务端渲染、只读、无需 token）。
+
+> 注意：`http://127.0.0.1:<端口>/` 是 DSH GUI 入口，必须使用 `dsh web` 打印的带 token URL；直接打开会返回 401。插件页面请用上面的 `/alm/architecture` 或 DSH 内的 Settings。
 
 ## 约束
 

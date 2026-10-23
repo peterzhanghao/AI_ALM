@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
+import { renderArchitecturePage, renderErrorPage } from './render.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const DEFAULT_ROOT = fileURLToPath(new URL('../../fixtures/order-refund', import.meta.url))
@@ -27,13 +28,33 @@ export default class ArchitectureService {
     this.version = pkg.version
     this.root = config?.root ? resolve(config.root) : DEFAULT_ROOT
 
-    ctx.webServer.register({
+    // Own every registration through a Cordis effect: on reload the old routes
+    // and tools are disposed, otherwise re-activation hits duplicate errors.
+    const disposers = []
+    ctx.effect(() => () => {
+      for (const dispose of disposers.splice(0)) dispose()
+    })
+    const webServer = { register: (route) => disposers.push(ctx.webServer.register(route)) }
+    const tools = { register: (definition) => disposers.push(ctx.tools.register(definition)) }
+
+    this.webServer = webServer
+    this.tools = tools
+
+    webServer.register({
       kind: 'exact',
       path: '/api/alm/architecture',
       handler: (_req, res) => this.handle(res),
     })
 
-    ctx.tools.register({
+    // Standalone read-only page: the GUI origin itself needs the dsh web token,
+    // so expose an HTML view that can be opened directly from a browser.
+    webServer.register({
+      kind: 'exact',
+      path: '/alm/architecture',
+      handler: (_req, res) => this.handlePage(res),
+    })
+
+    tools.register({
       name: 'alm_architecture',
       description:
         'Return modules, architecture decisions, interfaces, data models, their dependency/constraint edges, per-asset impact counts and relation gaps.',
@@ -45,6 +66,17 @@ export default class ArchitectureService {
       output: OUTPUT,
       execute: async (args) => ({ result: jsonSafe(query.architecture(args.root ?? this.root)) }),
     })
+  }
+
+  handlePage(res) {
+    try {
+      const payload = query.architecture(this.root)
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(renderArchitecturePage(payload))
+    } catch (error) {
+      res.writeHead(500, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(renderErrorPage(error?.message ?? String(error), 500))
+    }
   }
 
   handle(res) {
