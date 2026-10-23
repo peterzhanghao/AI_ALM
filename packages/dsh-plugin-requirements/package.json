@@ -1,0 +1,32 @@
+{
+  "name": "@ai-alm/dsh-plugin-requirements",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Requirements domain page and read-only tools for the AI Native ALM MVP",
+  "exports": {
+    ".": "./index.js",
+    "./query": "./query.mjs",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "query.mjs",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}

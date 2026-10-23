@@ -1,0 +1,3 @@
+- insert:
+    - id: alm-requirements
+      name: '@ai-alm/dsh-plugin-requirements'
