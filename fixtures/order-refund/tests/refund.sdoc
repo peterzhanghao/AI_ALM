@@ -1,0 +1,8 @@
+[DOCUMENT]
+TITLE: 部分退款验收
+
+[REQUIREMENT]
+UID: TEST-PAY-001
+TITLE: 部分退款金额与订单状态一致
+STATUS: proposed
+OWNER: team-qa

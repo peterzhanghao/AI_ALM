@@ -1,0 +1,7 @@
+schema_version: 1
+id: REQ-STA-001
+type: requirement
+title: 非法状态反例
+status: draft
+owner: team-demo
+links: []

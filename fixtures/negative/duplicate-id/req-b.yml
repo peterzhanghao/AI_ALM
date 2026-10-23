@@ -1,0 +1,7 @@
+schema_version: 1
+id: REQ-DUP-001
+type: requirement
+title: 重复 ID 反例 B
+status: proposed
+owner: team-demo
+links: []

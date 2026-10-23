@@ -1,0 +1,8 @@
+[
+  { "dir": "duplicate-id", "rule": "ID-001", "via": "check", "enforced": true },
+  { "dir": "dangling-relation", "rule": "REL-001", "via": "check", "enforced": true },
+  { "dir": "malformed-sdoc", "rule": "FMT-001", "via": "check", "enforced": true },
+  { "dir": "invalid-status", "rule": "FMT-002", "via": "check", "enforced": true },
+  { "dir": "missing-acceptance", "rule": "COV-001", "via": "check", "enforced": false, "card": "ALM-02.03" },
+  { "dir": "secret-leak", "rule": "SEC-001", "via": "check", "enforced": false, "card": "ALM-02.03" }
+]

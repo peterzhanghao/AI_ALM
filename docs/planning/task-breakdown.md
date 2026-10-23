@@ -116,11 +116,11 @@
   - [ ] `ADR-PAY-003` 退款一致性决策（md + frontmatter）
   - [ ] `MOD-PAY-REFUND` 模块、`IF-PAY-REFUND-API` 接口（OpenAPI）、`DM-PAY-REFUND` 数据模型
   - [ ] `TEST-PAY-001` 验收用例、`RISK-PAY-001` 风险
-  - [ ] 负例夹具：重复 ID、悬空关系、缺验收、非法状态、秘密串
+  - [ ] 负例夹具：重复 ID、悬空关系、缺验收、非法状态、格式错误、秘密串，并在 `cases.json` 标注预期规则与生效状态
 - 验收：
-  - 正例：`alm index` 列出 7 类资产且全部关系可解析；`alm trace REQ-PAY-001` 输出需求→模块→决策→验收链
-  - 反例：每个负例夹具在对应规则下失败并定位到资产 ID；正例仓库不被负例污染
-- 证据：`alm index --json` 计数、`alm trace` 输出、负例清单
+  - 正例：`alm index` 列出 7 类资产、4 种格式且全部关系可解析；`alm check` 退出 0
+  - 反例：已生效的负例（`ID-001`/`REL-001`/`FMT-001`/`FMT-002`）失败并定位到文件；`COV-001`/`SEC-001` 夹具就位，待 ALM-02.03 生效
+- 证据：`alm index --json` 计数、`alm check` 输出、`fixtures/negative/cases.json`
 
 ### ALM-02.03 硬门禁规则集 R1
 

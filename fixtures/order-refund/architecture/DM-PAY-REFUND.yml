@@ -1,0 +1,9 @@
+schema_version: 1
+id: DM-PAY-REFUND
+type: data-model
+title: 退款单
+status: proposed
+owner: team-payments
+links:
+  - type: constrained_by
+    target: ADR-PAY-003
