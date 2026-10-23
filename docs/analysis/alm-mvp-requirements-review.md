@@ -38,7 +38,7 @@
 |---|---|---|---|---|
 | P0-1 | MVP 范围按“一人 / 一个 AI 团队”估算明显超载 | 蓝图必须交付含 2 插件 + 共享服务 + 6 类门禁 + 语义 diff + Gitea/CI + 基线 + 4 角色试点，粗算 ≥ 22 个可交付 PR | 要么长期无法验收，要么大面积降级 | 拆成 MVP-0/1/2 三层，每层有独立可验收出口（见第 5 节） |
 | P0-2 | 宿主插件能力仍是假设 | 已探测：本机 DSH **44.7.0**，`cordis_inspect_list` 提供 Host Service / Client Slots 等 Provider，`plugin_manager` 支持从工作区目录安装 bundle；但“双插件 + 服务依赖 + 工具 + Slot”的端到端组合未验证 | 阶段 0 失败会导致插件层返工 | 阶段 0 先做最小插件 spike，产出可执行的验证清单；失败即按既定降级（CLI + MCP）并记录缺口 |
-| P0-3 | 外部重型依赖压在关键路径上 | Gitea + Actions Runner 需要容器与网络；StrictDoc 需要 Python + pip；本机 `python` 不在 PATH（仅有沙箱自带 Python） | 环境问题会伪装成“功能未完成” | SCM 抽象为适配器，本地 Git 先行；StrictDoc 只作为可选渲染器（见 P0-5 / ADR 0003） |
+| P0-3 | 外部重型依赖压在关键路径上 | Gitea + Actions Runner 需要容器与网络；StrictDoc 未安装；Python 3.13.2 已装（`py -3.13` 可用，pip 25.0.1），但 `python`/`python3` 不在 PATH | 环境问题会伪装成“功能未完成” | SCM 抽象为适配器，本地 Git 先行；StrictDoc 只作为可选渲染器（见 P0-5 / ADR 0003） |
 | P0-4 | 四个关键契约缺失 | 蓝图有“Agent 不得自批”“审批绑定 SHA”，但没有 Actor、Approval、Evidence、Baseline 的字段定义；没有规范化序列化规则，“重建一致”无法判定 | 验收 3/5/7 无法客观判定，实现各写一套 | 按第 4 节补齐契约后再开卡；契约文件进仓库并由门禁校验 |
 | P0-5 | “必须两个插件”是硬验收，但降级路径未写清 | 验收 1 要求“可安装并启用两个业务插件”；brief 又说宿主受阻可降级 CLI/API | 降级后是否算通过没有判定标准 | 明确：两个独立可安装插件为 P0；若宿主 UI 受限，允许“同一插件内两个独立页面 + 两个独立 Skill”作为有条件通过，并单列缺口 |
 
@@ -156,7 +156,7 @@ actors:
 |---|---|---|---|---|
 | Q1 | 产品代码落点 | A. 本仓库 `packages/` monorepo；B. 新建独立仓库 | **A** | 现有 Issue/PR 技能、CI、台账可直接复用；样例仓库仍是独立 Git 仓库，不污染产品仓库 |
 | Q2 | SCM/CI 路线 | A. 本地 Git + 本地 PR/CI 模拟先行，Gitea 适配器后置；B. 直接 Gitea Docker | **A** | 门禁与基线逻辑不依赖托管平台；Gitea 适配器可独立验收，环境失败不阻塞领域闭环 |
-| Q3 | StrictDoc 定位 | A. 自研 SDoc 子集解析 + StrictDoc 可选渲染；B. StrictDoc 作为硬依赖 | **A** | 本机无 Python，硬依赖会让核心路径不可运行；格式兼容性用样例与渲染证据兜底 |
+| Q3 | StrictDoc 定位 | A. 自研 SDoc 子集解析 + StrictDoc 可选渲染；B. StrictDoc 作为硬依赖 | **A** | Python 3.13.2 可用但 `python` 不在 PATH、StrictDoc 未安装；硬依赖会把 pip/venv 引入核心路径，可选渲染仍可复现 |
 | Q4 | 技能定位 | A. 技能是一等交付物（产品技能 + 开发技能）；B. 仅开发期内部使用 | **A** | “AI 原生”的核心是 AI 可执行的流程契约；技能不进验收就会退化成提示词 |
 
 ## 7. 评审门禁结论
