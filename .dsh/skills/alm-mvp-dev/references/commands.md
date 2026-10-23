@@ -27,6 +27,8 @@
 | `alm ci status` | `--sha <ref>` `--root <dir>` `--json` | 0 通过 / 1 不通过 | 必需检查是否满足 |
 | `alm baseline create` | `--root <dir>` `--commit <sha>` `--tag <name>` `--approval <file>` `[--id <id>]` `[--out <dir>]` `--json` | 0 成功/幂等 / 1 同 id 内容冲突 / 2 用法错误 | 生成不可变基线清单 |
 | `alm baseline verify` | `--root <dir>` `--manifest <file>` `--json` | 0 一致 / 1 有差异 / 2 用法错误 | 从 commit 重算哈希并比对 |
+| `alm release publish` | `--manifest <file>` `--root <dir>` `[--out <dir>]` `--json` | 0 发布/幂等 / 1 失败 | 写入不可覆盖发布存储 |
+| `alm release verify` | `--baseline <id>` `--root <dir>` `[--out <dir>]` `--json` | 0 一致 / 1 有差异 | 重建归档并核对清单 |
 | `alm contract verify` | `--json` | 0 全部有效 / 1 缺失或 `$id` 不符 | 校验五类契约文件 |
 
 ## 计划中（未实现，不得作为验收依据）
