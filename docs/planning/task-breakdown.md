@@ -306,19 +306,42 @@
 
 ---
 
-## 批次 5（P2，暂缓）
+## 批次 5（P2）
 
 ### ALM-06.01 三次变更演练与指标
 
-- 前置：ALM-04.04 ｜ 技能：产品技能全集
-- 内容：正常变更、门禁失败修复、发布回滚/重建；采集耗时、人工介入、AI 建议采纳率、漏检/误报
-- 验收：正例：三次演练均有证据与结论；反例：指标口径缺失的项标注“未采集”，不估算
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P2 ｜ 前置：ALM-04.04（#41，已关闭）
+- 技能：`alm-change-workflow`、`alm-requirements`、`alm-architecture`、`alm-release-verify`
+- 实施范围：`scripts/drill.mjs`（演练编排 + 指标采集）、`scripts/ui-verify.mjs`（Playwright UI 验证）、`packages/alm-core/test/ui/*`、`tmp/drills/`（证据，不入库）
+- 不在范围：CI 中执行 UI 测试（GitHub runner 无浏览器）；插件视觉改版
+- 接口：`node scripts/drill.mjs --out tmp/drills` → `report.json` + `report.md`；`node scripts/ui-verify.mjs --base <url>` → 截图 + `ui/report.json`，失败退出 1
+- 交付物：
+  - [ ] 演练 A 正常变更：建工作区 → 新增需求/用例 → `check --base` → `diff`/`impact` → 证据
+  - [ ] 演练 B 门禁失败修复：制造悬空关系 → `check` 失败（`REL-001`）→ 修复 → 通过；记录失败/修复轮次
+  - [ ] 演练 C 发布链：`baseline create` → `publish` → `verify` → `rollback` → `verify`；幂等重跑
+  - [ ] UI 验证（Playwright）：需求页、架构页、`/api/alm/*`；断言表格行、缺口、`check` 状态、无 console 错误；截图归档
+  - [ ] 指标表：耗时（每步 ms）、人工介入次数、AI 建议采纳率、漏检/误报；无法自动采集的列标“未采集”
+- 验收：
+  - 正例：三次演练各产出 `report.json` 与截图；UI 断言全绿；指标表含三项耗时与退出码，缺项标“未采集”
+  - 反例：故意让 UI 断言失败（删一行资产或改标题）→ `ui-verify` 退出 1 并指出缺失选择器；演练中断 → `report.json` 标记该步 `failed` 且不写“通过”
+- 证据：`tmp/drills/report.md`、`tmp/drills/ui/*.png`、`node scripts/drill.mjs` 与 `node scripts/ui-verify.mjs` 输出
 
 ### ALM-06.02 架构/运行/权限/恢复文档与验证报告
 
-- 前置：ALM-06.01 ｜ 技能：`alm-mvp-dev`
-- 内容：运行说明、权限模型、升级与兼容、备份恢复、验证报告（版本/命令/结果/缺口）
-- 验收：正例：新环境按文档从零跑通；反例：文档命令与 CLI 不一致时校验脚本失败
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P2 ｜ 前置：ALM-06.01
+- 技能：`alm-mvp-dev`、`alm-release-verify`
+- 实施范围：`docs/development/permissions.md`（新增）、`docs/development/upgrade.md`（新增）、`docs/planning/verification-report.md`（新增）、已有 `docs/planning/architecture.md`、`docs/usage.md`、`docs/development/recovery.md` 的交叉引用
+- 不在范围：对外发布站点、Gitea 适配
+- 接口：文档内命令必须与 `alm --help` 一致；验证报告逐项给“命令 / 期望 / 实际 / 退出码 / 截图或 SHA”
+- 交付物：
+  - [ ] 权限模型：身份、目录白名单、工具边界、审批与发布职责分离
+  - [ ] 升级与兼容：契约版本、规则包版本、基线/发布存储兼容、回滚窗口
+  - [ ] 验证报告：版本、环境、命令矩阵、结果、已知缺口（含 UI 验证截图与 drills 指标）
+  - [ ] 新环境从零跑通的操作序列（`pnpm install` → `demo-init` → `check` → 插件页面 → `drill` → `ui-verify`）
+- 验收：
+  - 正例：按文档在干净目录跑通，报告中的每条命令都能复现；UI 截图与报告一致
+  - 反例：文档写了不存在的命令 → `scripts/check-alm-skill.mjs` 或 `alm --help` 比对失败；报告把 `skip` 写成 `pass` → 人工评审不通过
+- 证据：`docs/planning/verification-report.md`、`node scripts/check-alm-skill.mjs`、drills 与 UI 报告
 
 ---
 

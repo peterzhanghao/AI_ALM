@@ -55,9 +55,9 @@
 | ALM-05.03 | 开发技能：alm-mvp-dev | task | @peterzhanghao | P0 | skills | done | ALM-01.01（#3，已关闭） | 确认发布 | #11 | #14 | in-sync | 2026-10-23 16:07 |
 | ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | done | ALM-05.01（#32，已关闭）、ALM-05.02（#50，已关闭）、ALM-05.03（#11，已关闭） | 确认发布 | #51 | #54 | in-sync | 2026-10-23 21:35 |
 | ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | done | ALM-04.04（#41，已关闭） | 确认发布 | #52 | #55 | in-sync | 2026-10-23 21:45 |
-| ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | deferred | ALM-00 | 暂缓 | — | — | local-newer | — |
-| ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | deferred | ALM-04.04 | 暂缓 | — | — | local-newer | — |
-| ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | deferred | ALM-06.01 | 暂缓 | — | — | local-newer | — |
+| ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | ready | ALM-00 | 确认发布 | — | — | local-newer | — |
+| ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | ready | ALM-04.04（#41，已关闭） | 确认发布 | — | — | local-newer | — |
+| ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | ready | ALM-06.01 | 确认发布 | — | — | local-newer | — |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
@@ -70,9 +70,10 @@
 > ALM-01.03 已合并：PR `#15` → merge commit `872e06e`，Issue `#5` 已关闭并置 `status::done`。
 > `REN-002`（StrictDoc 渲染证据，warn 非阻断，`strictdoc==0.30.4` 固定版本）由 ALM-02.03 承接，见 `ce27add`。
 > `暂缓` 仅因批次 5 依赖 MVP-2 完成，不是范围否决；前置关闭后改 `待确认` 并重走发布门禁。
+> 批次 5 已由用户确认发布（2026-10-23 21:52）：`ALM-06.01`/`06.02` 解除 `deferred`，`确认结论=确认发布`；`06.01` 增加 Playwright UI 级验证范围，`06.02` 的验证报告须引用 UI 截图与演练指标。
 > 批次 5 前收尾：`ALM-05.02`、`ALM-05.04` 前置已全部关闭，`确认结论` 改为 `确认发布` 并创建远端工作项；新增 `ALM-05.05`（`ALM-04.02–04.04` 卡片引用、但此前未交付的 `alm-release-verify` 产品技能），否则这些卡的“技能可加载”验收无判定依据。
 > `ALM-05.02`/`05.04`/`05.05` 已合并：PR `#53`/`#54`/`#55`，Issue `#50`/`#51`/`#52` 已关闭并置 `status::done`。产品技能现有四个：需求、架构、变更工作流、发布校验；`scripts/check-alm-skill.mjs` 在 CI 校验命令存在性、链接与权限-工具一致性。
-> 领域跟踪 Issue `#2`（ALM-01）、`#6`（ALM-02）、`#21`（ALM-03）、`#34`（ALM-04）、`#10`（ALM-05）已关闭；`#1`（ALM-00）保持打开，因为批次 5（`ALM-06.01`/`06.02`）仍 `deferred`，需要三次人工演练与验证报告。
+> 领域跟踪 Issue `#2`（ALM-01）、`#6`（ALM-02）、`#21`（ALM-03）、`#34`（ALM-04）、`#10`（ALM-05）已关闭；`#1`（ALM-00）保持打开，等待批次 5（`ALM-06.01`/`06.02`）收口。
 
 ## 维护规则
 
