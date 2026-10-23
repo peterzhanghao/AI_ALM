@@ -28,11 +28,11 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | ALM-00 | 总控：AI Native ALM MVP | tracking | @peterzhanghao | P0 | core | backlog | 无 | 确认发布 | #1 | — | in-sync | 2026-10-23 14:49 |
 | ALM-01 | 跟踪：宿主与工程基线 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #2 | — | in-sync | 2026-10-23 14:49 |
-| ALM-01.01 | 工程骨架、命令面与 CI | task | @peterzhanghao | P0 | core | review | 无 | 确认发布 | #3 | #12 | in-sync | 2026-10-23 15:00 |
-| ALM-01.02 | DSH 44.7.0 插件能力验证 | task | @peterzhanghao | P0 | core | blocked | ALM-01.01（#3） | 确认发布 | #4 | — | in-sync | 2026-10-23 14:49 |
-| ALM-01.03 | `alm index` 与 `alm check` 最小回路 | task | @peterzhanghao | P0 | core | blocked | ALM-01.01（#3） | 确认发布 | #5 | — | in-sync | 2026-10-23 14:49 |
+| ALM-01.01 | 工程骨架、命令面与 CI | task | @peterzhanghao | P0 | core | done | 无 | 确认发布 | #3 | #12 | in-sync | 2026-10-23 15:20 |
+| ALM-01.02 | DSH 44.7.0 插件能力验证 | task | @peterzhanghao | P0 | core | ready | ALM-01.01（#3，已关闭） | 确认发布 | #4 | — | in-sync | 2026-10-23 15:20 |
+| ALM-01.03 | `alm index` 与 `alm check` 最小回路 | task | @peterzhanghao | P0 | core | ready | ALM-01.01（#3，已关闭） | 确认发布 | #5 | — | in-sync | 2026-10-23 15:20 |
 | ALM-02 | 跟踪：资产契约与确定性门禁 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #6 | — | in-sync | 2026-10-23 14:49 |
-| ALM-02.01 | 资产模型与解析器 | task | @peterzhanghao | P0 | core | blocked | ALM-01.01（#3） | 确认发布 | #7 | — | in-sync | 2026-10-23 14:49 |
+| ALM-02.01 | 资产模型与解析器 | task | @peterzhanghao | P0 | core | ready | ALM-01.01（#3，已关闭） | 确认发布 | #7 | — | in-sync | 2026-10-23 15:20 |
 | ALM-02.02 | 部分退款样例资产与负例夹具 | task | @peterzhanghao | P0 | core | blocked | ALM-02.01（#7） | 确认发布 | #8 | — | in-sync | 2026-10-23 14:49 |
 | ALM-02.03 | 硬门禁规则集 R1 | task | @peterzhanghao | P0 | core | blocked | ALM-02.02（#8）、ALM-01.03（#5） | 确认发布 | #9 | — | in-sync | 2026-10-23 14:49 |
 | ALM-02.04 | 语义差异与影响闭包 | task | @peterzhanghao | P1 | core | blocked | ALM-02.03（#9） | 待确认 | — | — | local-newer | — |
@@ -50,13 +50,15 @@
 | ALM-05 | 跟踪：AI 技能与 Agent 契约 | tracking | @peterzhanghao | P0 | skills | backlog | ALM-00 | 确认发布 | #10 | — | in-sync | 2026-10-23 14:49 |
 | ALM-05.01 | 产品技能：变更工作流 | task | @peterzhanghao | P0 | skills | blocked | ALM-03.01 | 待确认 | — | — | local-newer | — |
 | ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | blocked | ALM-03.02、ALM-03.03 | 待确认 | — | — | local-newer | — |
-| ALM-05.03 | 开发技能：alm-mvp-dev | task | @peterzhanghao | P0 | skills | blocked | ALM-01.01（#3） | 确认发布 | #11 | — | in-sync | 2026-10-23 14:49 |
+| ALM-05.03 | 开发技能：alm-mvp-dev | task | @peterzhanghao | P0 | skills | ready | ALM-01.01（#3，已关闭） | 确认发布 | #11 | — | in-sync | 2026-10-23 15:20 |
 | ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | blocked | ALM-05.01–05.03 | 待确认 | — | — | local-newer | — |
 | ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | deferred | ALM-00 | 暂缓 | — | — | local-newer | — |
 | ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | deferred | ALM-04.04 | 暂缓 | — | — | local-newer | — |
 | ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | deferred | ALM-06.01 | 暂缓 | — | — | local-newer | — |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
+> ALM-01.01 已合并：PR `#12` → merge commit `2642153`，Issue `#3` 已关闭并置 `status::done`；`#4`、`#5`、`#7`、`#11` 已置 `status::ready`。
+> `REN-002`（StrictDoc 渲染证据，warn 非阻断，`strictdoc==0.30.4` 固定版本）由 ALM-02.03 承接，见 `ce27add`。
 > `暂缓` 仅因批次 5 依赖 MVP-2 完成，不是范围否决；前置关闭后改 `待确认` 并重走发布门禁。
 
 ## 维护规则
