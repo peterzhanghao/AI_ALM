@@ -1,0 +1,9 @@
+schema_version: 1
+id: REQ-SEC-001
+type: requirement
+title: 秘密泄漏反例
+status: proposed
+owner: team-demo
+links: []
+# 以下为 SEC-001 的扫描目标，不是真实凭据
+api_key: fixture-placeholder-not-a-real-secret

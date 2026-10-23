@@ -1,0 +1,23 @@
+[DOCUMENT]
+TITLE: 订单退款
+
+[SECTION]
+TITLE: 部分退款
+
+[REQUIREMENT]
+UID: REQ-PAY-001
+TITLE: 支持订单部分退款
+STATUS: proposed
+OWNER: team-payments
+
+[RELATION]
+Type: allocated_to
+Value: MOD-PAY-REFUND
+
+[RELATION]
+Type: constrained_by
+Value: ADR-PAY-003
+
+[RELATION]
+Type: verified_by
+Value: TEST-PAY-001

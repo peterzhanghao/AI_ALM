@@ -1,0 +1,11 @@
+schema_version: 1
+id: MOD-PAY-REFUND
+type: module
+title: 退款模块
+status: accepted
+owner: team-payments
+links:
+  - type: constrained_by
+    target: ADR-PAY-003
+  - type: depends_on
+    target: IF-PAY-REFUND-API

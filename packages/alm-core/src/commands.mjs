@@ -4,6 +4,15 @@ import { buildIndex } from './index/index.mjs'
 import { loadRepo as loadParserRepo } from './parse/load.mjs'
 import { runGates } from './gates/run.mjs'
 
+function groupErrors(errors) {
+  const groups = new Map()
+  for (const error of errors) {
+    if (!groups.has(error.rule)) groups.set(error.rule, [])
+    groups.get(error.rule).push(error)
+  }
+  return [...groups]
+}
+
 export function loadRepo(root) {
   const absolute = resolve(root)
   if (!existsSync(absolute) || !statSync(absolute).isDirectory()) {
@@ -32,19 +41,17 @@ export function checkReport(root) {
   const gate = loaded.errors.length > 0
     ? {
         result: 'fail',
-        checks: [
-          {
-            id: 'FMT-001',
-            level: 'block',
-            status: 'fail',
-            findings: loaded.errors.map((error) => ({
-              assetId: null,
-              file: error.file,
-              line: error.line,
-              message: `${error.rule}: ${error.message}`,
-            })),
-          },
-        ],
+        checks: groupErrors(loaded.errors).map(([rule, errors]) => ({
+          id: rule,
+          level: 'block',
+          status: 'fail',
+          findings: errors.map((error) => ({
+            assetId: null,
+            file: error.file,
+            line: error.line,
+            message: error.message,
+          })),
+        })),
       }
     : runGates({ index, root: loaded.root })
 

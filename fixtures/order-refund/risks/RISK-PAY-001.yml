@@ -1,0 +1,11 @@
+schema_version: 1
+id: RISK-PAY-001
+type: risk
+title: 并发退款导致重复扣款
+status: proposed
+owner: team-payments
+links:
+  - type: constrained_by
+    target: ADR-PAY-003
+  - type: allocated_to
+    target: MOD-PAY-REFUND

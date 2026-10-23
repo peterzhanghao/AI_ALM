@@ -1,0 +1,9 @@
+schema_version: 1
+id: REQ-DAN-001
+type: requirement
+title: 悬空关系反例
+status: proposed
+owner: team-demo
+links:
+  - type: allocated_to
+    target: MOD-NOPE-001

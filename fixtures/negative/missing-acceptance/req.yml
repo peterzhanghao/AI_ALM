@@ -1,0 +1,7 @@
+schema_version: 1
+id: REQ-COV-001
+type: requirement
+title: 缺少验收覆盖反例
+status: proposed
+owner: team-demo
+links: []
