@@ -3,6 +3,8 @@
   { "dir": "dangling-relation", "rule": "REL-001", "via": "check", "enforced": true },
   { "dir": "malformed-sdoc", "rule": "FMT-001", "via": "check", "enforced": true },
   { "dir": "invalid-status", "rule": "FMT-002", "via": "check", "enforced": true },
-  { "dir": "missing-acceptance", "rule": "COV-001", "via": "check", "enforced": false, "card": "ALM-02.03" },
-  { "dir": "secret-leak", "rule": "SEC-001", "via": "check", "enforced": false, "card": "ALM-02.03" }
+  { "dir": "relation-direction", "rule": "REL-002", "via": "check", "enforced": true },
+  { "dir": "missing-acceptance", "rule": "COV-001", "via": "check", "enforced": true },
+  { "dir": "secret-leak", "rule": "SEC-001", "via": "check", "enforced": true },
+  { "dir": "broken-render", "rule": "REN-001", "via": "check", "enforced": true }
 ]

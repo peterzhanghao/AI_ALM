@@ -62,7 +62,10 @@ test('check passes on the smoke fixture', async () => {
   const payload = JSON.parse(out)
   assert.equal(payload.schema, 'alm.check/v1')
   assert.equal(payload.result, 'pass')
-  assert.deepEqual(payload.checks.map((check) => check.id), ['ID-001', 'REL-001'])
+  const ids = payload.checks.map((check) => check.id)
+  for (const rule of ['ID-001', 'ID-002', 'REL-001', 'REL-002', 'COV-001', 'REN-001']) {
+    assert.ok(ids.includes(rule), `missing ${rule} check`)
+  }
 })
 
 test('duplicate ids fail ID-001 with both files', async () => {

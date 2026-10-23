@@ -7,3 +7,5 @@ owner: team-demo
 links:
   - type: allocated_to
     target: MOD-NOPE-001
+  - type: verified_by
+    target: TEST-DAN-001

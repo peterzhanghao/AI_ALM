@@ -8,8 +8,10 @@
 | `dangling-relation/` | `REL-001` | 已生效 |
 | `malformed-sdoc/` | `FMT-001` | 已生效 |
 | `invalid-status/` | `FMT-002` | 已生效 |
-| `missing-acceptance/` | `COV-001` | 待 ALM-02.03 |
-| `secret-leak/` | `SEC-001` | 待 ALM-02.03 |
+| `relation-direction/` | `REL-002` | 已生效 |
+| `missing-acceptance/` | `COV-001` | 已生效 |
+| `secret-leak/` | `SEC-001` | 已生效 |
+| `broken-render/` | `REN-001` | 已生效 |
 
 运行：
 
@@ -17,4 +19,4 @@
 node packages/alm-core/bin/alm.mjs check --root fixtures/negative/duplicate-id
 ```
 
-`enforced: false` 的条目由 `ALM-02.03` 补规则后改为 `true`，测试会随之从“目录存在”升级为“必须失败”。
+`cases.json` 的 `enforced` 必须与规则实现同步；测试会对每个条目断言“失败且报告预期规则”。

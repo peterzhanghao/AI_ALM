@@ -22,6 +22,7 @@ Commands:
 
 Options:
   --root <dir>      Repository root for index/check (default: cwd)
+  --base <ref>      Base git ref for check (enables STATE-001)
   --json            Machine-readable output where supported
   --help, -h        Show this help
   --version, -v     Print the CLI version
@@ -46,6 +47,13 @@ function parseReportOptions(args) {
       const value = args[i + 1]
       if (!value || value.startsWith('--')) return { error: '--root requires a directory' }
       options.root = value
+      i += 1
+      continue
+    }
+    if (arg === '--base') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('--')) return { error: '--base requires a git ref' }
+      options.base = value
       i += 1
       continue
     }
@@ -84,7 +92,9 @@ export async function run(argv, io = {}) {
         return 2
       }
 
-      const report = command === 'index' ? indexReport(options.root) : checkReport(options.root)
+      const report = command === 'index'
+        ? indexReport(options.root)
+        : checkReport(options.root, { base: options.base })
       if (report.ok === false) {
         err.write(`alm: ${report.error}\n`)
         return 2
