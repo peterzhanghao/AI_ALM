@@ -43,8 +43,8 @@
 | ALM-03.03 | 架构插件（页面 + 工具） | task | @peterzhanghao | P1 | plugin | done | ALM-03.01（#22，已关闭）、ALM-02.04（#24，已关闭） | 确认发布 | #28 | #29 | in-sync | 2026-10-23 19:50 |
 | ALM-03.04 | 跨插件联合变更与写权限边界 | task | @peterzhanghao | P1 | plugin | done | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #30 | #31 | in-sync | 2026-10-23 20:20 |
 | ALM-04 | 跟踪：评审、集成与发布 | tracking | @peterzhanghao | P1 | release | backlog | ALM-00 | 确认发布 | #34 | — | in-sync | 2026-10-23 21:00 |
-| ALM-04.01 | SCM 适配器与审批绑定 SHA | task | @peterzhanghao | P1 | release | ready | ALM-02.03（#9，已关闭）、ALM-03.01（#22，已关闭） | 确认发布 | #35 | — | in-sync | 2026-10-23 21:00 |
-| ALM-04.02 | CI 必需检查与幂等证据 | task | @peterzhanghao | P1 | release | blocked | ALM-04.01、ALM-02.05 | 待确认 | — | — | local-newer | — |
+| ALM-04.01 | SCM 适配器与审批绑定 SHA | task | @peterzhanghao | P1 | release | done | ALM-02.03（#9，已关闭）、ALM-03.01（#22，已关闭） | 确认发布 | #35 | #36 | in-sync | 2026-10-23 21:30 |
+| ALM-04.02 | CI 必需检查与幂等证据 | task | @peterzhanghao | P1 | release | ready | ALM-04.01（#35，已关闭）、ALM-02.05（#19，已关闭） | 确认发布 | #37 | — | in-sync | 2026-10-23 21:30 |
 | ALM-04.03 | 不可变基线与重建校验 | task | @peterzhanghao | P1 | release | blocked | ALM-04.02 | 待确认 | — | — | local-newer | — |
 | ALM-04.04 | 故障、重试与恢复演练 | task | @peterzhanghao | P1 | release | blocked | ALM-04.03 | 待确认 | — | — | local-newer | — |
 | ALM-05 | 跟踪：AI 技能与 Agent 契约 | tracking | @peterzhanghao | P0 | skills | backlog | ALM-00 | 确认发布 | #10 | — | in-sync | 2026-10-23 14:49 |
