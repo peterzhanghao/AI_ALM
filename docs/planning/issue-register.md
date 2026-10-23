@@ -28,7 +28,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | ALM-00 | 总控：AI Native ALM MVP | tracking | @peterzhanghao | P0 | core | backlog | 无 | 确认发布 | #1 | — | in-sync | 2026-10-23 14:49 |
 | ALM-01 | 跟踪：宿主与工程基线 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #2 | — | in-sync | 2026-10-23 14:49 |
-| ALM-01.01 | 工程骨架、命令面与 CI | task | @peterzhanghao | P0 | core | ready | 无 | 确认发布 | #3 | — | in-sync | 2026-10-23 14:49 |
+| ALM-01.01 | 工程骨架、命令面与 CI | task | @peterzhanghao | P0 | core | review | 无 | 确认发布 | #3 | #12 | in-sync | 2026-10-23 15:00 |
 | ALM-01.02 | DSH 44.7.0 插件能力验证 | task | @peterzhanghao | P0 | core | blocked | ALM-01.01（#3） | 确认发布 | #4 | — | in-sync | 2026-10-23 14:49 |
 | ALM-01.03 | `alm index` 与 `alm check` 最小回路 | task | @peterzhanghao | P0 | core | blocked | ALM-01.01（#3） | 确认发布 | #5 | — | in-sync | 2026-10-23 14:49 |
 | ALM-02 | 跟踪：资产契约与确定性门禁 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #6 | — | in-sync | 2026-10-23 14:49 |
