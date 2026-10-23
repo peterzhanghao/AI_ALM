@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "ALM Probe",
-    "description": "Host service and tool capability probe for the AI Native ALM MVP."
+    "title": "ALM Core",
+    "description": "Read-only ALM service and Agent tools: index, check, show, query."
   }
 }

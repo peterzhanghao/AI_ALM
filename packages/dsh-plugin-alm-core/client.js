@@ -21,20 +21,20 @@ window.__ModuleLoader__.load({
 
     const rows = [
       ['Host service', 'almCore'],
-      ['Tools', 'alm_probe · alm_probe_consumer'],
-      ['Consumer row', 'alm-core-consumer'],
-      ['Verification', 'ALM-01.02'],
+      ['Tools', 'alm_index · alm_check · alm_show · alm_query'],
+      ['Write tools', 'none (workspace lands with ALM-03.04)'],
+      ['Verification', 'ALM-03.01'],
     ]
 
     function ProbePage() {
       return h(
         'div',
         { style: { padding: '24px', maxWidth: '720px', color: 'var(--dsw-alias-label-primary)' } },
-        h('h2', { style: { margin: '0 0 6px', fontSize: '18px', fontWeight: 600 } }, 'ALM Probe'),
+        h('h2', { style: { margin: '0 0 6px', fontSize: '18px', fontWeight: 600 } }, 'ALM Core'),
         h(
           'p',
           { style: { margin: '0 0 16px', fontSize: '13px', color: 'var(--dsw-alias-label-secondary)' } },
-          'Host capability spike for the AI Native ALM MVP. Ask the agent to call alm_probe for live values.',
+          'Read-only ALM service for the AI Native ALM MVP. Ask the agent to call alm_index or alm_check.',
         ),
         h(
           'div',
@@ -56,12 +56,12 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         ctx.slots.inject('settings.section', () =>
           ctx.slots.register(
-            { name: 'settings.section', id: 'alm-probe', order: 90, label: 'ALM Probe' },
+            { name: 'settings.section', id: 'alm-core', order: 90, label: 'ALM Core' },
             ProbePage,
           ),
         )
         ctx.slots.inject('main', () =>
-          ctx.slots.register({ name: 'main', key: 'alm-probe' }, ProbePage),
+          ctx.slots.register({ name: 'main', key: 'alm-core' }, ProbePage),
         )
       },
     }

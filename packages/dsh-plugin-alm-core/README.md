@@ -1,36 +1,27 @@
-# @ai-alm/dsh-plugin-alm-core（ALM-01.02 spike）
+# @ai-alm/dsh-plugin-alm-core
 
-用于验证 DeepSeek Harness 44.7.0 的插件能力，不是最终业务插件。验证项：
+把 `alm-core` 的只读能力暴露为 DSH Host 服务与 Agent 工具（ALM-03.01）。
 
-| 能力 | 证据 |
+| 项 | 内容 |
 |---|---|
-| Bundle 安装/禁用/卸载 | `plugin_manager` 的 `application` 与插件行状态 |
-| Host Service 注册 | 服务 `almCore`，`alm_probe` 返回真实运行数据 |
-| 插件间 Service 依赖 | 第二行 `alm-core-consumer` 注入 `almCore`，提供 `alm_probe_consumer` |
-| Tool 注册 | `Tool.listTools` 出现两个工具及其 schema |
-| Client slot 注册 | `main`（key `alm-probe`）与 `settings.section`（id `alm-probe`） |
-| 错误恢复 | 非法 config 时插件失败但不影响宿主；禁用后工具与页面消失 |
+| Host 服务 | `almCore`（index / check / show / query） |
+| 工具 | `alm_index`、`alm_check`、`alm_show`、`alm_query` |
+| 默认根目录 | 当前 Agent 的工作目录；可用 `root` 参数覆盖 |
+| 权限 | 只读；**没有**审批、发布、改规则、改保护分支的工具 |
 
-## 安装
+## 约束
 
-```powershell
-# 由 DSH 会话中的 plugin_manager 执行（需 Full access）
-# install_bundle target = 本目录绝对路径
-```
+工作区链接安装的 bundle 不能 `import` `@deepseek-ai/*`，因此：
 
-本包依赖 DSH 自带的 `@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools`，不声明额外依赖。
+- 服务用 `ctx.reflect.provide('almCore', this)` 注册；
+- 工具用原始 `ToolDefinition` 调 `ctx.tools.register`；
+- 领域逻辑全部在 `../alm-core`，本包只做参数与上下文适配。
 
 ## 验证
 
 ```powershell
-# 工具 schema（Host 检查）
-# cordis_inspect_query → host / Tool / listTools
-# slot 占用（Client 检查）
-# cordis_inspect_query → client / Slots / listSubTree root=main
+node --test "packages/dsh-plugin-alm-core/test/**/*.test.mjs"
+# 安装后在会话中调用 alm_index / alm_check
 ```
 
-## 已知限制
-
-- Client 页面文本未接入 locale 服务，仅 meta 标题/描述本地化。
-- 未注册 `sidebar.panellist` 入口，`main` 页面需由后续业务插件选择 key 后展示。
-- 这是 spike：不承载 ALM 领域逻辑，业务实现见 ALM-03.01。
+安装：`plugin_manager install_bundle`，target 为本目录绝对路径；移除：`remove_bundle @ai-alm/dsh-plugin-alm-core`。

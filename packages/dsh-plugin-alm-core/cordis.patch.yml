@@ -1,5 +1,3 @@
 - insert:
     - id: alm-core
       name: '@ai-alm/dsh-plugin-alm-core'
-    - id: alm-core-consumer
-      name: '@ai-alm/dsh-plugin-alm-core/consumer'

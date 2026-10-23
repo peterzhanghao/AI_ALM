@@ -1,19 +1,19 @@
 {
   "name": "@ai-alm/dsh-plugin-alm-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "ALM core Host service and probe tools (ALM-01.02 host capability spike)",
+  "description": "ALM core Host service and read-only Agent tools",
   "exports": {
     ".": "./index.js",
-    "./consumer": "./consumer.js",
+    "./service": "./service.mjs",
     "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
-    "consumer.js",
+    "service.mjs",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
