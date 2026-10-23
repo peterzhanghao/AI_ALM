@@ -96,6 +96,53 @@ export default class AlmCoreService {
           ({ result: jsonSafe(service.query(await rootFor(args, exec), { type: args.type, status: args.status, owner: args.owner })) }),
       ),
     )
+
+    ctx.tools.register(
+      defineTool(
+        'alm_workspace_create',
+        'Open a change workspace: create a branch from a baseline and commit a change record. The worktree must be clean.',
+        {
+          type: 'object',
+          properties: {
+            baseline: { type: 'string' },
+            change: { type: 'string' },
+            root: { type: 'string' },
+          },
+          required: ['baseline', 'change'],
+          additionalProperties: false,
+        },
+        async (args, exec) =>
+          ({ result: jsonSafe(service.workspaceCreate(await rootFor(args, exec), { baseline: args.baseline, changeId: args.change })) }),
+      ),
+    )
+
+    ctx.tools.register(
+      defineTool(
+        'alm_workspace_status',
+        'Return the current branch, whether it belongs to an open change, and whether the worktree is dirty.',
+        { type: 'object', properties: { root: { type: 'string' } }, additionalProperties: false },
+        async (args, exec) => ({ result: jsonSafe(service.workspaceStatus(await rootFor(args, exec))) }),
+      ),
+    )
+
+    ctx.tools.register(
+      defineTool(
+        'alm_workspace_guard',
+        'Check whether paths may be written in the active change workspace. Allowed dirs: requirements, architecture, adr, tests, risks.',
+        {
+          type: 'object',
+          properties: {
+            paths: { type: 'array', items: { type: 'string' } },
+            change: { type: 'string' },
+            root: { type: 'string' },
+          },
+          required: ['paths'],
+          additionalProperties: false,
+        },
+        async (args, exec) =>
+          ({ result: jsonSafe(service.workspaceGuard(await rootFor(args, exec), { changeId: args.change, paths: args.paths })) }),
+      ),
+    )
   }
 
   index(root) {

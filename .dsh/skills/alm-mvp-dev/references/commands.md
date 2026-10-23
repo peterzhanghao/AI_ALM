@@ -15,6 +15,8 @@
 | `alm diff` | `--base <ref>` `[--head <ref>]` `--root <dir>` `--json` | 0 成功 / 2 用法错误 | 结构化差异 `alm.diff/v1` |
 | `alm impact` | `--asset <ID>` `--root <dir>` `--json` | 0 成功 / 1 不存在 / 2 用法错误 | 反向影响闭包 `alm.impact/v1` |
 | `alm trace <ID>` | `--root <dir>` `--json` | 0 成功 / 1 不存在 / 2 用法错误 | 前向追踪链 `alm.trace/v1` |
+| `alm workspace create` | `--baseline <ref>` `--change <CHG-ID>` `--root <dir>` `--json` | 0 成功 / 1 冲突或非法 / 2 用法错误 | 建变更分支与记录 `alm.workspace.create/v1` |
+| `alm workspace status` | `--root <dir>` `--json` | 0 成功 / 1 非 git / 2 用法错误 | 当前分支、活动 change、dirty |
 | `alm baseline create` | `--root <dir>` `--commit <sha>` `--tag <name>` `--approval <file>` `[--id <id>]` `[--out <dir>]` `--json` | 0 成功/幂等 / 1 同 id 内容冲突 / 2 用法错误 | 生成不可变基线清单 |
 | `alm baseline verify` | `--root <dir>` `--manifest <file>` `--json` | 0 一致 / 1 有差异 / 2 用法错误 | 从 commit 重算哈希并比对 |
 | `alm contract verify` | `--json` | 0 全部有效 / 1 缺失或 `$id` 不符 | 校验五类契约文件 |
@@ -26,7 +28,6 @@
 | `alm evidence show` | ALM-03.01 | 读取门禁证据 |
 | `alm approval record` | ALM-04.01 | 记录绑定 SHA 的人工审批 |
 | `alm approval verify` | ALM-04.01 | 校验审批是否满足当前 head |
-| `alm workspace create/status` | ALM-03.04 | 变更工作区与写权限边界 |
 
 ## 退出码
 
