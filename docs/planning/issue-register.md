@@ -51,7 +51,7 @@
 | ALM-04.04 | 故障、重试与恢复演练 | task | @peterzhanghao | P1 | release | done | ALM-04.03（#39，已关闭） | 确认发布 | #41 | #42 | in-sync | 2026-10-23 22:35 |
 | ALM-05 | 跟踪：AI 技能与 Agent 契约 | tracking | @peterzhanghao | P0 | skills | backlog | ALM-00 | 确认发布 | #10 | — | in-sync | 2026-10-23 14:49 |
 | ALM-05.01 | 产品技能：变更工作流 | task | @peterzhanghao | P0 | skills | done | ALM-03.04（#30，已关闭） | 确认发布 | #32 | #33 | in-sync | 2026-10-23 20:45 |
-| ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | ready | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | — | — | local-newer | — |
+| ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | review | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #50 | — | in-sync | 2026-10-23 21:35 |
 | ALM-05.03 | 开发技能：alm-mvp-dev | task | @peterzhanghao | P0 | skills | done | ALM-01.01（#3，已关闭） | 确认发布 | #11 | #14 | in-sync | 2026-10-23 16:07 |
 | ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | ready | ALM-05.01（#32，已关闭）、ALM-05.02、ALM-05.03（#11，已关闭） | 确认发布 | — | — | local-newer | — |
 | ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | ready | ALM-04.04（#41，已关闭） | 确认发布 | — | — | local-newer | — |
