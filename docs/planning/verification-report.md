@@ -9,7 +9,7 @@
 
 | 项 | 结果 |
 |---|---|
-| 单元 / 集成 / 插件测试 | **119 通过，0 失败** |
+| 单元 / 集成 / 插件测试 | **127 通过，0 失败** |
 | 契约自检 | `contracts: ok` |
 | 技能一致性 | 5 个技能（1 开发 + 4 产品）通过；CI 执行 |
 | 三次变更演练 | **3/3 通过，21 个步骤**，无失败步骤 |
@@ -35,7 +35,7 @@ MVP 的“改资产 → 门禁 → 差异/影响 → 基线 → 发布/回滚”
 | `alm --version` | `0.1.0` | `0.1.0` | 0 |
 | `alm contract verify` | 五类契约有效 | `contracts: ok` | 0 |
 | `alm check --root fixtures/order-refund` | `pass` | `check: pass`（`STATE-001`/`REN-002`/`APPROVAL-*` = `skip`） | 0 |
-| `node --test "packages/*/test/**/*.test.mjs"` | 全绿 | 119 pass / 0 fail | 0 |
+| `node --test "packages/*/test/**/*.test.mjs"` | 全绿 | 127 pass / 0 fail | 0 |
 | `node scripts/check-alm-skill.mjs` | 全部技能与 CLI/工具一致 | 5 个技能 ok | 0 |
 | `scripts/validate-skills.ps1` | `.dsh/skills` 合法 | 3 个技能通过 | 0 |
 | `node scripts/demo-init.ps1 -Force` | 生成样例仓库 | `tmp/demo-order-refund` + 基线 SHA | 0 |
@@ -90,6 +90,7 @@ gh run download <run-id> -n ui-report -D tmp/ui-ci             # report.json + �
 - workflow 安装 Chromium 与 `fonts-noto-cjk`（中文截图可读），artifact `ui-report` 保留 7 天。
 - job summary 由 `scripts/ui-summary.mjs` 生成，列出检查总数、失败项与截图名。
 - 失败时 `if: always()` 仍上传 artifact，日志保留 `FAIL` 行。
+- 真实 run：[正例 40029431006](https://github.com/peterzhanghao/AI_ALM/actions/runs/40029431006)（28/28，artifact 119939 B，CI 截图中文正常）；[反例 40029678878](https://github.com/peterzhanghao/AI_ALM/actions/runs/40029678878)（`FAIL required text "REQ-PAY-999"`，artifact 仍上传 119967 B）。
 
 ## 6. 已知缺口
 
@@ -129,4 +130,5 @@ node scripts/ui-verify.mjs --base http://127.0.0.1:60860 --out tmp/ui-host
 | 日期 | 复核人 | 结论 | 备注 |
 |---|---|---|---|
 | 2026-10-23 | Agent（自动采集） | 通过 | 119 测试、21 演练步骤、28×2 UI 检查 |
+| 2026-10-24 | Agent（自动采集） | 通过 | 127 测试（+8 Gitea 适配器）；`alm-ui.yml` 正例 run 28/28、反例 run 按预期失败；Gitea 客户端未接 CLI |
 | 待填 | 人工评审 | 待评审 | 需确认“采纳率/漏检/误报”口径后补数据 |

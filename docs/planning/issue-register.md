@@ -50,7 +50,7 @@
 | ALM-04.03 | 不可变基线与重建校验 | task | @peterzhanghao | P1 | release | done | ALM-04.02（#37，已关闭） | 确认发布 | #39 | #40 | in-sync | 2026-10-23 22:10 |
 | ALM-04.04 | 故障、重试与恢复演练 | task | @peterzhanghao | P1 | release | done | ALM-04.03（#39，已关闭） | 确认发布 | #41 | #42 | in-sync | 2026-10-23 22:35 |
 | ALM-04.05 | UI 验证的按需 CI 任务 | task | @peterzhanghao | P1 | release | done | ALM-04.04（#41，已关闭）、ALM-06.01（#58，已关闭） | 确认发布 | #64 | #66 | in-sync | 2026-10-24 06:05 |
-| ALM-04.06 | Gitea SCM 适配器 | task | @peterzhanghao | P1 | release | review | ALM-04.01（#35，已关闭） | 确认发布 | #65 | — | in-sync | 2026-10-24 06:05 |
+| ALM-04.06 | Gitea SCM 适配器 | task | @peterzhanghao | P1 | release | done | ALM-04.01（#35，已关闭） | 确认发布 | #65 | #67 | in-sync | 2026-10-24 06:10 |
 | ALM-05 | 跟踪：AI 技能与 Agent 契约 | tracking | @peterzhanghao | P0 | skills | done | ALM-00 | 确认发布 | #10 | — | in-sync | 2026-10-23 21:45 |
 | ALM-05.01 | 产品技能：变更工作流 | task | @peterzhanghao | P0 | skills | done | ALM-03.04（#30，已关闭） | 确认发布 | #32 | #33 | in-sync | 2026-10-23 20:45 |
 | ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | done | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #50 | #53 | in-sync | 2026-10-23 21:48 |
@@ -78,6 +78,7 @@
 > 领域跟踪 Issue `#2`（ALM-01）、`#6`（ALM-02）、`#21`（ALM-03）、`#34`（ALM-04）、`#10`（ALM-05）已关闭；`#1`（ALM-00）保持打开，等待批次 5（`ALM-06.01`/`06.02`）收口。
 > 批次 5 已收口：`ALM-06.01`（PR `#61`）、`ALM-06.02`（PR `#62`）、`#57`（ALM-06）与 `#1`（ALM-00）全部关闭并置 `status::done`。最终证据见 [验证报告](verification-report.md)：119 测试、3 演练 / 21 步、UI 28/28（本地 + 宿主）。`#60`（ALM-03.07 分隔符乱码）经复查为终端解码误报，已关闭且未改代码。
 > 2026-10-24 05:44 用户指示继续收尾：新增 `ALM-04.05`（Playwright UI 验证的按需 GitHub Actions）与 `ALM-04.06`（Gitea SCM 适配器），`确认结论=确认发布`；两者都在批次 4 的 SCM/CI 主题内。
+> 两张卡已收口：`ALM-04.05`（PR `#66`）按需 UI workflow 真实触发一次绿 / 一次红并留 artifact；`ALM-04.06`（PR `#67`）Gitea 客户端 + 8 个 mock 测试，全量测试 127。为让 `workflow_dispatch` 生效，`main` 从 `b94381f` 快进到 `95578b7`（`main` 是 `develop` 严格祖先，fast-forward，无强推）；后续 `main` 可继续与 `develop` 快进同步。
 
 ## 维护规则
 
