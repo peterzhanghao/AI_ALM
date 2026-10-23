@@ -38,6 +38,16 @@ if (-not (Get-ChildItem -LiteralPath $targetPath -Force)) {
     exit 1
 }
 
+# Product skills ship with the sample so an Agent working in this repo can load them.
+$skillsSource = Join-Path $repoRoot 'packages/alm-skills'
+if (Test-Path -LiteralPath $skillsSource) {
+    $skillsTarget = Join-Path $targetPath '.dsh/skills'
+    New-Item -ItemType Directory -Force -Path $skillsTarget | Out-Null
+    Get-ChildItem -LiteralPath $skillsSource -Directory | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $skillsTarget -Recurse -Force
+    }
+}
+
 Push-Location $targetPath
 try {
     git init -q

@@ -4,7 +4,7 @@ import { verifyContracts } from './contracts/verify.mjs'
 import { checkReport, diffReport, impactReport, indexReport, queryReport, showReport, traceReport } from './commands.mjs'
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
-import { WorkspaceError, createWorkspace, statusWorkspace } from './workspace/workspace.mjs'
+import { WorkspaceError, createWorkspace, guardWrite, statusWorkspace } from './workspace/workspace.mjs'
 
 const PACK = JSON.parse(readFileSync(new URL('./gates/pack.json', import.meta.url), 'utf8'))
 
@@ -28,6 +28,7 @@ Commands:
   trace <ID>        Print the forward relation chain from one asset
   workspace create  Open a change branch from a baseline
   workspace status  Show the active change and worktree state
+  workspace guard   Check paths against the active change workspace
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
@@ -316,15 +317,25 @@ export async function run(argv, io = {}) {
       return 0
     }
 
-    if (command === 'workspace' && (rest[0] === 'create' || rest[0] === 'status')) {
+    if (command === 'workspace' && (rest[0] === 'create' || rest[0] === 'status' || rest[0] === 'guard')) {
       const sub = rest[0]
       const args = rest.slice(1)
-      const options = { root: process.cwd(), json: false }
+      const options = { root: process.cwd(), json: false, paths: [] }
 
       for (let i = 0; i < args.length; i += 1) {
         const arg = args[i]
         if (arg === '--json') {
           options.json = true
+          continue
+        }
+        if (arg === '--path') {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write('alm: --path requires a path\n')
+            return 2
+          }
+          options.paths.push(value)
+          i += 1
           continue
         }
         if (['--root', '--baseline', '--change'].includes(arg)) {
@@ -361,6 +372,23 @@ export async function run(argv, io = {}) {
           }
           throw error
         }
+      }
+
+      if (sub === 'guard') {
+        if (!options.paths.length) {
+          err.write('alm: workspace guard requires at least one --path\n')
+          return 2
+        }
+        const guarded = guardWrite({ root: options.root, changeId: options.change, paths: options.paths })
+        if (options.json) {
+          out.write(`${JSON.stringify(guarded, null, 2)}\n`)
+        } else if (guarded.ok) {
+          out.write(`allowed ${options.paths.length} paths in ${guarded.changeId}\n`)
+        } else {
+          out.write(`${guarded.error ?? 'denied'}\n`)
+          for (const violation of guarded.violations) out.write(`denied ${violation}\n`)
+        }
+        return guarded.ok ? 0 : 1
       }
 
       const status = statusWorkspace({ root: options.root })

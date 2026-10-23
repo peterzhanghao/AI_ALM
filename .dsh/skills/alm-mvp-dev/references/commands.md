@@ -17,6 +17,7 @@
 | `alm trace <ID>` | `--root <dir>` `--json` | 0 成功 / 1 不存在 / 2 用法错误 | 前向追踪链 `alm.trace/v1` |
 | `alm workspace create` | `--baseline <ref>` `--change <CHG-ID>` `--root <dir>` `--json` | 0 成功 / 1 冲突或非法 / 2 用法错误 | 建变更分支与记录 `alm.workspace.create/v1` |
 | `alm workspace status` | `--root <dir>` `--json` | 0 成功 / 1 非 git / 2 用法错误 | 当前分支、活动 change、dirty |
+| `alm workspace guard` | `--change <CHG-ID>` `--path <p>`（可重复）`--json` | 0 允许 / 1 拒绝 / 2 用法错误 | 写入白名单校验 |
 | `alm baseline create` | `--root <dir>` `--commit <sha>` `--tag <name>` `--approval <file>` `[--id <id>]` `[--out <dir>]` `--json` | 0 成功/幂等 / 1 同 id 内容冲突 / 2 用法错误 | 生成不可变基线清单 |
 | `alm baseline verify` | `--root <dir>` `--manifest <file>` `--json` | 0 一致 / 1 有差异 / 2 用法错误 | 从 commit 重算哈希并比对 |
 | `alm contract verify` | `--json` | 0 全部有效 / 1 缺失或 `$id` 不符 | 校验五类契约文件 |
