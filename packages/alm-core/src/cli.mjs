@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { verifyContracts } from './contracts/verify.mjs'
+import { checkReport, indexReport } from './commands.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
@@ -13,11 +14,14 @@ Usage:
   alm <command> [options]
 
 Commands:
+  index             Print the asset index for a repository
+  check             Run the ID-001 and REL-001 gates
   contract verify   Validate the five ALM contract schemas
   help              Show this help
   version           Print the CLI version
 
 Options:
+  --root <dir>      Repository root for index/check (default: cwd)
   --json            Machine-readable output where supported
   --help, -h        Show this help
   --version, -v     Print the CLI version
@@ -28,6 +32,26 @@ Exit codes:
 
 function writer(stream, fallback) {
   return stream ?? fallback
+}
+
+function parseReportOptions(args) {
+  const options = { json: false, root: process.cwd() }
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]
+    if (arg === '--json') {
+      options.json = true
+      continue
+    }
+    if (arg === '--root') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('--')) return { error: '--root requires a directory' }
+      options.root = value
+      i += 1
+      continue
+    }
+    return { error: `unknown option: ${arg}` }
+  }
+  return options
 }
 
 /**
@@ -51,6 +75,43 @@ export async function run(argv, io = {}) {
     if (command === '--version' || command === '-v' || command === 'version') {
       out.write(`${VERSION}\n`)
       return 0
+    }
+
+    if (command === 'index' || command === 'check') {
+      const options = parseReportOptions(rest)
+      if (options.error) {
+        err.write(`alm: ${options.error}\n\n${HELP}`)
+        return 2
+      }
+
+      const report = command === 'index' ? indexReport(options.root) : checkReport(options.root)
+      if (report.ok === false) {
+        err.write(`alm: ${report.error}\n`)
+        return 2
+      }
+
+      if (options.json) {
+        out.write(`${JSON.stringify(report, null, 2)}\n`)
+      } else if (command === 'index') {
+        out.write(`${report.assets.length} assets in ${report.root}\n`)
+        for (const asset of report.assets) {
+          out.write(`${asset.id}  ${asset.type}  ${asset.source.path}\n`)
+        }
+        for (const error of report.errors) {
+          out.write(`error ${error.file}:${error.line} ${error.rule} ${error.message}\n`)
+        }
+      } else {
+        for (const check of report.checks) {
+          out.write(`${check.status.padEnd(4)} ${check.id} (${check.level})\n`)
+          for (const finding of check.findings) {
+            out.write(`     ${finding.file}:${finding.line} ${finding.assetId ?? '-'} ${finding.message}\n`)
+          }
+        }
+        out.write(`check: ${report.result}\n`)
+      }
+
+      if (command === 'index') return report.errors.length > 0 ? 1 : 0
+      return report.result === 'pass' ? 0 : 1
     }
 
     if (command === 'contract' && rest[0] === 'verify') {
