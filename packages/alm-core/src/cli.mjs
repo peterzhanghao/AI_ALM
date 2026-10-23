@@ -4,6 +4,7 @@ import { verifyContracts } from './contracts/verify.mjs'
 import { checkReport, diffReport, impactReport, indexReport, queryReport, showReport, traceReport } from './commands.mjs'
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
+import { WorkspaceError, createWorkspace, statusWorkspace } from './workspace/workspace.mjs'
 
 const PACK = JSON.parse(readFileSync(new URL('./gates/pack.json', import.meta.url), 'utf8'))
 
@@ -25,6 +26,8 @@ Commands:
   diff              Diff a base ref against the worktree or another ref
   impact --asset    List assets affected by a change
   trace <ID>        Print the forward relation chain from one asset
+  workspace create  Open a change branch from a baseline
+  workspace status  Show the active change and worktree state
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
@@ -309,6 +312,64 @@ export async function run(argv, io = {}) {
       }
       for (const cycle of report.cycles) {
         out.write(`cycle: ${cycle.join(' -> ')}\n`)
+      }
+      return 0
+    }
+
+    if (command === 'workspace' && (rest[0] === 'create' || rest[0] === 'status')) {
+      const sub = rest[0]
+      const args = rest.slice(1)
+      const options = { root: process.cwd(), json: false }
+
+      for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (['--root', '--baseline', '--change'].includes(arg)) {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        err.write(`alm: unknown option: ${arg}\n`)
+        return 2
+      }
+
+      if (sub === 'create') {
+        if (!options.baseline || !options.change) {
+          err.write('alm: workspace create requires --baseline and --change\n')
+          return 2
+        }
+        try {
+          const record = createWorkspace({ root: options.root, baseline: options.baseline, changeId: options.change })
+          if (options.json) {
+            out.write(`${JSON.stringify({ schema: 'alm.workspace.create/v1', ...record }, null, 2)}\n`)
+          } else {
+            out.write(`change ${record.changeId} on ${record.branch} from ${record.baselineSha}\n`)
+          }
+          return 0
+        } catch (error) {
+          if (error instanceof WorkspaceError) {
+            err.write(`alm: ${error.message}\n`)
+            return 1
+          }
+          throw error
+        }
+      }
+
+      const status = statusWorkspace({ root: options.root })
+      if (options.json) {
+        out.write(`${JSON.stringify(status, null, 2)}\n`)
+      } else {
+        out.write(`branch ${status.branch}\n`)
+        out.write(`active ${status.active?.changeId ?? 'none'}\n`)
+        out.write(`dirty ${status.dirty}\n`)
       }
       return 0
     }
