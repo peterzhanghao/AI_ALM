@@ -2,6 +2,22 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [Unreleased]
+
+### 新增
+
+- 新增 AI Native ALM MVP 产品/技术蓝图及 DeepSeek Harness 创造模式实施 Brief，覆盖双插件、共享研发能力、实施阶段与验证门槛。
+- 新增需求评审 `docs/analysis/alm-mvp-requirements-review.md`：范围收敛为 MVP-0/1/2，列出 5 类 P0 问题、4 个待补契约与 4 个决策点。
+- 新增 `docs/planning/architecture.md`：目录、资产模型、命令面、门禁规则、证据/基线契约与插件集成点。
+- 新增 `docs/planning/skill-plan.md`：产品能力 → 契约 → 技能 → 任务的 7 步转化方法，产品技能与开发技能分离。
+- 新增 `docs/adr/0003-alm-mvp-engineering.md`：monorepo、Node ESM 无构建、SDoc 子集解析、SCM 本地先行、技能一等公民。
+- 新增 ALM-00～06 领域跟踪与 22 张执行卡（`docs/planning/issue-register.md`、`task-breakdown.md`），按 5 个批次推进。
+
+### 待确认
+
+- Q1 产品代码落点、Q2 SCM/CI 路线、Q3 StrictDoc 定位、Q4 技能定位，见需求评审第 6 节。
+- 台账全部为 `待确认` / `暂缓`，尚未在 GitHub 创建远端工作项。
+
 ## [3.0.0] - 2026-10-23
 
 ### 变更

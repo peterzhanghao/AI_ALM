@@ -12,6 +12,7 @@
 | 文档 | 作用 |
 |---|---|
 | `docs/development/github-workflow.md` | 本文件：约定与边界 |
+| `docs/planning/architecture.md` | ALM MVP 模块边界、契约与命令面；执行卡的技术依据 |
 | `docs/planning/issue-register.md` | 规划键、GitHub 编号、状态与回读时间的唯一台账 |
 | `docs/planning/task-breakdown.md` | 每张卡的交付范围与验收 |
 | `docs/adr/` | 影响接口、数据结构或流程的决策 |
