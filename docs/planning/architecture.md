@@ -60,7 +60,7 @@
 | 运行时依赖 | `yaml` | 仅解析 YAML/OpenAPI；其余用标准库 |
 | 测试 | `node:test` + `assert` | 零额外依赖；`node --test` |
 | 插件宿主 | DSH 44.7.0 Cordis | 安装方式：`plugin_manager install_bundle`（工作区 bundle） |
-| 可选渲染 | Python 3.13.2（`py -3.13`）+ StrictDoc | 不在核心路径；StrictDoc 未安装，渲染证据在单独 venv 中生成，缺失时 `REN-001` 只做结构检查 |
+| 可选渲染 | Python 3.13.2（`py -3.13`）+ `strictdoc==0.30.4` | 不在核心路径；隔离 venv 生成渲染证据，缺失时 `REN-001` 只做结构检查、`REN-002` 记 `skip` |
 | CLI 退出码 | 0 通过 / 1 门禁失败 / 2 用法错误 / 3 内部错误 | CI 与 Agent 都按退出码判定 |
 
 ## 4. 领域模型
@@ -155,10 +155,12 @@ R1（ALM-02.03）实现 `FMT/ID/REL/COV/STATE/SEC/REN`；R2（ALM-02.05、ALM-04
 | `BASE-001` | block | 已发布基线不被原地修改 | 直接改 `baseline/*` 标签内容 |
 | `SEC-001` | block | 秘密/高熵串扫描 | 提交 `api_key=sk-...` |
 | `REN-001` | block | Markdown 链接与 Mermaid 块结构可渲染 | 悬空相对链接 |
+| `REN-002` | warn | StrictDoc 渲染证据（manifest/版本/产物哈希）；工具或产物缺失记 `skip` | 渲染失败、版本不符、产物哈希不匹配 |
 | `APPROVAL-001` | block | 存在绑定当前 head SHA 的 approve | 用旧 SHA 审批合并 |
 | `APPROVAL-002` | block | 审批者 kind=human 且非提交者 | Agent 自批 |
 | `PUB-001` | block | 发布证据完整且不可覆盖 | 缺证据直接建基线 |
 
+> `checks[].level` 取 `block` / `warn`：只有 `level=block` 的失败才使 `result=fail` 并改变退出码。`REN-002` 是 `REN-001` 的可选渲染证据，恒为 `warn`，StrictDoc 缺失时记 `skip`。
 > 上表中 `BASE-001`、`APPROVAL-*`、`PUB-001` 依赖基线/审批数据，随 R2 落地。
 
 规则包版本写在 `packages/alm-core/src/gates/pack.json`（`version` + 规则清单），任何规则的新增/放宽必须升版本并在证据中记录。
@@ -186,6 +188,7 @@ R1（ALM-02.03）实现 `FMT/ID/REL/COV/STATE/SEC/REN`；R2（ALM-02.05、ALM-04
 - 基线清单 = `.alm/baselines/<baselineId>.json`；`contentHash` 只覆盖文件清单，不含时间戳，保证重建可比较。
 - 重建：`alm baseline verify` 用 `git archive <sourceCommit>` 解包到临时目录后逐文件哈希；不依赖当前工作区。
 - 发布存储（MVP 本地目录 `.alm/published/`）只写一次；同 SHA 重放必须哈希一致。
+- 渲染证据：`scripts/strictdoc-render.ps1` 在隔离 venv（`tmp/strictdoc-venv`，`strictdoc==0.30.4`）生成 `.alm/render/manifest.json`（`strictdocVersion`、`sourceSha`、`files[].sha256`）；`REN-002` 只读校验，缺工具/产物记 `skip`，哈希或版本不符记 `fail` 且 `level=warn`，均不改变 `alm check` 退出码。渲染产物是构建物，不进 Git，仅作为证据附件。
 
 ## 10. 测试层次
 

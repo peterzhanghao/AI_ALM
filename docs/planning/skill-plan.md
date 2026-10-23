@@ -121,7 +121,7 @@
 | 宿主插件可安装/启停 | ALM-01.02 | `alm-mvp-dev` | 安装记录 + 工具调用 + slot 可见 |
 | 资产解析与稳定 ID | ALM-02.01 | `alm-mvp-dev` | `node --test test/unit/parse` |
 | 部分退款样例 | ALM-02.02 | `alm-requirements`、`alm-architecture` | `alm index --json` 输出 7 类资产 |
-| 确定性门禁 | ALM-02.03 | `alm-change-workflow` | `alm check` 正例 exit 0、5 类负例 exit 1 |
+| 确定性门禁 | ALM-02.03 | `alm-change-workflow` | `alm check` 正例 exit 0（`REN-002` 为 `pass` 或 `skip`）、5 类负例 exit 1 |
 | 语义差异 | ALM-02.04 | `alm-change-workflow` | `alm diff --base SHA --json` 字段快照 |
 | 影响闭包 | ALM-02.04 | `alm-architecture` | `alm impact --asset REQ-PAY-001` |
 | 证据与基线 | ALM-02.05 / 04.03 | `alm-release-verify` | `alm baseline verify` 哈希一致 |

@@ -92,7 +92,7 @@
 - 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P0 ｜ 前置：ALM-01.01
 - 技能：`alm-mvp-dev`（契约位置、解析边界）
 - 实施范围：`packages/alm-core/src/parse/*`、`packages/alm-core/src/contracts/asset.schema.json`、单测
-- 不在范围：门禁规则（ALM-02.03）、渲染（REN-001 后续）
+- 不在范围：门禁规则（ALM-02.03）、渲染（REN-001/REN-002 后续）
 - 接口：`parseRepo(root)` → `Asset[]`；解析错误结构 `{rule:'FMT-001',file,line,message}`
 - 交付物：
   - [ ] `.sdoc` 子集解析（`[DOCUMENT]/[SECTION]/[REQUIREMENT]/[RELATION]`，`UID/TITLE/STATUS/OWNER`）
@@ -126,17 +126,19 @@
 
 - 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P0 ｜ 前置：ALM-02.02、ALM-01.03
 - 技能：`alm-change-workflow`（门禁判定与修复）、`alm-mvp-dev`（新增规则流程）
-- 实施范围：`packages/alm-core/src/gates/*`、`packages/alm-core/src/gates/pack.json`
-- 不在范围：基线/审批/发布类规则（R2，见 ALM-02.05/04.*）
-- 接口：规则 `{id, level, check(ctx)}`；证据 `checks[]`；规则包 `version`
+- 实施范围：`packages/alm-core/src/gates/*`、`packages/alm-core/src/gates/pack.json`、`packages/alm-core/src/gates/render.mjs`、`scripts/strictdoc-render.ps1`
+- 不在范围：基线/审批/发布类规则（R2，见 ALM-02.05/04.*）；StrictDoc 之外的文档渲染器
+- 接口：规则 `{id, level, check(ctx)}`；`REN-002` 读取 `.alm/render/manifest.json`；渲染证据缺失记 `skip`，任何情况下不改变 `alm check` 退出码
 - 交付物：
-  - [ ] `FMT-001/002`、`ID-001/002`、`REL-001/002`、`COV-001`、`COV-002`(warn)、`STATE-001`、`SEC-001`、`REN-001`
-  - [ ] 规则包版本与证据记录
+  - [ ] `FMT-001/002`、`ID-001/002`、`REL-001/002`、`COV-001`、`COV-002`(warn)、`STATE-001`、`SEC-001`、`REN-001`（结构，block）
+  - [ ] `REN-002`（StrictDoc 渲染证据，warn，非阻断）：校验 manifest 的 `strictdocVersion`、`sourceSha` 与产物哈希；缺失记 `skip`，不匹配记 `fail`（level=warn）
+  - [ ] `scripts/strictdoc-render.ps1`：隔离 venv（`tmp/strictdoc-venv`）、固定 `strictdoc==0.30.4`、产出 `.alm/render/manifest.json`
+  - [ ] 规则包版本与证据记录（`checks[].level` 区分 block / warn）
   - [ ] 每条规则至少一个反例测试
 - 验收：
-  - 正例：样例仓库 `alm check` 退出 0，`checks` 覆盖全部规则
-  - 反例：5 类负例分别只触发预期规则，退出 1，输出资产 ID + 文件 + 行号
-- 证据：`node --test packages/alm-core/test/{unit,integration}`、`alm check --json` 五次输出
+  - 正例：样例仓库 `alm check` 退出 0，`checks` 覆盖全部 R1 规则；有渲染产物时 `REN-002=pass` 且退出码仍为 0；无产物或未装 StrictDoc 时 `REN-002=skip` 且退出码仍为 0
+  - 反例：5 类负例分别只触发预期规则并退出 1；删除/损坏 StrictDoc 产物或工具缺失时 `alm check` **不得失败**，只记录 `skip` / `fail(warn)`，退出码不变
+- 证据：`node --test packages/alm-core/test/{unit,integration}`、`alm check --json` 五次输出、`scripts/strictdoc-render.ps1` 运行记录与 `.alm/render/manifest.json`
 
 ### ALM-05.03 开发技能 `alm-mvp-dev`
 

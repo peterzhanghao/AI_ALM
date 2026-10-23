@@ -22,6 +22,10 @@
 
 - 修正环境描述：Python 3.13.2 已安装（`py` / `py -3.13`，pip 25.0.1），`python`/`python3` 不在 PATH，StrictDoc 未安装。Q3 决策不变，理由改为“不把 pip/venv 引入核心路径”。
 
+### 变更
+
+- ALM-02.03 验收加入 `REN-002`：StrictDoc 渲染证据（`warn`，非阻断），固定 `strictdoc==0.30.4`、隔离 venv、产物清单与哈希；工具或产物缺失记 `skip`，不改变 `alm check` 退出码。
+
 ## [3.0.0] - 2026-10-23
 
 ### 变更
