@@ -3,6 +3,7 @@
 | 文档 | 内容 |
 |---|---|
 | [`development/github-workflow.md`](development/github-workflow.md) | 仓库级 GitHub 工作项与 PR 约定（制度层） |
+| [`development/recovery.md`](development/recovery.md) | 发布与恢复操作手册（中断、幂等、回滚、旧基线重建） |
 | [`planning/architecture.md`](planning/architecture.md) | ALM MVP 模块边界、契约、命令面与门禁规则 |
 | [`planning/issue-register.md`](planning/issue-register.md) | 规划键、GitHub 编号、状态与同步台账 |
 | [`planning/task-breakdown.md`](planning/task-breakdown.md) | 逐卡范围、依赖与验收 |

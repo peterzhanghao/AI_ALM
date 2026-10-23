@@ -29,6 +29,7 @@
 | `alm baseline verify` | `--root <dir>` `--manifest <file>` `--json` | 0 一致 / 1 有差异 / 2 用法错误 | 从 commit 重算哈希并比对 |
 | `alm release publish` | `--manifest <file>` `--root <dir>` `[--out <dir>]` `--json` | 0 发布/幂等 / 1 失败 | 写入不可覆盖发布存储 |
 | `alm release verify` | `--baseline <id>` `--root <dir>` `[--out <dir>]` `--json` | 0 一致 / 1 有差异 | 重建归档并核对清单 |
+| `alm release rollback` | `--to <id>` `--root <dir>` `[--out <dir>]` `--json` | 0 切换 / 1 拒绝 | 只改当前指针，不改写基线 |
 | `alm contract verify` | `--json` | 0 全部有效 / 1 缺失或 `$id` 不符 | 校验五类契约文件 |
 
 ## 计划中（未实现，不得作为验收依据）
