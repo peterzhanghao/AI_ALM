@@ -41,7 +41,7 @@
 | ALM-03.01 | core 服务契约与 Agent 工具 | task | @peterzhanghao | P0 | plugin | done | ALM-01.02（#4，已关闭）、ALM-02.01（#7，已关闭） | 确认发布 | #22 | #23 | in-sync | 2026-10-23 19:05 |
 | ALM-03.02 | 需求插件（页面 + 工具） | task | @peterzhanghao | P1 | plugin | done | ALM-03.01（#22，已关闭）、ALM-02.04（#24，已关闭） | 确认发布 | #26 | #27 | in-sync | 2026-10-23 19:35 |
 | ALM-03.03 | 架构插件（页面 + 工具） | task | @peterzhanghao | P1 | plugin | done | ALM-03.01（#22，已关闭）、ALM-02.04（#24，已关闭） | 确认发布 | #28 | #29 | in-sync | 2026-10-23 19:50 |
-| ALM-03.04 | 跨插件联合变更与写权限边界 | task | @peterzhanghao | P1 | plugin | blocked | ALM-03.02、ALM-03.03 | 待确认 | — | — | local-newer | — |
+| ALM-03.04 | 跨插件联合变更与写权限边界 | task | @peterzhanghao | P1 | plugin | ready | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #30 | — | in-sync | 2026-10-23 19:55 |
 | ALM-04 | 跟踪：评审、集成与发布 | tracking | @peterzhanghao | P1 | release | blocked | ALM-00 | 待确认 | — | — | local-newer | — |
 | ALM-04.01 | SCM 适配器与审批绑定 SHA | task | @peterzhanghao | P1 | release | blocked | ALM-02.03（#9）、ALM-03.01 | 待确认 | — | — | local-newer | — |
 | ALM-04.02 | CI 必需检查与幂等证据 | task | @peterzhanghao | P1 | release | blocked | ALM-04.01、ALM-02.05 | 待确认 | — | — | local-newer | — |
