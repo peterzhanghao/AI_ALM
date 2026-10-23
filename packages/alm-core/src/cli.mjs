@@ -4,6 +4,7 @@ import { verifyContracts } from './contracts/verify.mjs'
 import { checkReport, diffReport, impactReport, indexReport, queryReport, showReport, traceReport } from './commands.mjs'
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
+import { publishBaseline, verifyRelease } from './baseline/release.mjs'
 import { WorkspaceError, createWorkspace, guardWrite, statusWorkspace } from './workspace/workspace.mjs'
 import { loadApprovals, recordApproval, verifyApproval } from './approvals/approval.mjs'
 import { ciStatus, recordEvidence, runCi } from './ci/ci.mjs'
@@ -40,6 +41,8 @@ Commands:
   ci run            Re-run gates and store idempotent CI evidence
   ci record         Accept an evidence file after a server re-check
   ci status         Check whether the commit has a passing CI record
+  release publish   Publish a verified baseline into the write-once store
+  release verify    Rebuild and compare a published baseline
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
@@ -704,6 +707,63 @@ export async function run(argv, io = {}) {
         if (options.json) out.write(`${JSON.stringify(status, null, 2)}\n`)
         else out.write(status.ok ? `ci ok ${status.sha.slice(0, 8)} ${status.runId}\n` : `ci failed: ${status.reason}\n`)
         return status.ok ? 0 : 1
+      } catch (error) {
+        err.write(`alm: ${error.message}\n`)
+        return 1
+      }
+    }
+
+    if (command === 'release' && (rest[0] === 'publish' || rest[0] === 'verify')) {
+      const sub = rest[0]
+      const args = rest.slice(1)
+      const options = { root: process.cwd(), out: '.alm/published', json: false }
+
+      for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (['--root', '--manifest', '--baseline', '--out'].includes(arg)) {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        err.write(`alm: unknown option: ${arg}\n`)
+        return 2
+      }
+
+      try {
+        if (sub === 'publish') {
+          if (!options.manifest) {
+            err.write('alm: release publish requires --manifest\n')
+            return 2
+          }
+          const result = publishBaseline({ root: options.root, manifestPath: options.manifest, outDir: options.out })
+          if (options.json) out.write(`${JSON.stringify(result, null, 2)}\n`)
+          else out.write(`release ${result.status} ${result.baselineId} ${result.bundleSha256?.slice(0, 12) ?? ''}\n`)
+          return 0
+        }
+
+        if (!options.baseline) {
+          err.write('alm: release verify requires --baseline\n')
+          return 2
+        }
+        const result = verifyRelease({ root: options.root, baselineId: options.baseline, outDir: options.out })
+        if (options.json) {
+          out.write(`${JSON.stringify(result, null, 2)}\n`)
+        } else {
+          for (const mismatch of result.mismatches) {
+            out.write(`mismatch ${mismatch.path} expected=${mismatch.expected} actual=${mismatch.actual}\n`)
+          }
+          out.write(result.ok ? `release verify ok ${result.baselineId}\n` : 'release verify failed\n')
+        }
+        return result.ok ? 0 : 1
       } catch (error) {
         err.write(`alm: ${error.message}\n`)
         return 1
