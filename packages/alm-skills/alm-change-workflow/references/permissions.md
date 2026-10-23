@@ -1,5 +1,7 @@
 # 权限边界
 
+<!-- alm-tools: alm_index alm_query alm_show alm_check alm_workspace_create alm_workspace_status alm_workspace_guard -->
+
 ## 允许
 
 | 动作 | 条件 |
