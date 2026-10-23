@@ -1,0 +1,17 @@
+{
+  "name": "@ai-alm/alm-scm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SCM provider policy and local-git merge for the ALM MVP",
+  "exports": {
+    "./policy": "./src/policy.mjs",
+    "./local": "./src/local.mjs"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

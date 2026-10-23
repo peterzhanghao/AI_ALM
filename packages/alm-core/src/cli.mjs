@@ -5,6 +5,9 @@ import { checkReport, diffReport, impactReport, indexReport, queryReport, showRe
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
 import { WorkspaceError, createWorkspace, guardWrite, statusWorkspace } from './workspace/workspace.mjs'
+import { loadApprovals, recordApproval, verifyApproval } from './approvals/approval.mjs'
+import { evaluateMerge } from '@ai-alm/alm-scm/policy'
+import { currentBranch, mergeBase, mergeLocal, resolveSha } from '@ai-alm/alm-scm/local'
 
 const PACK = JSON.parse(readFileSync(new URL('./gates/pack.json', import.meta.url), 'utf8'))
 
@@ -29,6 +32,10 @@ Commands:
   workspace create  Open a change branch from a baseline
   workspace status  Show the active change and worktree state
   workspace guard   Check paths against the active change workspace
+  approval record   Record a human approval bound to a commit SHA
+  approval verify   Verify the approval for a commit SHA
+  pr status         Show merge readiness for a base/head pair
+  pr merge          Merge after approval and required checks
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   contract verify   Validate the five ALM contract schemas
@@ -39,6 +46,7 @@ Options:
   --root <dir>      Repository root for index/check (default: cwd)
   --base <ref>      Base git ref for check (enables STATE-001)
   --out <path>      check: write alm.evidence/v1; baseline create: output dir
+  --pr              check: enable APPROVAL-* rules for a PR gate
   --json            Machine-readable output where supported
   --help, -h        Show this help
   --version, -v     Print the CLI version
@@ -80,6 +88,10 @@ function parseReportOptions(args) {
       i += 1
       continue
     }
+    if (arg === '--pr') {
+      options.pr = true
+      continue
+    }
     return { error: `unknown option: ${arg}` }
   }
   return options
@@ -117,7 +129,7 @@ export async function run(argv, io = {}) {
 
       const report = command === 'index'
         ? indexReport(options.root)
-        : checkReport(options.root, { base: options.base })
+        : checkReport(options.root, { base: options.base, pr: options.pr })
       if (report.ok === false) {
         err.write(`alm: ${report.error}\n`)
         return 2
@@ -478,6 +490,165 @@ export async function run(argv, io = {}) {
       } catch (error) {
         err.write(`alm: ${error.message}\n`)
         return 2
+      }
+    }
+
+    if (command === 'approval' && (rest[0] === 'record' || rest[0] === 'verify')) {
+      const sub = rest[0]
+      const args = rest.slice(1)
+      const options = { root: process.cwd(), json: false }
+
+      for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (['--root', '--sha', '--actor', '--change'].includes(arg)) {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        err.write(`alm: unknown option: ${arg}\n`)
+        return 2
+      }
+
+      if (!options.sha) {
+        err.write(`alm: approval ${sub} requires --sha\n`)
+        return 2
+      }
+
+      if (sub === 'record') {
+        if (!options.actor) {
+          err.write('alm: approval record requires --actor human:<login>\n')
+          return 2
+        }
+        try {
+          const record = recordApproval({
+            root: options.root,
+            sha: options.sha,
+            actor: options.actor,
+            changeId: options.change,
+          })
+          if (options.json) {
+            out.write(`${JSON.stringify(record, null, 2)}\n`)
+          } else {
+            out.write(`approved ${record.headSha} by ${record.actor}\n`)
+          }
+          return 0
+        } catch (error) {
+          err.write(`alm: ${error.message}\n`)
+          return 1
+        }
+      }
+
+      const verified = verifyApproval({ root: options.root, sha: options.sha })
+      if (options.json) {
+        out.write(`${JSON.stringify(verified, null, 2)}\n`)
+      } else {
+        out.write(verified.ok ? `approval ok ${verified.headSha}\n` : `approval failed: ${verified.reason}\n`)
+      }
+      return verified.ok ? 0 : 1
+    }
+
+    if (command === 'pr' && (rest[0] === 'status' || rest[0] === 'merge')) {
+      const sub = rest[0]
+      const args = rest.slice(1)
+      const options = { root: process.cwd(), json: false }
+
+      for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (['--root', '--base', '--head'].includes(arg)) {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        err.write(`alm: unknown option: ${arg}\n`)
+        return 2
+      }
+
+      if (!options.base || !options.head) {
+        err.write(`alm: pr ${sub} requires --base and --head\n`)
+        return 2
+      }
+
+      const headSha = resolveSha(options.root, options.head)
+      const baseSha = resolveSha(options.root, options.base)
+      if (!headSha || !baseSha) {
+        err.write('alm: cannot resolve base/head refs\n')
+        return 2
+      }
+      if (currentBranch(options.root) !== options.head) {
+        err.write(`alm: head branch ${options.head} must be checked out (current: ${currentBranch(options.root)})\n`)
+        return 2
+      }
+
+      const baseForCheck = mergeBase(options.root, options.base, options.head) ?? baseSha
+      const report = checkReport(options.root, { base: baseForCheck, pr: true, headSha })
+      if (report.ok === false) {
+        err.write(`alm: ${report.error}\n`)
+        return 2
+      }
+
+      const approvals = loadApprovals({ root: options.root, sha: headSha })
+      const policy = evaluateMerge({ headSha, approvals, checkReport: report })
+
+      if (sub === 'status') {
+        const payload = {
+          schema: 'alm.pr/v1',
+          base: options.base,
+          head: options.head,
+          headSha,
+          checkResult: report.result,
+          approvals: policy.approvals.map((entry) => entry.actor),
+          mergeable: policy.ok,
+          reasons: policy.reasons,
+        }
+        if (options.json) out.write(`${JSON.stringify(payload, null, 2)}\n`)
+        else {
+          out.write(`pr ${options.head} -> ${options.base} head=${headSha.slice(0, 8)}\n`)
+          out.write(`checks ${report.result} approvals ${payload.approvals.length} mergeable ${policy.ok}\n`)
+          for (const reason of policy.reasons) out.write(`blocked: ${reason}\n`)
+        }
+        return 0
+      }
+
+      if (!policy.ok) {
+        err.write('alm: merge blocked\n')
+        for (const reason of policy.reasons) err.write(`alm: ${reason}\n`)
+        return 1
+      }
+
+      try {
+        const merged = mergeLocal({
+          root: options.root,
+          base: options.base,
+          head: options.head,
+          message: `merge ${options.head} (approved by ${policy.approvals.map((entry) => entry.actor).join(', ')})`,
+        })
+        if (options.json) {
+          out.write(`${JSON.stringify({ schema: 'alm.pr.merge/v1', ...merged }, null, 2)}\n`)
+        } else {
+          out.write(`merged ${options.head} into ${options.base} at ${merged.mergeSha}\n`)
+        }
+        return 0
+      } catch (error) {
+        err.write(`alm: ${error.message}\n`)
+        return 1
       }
     }
 
