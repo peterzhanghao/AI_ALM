@@ -12,6 +12,10 @@
 - 新增 `docs/planning/skill-plan.md`：产品能力 → 契约 → 技能 → 任务的 7 步转化方法，产品技能与开发技能分离。
 - 新增 `docs/adr/0003-alm-mvp-engineering.md`：monorepo、Node ESM 无构建、SDoc 子集解析、SCM 本地先行、技能一等公民。
 - 新增 ALM-00～06 领域跟踪与 22 张执行卡（`docs/planning/issue-register.md`、`task-breakdown.md`），按 5 个批次推进。
+- 新增自动化回归：`regression-lane.yml` 可复用泳道、`alm-ci.yml` 的 PR 聚合门禁、`issue-regression.yml` 的合并后 Issue 回归与回写。
+- 新增 `scripts/regression.mjs`（泳道执行、证据聚合）与 `scripts/regression-fixtures.mjs`（正例/负例夹具回归）。
+- 新增 `scripts/test-obligation.mjs`：源码变更必须同 PR 带测试/夹具，或给出 `Test-Exemption` 理由；PR 门禁新增 `test-obligation` 作业。
+- 新增 `docs/development/regression-ci.md`，并补充 `regression::passed` / `regression::failed` 标签；`alm-mvp-dev` 增加测试落点参考 `references/testing.md`。
 
 ### 已确认
 
@@ -21,6 +25,7 @@
 ### 修正
 
 - 修正环境描述：Python 3.13.2 已安装（`py` / `py -3.13`，pip 25.0.1），`python`/`python3` 不在 PATH，StrictDoc 未安装。Q3 决策不变，理由改为“不把 pip/venv 引入核心路径”。
+- 修正 `alm diff` 在仓库子目录作为 `--root` 时基线路径解析错误：`git ls-tree` 的路径是相对子目录，读取 blob 时却按仓库根解析，导致基线被当成空集、所有资产显示为新增。回归泳道的 `cli` 泳道已覆盖该场景。
 
 ### 变更
 

@@ -76,6 +76,36 @@ test('diff compares a base commit with the worktree', async () => {
   }
 })
 
+test('diff from a repository subdirectory resolves base paths', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'alm-diff-subdir-'))
+  const sub = join(root, 'workspace')
+  const file = join(sub, 'requirements/req.yml')
+  try {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, REQUIREMENT, 'utf8')
+    mkdirSync(join(sub, 'architecture'), { recursive: true })
+    writeFileSync(
+      join(sub, 'architecture/mod.yml'),
+      'schema_version: 1\nid: MOD-DIFF-001\ntype: module\ntitle: 模块\nstatus: accepted\nowner: team-demo\nlinks: []\n',
+      'utf8',
+    )
+    git(root, 'init', '-q')
+    git(root, 'add', '-A')
+    git(root, '-c', 'user.name=alm-test', '-c', 'user.email=alm@example.invalid', 'commit', '-qm', 'base')
+
+    writeFileSync(file, REQUIREMENT.replace('旧标题', '新标题'), 'utf8')
+
+    const { code, out } = await invoke(['diff', '--root', sub, '--base', 'HEAD', '--json'])
+    assert.equal(code, 0)
+    const diff = JSON.parse(out)
+    assert.equal(diff.summary.added, 0)
+    assert.equal(diff.summary.changed, 1)
+    assert.deepEqual(diff.changed[0].fields.map((field) => field.field), ['title'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('impact of the ADR reaches every constrained asset', async () => {
   const { code, out } = await invoke(['impact', '--root', ORDER_REFUND, '--asset', 'ADR-PAY-003', '--json'])
   assert.equal(code, 0)

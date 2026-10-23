@@ -33,6 +33,14 @@ export function loadRepo(root) {
  */
 export function loadBaseAssets(root, ref) {
   try {
+    // `git -C <subdir> ls-tree` prints paths relative to that subdirectory,
+    // while `git show <ref>:<path>` always resolves from the repository root.
+    // Prefix the listing so a fixture root (or any nested workspace) still
+    // reads the right blobs instead of silently comparing against an empty base.
+    const prefix = execFileSync('git', ['-C', root, 'rev-parse', '--show-prefix'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
     const listing = execFileSync('git', ['-C', root, 'ls-tree', '-r', '--name-only', ref], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -42,7 +50,8 @@ export function loadBaseAssets(root, ref) {
       if (!/\.(yml|yaml|sdoc|md)$/i.test(file)) continue
       if (/^readme\.md$/i.test(file) || /\/readme\.md$/i.test(file)) continue
       try {
-        const text = execFileSync('git', ['-C', root, 'show', `${ref}:${file}`], {
+        const repoPath = prefix ? `${prefix}${file}` : file
+        const text = execFileSync('git', ['-C', root, 'show', `${ref}:${repoPath}`], {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
         })

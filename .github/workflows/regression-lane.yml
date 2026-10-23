@@ -1,0 +1,105 @@
+name: Regression lane
+
+# Reusable lane runner. Both the PR gate and the post-merge Issue regression
+# call this workflow so they execute exactly the same commands and produce the
+# same evidence shape.
+
+on:
+  workflow_call:
+    inputs:
+      lane:
+        description: Lane id defined in scripts/regression.mjs
+        required: true
+        type: string
+      ref:
+        description: Git ref or commit SHA to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  lane:
+    name: regression/${{ inputs.lane }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NPM_CONFIG_FETCH_TIMEOUT: "60000"
+      NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "1000"
+      NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "10000"
+    steps:
+      - name: Bootstrap lane evidence
+        shell: bash
+        env:
+          LANE: ${{ inputs.lane }}
+          TARGET_REF: ${{ inputs.ref }}
+          EVIDENCE: ${{ runner.temp }}/alm-regression/${{ inputs.lane }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE"
+          cat > "$EVIDENCE/bootstrap.json" <<EOF
+          {"schema":"alm.regression.bootstrap/v1","lane":"$LANE","status":"bootstrap-incomplete","ref":"$TARGET_REF","head":"$GITHUB_SHA","runId":"$GITHUB_RUN_ID","attempt":"$GITHUB_RUN_ATTEMPT","startedAt":"$(date -u +%FT%TZ)"}
+          EOF
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ${{ inputs.lane }} lane
+        id: lane
+        continue-on-error: true
+        shell: bash
+        env:
+          LANE: ${{ inputs.lane }}
+          EVIDENCE: ${{ runner.temp }}/alm-regression/${{ inputs.lane }}
+        run: node scripts/regression.mjs run-lane "$LANE" --output "$EVIDENCE"
+
+      - name: Seal evidence when the lane did not run
+        if: always()
+        shell: bash
+        env:
+          LANE: ${{ inputs.lane }}
+          OUTCOME: ${{ steps.lane.outcome }}
+          EVIDENCE: ${{ runner.temp }}/alm-regression/${{ inputs.lane }}
+          TARGET_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE"
+          if [ -f "$EVIDENCE/result.json" ]; then
+            echo "lane result already sealed"
+            exit 0
+          fi
+          status="setup-failed"
+          if [ "$OUTCOME" = "failure" ]; then status="failed"; fi
+          if [ "$OUTCOME" = "cancelled" ]; then status="cancelled"; fi
+          cat > "$EVIDENCE/result.json" <<EOF
+          {"schema":"alm.regression.lane/v1","lane":"$LANE","title":"$LANE","status":"$status","exitCode":1,"head":"$GITHUB_SHA","ref":"$TARGET_REF","repository":"$GITHUB_REPOSITORY","runId":"$GITHUB_RUN_ID","attempt":"$GITHUB_RUN_ATTEMPT","workflow":"$GITHUB_WORKFLOW","startedAt":null,"finishedAt":"$(date -u +%FT%TZ)","durationMs":0,"failure":{"label":"bootstrap","command":"setup","exitCode":1,"error":"lane did not execute; see job log"},"commands":[]}
+          EOF
+
+      - name: Upload lane evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-${{ inputs.lane }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/alm-regression/${{ inputs.lane }}/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail lane after evidence is preserved
+        if: steps.lane.outcome != 'success'
+        shell: bash
+        run: |
+          echo "lane ${{ inputs.lane }} outcome: ${{ steps.lane.outcome }}"
+          exit 1

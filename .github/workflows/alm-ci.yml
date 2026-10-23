@@ -3,8 +3,8 @@ name: ALM MVP CI
 on:
   pull_request:
     branches: [develop]
-  push:
-    branches: [develop]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,29 +14,107 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  core:
-    name: alm-core
+  test-obligation:
+    name: test-obligation
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Unit and contract tests
-        run: pnpm test
-
-      - name: CLI smoke
+      - name: Check test obligation
+        shell: bash
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          node packages/alm-core/bin/alm.mjs --help
-          node packages/alm-core/bin/alm.mjs contract verify
+          node scripts/test-obligation.mjs \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA"
 
-      - name: Skill/CLI consistency
-        run: node scripts/check-alm-skill.mjs
+  regression:
+    name: regression
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [unit, contract, fixtures, cli, skills]
+    uses: ./.github/workflows/regression-lane.yml
+    with:
+      lane: ${{ matrix.lane }}
+      # On pull_request, github.sha is the merge commit GitHub builds for the PR.
+      ref: ${{ github.sha }}
+
+  regression-gate:
+    name: regression-gate
+    if: always()
+    needs: [regression, test-obligation]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare evidence input
+        shell: bash
+        run: mkdir -p "$RUNNER_TEMP/alm-regression-input"
+
+      - name: Download lane evidence
+        id: artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: regression-*
+          path: ${{ runner.temp }}/alm-regression-input
+
+      - name: Aggregate evidence
+        id: aggregate
+        shell: bash
+        env:
+          OUTPUT: ${{ runner.temp }}/alm-regression-gate
+          ARTIFACT: regression-evidence-${{ github.run_attempt }}
+        run: |
+          set +e
+          node scripts/regression.mjs aggregate \
+            --input "$RUNNER_TEMP/alm-regression-input" \
+            --output "$OUTPUT" \
+            --lanes unit,contract,fixtures,cli,skills \
+            --head "${{ github.sha }}" \
+            --ref "${{ github.ref }}" \
+            --artifact "$ARTIFACT"
+          code=$?
+          echo "status=$(cat "$OUTPUT/status.txt" 2>/dev/null || echo failed)" >> "$GITHUB_OUTPUT"
+          exit $code
+
+      - name: Require every lane job to succeed
+        if: always() && needs.regression.result != 'success'
+        shell: bash
+        run: |
+          echo "lane matrix result: ${{ needs.regression.result }}"
+          exit 1
+
+      - name: Require test obligation on pull requests
+        if: github.event_name == 'pull_request' && needs.test-obligation.result != 'success'
+        shell: bash
+        run: |
+          echo "test obligation result: ${{ needs.test-obligation.result }}"
+          exit 1
+
+      - name: Upload aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/alm-regression-gate/
+          if-no-files-found: error
+          retention-days: 14

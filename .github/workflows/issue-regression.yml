@@ -1,0 +1,294 @@
+name: Issue regression
+
+# Development is complete when a PR merges into the integration branch. This
+# workflow re-runs the full regression matrix on the merge commit, aggregates
+# evidence, and writes the result back to the linked Issue(s).
+#
+# Why pull_request:closed instead of issues:closed:
+# - GitHub only reads `issues` workflows from the default branch. This repo
+#   integrates on develop while main is the release baseline, so an
+#   `issues:closed` workflow would silently run stale lane definitions.
+# - A merged PR gives the exact merge commit to test, while `issues:closed`
+#   only gives the issue object and would need a timeline lookup.
+# - The Issue is still the reporting target: the report job comments on and
+#   labels every linked Issue.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Merged PR number to verify (optional when ref is set)
+        required: false
+        type: string
+      ref:
+        description: Git ref or SHA to verify when no PR is given
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: issue-regression-${{ github.event.pull_request.number || github.event.inputs.pr || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: prepare
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ref: ${{ steps.target.outputs.ref }}
+      head: ${{ steps.target.outputs.head }}
+      pr: ${{ steps.target.outputs.pr }}
+      issues: ${{ steps.target.outputs.issues }}
+      base: ${{ steps.target.outputs.base }}
+    steps:
+      - name: Resolve target and linked issues
+        id: target
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const dispatch = context.eventName === 'workflow_dispatch'
+            const prInput = dispatch ? core.getInput('pr').trim() : ''
+            const refInput = dispatch ? core.getInput('ref').trim() : ''
+            let pr = dispatch ? undefined : context.payload.pull_request
+
+            if (dispatch && prInput) {
+              pr = (await github.rest.pulls.get({
+                owner, repo, pull_number: Number(prInput),
+              })).data
+            }
+
+            if (!pr && refInput) {
+              const commit = await github.rest.repos.getCommit({ owner, repo, ref: refInput })
+              core.setOutput('ref', refInput)
+              core.setOutput('head', commit.data.sha)
+              core.setOutput('pr', '')
+              core.setOutput('issues', '[]')
+              core.setOutput('base', '')
+              core.info(`manual regression target: ${refInput} (${commit.data.sha})`)
+              return
+            }
+
+            if (!pr) {
+              core.setFailed('workflow_dispatch requires either a merged PR number or a git ref')
+              return
+            }
+
+            if (!dispatch && !pr.merged) {
+              core.setFailed(`PR #${pr.number} is not merged; development is not complete`)
+              return
+            }
+
+            const head = pr.merge_commit_sha || pr.head.sha
+            if (!head) {
+              core.setFailed(`cannot resolve a commit for PR #${pr.number}`)
+              return
+            }
+
+            const numbers = new Set()
+            const body = pr.body || ''
+            for (const match of body.matchAll(/(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)\s+#(\d+)/gi)) {
+              numbers.add(Number(match[1]))
+            }
+
+            try {
+              const timeline = await github.paginate(github.rest.issues.listEventsForTimeline, {
+                owner, repo, issue_number: pr.number, per_page: 100,
+              })
+              for (const event of timeline) {
+                if (event.event !== 'cross-referenced') continue
+                const issue = event.source && event.source.issue
+                if (issue && !issue.pull_request) numbers.add(issue.number)
+              }
+            } catch (error) {
+              core.warning(`cannot read PR timeline; falling back to body references: ${error.message}`)
+            }
+
+            numbers.delete(pr.number)
+            const issues = []
+            for (const number of [...numbers].sort((left, right) => left - right)) {
+              try {
+                const { data } = await github.rest.issues.get({ owner, repo, issue_number: number })
+                if (!data.pull_request) issues.push(number)
+              } catch (error) {
+                if (error.status !== 404) throw error
+              }
+            }
+
+            core.setOutput('ref', head)
+            core.setOutput('head', head)
+            core.setOutput('pr', String(pr.number))
+            core.setOutput('issues', JSON.stringify(issues))
+            core.setOutput('base', pr.base ? pr.base.ref : '')
+            core.info(`target ${head}; PR #${pr.number}; linked issues ${JSON.stringify(issues)}`)
+
+  regression:
+    name: regression
+    needs: prepare
+    if: needs.prepare.result == 'success' && needs.prepare.outputs.ref != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [unit, contract, fixtures, cli, skills]
+    uses: ./.github/workflows/regression-lane.yml
+    with:
+      lane: ${{ matrix.lane }}
+      ref: ${{ needs.prepare.outputs.ref }}
+
+  regression-gate:
+    name: regression-gate
+    needs: [prepare, regression]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      status: ${{ steps.aggregate.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare evidence input
+        shell: bash
+        run: mkdir -p "$RUNNER_TEMP/alm-regression-input"
+
+      - name: Download lane evidence
+        id: artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: regression-*
+          path: ${{ runner.temp }}/alm-regression-input
+
+      - name: Aggregate evidence
+        id: aggregate
+        shell: bash
+        env:
+          OUTPUT: ${{ runner.temp }}/issue-regression-gate
+          ARTIFACT: issue-regression-evidence-${{ github.run_attempt }}
+        run: |
+          set +e
+          node scripts/regression.mjs aggregate \
+            --input "$RUNNER_TEMP/alm-regression-input" \
+            --output "$OUTPUT" \
+            --lanes unit,contract,fixtures,cli,skills \
+            --head "${{ needs.prepare.outputs.head }}" \
+            --ref "${{ needs.prepare.outputs.ref }}" \
+            --artifact "$ARTIFACT"
+          code=$?
+          echo "status=$(cat "$OUTPUT/status.txt" 2>/dev/null || echo failed)" >> "$GITHUB_OUTPUT"
+          exit $code
+
+      - name: Require every lane job to succeed
+        if: always() && needs.regression.result != 'success'
+        shell: bash
+        run: |
+          echo "lane matrix result: ${{ needs.regression.result }}"
+          exit 1
+
+      - name: Upload aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-regression-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/issue-regression-gate/
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    name: report
+    needs: [prepare, regression-gate]
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Download aggregate evidence
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: issue-regression-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/issue-regression-gate
+
+      - name: Comment on PR and linked issues
+        uses: actions/github-script@v7
+        env:
+          SUMMARY_PATH: ${{ runner.temp }}/issue-regression-gate/summary.md
+          TARGET_HEAD: ${{ needs.prepare.outputs.head }}
+          TARGET_PR: ${{ needs.prepare.outputs.pr }}
+          TARGET_ISSUES: ${{ needs.prepare.outputs.issues }}
+          REGRESSION_STATUS: ${{ needs.regression-gate.result == 'success' && needs.regression-gate.outputs.status || 'failed' }}
+        with:
+          script: |
+            const fs = require('fs')
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const head = process.env.TARGET_HEAD
+            const marker = `<!-- alm-regression:${head} -->`
+            let summary = '## 自动化回归：未生成报告\n\n聚合证据缺失，请查看工作流日志。\n'
+            try {
+              if (fs.existsSync(process.env.SUMMARY_PATH)) {
+                summary = fs.readFileSync(process.env.SUMMARY_PATH, 'utf8')
+              }
+            } catch (error) {
+              core.warning(`cannot read summary: ${error.message}`)
+            }
+            const body = `${marker}\n${summary}`
+            const pr = Number(process.env.TARGET_PR)
+            const issues = JSON.parse(process.env.TARGET_ISSUES || '[]')
+            const targets = [pr, ...issues]
+              .filter((number) => Number.isInteger(number) && number > 0)
+
+            for (const number of targets) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: number, per_page: 100,
+              })
+              const existing = comments.find((comment) => comment.body && comment.body.includes(marker))
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number: number, body })
+              }
+            }
+
+            const status = process.env.REGRESSION_STATUS === 'passed' ? 'passed' : 'failed'
+            const label = `regression::${status}`
+            const opposite = `regression::${status === 'passed' ? 'failed' : 'passed'}`
+            for (const issue of issues) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: label })
+              } catch (error) {
+                if (error.status !== 404) throw error
+                await github.rest.issues.createLabel({
+                  owner, repo, name: label,
+                  color: status === 'passed' ? '0E8A16' : 'B60205',
+                  description: status === 'passed' ? '合并后自动化回归通过' : '合并后自动化回归失败',
+                })
+              }
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number: issue, labels: [label],
+              })
+              try {
+                await github.rest.issues.removeLabel({
+                  owner, repo, issue_number: issue, name: opposite,
+                })
+              } catch (error) {
+                if (error.status !== 404) throw error
+              }
+            }

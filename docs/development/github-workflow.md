@@ -12,6 +12,7 @@
 | 文档 | 作用 |
 |---|---|
 | `docs/development/github-workflow.md` | 本文件：约定与边界 |
+| `docs/development/regression-ci.md` | 自动化回归泳道、证据契约与 Issue 回写 |
 | `docs/planning/architecture.md` | ALM MVP 模块边界、契约与命令面；执行卡的技术依据 |
 | `docs/planning/issue-register.md` | 规划键、GitHub 编号、状态与回读时间的唯一台账 |
 | `docs/planning/task-breakdown.md` | 每张卡的交付范围与验收 |
@@ -53,6 +54,7 @@ ALM-00 总控 Issue
 | 状态 | `status::backlog` / `blocked` / `ready` / `in-progress` / `review` / `done`（唯一） |
 | 优先级 | `priority::P0` / `P1` / `P2` |
 | 领域 | `domain::*`（按实际模块扩展） |
+| 回归 | `regression::passed` / `regression::failed`（合并后自动维护） |
 
 首次使用运行 `scripts/setup-github.ps1` 创建标签与 `develop` 分支，并启用分支保护。
 
@@ -80,10 +82,25 @@ gh pr view <n> --json number,url,state,isDraft,baseRefName,headRefName,mergeable
 ## PR 与合并
 
 1. PR 目标 `develop`，验收未完成保持 Draft。
-2. checks 全绿、评审通过、无冲突后合并。
+2. checks 全绿（`ALM MVP CI` 的 `test-obligation`、`regression-gate` 与 `validate-skills`）、评审通过、无冲突后合并。
 3. 合并后回读 `mergedAt` / `mergeCommit`。
 4. **合并到 `develop` 不会自动关闭 Issue**——closing 关键字只对默认分支生效，必须显式 `gh issue close`。
 5. 关闭后重算下游 blocked-by，全部前置关闭才可置 `ready`。
+
+## 自动化回归
+
+- PR 阶段：`ALM MVP CI` 并行运行 `unit`、`contract`、`fixtures`、`cli`、`skills` 五条泳道；`regression-gate` 要求全部泳道都有当前提交的证据且结果为通过，缺一即红。
+- 测试义务：`test-obligation` 检查源码变更是否同时带测试/夹具；没有则要求 PR 正文给出 `Test-Exemption: <理由>`。新增测试放在 `packages/*/test/` 即被 `pnpm test` 自动发现，不需要注册。
+- 合并阶段：PR 合并到 `develop` 或 `main` 后，`Issue regression` 在 `merge_commit_sha` 上复跑同一套泳道；聚合证据保留 30 天，泳道证据保留 14 天。
+- 回写：工作流评论 PR 与关联 Issue，并维护 `regression::passed` / `regression::failed`；同一提交重跑更新原评论，不刷屏。失败不会自动重开 Issue，按评论定位后修复并重跑。
+- 手动补跑：
+
+```powershell
+gh workflow run issue-regression.yml --ref develop -f pr=44
+gh workflow run issue-regression.yml --ref develop -f ref=<sha>
+```
+
+细节、证据格式与扩展方式见 [自动化回归与 Issue 收口](regression-ci.md)。
 
 ## 阶段边界
 
