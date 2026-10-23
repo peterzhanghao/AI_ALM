@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { buildIndex } from './index/index.mjs'
+import { buildGraph, impactOf, traceOf } from './index/closure.mjs'
+import { diffAssets } from './diff/diff.mjs'
 import { loadRepo as loadParserRepo, parseAssetFile } from './parse/load.mjs'
 import { runGates } from './gates/run.mjs'
 
@@ -99,6 +101,59 @@ export function checkReport(root, options = {}) {
     result: gate.result,
     checks: gate.checks,
     summary: { assets: loaded.assets.length, errors: loaded.errors.length },
+  }
+}
+
+export function traceReport(root, assetId) {
+  const loaded = loadRepo(root)
+  if (!loaded.ok) return loaded
+  const index = buildIndex(loaded.assets)
+  if (!index.byId.has(assetId)) return { ok: false, notFound: true, error: `asset not found: ${assetId}` }
+
+  const graph = buildGraph(loaded.assets)
+  const { nodes, cycles } = traceOf(graph, assetId)
+  return {
+    schema: 'alm.trace/v1',
+    root: loaded.root,
+    rootAsset: assetId,
+    nodes,
+    cycles,
+  }
+}
+
+export function impactReport(root, assetId) {
+  const loaded = loadRepo(root)
+  if (!loaded.ok) return loaded
+  const index = buildIndex(loaded.assets)
+  if (!index.byId.has(assetId)) return { ok: false, notFound: true, error: `asset not found: ${assetId}` }
+
+  const graph = buildGraph(loaded.assets)
+  const { impacted, cycles } = impactOf(graph, assetId)
+  return {
+    schema: 'alm.impact/v1',
+    root: loaded.root,
+    asset: assetId,
+    impacted,
+    cycles,
+  }
+}
+
+export function diffReport(root, { base, head } = {}) {
+  if (!base) return { ok: false, error: '--base is required' }
+  const loaded = loadRepo(root)
+  if (!loaded.ok) return loaded
+
+  const baseAssets = loadBaseAssets(loaded.root, base)
+  if (!baseAssets) return { ok: false, error: `cannot resolve base ref: ${base}` }
+  const headAssets = head ? loadBaseAssets(loaded.root, head) : loaded.assets
+  if (!headAssets) return { ok: false, error: `cannot resolve head ref: ${head}` }
+
+  return {
+    schema: 'alm.diff/v1',
+    root: loaded.root,
+    base,
+    head: head ?? 'worktree',
+    ...diffAssets(baseAssets, headAssets),
   }
 }
 

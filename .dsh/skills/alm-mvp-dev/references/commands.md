@@ -12,6 +12,9 @@
 | `alm check` | `--root <dir>` `--base <ref>` `--out <file>` `--json` | 0 通过 / 1 门禁失败 / 2 用法错误 | 运行 R1；`--out` 写 `alm.evidence/v1` |
 | `alm show <ID>` | `--root <dir>` `--json` | 0 找到 / 1 不存在 / 2 用法错误 | 单个资产详情 `alm.show/v1` |
 | `alm query` | `--root <dir>` `[--type]` `[--status]` `[--owner]` `--json` | 0 成功 / 2 用法错误 | 资产列表 `alm.query/v1` |
+| `alm diff` | `--base <ref>` `[--head <ref>]` `--root <dir>` `--json` | 0 成功 / 2 用法错误 | 结构化差异 `alm.diff/v1` |
+| `alm impact` | `--asset <ID>` `--root <dir>` `--json` | 0 成功 / 1 不存在 / 2 用法错误 | 反向影响闭包 `alm.impact/v1` |
+| `alm trace <ID>` | `--root <dir>` `--json` | 0 成功 / 1 不存在 / 2 用法错误 | 前向追踪链 `alm.trace/v1` |
 | `alm baseline create` | `--root <dir>` `--commit <sha>` `--tag <name>` `--approval <file>` `[--id <id>]` `[--out <dir>]` `--json` | 0 成功/幂等 / 1 同 id 内容冲突 / 2 用法错误 | 生成不可变基线清单 |
 | `alm baseline verify` | `--root <dir>` `--manifest <file>` `--json` | 0 一致 / 1 有差异 / 2 用法错误 | 从 commit 重算哈希并比对 |
 | `alm contract verify` | `--json` | 0 全部有效 / 1 缺失或 `$id` 不符 | 校验五类契约文件 |
@@ -20,9 +23,6 @@
 
 | 命令 | 计划卡片 | 说明 |
 |---|---|---|
-| `alm diff` | ALM-02.04 | 结构化差异 `alm.diff/v1` |
-| `alm impact` | ALM-02.04 | 影响闭包 |
-| `alm trace` | ALM-02.04 | 需求追踪链 |
 | `alm evidence show` | ALM-03.01 | 读取门禁证据 |
 | `alm approval record` | ALM-04.01 | 记录绑定 SHA 的人工审批 |
 | `alm approval verify` | ALM-04.01 | 校验审批是否满足当前 head |
