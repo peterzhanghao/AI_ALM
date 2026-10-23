@@ -277,6 +277,44 @@
 - 验收：正例：中断后重试成功且只有一份正式基线；反例：失败路径不写正式基线、保留可诊断日志
 - 证据：故障演练记录
 
+### ALM-04.05 UI 验证的按需 CI 任务
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-04.04（#41，已关闭）、ALM-06.01（#58，已关闭）
+- 技能：`alm-mvp-dev`（测试层次）、`alm-release-verify`（证据）
+- 实施范围：`.github/workflows/alm-ui.yml`、`docs/planning/verification-report.md` 的 CI 缺口行、`docs/usage.md` 的触发说明
+- 不在范围：PR 必跑 UI 测试（浏览器体积与时长不适合每次 PR）；视觉回归基线对比
+- 接口：`workflow_dispatch` 输入 `root`（默认 `fixtures/order-refund`）、`require`（可选文本框）、`base`（可选，指向已运行宿主）；产出 artifact `ui-report`（`report.json` + 两张 PNG）
+- 交付物：
+  - [ ] `workflow_dispatch` + `push`/`pull_request` 不触发；`concurrency` 串行、`timeout-minutes`
+  - [ ] `pnpm install --frozen-lockfile` 后用 `pnpm exec playwright install --with-deps chromium` 安装浏览器
+  - [ ] 执行 `node scripts/ui-verify.mjs --root <输入> --out tmp/ui`，`--require` 逐行透传
+  - [ ] 上传 `tmp/ui`（`actions/upload-artifact`，保留 7 天）并在 job summary 里写检查数与截图名
+- 验收：
+  - 正例：`gh workflow run alm-ui.yml --ref develop` → run 绿；artifact 含 `report.json`、`requirements.png`、`architecture.png`；summary 显示 28 项检查
+  - 反例：以 `require=REQ-PAY-999` 触发 → run 红，日志含 `FAIL required text`，artifact 仍上传（失败也留证据）
+- 证据：run URL、artifact 清单、summary 截图
+
+### ALM-04.06 Gitea SCM 适配器
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-04.01（#35，已关闭）
+- 技能：`alm-change-workflow`、`alm-mvp-dev`（适配器边界）
+- 实施范围：`packages/alm-scm/src/gitea.mjs`、`packages/alm-scm/test/gitea.test.mjs`、`docs/development/gitea-adapter.md`、`packages/alm-scm/package.json` 的导出
+- 不在范围：真实 Gitea 服务器部署；替换 `alm pr` 的本地合并路径；GitLab
+- 接口：
+  - `createGiteaClient({ baseUrl, owner, repo, token, fetchImpl, timeoutMs })` → `{ createPullRequest, getPullRequest, getCombinedStatus, comment, mergePullRequest }`
+  - `createPullRequest({ base, head, title, body })` → `{ number, url, state }`；已存在同 head 的 open PR 时返回既有 PR（`created:false`）
+  - `evaluateRequiredChecks(combined, required)` → `{ ok, reasons[] }`：`state=success` 且每个必需检查 `success`
+  - 错误统一为 `GiteaError { status, code, message }`，401/403/404/409/超时分别可判定
+- 交付物：
+  - [ ] 仅用 `fetch` 与 `node:*`，无新依赖；`Authorization: token <token>`、`Accept: application/json`
+  - [ ] 幂等创建：409 `pull request already exists` 时回查并返回既有 PR
+  - [ ] 超时（`AbortSignal.timeout`）与网络错误映射，不吞异常
+  - [ ] 本地 mock HTTP 服务测试覆盖：创建、已存在、必需检查通过/失败、401、404、超时
+- 验收：
+  - 正例：mock 返回 201 → `createPullRequest` 得到 `number/url`；`evaluateRequiredChecks` 对全 success 返回 `ok:true`
+  - 反例：同 head 再建 → `created:false` 且不重复 POST；必需检查 `pending/failure` → `ok:false` 且 `reasons` 指出检查名；401 → `GiteaError(status=401)` 且不泄漏 token
+- 证据：`node --test packages/alm-scm/test/gitea.test.mjs`、mock 请求日志断言
+
 ### ALM-05.04 技能一致性与权限校验
 
 - 前置：ALM-05.01–05.03 ｜ 技能：`alm-mvp-dev`
