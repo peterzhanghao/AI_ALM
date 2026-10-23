@@ -84,7 +84,11 @@ PR #18 检查全绿且评审通过，走收口：合并、回读 merge commit、
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-skills.ps1
+node scripts/check-alm-skill.mjs
 ```
+
+- `validate-skills.ps1`：`.dsh/skills` 的 frontmatter、命名、相对链接与体积。
+- `check-alm-skill.mjs`：全部 ALM 技能（`.dsh/skills` + `packages/alm-skills`）的命令存在性、链接、权限声明与工具清单，在 `alm-ci.yml` 中执行，失败退出 1。
 
 ## 维护约定
 
