@@ -34,9 +34,9 @@
 | ALM-02 | 跟踪：资产契约与确定性门禁 | tracking | @peterzhanghao | P0 | core | backlog | ALM-00 | 确认发布 | #6 | — | in-sync | 2026-10-23 14:49 |
 | ALM-02.01 | 资产模型与解析器 | task | @peterzhanghao | P0 | core | done | ALM-01.01（#3，已关闭） | 确认发布 | #7 | #16 | in-sync | 2026-10-23 16:54 |
 | ALM-02.02 | 部分退款样例资产与负例夹具 | task | @peterzhanghao | P0 | core | done | ALM-02.01（#7，已关闭） | 确认发布 | #8 | #17 | in-sync | 2026-10-23 17:02 |
-| ALM-02.03 | 硬门禁规则集 R1 | task | @peterzhanghao | P0 | core | ready | ALM-02.02（#8，已关闭）、ALM-01.03（#5，已关闭） | 确认发布 | #9 | — | in-sync | 2026-10-23 17:02 |
+| ALM-02.03 | 硬门禁规则集 R1 | task | @peterzhanghao | P0 | core | done | ALM-02.02（#8，已关闭）、ALM-01.03（#5，已关闭） | 确认发布 | #9 | #18 | in-sync | 2026-10-23 17:22 |
 | ALM-02.04 | 语义差异与影响闭包 | task | @peterzhanghao | P1 | core | blocked | ALM-02.03（#9） | 待确认 | — | — | local-newer | — |
-| ALM-02.05 | 证据模型与基线清单 | task | @peterzhanghao | P0 | core | blocked | ALM-02.03（#9） | 待确认 | — | — | local-newer | — |
+| ALM-02.05 | 证据模型与基线清单 | task | @peterzhanghao | P0 | core | ready | ALM-02.03（#9，已关闭） | 确认发布 | #19 | — | in-sync | 2026-10-23 17:23 |
 | ALM-03 | 跟踪：共享核心服务与双插件 | tracking | @peterzhanghao | P0 | plugin | blocked | ALM-00 | 待确认 | — | — | local-newer | — |
 | ALM-03.01 | core 服务契约与 Agent 工具 | task | @peterzhanghao | P0 | plugin | blocked | ALM-01.02（#4）、ALM-02.01（#7） | 待确认 | — | — | local-newer | — |
 | ALM-03.02 | 需求插件（页面 + 工具） | task | @peterzhanghao | P1 | plugin | blocked | ALM-03.01、ALM-02.04 | 待确认 | — | — | local-newer | — |
@@ -59,7 +59,8 @@
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
 > ALM-01.02 已合并：PR `#13` → merge commit `c117170`；ALM-05.03 已合并：PR `#14` → merge commit `7fcffe2`。`#4`、`#11` 已关闭并置 `status::done`。
-> 批次 1 剩余：`#9`（R1 门禁）ready。
+> **批次 1 已完成**（01.01/01.02/01.03/02.01/02.02/02.03/05.03）。
+> 批次 2 起点：ALM-02.05 证据与基线清单；随后 ALM-03.01、ALM-05.01。
 > ALM-02.02 已合并：PR `#17` → merge commit `f889d2e`，Issue `#8` 已关闭并置 `status::done`。
 > ALM-02.01 已合并：PR `#16` → merge commit `60c9d83`，Issue `#7` 已关闭并置 `status::done`。
 > ALM-01.03 已合并：PR `#15` → merge commit `872e06e`，Issue `#5` 已关闭并置 `status::done`。
