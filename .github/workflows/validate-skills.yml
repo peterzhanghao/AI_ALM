@@ -1,0 +1,19 @@
+name: validate-skills
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate skill packs
+        shell: pwsh
+        run: ./scripts/validate-skills.ps1

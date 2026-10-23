@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 开发流程说明
+    url: https://github.com/peterzhanghao/AI_ALM/blob/develop/docs/development/github-workflow.md
+    about: 提交 Issue 前先阅读分支模型、标签与发布门禁。
