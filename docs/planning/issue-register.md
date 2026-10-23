@@ -54,7 +54,7 @@
 | ALM-05.02 | 产品技能：需求与架构 | task | @peterzhanghao | P1 | skills | review | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #50 | — | in-sync | 2026-10-23 21:35 |
 | ALM-05.03 | 开发技能：alm-mvp-dev | task | @peterzhanghao | P0 | skills | done | ALM-01.01（#3，已关闭） | 确认发布 | #11 | #14 | in-sync | 2026-10-23 16:07 |
 | ALM-05.04 | 技能一致性与权限校验 | task | @peterzhanghao | P1 | skills | ready | ALM-05.01（#32，已关闭）、ALM-05.02、ALM-05.03（#11，已关闭） | 确认发布 | — | — | local-newer | — |
-| ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | ready | ALM-04.04（#41，已关闭） | 确认发布 | — | — | local-newer | — |
+| ALM-05.05 | 产品技能：发布校验 | task | @peterzhanghao | P1 | skills | review | ALM-04.04（#41，已关闭） | 确认发布 | #52 | — | in-sync | 2026-10-23 21:35 |
 | ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | deferred | ALM-00 | 暂缓 | — | — | local-newer | — |
 | ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | deferred | ALM-04.04 | 暂缓 | — | — | local-newer | — |
 | ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | deferred | ALM-06.01 | 暂缓 | — | — | local-newer | — |
