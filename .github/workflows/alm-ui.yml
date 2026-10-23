@@ -1,0 +1,92 @@
+name: ALM UI verification
+
+# Manual only: the PR pipeline stays browser-free. Run this when a page or
+# payload changes and you want Playwright evidence attached to the run.
+on:
+  workflow_dispatch:
+    inputs:
+      root:
+        description: 'Asset repository root served to the pages'
+        required: false
+        default: 'fixtures/order-refund'
+        type: string
+      require:
+        description: 'Comma-separated texts that must appear (any miss fails the run)'
+        required: false
+        default: ''
+        type: string
+      base:
+        description: 'Optional running host URL; empty serves the pages locally'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alm-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui:
+    name: playwright-ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium and CJK fonts
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: Verify pages
+        env:
+          ROOT_INPUT: ${{ inputs.root }}
+          REQUIRE_INPUT: ${{ inputs.require }}
+          BASE_INPUT: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          args=(--root "$ROOT_INPUT" --out tmp/ui)
+          if [ -n "$BASE_INPUT" ]; then
+            args+=(--base "$BASE_INPUT")
+          fi
+          IFS=',' read -ra items <<< "$REQUIRE_INPUT"
+          for item in "${items[@]}"; do
+            trimmed="$(printf '%s' "$item" | xargs)"
+            if [ -n "$trimmed" ]; then
+              args+=(--require "$trimmed")
+            fi
+          done
+          node scripts/ui-verify.mjs "${args[@]}"
+
+      - name: Upload UI report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-report
+          path: tmp/ui
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f tmp/ui/report.json ]; then
+            node scripts/ui-summary.mjs tmp/ui/report.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '## ALM UI verification' >> "$GITHUB_STEP_SUMMARY"
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo 'ui-verify produced no report; check the previous step log.' >> "$GITHUB_STEP_SUMMARY"
+          fi
