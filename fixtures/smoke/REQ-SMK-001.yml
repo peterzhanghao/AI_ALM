@@ -1,0 +1,11 @@
+schema_version: 1
+id: REQ-SMK-001
+type: requirement
+title: 冒烟需求：订单支持部分退款
+status: proposed
+owner: team-payments
+links:
+  - type: allocated_to
+    target: MOD-SMK-001
+  - type: verified_by
+    target: TEST-SMK-001

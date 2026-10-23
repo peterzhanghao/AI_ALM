@@ -8,16 +8,16 @@
 |---|---|---|---|
 | `alm --help` | — | 0 | 列出命令与退出码约定 |
 | `alm --version` | — | 0 | 输出包版本 |
+| `alm index` | `--root <dir>` `--json` | 0 成功 / 1 有解析错误 / 2 用法错误 | 输出资产索引 `alm.index/v1`（当前仅 YAML 资产） |
+| `alm check` | `--root <dir>` `--json` | 0 通过 / 1 门禁失败 / 2 用法错误 | 运行 `ID-001`、`REL-001`；输出 `alm.check/v1` |
 | `alm contract verify` | `--json` | 0 全部有效 / 1 缺失或 `$id` 不符 | 校验五类契约文件 |
 
 ## 计划中（未实现，不得作为验收依据）
 
 | 命令 | 计划卡片 | 说明 |
 |---|---|---|
-| `alm index` | ALM-02.01 | 输出资产与关系索引 `alm.index/v1` |
 | `alm show <ID>` | ALM-03.01 | 单个资产详情 |
 | `alm query` | ALM-03.01 | 按类型/状态/Owner 查询 |
-| `alm check` | ALM-02.03 | R1 门禁，输出 `alm.check/v1` |
 | `alm diff` | ALM-02.04 | 结构化差异 `alm.diff/v1` |
 | `alm impact` | ALM-02.04 | 影响闭包 |
 | `alm trace` | ALM-02.04 | 需求追踪链 |

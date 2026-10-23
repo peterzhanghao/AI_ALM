@@ -1,0 +1,7 @@
+schema_version: 1
+id: TEST-SMK-001
+type: acceptance-test
+title: 部分退款金额与订单状态一致
+status: proposed
+owner: team-qa
+links: []
