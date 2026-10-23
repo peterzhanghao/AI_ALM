@@ -14,7 +14,7 @@ AI_ALM 的工程仓库：承载代码、开发流程与 AI 技能（DeepSeek Har
 │   ├── ai-github-issue-workflow/    # Issue 拆分、门禁、写入回读、台账
 │   ├── ai-github-pr-workflow/       # 分支、提交、PR、评审、合并收口
 │   └── alm-mvp-dev/                 # ALM MVP 开发技能（布局、命令、门禁）
-├── .github/                         # Issue/PR 模板、CODEOWNERS、CI
+├── .github/                         # Issue/PR 模板、CODEOWNERS、CI 与回归泳道
 ├── packages/                        # ALM MVP 实现（见架构文档）
 │   ├── alm-core/                    # 领域模型、解析、门禁、差异、基线、CLI
 │   ├── alm-scm/                     # SCM/CI 适配器
@@ -25,6 +25,7 @@ AI_ALM 的工程仓库：承载代码、开发流程与 AI 技能（DeepSeek Har
 ├── fixtures/order-refund/           # 部分退款样例资产与负例夹具
 ├── docs/
 │   ├── development/github-workflow.md   # 制度层：约定与边界
+│   ├── development/regression-ci.md     # 回归泳道、证据与 Issue 回写
 │   ├── planning/                        # 架构、问题台账与任务拆解
 │   ├── adr/                             # 架构决策记录
 │   ├── analysis/                        # 历史分析与需求评审
@@ -32,6 +33,9 @@ AI_ALM 的工程仓库：承载代码、开发流程与 AI 技能（DeepSeek Har
 ├── scripts/
 │   ├── setup-github.ps1             # 标签、develop、分支保护
 │   ├── validate-skills.ps1          # 技能校验（CI 复用）
+│   ├── regression.mjs               # 回归泳道执行、证据与聚合门禁
+│   ├── regression-fixtures.mjs      # 正例/负例夹具回归
+│   ├── test-obligation.mjs          # PR 测试义务：源码变更必须带测试/夹具
 │   └── demo-init.ps1                # 生成样例 ALM 仓库（tmp/，不入库）
 ├── archive/                         # 历史版本，不参与发现
 ├── CHANGELOG.md
@@ -64,10 +68,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-skills.ps1
 1. 在 `docs/planning/issue-register.md` 登记规划键与门禁结论。
 2. 通过门禁后创建 Issue（类型、父项、blocked-by、标签）。
 3. 从 `origin/develop` 切分支，实现并验证。
-4. 提 Draft PR，补齐描述与证据；检查全绿后转 Ready。
+4. 提 Draft PR，补齐测试与证据；`test-obligation` 与五条回归泳道全绿后转 Ready。
 5. 合并到 `develop`，回读 merge commit，留交付记录并**显式关闭** Issue。
+6. 合并后 `Issue regression` 自动在 merge commit 上复跑回归，评论并标记关联 Issue。
 
-细节见 [GitHub 工作流](docs/development/github-workflow.md)。
+细节见 [GitHub 工作流](docs/development/github-workflow.md) 与 [自动化回归](docs/development/regression-ci.md)。
 
 ## 为什么是这套结构
 
@@ -75,6 +80,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-skills.ps1
 - **`SKILL.md` + `references/`**：正文保持一屏，模板与命令按需读取。
 - **制度层与执行层分离**：`docs/` 给人评审，技能给 AI 执行，两者相对链接。
 - **CI 校验**：DSH 会静默跳过 frontmatter 非法的技能，校验脚本把这类问题变成可见失败。
+- **回归证据闭环**：PR 与合并后共用一套泳道；聚合门禁要求每个泳道都有当前提交的证据，失败时把结果回写到 Issue。
+- **测试义务门禁**：源码变更必须同 PR 补测试/夹具，或给出经评审的豁免理由；新测试放在标准目录即被自动发现和执行。
 
 ## AI Native ALM MVP 方案
 

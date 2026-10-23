@@ -3,7 +3,7 @@ name: ai-github-pr-workflow
 description: "AI_ALM 仓库的 GitHub PR 工作流：从执行 Task 开 feature 分支、提交规范、Draft PR、评审与检查、合并到 develop、关闭 Issue 与下游重算。用户要开发任务、提 PR、评审合并或收口时使用。"
 whenToUse: "需要从 develop 创建 feature 分支、提交代码、创建或更新 PR、处理评审意见与 CI 检查、合并到 develop 并关闭 Issue 时。"
 metadata:
-  version: "3.0.0"
+  version: "3.1.0"
   owner: "peterzhanghao"
   repo: "peterzhanghao/AI_ALM"
   updated: "2026-10-23"
@@ -60,6 +60,7 @@ git switch -c feature/alm-01-02-agent-version origin/develop
 - 提交正文写 `Refs #<编号>`；编号是 GitHub 真实 Issue 号，`ALM-*` 规划键不能替代。
 - 中间提交不使用 `Closes/Fixes`；合并阶段再决定关闭方式。
 - 按风险补充测试与中文文档；行为、接口、配置变化必须说明兼容性与回滚。
+- 行为变更必须同 PR 补测试或夹具；`test-obligation` 检查会拒绝“只改源码不补测试”。确无测试价值时在 PR 正文写一行 `Test-Exemption` 豁免说明（冒号 + 至少 10 个字符理由），并在评审中确认。
 - 注释解释**语义、原因和不变量**，不复述语句本身。
 - 提交前只对改动模块执行格式化与检查：backend `mvn spotless:apply` / `spotless:check`；前端与脚本 `pnpm format` / `pnpm lint` / `pnpm format:check`（按本仓实际技术栈调整）。
 - 运行与改动相称的验证，记录准确命令、结果与固定 SHA。
@@ -85,6 +86,8 @@ gh pr checks <n> --watch
 gh pr review <n> --approve --body "LGTM"
 ```
 
+检查至少包含 `test-obligation` 与 `regression-gate`；前者证明补齐测试，后者证明五条泳道和证据聚合通过。
+
 - 代码行问题在原讨论线程回复；评审意见涉及代码时在同一分支修复并补验证。
 - 只在**有意义的变化**时补 PR 评论：新一轮改动与固定 SHA、检查结果、评审处理结果、阻塞与下一步。不按每次 push 刷评论。
 - 描述持续反映当前整体范围、风险与验证结论；过程记录放评论。
@@ -107,8 +110,9 @@ gh pr review <n> --approve --body "LGTM"
 2. 回读 `mergedAt`、`mergeCommit`、pipeline/checks 结果与目标分支。
 3. 在 Issue 留交付记录：实现范围、固定 SHA、验证命令与结果、偏离决策、未交付项、下游影响。
 4. 关闭 Issue：合并到 `develop` **不会**触发 `Closes #n` 自动关闭（closing 关键字只对默认分支生效），必须显式 `gh issue close <n>` 并清理旧 `status::*`。
-5. 对每个下游 Issue 回读全部 blocked-by，全部关闭才可置 `ready`。
-6. 结束本次功能开发；不合并 `main`、不打标签、不把 `develop` 合并说成发布。
+5. 等待 `Issue regression` 完成并回读关联 Issue 的 `regression::*`；失败时按评论登记修复，不把失败说成收口。
+6. 对每个下游 Issue 回读全部 blocked-by，全部关闭才可置 `ready`。
+7. 结束本次功能开发；不合并 `main`、不打标签、不把 `develop` 合并说成发布。
 
 ## 8. 失败与例外
 
@@ -123,8 +127,10 @@ gh pr review <n> --approve --body "LGTM"
 - [ ] 一个 PR 只对应一个 Issue、一件事。
 - [ ] 提交信息含真实 `Refs #编号`，中间提交没有 `Closes/Fixes`。
 - [ ] 格式化与检查只在改动模块执行并通过。
+- [ ] `test-obligation` 通过：行为变更已补测试/夹具，或豁免理由经评审确认。
 - [ ] 验收未完成时 PR 保持 Draft。
 - [ ] 合并后有回读，Issue 有交付记录并已显式关闭。
+- [ ] 合并后 `Issue regression` 已回写；`regression::passed`，或失败已登记修复。
 - [ ] 没有把合并到 `develop` 描述成发布。
 
 ## 参考文件

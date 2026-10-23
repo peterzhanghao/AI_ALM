@@ -3,7 +3,7 @@ name: alm-mvp-dev
 description: "在 AI_ALM 仓库开发 AI Native ALM MVP 的执行技能：仓库布局、alm 命令面、五类契约、门禁规则、测试与交付纪律。用户要改 alm-core、解析器、门禁、插件或样例资产时使用。"
 whenToUse: "在 AI_ALM 仓库实现或修改 ALM MVP（alm-core、门禁规则、DSH 插件、样例资产、证据与基线）时；或需要确认命令、契约版本、测试与 PR 交付要求时。"
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
   owner: "peterzhanghao"
   repo: "peterzhanghao/AI_ALM"
   updated: "2026-10-23"
@@ -72,12 +72,16 @@ alm contract verify [--json]
 
 ## 5. 测试与命令
 
+行为变更必须同 PR 补测试；`test-obligation` 会拒绝“只改源码不补测试”。落点、正反例写法、自动发现规则与豁免格式见 [`references/testing.md`](references/testing.md)。
+
 ```powershell
-pnpm test                                  # node --test 全部包
+pnpm test                                  # node --test 全部包（自动发现新测试）
+node scripts/test-obligation.mjs --base origin/develop  # 检查是否漏测
 node packages/alm-core/bin/alm.mjs --help
 node packages/alm-core/bin/alm.mjs contract verify
 node scripts/check-alm-skill.mjs           # 技能命令与 CLI 一致性
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-skills.ps1
+node scripts/regression.mjs run-lane cli --output tmp/regression/cli  # 本地复跑 CI 泳道
 ```
 
 新增测试放 `packages/alm-core/test/{unit,integration}`；端到端放 `test/e2e`。测试用临时目录，不写仓库内固定路径。Node 版本要求 ≥ 22；本机 Host 运行时为 Node 24。
@@ -104,7 +108,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-skills.ps1
 
 ## 8. 完成前自检
 
-- [ ] `pnpm test` 全绿，命令退出码符合契约。
+- [ ] `pnpm test` 全绿；`test-obligation` 通过（或豁免理由经评审）。
+- [ ] PR 的 `regression-gate` 五条泳道通过，合并后 `Issue regression` 回写 `regression::passed`。
 - [ ] 新增/修改的门禁有反例，且反例确实失败。
 - [ ] 契约、文档、技能命令三处一致（`check-alm-skill.mjs` 通过）。
 - [ ] PR 写了证据命令、结果与未覆盖项。

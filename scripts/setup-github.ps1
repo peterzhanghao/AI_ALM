@@ -51,7 +51,9 @@ $labels = @(
     @{ Name = 'status::done'; Color = '5319E7'; Description = '已交付' },
     @{ Name = 'priority::P0'; Color = 'B60205'; Description = '最高优先级' },
     @{ Name = 'priority::P1'; Color = 'D93F0B'; Description = '高优先级' },
-    @{ Name = 'priority::P2'; Color = 'FBCA04'; Description = '普通优先级' }
+    @{ Name = 'priority::P2'; Color = 'FBCA04'; Description = '普通优先级' },
+    @{ Name = 'regression::passed'; Color = '0E8A16'; Description = '合并后自动化回归通过' },
+    @{ Name = 'regression::failed'; Color = 'B60205'; Description = '合并后自动化回归失败' }
 )
 
 foreach ($label in $labels) {

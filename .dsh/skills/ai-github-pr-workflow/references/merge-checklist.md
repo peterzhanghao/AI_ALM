@@ -4,7 +4,8 @@
 
 ## 1. 合并与证据
 
-- [ ] checks 全绿：`gh pr checks <n>`
+- [ ] checks 全绿：`gh pr checks <n>`，至少包含 `test-obligation` 与 `regression-gate`
+- [ ] 行为变更已补测试/夹具，或 PR 正文有经评审确认的 `Test-Exemption: <理由>`
 - [ ] 评审已通过：`gh pr view <n> --json reviewDecision`
 - [ ] 无冲突：`gh pr view <n> --json mergeable,mergeStateStatus`
 - [ ] PR 状态已从 Draft 转为 Ready
@@ -15,6 +16,9 @@ gh pr merge <n> --merge --delete-branch
 ```
 
 合并后再次回读 `state=merged`、`mergedAt`、`mergeCommit.oid`。
+
+- [ ] `Issue regression` 已在 merge commit 上完成：`gh run list --workflow issue-regression.yml --limit 1`
+- [ ] 关联 Issue 出现 `regression::passed`；若为 `regression::failed`，按评论中的泳道与命令登记修复，不宣布收口
 
 ## 2. Issue 交付记录
 

@@ -3,7 +3,7 @@ name: ai-github-issue-workflow
 description: "AI_ALM 仓库的 GitHub 工作项工作流：Issue 类型与子议题、blocked-by 依赖、发布门禁、正文模板、gh 写入与回读、标签状态、台账同步、进展评论。用户要新建、调整或关闭 GitHub Issue 时使用。"
 whenToUse: "需要拆分或创建 GitHub Issue、调整父子层级或 blocked-by 依赖、修改 status::* 等标签、写 Issue 进展评论、关闭 Issue 或同步问题台账时。"
 metadata:
-  version: "3.0.0"
+  version: "3.1.0"
   owner: "peterzhanghao"
   repo: "peterzhanghao/AI_ALM"
   updated: "2026-10-23"
@@ -60,7 +60,7 @@ ALM-00 总控 Issue
 
 ## 4. 发布门禁（硬性）
 
-只有台账对应行 `确认结论=确认发布`，且 Owner、类型、优先级、实施范围、依赖、验收（正例 + 反例）全部确认，才允许创建远端 Issue。
+只有台账对应行 `确认结论=确认发布`，且 Owner、类型、优先级、实施范围、依赖、验收（正例 + 反例 + 测试落点）全部确认，才允许创建远端 Issue。
 
 `待确认`、`需修改`、`暂缓`、`不发布` → 只产出草案，并说明缺哪一项、需要谁确认。
 
