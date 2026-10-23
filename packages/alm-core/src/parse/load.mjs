@@ -29,7 +29,7 @@ export function findAssetFiles(root) {
   return files
 }
 
-function parseFile(text, file) {
+export function parseAssetFile(text, file) {
   const lower = file.toLowerCase()
   if (lower.endsWith('.sdoc')) return parseSdocAsset(text, file)
   if (lower.endsWith('.md')) {
@@ -56,7 +56,7 @@ export function loadRepo(root) {
   for (const absolute of findAssetFiles(root)) {
     const file = relative(root, absolute).replaceAll('\\', '/')
     try {
-      for (const asset of parseFile(readFileSync(absolute, 'utf8'), file)) assets.push(asset)
+      for (const asset of parseAssetFile(readFileSync(absolute, 'utf8'), file)) assets.push(asset)
     } catch (error) {
       if (!(error instanceof AssetError)) throw error
       errors.push({

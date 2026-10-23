@@ -4,4 +4,6 @@ type: requirement
 title: 重复 ID 反例 B
 status: proposed
 owner: team-demo
-links: []
+links:
+  - type: verified_by
+    target: TEST-DUP-001

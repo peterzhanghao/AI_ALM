@@ -1,0 +1,7 @@
+schema_version: 1
+id: TEST-DUP-001
+type: acceptance-test
+title: 重复 ID 反例的验收
+status: proposed
+owner: team-demo
+links: []

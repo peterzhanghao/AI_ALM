@@ -4,6 +4,8 @@ type: requirement
 title: 秘密泄漏反例
 status: proposed
 owner: team-demo
-links: []
+links:
+  - type: verified_by
+    target: TEST-SEC-001
 # 以下为 SEC-001 的扫描目标，不是真实凭据
 api_key: fixture-placeholder-not-a-real-secret

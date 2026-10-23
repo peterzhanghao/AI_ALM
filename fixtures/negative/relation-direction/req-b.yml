@@ -1,0 +1,9 @@
+schema_version: 1
+id: REQ-RD-002
+type: requirement
+title: 关系方向反例的目标需求
+status: proposed
+owner: team-demo
+links:
+  - type: verified_by
+    target: TEST-RD-001

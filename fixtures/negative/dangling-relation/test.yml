@@ -1,0 +1,7 @@
+schema_version: 1
+id: TEST-DAN-001
+type: acceptance-test
+title: 悬空关系反例的验收
+status: proposed
+owner: team-demo
+links: []

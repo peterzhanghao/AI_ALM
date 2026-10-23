@@ -29,6 +29,8 @@ const TYPE_PREFIX = {
   risk: 'RISK',
 }
 
+export { TYPE_PREFIX }
+
 export const ID_PATTERN = /^(REQ|ADR|MOD|IF|DM|TEST|RISK)-[A-Z0-9]+(-[A-Z0-9]+)*$/
 
 export class AssetError extends Error {
@@ -70,9 +72,6 @@ export function normalizeAsset(raw, source) {
   }
   if (!ASSET_TYPES.includes(type)) throw new AssetError(`unknown asset type: ${type}`, where)
   if (!ID_PATTERN.test(id)) throw new AssetError(`invalid asset id: ${id}`, where)
-  if (!id.startsWith(`${TYPE_PREFIX[type]}-`)) {
-    throw new AssetError(`id prefix does not match type ${type}: ${id}`, where)
-  }
   if (!ASSET_STATUSES.includes(status)) throw new AssetError(`unknown status: ${status}`, where)
 
   const rawLinks = raw.links === undefined ? [] : raw.links

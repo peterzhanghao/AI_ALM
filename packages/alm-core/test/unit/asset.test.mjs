@@ -36,11 +36,10 @@ test('rejects a missing required field with FMT-002', () => {
   })
 })
 
-test('rejects an id prefix that does not match the type', () => {
-  assert.throws(
-    () => normalizeAsset(valid({ id: 'ADR-PAY-001' }), source),
-    /id prefix does not match type/,
-  )
+test('accepts a mismatched id prefix; ID-002 owns that decision', () => {
+  const asset = normalizeAsset(valid({ id: 'ADR-PAY-001' }), source)
+  assert.equal(asset.id, 'ADR-PAY-001')
+  assert.equal(asset.type, 'requirement')
 })
 
 test('rejects unknown link types', () => {

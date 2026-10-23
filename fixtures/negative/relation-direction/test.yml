@@ -1,0 +1,7 @@
+schema_version: 1
+id: TEST-RD-001
+type: acceptance-test
+title: 关系方向反例的验收
+status: proposed
+owner: team-demo
+links: []
