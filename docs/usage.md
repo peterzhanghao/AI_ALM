@@ -29,6 +29,27 @@ DSH 的文件系统技能提供方按 rank 扫描：
 - **显式**：在输入中使用 `/ai-github-issue-workflow` 或 `/ai-github-pr-workflow`。
 - 两个技能互补：先工作项（做什么），再 PR（怎么交付）。
 
+## 插件页面入口（重要）
+
+DSH Web 的 GUI 根地址需要 `dsh web` 打印的带 token URL；直接打开 `http://127.0.0.1:<端口>/` 会返回：
+
+```text
+401 Unauthorized
+dsh web authentication required; reopen the URL printed by dsh web.
+```
+
+插件页面请用以下入口：
+
+| 入口 | 地址 |
+|---|---|
+| DSH 内需求页 | Settings → Requirements（可 “Open as main panel”） |
+| DSH 内架构页 | Settings → Architecture |
+| 需求只读 HTML | `http://127.0.0.1:<端口>/alm/requirements` |
+| 架构只读 HTML | `http://127.0.0.1:<端口>/alm/architecture` |
+| JSON | `/api/alm/requirements`、`/api/alm/architecture` |
+
+`/alm/*` 与 `/api/alm/*` 是插件路由，免 token、只读，可在内嵌浏览器或系统浏览器直接打开。
+
 ## 三个典型场景
 
 ```text

@@ -36,13 +36,21 @@ export default class AlmCoreService {
     this.version = pkg.version
     ctx.reflect.provide('almCore', this)
 
+    // Cordis effects own every registration so a reload cannot leave a stale
+    // route or tool behind (duplicate route/tool errors on re-activation).
+    const disposers = []
+    ctx.effect(() => () => {
+      for (const dispose of disposers.splice(0)) dispose()
+    })
+    const tools = { register: (definition) => disposers.push(ctx.tools.register(definition)) }
+
     const rootFor = async (args, exec) => {
       if (args.root) return args.root
       if (!exec.agent) throw new Error('alm tools require an agent Session')
       return ctx.workingDirectory.ensure(exec.agent, exec.signal)
     }
 
-    ctx.tools.register(
+    tools.register(
       defineTool(
         'alm_index',
         'Index ALM assets under the current workspace (or an explicit root) and return the normalized asset index.',
@@ -51,7 +59,7 @@ export default class AlmCoreService {
       ),
     )
 
-    ctx.tools.register(
+    tools.register(
       defineTool(
         'alm_check',
         'Run the R1 deterministic gates over ALM assets and return the check report with findings.',
@@ -64,7 +72,7 @@ export default class AlmCoreService {
       ),
     )
 
-    ctx.tools.register(
+    tools.register(
       defineTool(
         'alm_show',
         'Return one ALM asset by its stable id, including relations and source location.',
@@ -78,7 +86,7 @@ export default class AlmCoreService {
       ),
     )
 
-    ctx.tools.register(
+    tools.register(
       defineTool(
         'alm_query',
         'List ALM assets filtered by type, status or owner.',
@@ -97,7 +105,7 @@ export default class AlmCoreService {
       ),
     )
 
-    ctx.tools.register(
+    tools.register(
       defineTool(
         'alm_workspace_create',
         'Open a change workspace: create a branch from a baseline and commit a change record. The worktree must be clean.',
@@ -116,7 +124,7 @@ export default class AlmCoreService {
       ),
     )
 
-    ctx.tools.register(
+    tools.register(
       defineTool(
         'alm_workspace_status',
         'Return the current branch, whether it belongs to an open change, and whether the worktree is dirty.',
@@ -125,7 +133,7 @@ export default class AlmCoreService {
       ),
     )
 
-    ctx.tools.register(
+    tools.register(
       defineTool(
         'alm_workspace_guard',
         'Check whether paths may be written in the active change workspace. Allowed dirs: requirements, architecture, adr, tests, risks.',
