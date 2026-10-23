@@ -33,7 +33,7 @@ export function mergeLocal({ root, base, head, message }) {
   if (dirty !== '') throw new Error('merge: worktree must be clean')
   git(root, 'switch', base)
   try {
-    git(root, 'merge', '--no-ff', '-m', message ?? `merge ${head}`, head)
+    git(root, '-c', 'user.name=alm-bot', '-c', 'user.email=alm@local', 'merge', '--no-ff', '-m', message ?? `merge ${head}`, head)
     return { base, head, mergeSha: git(root, 'rev-parse', 'HEAD') }
   } finally {
     // Leave the repository on the base branch; the caller decides the next step.
