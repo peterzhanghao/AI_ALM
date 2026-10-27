@@ -97,7 +97,7 @@ gh run download <run-id> -n ui-report -D tmp/ui-ci             # report.json + �
 | 缺口 | 影响 | 现状 / 承接 |
 |---|---|---|
 | Gitea 适配器 | 只能本地 git 与 GitHub 工作流 | `alm-scm` 预留接口，未接入 CLI；ALM-04.06 实现客户端与 mock 测试 |
-| 侧边栏浏览器拒绝同源地址 | 打开 `/alm/*` 显示空白（DSH 的 `application-origin` 规则） | 用另一个 loopback 主机名（`localhost` ↔ `127.0.0.1`），页面页脚已给出该地址，见 [usage](../usage.md) |
+| 侧边栏浏览器禁止同端口 loopback | 打开 DSH Host 端口的 `/alm/*` 显示空白（Desktop guest 的 `isApplicationHost`，导航 `ERR_FAILED`） | 插件 sidecar 端口 `:60870` / `:60871`；或 `node scripts/serve-alm-pages.mjs`（`:60872`），见 [usage](../usage.md) |
 | PR 流程不跑 UI 测试 | 浏览器下载与时长不适合每次 PR | `alm-ui.yml` 按需手动触发（Chromium + CJK 字体、artifact）；PR 仍只跑 4 个无浏览器测试 |
 | `REN-002` 需要 StrictDoc | 未安装时 `skip` | `scripts/strictdoc-render.ps1` 隔离 venv，`strictdoc==0.30.4` |
 | `STATE-001` 需要 `--base` | 无基线时 `skip` | 门禁命令一律带 `--base`，报告里标注 |

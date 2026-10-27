@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { renderArchitecturePage, renderErrorPage, sidebarBrowserUrl } from '../render.mjs'
+import { renderArchitecturePage, renderErrorPage } from '../render.mjs'
 
 const payload = {
   schema: 'alm.architecture/v1',
@@ -46,10 +46,9 @@ test('architecture page reports an error payload', () => {
   assert.match(renderErrorPage('boom'), /Failed to load: boom/)
 })
 
-test('architecture page points the sidebar browser at the other loopback hostname', () => {
-  assert.equal(sidebarBrowserUrl('127.0.0.1:58546', '/alm/architecture'), 'http://localhost:58546/alm/architecture')
-  const html = renderArchitecturePage(payload, { sidebarUrl: 'http://localhost:58546/alm/architecture' })
+test('architecture page renders the sidebar browser hint only when asked', () => {
+  const html = renderArchitecturePage(payload, { sidebarUrl: 'http://127.0.0.1:60871/alm/architecture' })
   assert.match(html, /Sidebar browser:/)
-  assert.match(html, /http:\/\/localhost:58546\/alm\/architecture/)
+  assert.match(html, /http:\/\/127\.0\.0\.1:60871\/alm\/architecture/)
   assert.ok(!renderArchitecturePage(payload).includes('Sidebar browser:'))
 })
