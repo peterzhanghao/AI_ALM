@@ -90,6 +90,9 @@ try {
   check('requirements lists TEST-PAY-001 link', requirementsText.includes('TEST-PAY-001'))
   check('requirements shows tracking gap section', requirementsText.includes('Tracking gaps'))
   check('requirements has no mojibake', !requirementsText.includes('路') && !requirementsText.includes('鈥'))
+  if (!options.base) {
+    check('requirements shows the sidebar browser hint', requirementsText.includes('Sidebar browser:'))
+  }
   // textContent, not innerText: the CSS uppercases headers via text-transform.
   const headerText = (
     await page.locator('table th').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()))

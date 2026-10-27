@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
-import { renderErrorPage, renderRequirementsPage } from './render.mjs'
+import { renderErrorPage, renderRequirementsPage, sidebarBrowserUrl } from './render.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const DEFAULT_ROOT = fileURLToPath(new URL('../../fixtures/order-refund', import.meta.url))
@@ -54,7 +54,7 @@ export default class RequirementsService {
     webServer.register({
       kind: 'exact',
       path: '/alm/requirements',
-      handler: (_req, res) => this.handlePage(res),
+      handler: (req, res) => this.handlePage(req, res),
     })
 
     tools.register({
@@ -71,11 +71,12 @@ export default class RequirementsService {
     })
   }
 
-  handlePage(res) {
+  handlePage(req, res) {
     try {
       const payload = query.requirements(this.root)
+      const sidebarUrl = sidebarBrowserUrl(req?.headers?.host, '/alm/requirements')
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
-      res.end(renderRequirementsPage(payload))
+      res.end(renderRequirementsPage(payload, { sidebarUrl }))
     } catch (error) {
       res.writeHead(500, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       res.end(renderErrorPage(error?.message ?? String(error), 500))
