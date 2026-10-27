@@ -78,7 +78,7 @@ PR #18 检查全绿且评审通过，走收口：合并、回读 merge commit、
 | 加载后提示资源不存在 | 相对路径写错 | 资源路径相对技能目录解析，用 `references/xxx.md` |
 | `gh` 报未认证 | 未登录或 token 过期 | `gh auth login` / `gh auth refresh` |
 | 合并后 Issue 没关 | closing 关键字只对默认分支生效 | 显式 `gh issue close <n>` |
-| 侧边栏「浏览器」打开 `/alm/...` 显示空白（或提示“不能在嵌入浏览器中打开 DSH 应用自身”） | DSH 的侧边栏浏览器拒绝与 GUI **同源**的地址（`parseBrowserAddress` 的 `application-origin` 规则）；插件页与 GUI 共用 `127.0.0.1:<port>` | 换成另一个 loopback 主机名：GUI 是 `127.0.0.1` 就用 `http://localhost:<port>/alm/requirements`，反之用 `127.0.0.1`；页面页脚会直接给出该地址 |
+| 侧边栏「浏览器」打开 `/alm/...` 显示空白 | DSH Desktop guest 禁止访问**与 Host 同端口的 loopback**（`isApplicationHost`，`127.0.0.1`/`localhost`/`[::1]` 全拒，导航 `ERR_FAILED (-2)`） | 用 sidecar 端口：`http://127.0.0.1:60870/alm/requirements`、`:60871/alm/architecture`；或先跑 `node scripts/serve-alm-pages.mjs` 再用 `:60872` |
 | `/alm/...` 报 `ERR_CONNECTION_REFUSED` | DSH 重启后端口变了 | 从 GUI 地址栏取当前端口，或运行 `dsh web` 看打印的 URL |
 
 校验命令：
@@ -93,19 +93,30 @@ node scripts/check-alm-skill.mjs
 
 ## 侧边栏浏览器与插件页
 
-DSH 右侧的「浏览器」tab 可以访问 loopback 服务，但**明确拒绝与 GUI 同源的地址**（应用自身 origin），此时页面区域是空白，日志里没有网络错误。判断与用法：
+DSH Desktop 的侧边栏「浏览器」是 Electron guest，主进程里有一条硬规则：
 
-1. 看 GUI 地址栏：`http://127.0.0.1:<port>`；
-2. 侧边栏里输入 **另一个** loopback 主机名：
+```js
+// lib/main.js, DesktopBrowserGuests
+isApplicationHost(url) {
+  return url.port === host.port &&
+    (url.hostname === host.hostname || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname));
+}
+```
 
-   ```text
-   http://localhost:<port>/alm/requirements
-   http://localhost:<port>/alm/architecture
-   ```
+也就是说：**凡是与 DSH Host 同端口的 loopback 地址（`127.0.0.1`、`localhost`、`[::1]`）都会被拒绝**，导航以 `ERR_FAILED (-2)` 结束，面板表现为空白。把 `127.0.0.1` 换成 `localhost` 没有用——检查的是端口。
 
-3. 二者指向同一服务（`localhost` 与 `127.0.0.1` 是不同 origin），因此能通过校验；系统浏览器两种写法都可以。
+因此插件页面额外提供一个**独立端口的只读 sidecar**：
 
-插件页面页脚会渲染 `Sidebar browser: <url>` 提示，按请求 `Host` 自动给出可用的那个主机名；公网域名访问时不显示该提示。
+| 入口 | 地址 | 说明 |
+|---|---|---|
+| 需求页（sidecar） | `http://127.0.0.1:60870/alm/requirements` | 插件启动时自动监听；端口被占用时回退到临时端口 |
+| 架构页（sidecar） | `http://127.0.0.1:60871/alm/architecture` | 同上 |
+| 需求/架构 JSON | `http://127.0.0.1:60870/api/alm/requirements`、`:60871/api/alm/architecture` | — |
+| 独立预览服务 | `node scripts/serve-alm-pages.mjs --port 60872` | 不改 DSH、不用重启，立刻可用 |
+
+侧边栏里输入 sidecar 地址即可；DSH 页面页脚会渲染 `Sidebar browser: <sidecar url>` 提示（提示需重启 DSH 后生效）。
+
+系统浏览器不受这条规则限制，两种入口都能打开。
 
 ## 按需 UI 验证（GitHub Actions）
 

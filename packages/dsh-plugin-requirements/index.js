@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
-import { renderErrorPage, renderRequirementsPage, sidebarBrowserUrl } from './render.mjs'
+import { renderErrorPage, renderRequirementsPage } from './render.mjs'
+import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const DEFAULT_ROOT = fileURLToPath(new URL('../../fixtures/order-refund', import.meta.url))
@@ -30,6 +31,7 @@ export default class RequirementsService {
     this.ctx = ctx
     this.version = pkg.version
     this.root = config?.root ? resolve(config.root) : DEFAULT_ROOT
+    this.sidecarOrigin = null
 
     // Own every registration through a Cordis effect: on reload the old routes
     // and tools are disposed, otherwise re-activation hits duplicate errors.
@@ -42,6 +44,33 @@ export default class RequirementsService {
 
     this.webServer = webServer
     this.tools = tools
+
+    // Sidecar listener on its own port: the desktop sidebar browser refuses
+    // every loopback URL on the DSH host port, so the page needs another origin.
+    ctx.effect(() => {
+      let disposed = false
+      let server
+      startSidebarServer({
+        port: config?.sidebarPort ?? SIDEBAR_PORT,
+        handler: (req, res) => this.handleSidecar(req, res),
+      })
+        .then((started) => {
+          if (disposed) {
+            started.close()
+            return
+          }
+          server = started
+          this.sidecarOrigin = started.origin
+        })
+        .catch((error) => {
+          console.error(`alm requirements sidebar server: ${error?.message ?? String(error)}`)
+        })
+      return () => {
+        disposed = true
+        this.sidecarOrigin = null
+        server?.close()
+      }
+    })
 
     webServer.register({
       kind: 'exact',
@@ -71,16 +100,30 @@ export default class RequirementsService {
     })
   }
 
-  handlePage(req, res) {
+  handlePage(_req, res) {
     try {
       const payload = query.requirements(this.root)
-      const sidebarUrl = sidebarBrowserUrl(req?.headers?.host, '/alm/requirements')
+      const sidebarUrl = this.sidecarOrigin ? `${this.sidecarOrigin}${SIDEBAR_PATH}` : undefined
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       res.end(renderRequirementsPage(payload, { sidebarUrl }))
     } catch (error) {
       res.writeHead(500, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       res.end(renderErrorPage(error?.message ?? String(error), 500))
     }
+  }
+
+  handleSidecar(req, res) {
+    const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    if (path === SIDEBAR_PATH) {
+      this.handlePage(req, res)
+      return
+    }
+    if (path === SIDEBAR_API_PATH) {
+      this.handle(req, res)
+      return
+    }
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+    res.end('not found')
   }
 
   handle(_req, res) {

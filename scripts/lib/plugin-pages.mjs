@@ -7,15 +7,15 @@
  */
 import { createServer } from 'node:http'
 import { requirements } from '../../packages/dsh-plugin-requirements/query.mjs'
-import { renderRequirementsPage, sidebarBrowserUrl } from '../../packages/dsh-plugin-requirements/render.mjs'
+import { renderRequirementsPage } from '../../packages/dsh-plugin-requirements/render.mjs'
 import { architecture } from '../../packages/dsh-plugin-architecture/query.mjs'
 import { renderArchitecturePage } from '../../packages/dsh-plugin-architecture/render.mjs'
 
 /**
- * @param {{ root: string }} options
+ * @param {{ root: string, port?: number }} options
  * @returns {Promise<{ url: string, close(): Promise<void>, pages: { requirements: object, architecture: object } }>}
  */
-export async function servePages({ root }) {
+export async function servePages({ root, port = 0 }) {
   const pages = {
     requirements: requirements(root),
     architecture: architecture(root),
@@ -25,13 +25,13 @@ export async function servePages({ root }) {
     '/alm/requirements': (request) => [
       'text/html; charset=utf-8',
       renderRequirementsPage(pages.requirements, {
-        sidebarUrl: sidebarBrowserUrl(request.headers.host, '/alm/requirements'),
+        sidebarUrl: `http://${request.headers.host}/alm/requirements`,
       }),
     ],
     '/alm/architecture': (request) => [
       'text/html; charset=utf-8',
       renderArchitecturePage(pages.architecture, {
-        sidebarUrl: sidebarBrowserUrl(request.headers.host, '/alm/architecture'),
+        sidebarUrl: `http://${request.headers.host}/alm/architecture`,
       }),
     ],
     '/api/alm/requirements': () => ['application/json; charset=utf-8', JSON.stringify(pages.requirements, null, 2)],
@@ -54,14 +54,15 @@ export async function servePages({ root }) {
 
   await new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
+    server.listen(port, '127.0.0.1', resolve)
   })
 
   const address = server.address()
-  const port = typeof address === 'object' && address ? address.port : 0
+  const boundPort = typeof address === 'object' && address ? address.port : 0
 
   return {
-    url: `http://127.0.0.1:${port}`,
+    url: `http://127.0.0.1:${boundPort}`,
+    port: boundPort,
     pages,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   }

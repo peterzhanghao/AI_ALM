@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { renderErrorPage, renderRequirementsPage, sidebarBrowserUrl } from '../render.mjs'
+import { renderErrorPage, renderRequirementsPage } from '../render.mjs'
 
 const payload = {
   schema: 'alm.requirements/v1',
@@ -46,20 +46,6 @@ test('requirements page reports an error payload', () => {
   const html = renderRequirementsPage({ ok: false, error: 'root not found' })
   assert.match(html, /Failed to load: root not found/)
   assert.match(renderErrorPage('boom'), /Failed to load: boom/)
-})
-
-test('sidebarBrowserUrl swaps the loopback hostname and keeps port and path', () => {
-  assert.equal(sidebarBrowserUrl('127.0.0.1:58546', '/alm/requirements'), 'http://localhost:58546/alm/requirements')
-  assert.equal(sidebarBrowserUrl('localhost:58546', '/alm/requirements'), 'http://127.0.0.1:58546/alm/requirements')
-  assert.equal(sidebarBrowserUrl('[::1]:58546', '/alm/requirements'), 'http://localhost:58546/alm/requirements')
-  assert.equal(sidebarBrowserUrl('127.0.0.1', '/alm/requirements'), 'http://localhost/alm/requirements')
-})
-
-test('sidebarBrowserUrl ignores non-loopback or malformed hosts', () => {
-  assert.equal(sidebarBrowserUrl('example.com:443', '/alm/requirements'), null)
-  assert.equal(sidebarBrowserUrl('10.0.0.5:8080', '/alm/requirements'), null)
-  assert.equal(sidebarBrowserUrl('', '/alm/requirements'), null)
-  assert.equal(sidebarBrowserUrl(undefined, '/alm/requirements'), null)
 })
 
 test('requirements page renders the sidebar browser hint only when asked', () => {

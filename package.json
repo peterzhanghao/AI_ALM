@@ -10,6 +10,7 @@
     "alm": "node packages/alm-core/bin/alm.mjs",
     "test": "node --test \"packages/*/test/**/*.test.mjs\"",
     "test:ui": "node scripts/ui-verify.mjs",
+    "serve:pages": "node scripts/serve-alm-pages.mjs",
     "drill": "node scripts/drill.mjs",
     "ci": "node --test \"packages/*/test/**/*.test.mjs\" && node packages/alm-core/bin/alm.mjs contract verify"
   },
