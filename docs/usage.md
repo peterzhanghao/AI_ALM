@@ -78,7 +78,8 @@ PR #18 检查全绿且评审通过，走收口：合并、回读 merge commit、
 | 加载后提示资源不存在 | 相对路径写错 | 资源路径相对技能目录解析，用 `references/xxx.md` |
 | `gh` 报未认证 | 未登录或 token 过期 | `gh auth login` / `gh auth refresh` |
 | 合并后 Issue 没关 | closing 关键字只对默认分支生效 | 显式 `gh issue close <n>` |
-| DSH 内置浏览器打开 `/alm/...` 报 `ERR_CONNECTION_REFUSED` | 内置浏览器的 `127.0.0.1` 与宿主不在同一网络上下文（宿主侧 `Invoke-WebRequest` 已返回 200） | 用系统浏览器打开，或走 DSH 内 Settings → Requirements/Architecture |
+| 侧边栏「浏览器」打开 `/alm/...` 显示空白（或提示“不能在嵌入浏览器中打开 DSH 应用自身”） | DSH 的侧边栏浏览器拒绝与 GUI **同源**的地址（`parseBrowserAddress` 的 `application-origin` 规则）；插件页与 GUI 共用 `127.0.0.1:<port>` | 换成另一个 loopback 主机名：GUI 是 `127.0.0.1` 就用 `http://localhost:<port>/alm/requirements`，反之用 `127.0.0.1`；页面页脚会直接给出该地址 |
+| `/alm/...` 报 `ERR_CONNECTION_REFUSED` | DSH 重启后端口变了 | 从 GUI 地址栏取当前端口，或运行 `dsh web` 看打印的 URL |
 
 校验命令：
 
@@ -89,6 +90,22 @@ node scripts/check-alm-skill.mjs
 
 - `validate-skills.ps1`：`.dsh/skills` 的 frontmatter、命名、相对链接与体积。
 - `check-alm-skill.mjs`：全部 ALM 技能（`.dsh/skills` + `packages/alm-skills`）的命令存在性、链接、权限声明与工具清单，在 `alm-ci.yml` 中执行，失败退出 1。
+
+## 侧边栏浏览器与插件页
+
+DSH 右侧的「浏览器」tab 可以访问 loopback 服务，但**明确拒绝与 GUI 同源的地址**（应用自身 origin），此时页面区域是空白，日志里没有网络错误。判断与用法：
+
+1. 看 GUI 地址栏：`http://127.0.0.1:<port>`；
+2. 侧边栏里输入 **另一个** loopback 主机名：
+
+   ```text
+   http://localhost:<port>/alm/requirements
+   http://localhost:<port>/alm/architecture
+   ```
+
+3. 二者指向同一服务（`localhost` 与 `127.0.0.1` 是不同 origin），因此能通过校验；系统浏览器两种写法都可以。
+
+插件页面页脚会渲染 `Sidebar browser: <url>` 提示，按请求 `Host` 自动给出可用的那个主机名；公网域名访问时不显示该提示。
 
 ## 按需 UI 验证（GitHub Actions）
 

@@ -44,6 +44,7 @@
 | ALM-03.04 | 跨插件联合变更与写权限边界 | task | @peterzhanghao | P1 | plugin | done | ALM-03.02（#26，已关闭）、ALM-03.03（#28，已关闭） | 确认发布 | #30 | #31 | in-sync | 2026-10-23 20:20 |
 | ALM-03.05 | 插件页面无法从浏览器直接打开（GUI 401） | bug | @peterzhanghao | P0 | plugin | done | ALM-03.02、ALM-03.03 | 确认发布 | #43 | #44 | in-sync | 2026-10-23 20:40 |
 | ALM-03.06 | 插件重载后路由残留导致无法激活 | bug | @peterzhanghao | P1 | plugin | done | ALM-03.05 | 确认发布 | #46 | #44 | in-sync | 2026-10-23 20:50 |
+| ALM-03.08 | 侧边栏浏览器打开 /alm/* 空白（DSH 拒绝应用自身 origin） | bug | @peterzhanghao | P1 | plugin | review | ALM-03.05 | 确认发布 | #68 | — | in-sync | 2026-10-27 20:30 |
 | ALM-04 | 跟踪：评审、集成与发布 | tracking | @peterzhanghao | P1 | release | done | ALM-00 | 确认发布 | #34 | — | in-sync | 2026-10-23 21:45 |
 | ALM-04.01 | SCM 适配器与审批绑定 SHA | task | @peterzhanghao | P1 | release | done | ALM-02.03（#9，已关闭）、ALM-03.01（#22，已关闭） | 确认发布 | #35 | #36 | in-sync | 2026-10-23 21:30 |
 | ALM-04.02 | CI 必需检查与幂等证据 | task | @peterzhanghao | P1 | release | done | ALM-04.01（#35，已关闭）、ALM-02.05（#19，已关闭） | 确认发布 | #37 | #38 | in-sync | 2026-10-23 21:50 |

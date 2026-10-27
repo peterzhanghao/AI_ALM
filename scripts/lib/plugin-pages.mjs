@@ -7,7 +7,7 @@
  */
 import { createServer } from 'node:http'
 import { requirements } from '../../packages/dsh-plugin-requirements/query.mjs'
-import { renderRequirementsPage } from '../../packages/dsh-plugin-requirements/render.mjs'
+import { renderRequirementsPage, sidebarBrowserUrl } from '../../packages/dsh-plugin-requirements/render.mjs'
 import { architecture } from '../../packages/dsh-plugin-architecture/query.mjs'
 import { renderArchitecturePage } from '../../packages/dsh-plugin-architecture/render.mjs'
 
@@ -22,8 +22,18 @@ export async function servePages({ root }) {
   }
 
   const routes = {
-    '/alm/requirements': () => ['text/html; charset=utf-8', renderRequirementsPage(pages.requirements)],
-    '/alm/architecture': () => ['text/html; charset=utf-8', renderArchitecturePage(pages.architecture)],
+    '/alm/requirements': (request) => [
+      'text/html; charset=utf-8',
+      renderRequirementsPage(pages.requirements, {
+        sidebarUrl: sidebarBrowserUrl(request.headers.host, '/alm/requirements'),
+      }),
+    ],
+    '/alm/architecture': (request) => [
+      'text/html; charset=utf-8',
+      renderArchitecturePage(pages.architecture, {
+        sidebarUrl: sidebarBrowserUrl(request.headers.host, '/alm/architecture'),
+      }),
+    ],
     '/api/alm/requirements': () => ['application/json; charset=utf-8', JSON.stringify(pages.requirements, null, 2)],
     '/api/alm/architecture': () => ['application/json; charset=utf-8', JSON.stringify(pages.architecture, null, 2)],
     '/favicon.ico': () => ['image/x-icon', ''],
@@ -37,7 +47,7 @@ export async function servePages({ root }) {
       response.end('not found')
       return
     }
-    const [contentType, body] = route()
+    const [contentType, body] = route(request)
     response.writeHead(200, { 'content-type': contentType })
     response.end(body)
   })

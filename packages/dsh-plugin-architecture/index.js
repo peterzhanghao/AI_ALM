@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
-import { renderArchitecturePage, renderErrorPage } from './render.mjs'
+import { renderArchitecturePage, renderErrorPage, sidebarBrowserUrl } from './render.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const DEFAULT_ROOT = fileURLToPath(new URL('../../fixtures/order-refund', import.meta.url))
@@ -51,7 +51,7 @@ export default class ArchitectureService {
     webServer.register({
       kind: 'exact',
       path: '/alm/architecture',
-      handler: (_req, res) => this.handlePage(res),
+      handler: (req, res) => this.handlePage(req, res),
     })
 
     tools.register({
@@ -68,11 +68,12 @@ export default class ArchitectureService {
     })
   }
 
-  handlePage(res) {
+  handlePage(req, res) {
     try {
       const payload = query.architecture(this.root)
+      const sidebarUrl = sidebarBrowserUrl(req?.headers?.host, '/alm/architecture')
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
-      res.end(renderArchitecturePage(payload))
+      res.end(renderArchitecturePage(payload, { sidebarUrl }))
     } catch (error) {
       res.writeHead(500, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       res.end(renderErrorPage(error?.message ?? String(error), 500))

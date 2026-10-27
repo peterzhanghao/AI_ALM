@@ -35,7 +35,7 @@ export function renderErrorPage(message, status = 500) {
 }
 
 /** Server-rendered read-only page; works without the DSH GUI token. */
-export function renderRequirementsPage(payload) {
+export function renderRequirementsPage(payload, options = {}) {
   if (!payload || payload.ok === false) {
     return renderErrorPage(payload?.error ?? 'requirements payload unavailable', 500)
   }
@@ -84,5 +84,29 @@ export function renderRequirementsPage(payload) {
   ${gapItems}
 
   <p class="muted">Read-only · root <code>${escapeHtml(payload.root)}</code></p>
+  ${options.sidebarUrl ? `<p class="muted">Sidebar browser: <code>${escapeHtml(options.sidebarUrl)}</code> — DSH blocks its own origin, so use this hostname.</p>` : ''}
 </div></body></html>`
+}
+
+/**
+ * The DSH sidebar browser refuses URLs whose origin equals the application
+ * origin, so the same page is offered under the other loopback hostname
+ * (`localhost` <-> `127.0.0.1`), which is a distinct origin.
+ *
+ * @param {string | undefined} hostHeader request `Host` header
+ * @param {string} path page path
+ * @returns {string | null} sidebar-browser URL, or null for non-loopback hosts
+ */
+export function sidebarBrowserUrl(hostHeader, path) {
+  if (typeof hostHeader !== 'string' || hostHeader.trim() === '') return null
+  let parsed
+  try {
+    parsed = new URL(`http://${hostHeader.trim()}`)
+  } catch {
+    return null
+  }
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '')
+  if (!['localhost', '127.0.0.1', '::1'].includes(hostname)) return null
+  const alias = hostname === 'localhost' ? '127.0.0.1' : 'localhost'
+  return `http://${alias}${parsed.port ? `:${parsed.port}` : ''}${path}`
 }
