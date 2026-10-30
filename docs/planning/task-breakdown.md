@@ -392,3 +392,57 @@
 - [ ] 范围含“不在范围”，并指明承接项。
 - [ ] 前置在台账与 GitHub blocked-by 中一致。
 - [ ] 证据可被第三人复现（固定 SHA / 环境 / 命令）。
+
+---
+
+## 批次 6（P1）：需求工作台
+
+### ALM-07.01 需求工作台：空态、详情与“下一步”
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-03.03（#29，已关闭）
+- 技能：`alm-requirements`（语法与门禁修复）、`alm-change-workflow`（下一步动作）
+- 实施范围：`packages/dsh-plugin-requirements/{client.js,index.js,query.mjs,render.mjs,test/}`
+- 不在范围：任务生成（ALM-07.02）、看板接入（ALM-07.03）、写操作（本轮只做引导与只读详情）
+- 接口：
+  - `GET /api/alm/requirements?root=<dir>` 支持按请求覆盖仓库根；非法 root 返回 400
+  - payload 增加 `requirements[].file/line/links[]/nextAction`，以及顶层 `state { root, change, check }`
+  - 纯函数 `nextActionFor(requirement)`：`missing-acceptance` / `dangling-relation` / `ready-to-change` / `done`
+  - 客户端：空态三选一、行点击打开详情、每行一个主按钮（复制可执行提示词）、顶部全局“下一步”
+- 交付物：
+  - [ ] 空态引导（看示例 / 新建需求提示词 / 打开文档）
+  - [ ] 详情抽屉：验收、关系、源文件行号、门禁结论
+  - [ ] “下一步”引擎与复制提示词
+  - [ ] root 选择器（localStorage 记忆）
+  - [ ] 单测：`nextActionFor`、payload 富化、root 校验
+- 验收：
+  - 正例：0 条需求时显示三步引导；点击 `REQ-PAY-001` 看到 `TEST-PAY-001` 与 `file:line`；缺验收的需求给出“补验收”提示词；`?root=fixtures/order-refund` 与默认一致
+  - 反例：`?root=../etc` 被拒（400）；不存在的 root 返回结构化错误而不是空白；删除 `verified_by` 后该行 `nextAction=missing-acceptance`
+- 证据：`node --test packages/dsh-plugin-requirements/test`、Playwright 对 eval profile 的截图
+
+### ALM-07.02 需求→任务草案与 `TASK-001`
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.01
+- 技能：`alm-change-workflow`、`alm-requirements`
+- 实施范围：`packages/alm-core/src/tasks/*`、`src/gates/rules/task-001.mjs`、`packages/alm-core/bin/alm.mjs`（`task draft`）、`changes/` 模板
+- 不在范围：真实建 Issue（ALM-07.03）、UI 编辑器
+- 接口：`alm task draft --change <CHG-ID> --from <REQ-ID...> --out <dir>` 生成 OpenSpec 兼容
+  `changes/<id>/{proposal.md,tasks.md}` 与 `tasks.json`；`TASK-001` 校验变更内每条需求至少被一个任务覆盖
+- 交付物：任务草案生成（五要素 + blocked-by）、`TASK-001`（block）、技能章节更新
+- 验收：
+  - 正例：`REQ-PAY-001` 生成 3 张卡，含范围/接口/正例/反例/证据；`alm check` 通过
+  - 反例：删除其中一张卡 → `TASK-001` 失败并指出未覆盖的 `REQ-ID`；任务缺验收证据 → 规则报错
+- 证据：`node --test packages/alm-core/test`、生成样例 diff
+
+### ALM-07.03 任务看板接入（GitHub Issues / Gitea）
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.02
+- 技能：`ai-github-issue-workflow`、`alm-change-workflow`
+- 实施范围：`scripts/sync-tasks.mjs`、`packages/alm-scm/src/{github,gitea}.mjs`（只读复用）
+- 不在范围：自研看板 UI、双向实时同步
+- 接口：`node scripts/sync-tasks.mjs --change <CHG-ID> [--apply]`；dry-run 输出 issue 正文；
+  `--apply` 幂等建单（同 change 不重复），状态回写 `tasks.json`
+- 交付物：dry-run 预览、幂等建单、状态回写、失败恢复
+- 验收：
+  - 正例：dry-run 生成 3 条五要素正文；`--apply` 两次只建 3 个 Issue；回写后 `tasks.json` 状态为 `open`
+  - 反例：无凭据时 `--apply` 明确报错且不写状态；重复运行不产生重复 Issue
+- 证据：mock server 测试、dry-run 输出
