@@ -77,7 +77,7 @@
 | ALM-07.12 | 项目模型与 CLI（一仓库一项目） | task | @peterzhanghao | P1 | core | done | ALM-07.11（#93，已关闭） | 确认发布 | #95 | #96 | in-sync | 2026-10-30 22:20 |
 | ALM-07.13 | GitHub 归属：需求 Issue、任务子议题与 ProjectV2 | task | @peterzhanghao | P1 | core | done | ALM-07.12（#95，已关闭） | 确认发布 | #97 | #98 | in-sync | 2026-10-30 22:50 |
 | ALM-07.14 | PR 归属与看板状态 | task | @peterzhanghao | P1 | core | done | ALM-07.13（#97，已关闭） | 确认发布 | #99 | #100 | in-sync | 2026-10-30 23:15 |
-| ALM-07.15 | 需求工作台项目切换器 | task | @peterzhanghao | P1 | plugin | review | ALM-07.14（#99，已关闭） | 确认发布 | #102 | — | in-sync | 2026-10-30 23:40 |
+| ALM-07.15 | 需求工作台项目切换器 | task | @peterzhanghao | P1 | plugin | done | ALM-07.14（#99，已关闭） | 确认发布 | #102 | #103 | in-sync | 2026-10-30 23:50 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
