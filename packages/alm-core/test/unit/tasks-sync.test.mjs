@@ -113,3 +113,11 @@ test('a board failure keeps the issues created so far written back', async () =>
   assert.equal(payload.tasks[0].issue.number, 101)
   assert.equal(payload.tasks[1].issue, undefined)
 })
+
+test('dry-run needs no board credentials', async () => {
+  const root = makeRepo()
+  const result = await syncTasks({ root, changeId: 'CHG-SYNC' })
+  assert.equal(result.applied, false)
+  assert.equal(result.actions.filter((action) => action.action === 'create').length, 3)
+  assert.equal(result.actions.filter((action) => action.action === 'create')[0].body.includes('## 验收'), true)
+})
