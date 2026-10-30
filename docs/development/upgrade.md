@@ -14,7 +14,7 @@
 | 审批契约 | `approval.schema.json` | `alm.approval/v1` | 审批记录与绑定 SHA |
 | 基线契约 | `baseline.schema.json` | `alm.baseline/v1` | 清单与 `contentHash` |
 | 发现契约 | `finding.schema.json` | `alm.finding/v1` | 门禁 finding 形状 |
-| 规则包 | `src/gates/pack.json` | `1.1.0` | 门禁结论；CI 记录按包版本分文件 |
+| 规则包 | `src/gates/pack.json` | `1.2.0` | 门禁结论；CI 记录按包版本分文件 |
 | 插件 | 三个 `dsh-plugin-*` 的 `package.json` | `0.1.0` | 路由、工具 schema、slot |
 
 ## 2. 兼容规则

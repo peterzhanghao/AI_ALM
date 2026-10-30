@@ -10,6 +10,7 @@ import * as ren001 from './rules/ren-001.mjs'
 import * as ren002 from './rules/ren-002.mjs'
 import * as sec001 from './rules/sec-001.mjs'
 import * as state001 from './rules/state-001.mjs'
+import * as task001 from './rules/task-001.mjs'
 
 /**
  * Rule pack. `FMT-001`/`FMT-002` are produced by the parse layer; `APPROVAL-*`
@@ -27,6 +28,7 @@ export const rules = [
   sec001,
   ren001,
   ren002,
+  task001,
   approval001,
   approval002,
 ]

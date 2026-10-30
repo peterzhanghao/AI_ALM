@@ -1,6 +1,6 @@
 # 验证报告
 
-- 版本：`alm 0.1.0` ｜ 规则包 `1.1.0` ｜ 契约 `alm.*/v1`
+- 版本：`alm 0.1.0` ｜ 规则包 `1.2.0` ｜ 契约 `alm.*/v1`
 - 分支：`develop` @ `2c30149`（ALM-06.01 合并后）
 - 日期：2026-10-23
 - 关联：[架构](architecture.md)、[任务拆解](task-breakdown.md)、[权限模型](../development/permissions.md)、[升级与兼容](../development/upgrade.md)、[恢复手册](../development/recovery.md)
@@ -14,7 +14,7 @@
 | 技能一致性 | 5 个技能（1 开发 + 4 产品）通过；CI 执行 |
 | 三次变更演练 | **3/3 通过，21 个步骤**，无失败步骤 |
 | Playwright UI 验证 | **28/28 通过**（本地服务与运行中的 DSH 宿主各一次） |
-| 样例仓库门禁 | `check: pass`（`STATE-001`/`REN-002`/`APPROVAL-*` 按预期 `skip`） |
+| 样例仓库门禁 | `check: pass`（`STATE-001`/`REN-002`/`TASK-001`/`APPROVAL-*` 按预期 `skip`） |
 
 MVP 的“改资产 → 门禁 → 差异/影响 → 基线 → 发布/回滚”回路在本地可复现，且有 UI 级证据。
 
@@ -34,7 +34,7 @@ MVP 的“改资产 → 门禁 → 差异/影响 → 基线 → 发布/回滚”
 |---|---|---|---|
 | `alm --version` | `0.1.0` | `0.1.0` | 0 |
 | `alm contract verify` | 五类契约有效 | `contracts: ok` | 0 |
-| `alm check --root fixtures/order-refund` | `pass` | `check: pass`（`STATE-001`/`REN-002`/`APPROVAL-*` = `skip`） | 0 |
+| `alm check --root fixtures/order-refund` | `pass` | `check: pass`（`STATE-001`/`REN-002`/`TASK-001`/`APPROVAL-*` = `skip`） | 0 |
 | `node --test "packages/*/test/**/*.test.mjs"` | 全绿 | 127 pass / 0 fail | 0 |
 | `node scripts/check-alm-skill.mjs` | 全部技能与 CLI/工具一致 | 5 个技能 ok | 0 |
 | `scripts/validate-skills.ps1` | `.dsh/skills` 合法 | 3 个技能通过 | 0 |

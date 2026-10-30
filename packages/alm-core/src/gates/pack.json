@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "rules": [
     "FMT-001",
     "FMT-002",
@@ -13,6 +13,7 @@
     "SEC-001",
     "REN-001",
     "REN-002",
+    "TASK-001",
     "APPROVAL-001",
     "APPROVAL-002"
   ]
