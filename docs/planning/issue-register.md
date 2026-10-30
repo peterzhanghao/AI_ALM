@@ -80,7 +80,7 @@
 | ALM-07.14 | PR 归属与看板状态 | task | @peterzhanghao | P1 | core | done | ALM-07.13（#97，已关闭） | 确认发布 | #99 | #100 | in-sync | 2026-10-30 23:15 |
 | ALM-07.15 | 需求工作台项目切换器 | task | @peterzhanghao | P1 | plugin | done | ALM-07.14（#99，已关闭） | 确认发布 | #102 | #103 | in-sync | 2026-10-30 23:50 |
 | ALM-07.16 | 原型补充：项目切换与 GitHub 归属 | task | @peterzhanghao | P2 | plugin | done | ALM-07.15（#102，已关闭） | 确认发布 | #104 | #105 | in-sync | 2026-10-31 00:25 |
-| ALM-08.01 | 插件工作台 v2：列表/筛选/聚合/抽屉/详情/GitHub 归属 | task | @peterzhanghao | P1 | plugin | review | ALM-07.16（#104，已关闭） | 确认发布 | #106 | — | local-newer | 2026-10-31 01:00 |
+| ALM-08.01 | 插件工作台 v2：列表/筛选/聚合/抽屉/详情/GitHub 归属 | task | @peterzhanghao | P1 | plugin | review | ALM-07.16（#104，已关闭） | 确认发布 | #106 | #107 | in-sync | 2026-10-31 01:05 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
