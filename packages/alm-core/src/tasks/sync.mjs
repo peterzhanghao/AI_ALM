@@ -1,7 +1,8 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createGiteaClient } from '@ai-alm/alm-scm/gitea'
+import { githubProvider } from '../github/provider.mjs'
+import { readMapping, writeMapping } from '../github/mapping.mjs'
 
 export class TaskSyncError extends Error {
   constructor(message, { code = 'task-sync' } = {}) {
@@ -39,25 +40,6 @@ export function taskIssueBody(task) {
   return lines.join('\n')
 }
 
-function githubProvider(labels) {
-  const gh = (args) =>
-    execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
-
-  return {
-    name: 'github',
-    find(title) {
-      const listed = JSON.parse(gh(['issue', 'list', '--state', 'all', '--limit', '50', '--json', 'number,url,title']))
-      const match = listed.find((issue) => issue.title === title)
-      return match ? { number: match.number, url: match.url, title: match.title } : null
-    },
-    create({ title, body, labels: extra }) {
-      const url = gh(['issue', 'create', '--title', title, '--body', body, '--label', [...labels, ...(extra ?? [])].join(',')])
-      const number = Number(url.split('/').pop())
-      return { number: Number.isFinite(number) ? number : null, url, title }
-    },
-  }
-}
-
 function giteaProvider() {
   const client = createGiteaClient({
     baseUrl: process.env.ALM_GITEA_URL,
@@ -72,8 +54,15 @@ function giteaProvider() {
   }
 }
 
-function providerFor(name, labels) {
-  if (name === 'github') return githubProvider(labels)
+function providerFor(name, labels, project) {
+  if (name === 'github') {
+    return githubProvider({
+      repo: project ? `${project.github.owner}/${project.github.repo}` : undefined,
+      owner: project?.github?.owner,
+      projectNumber: project?.github?.project?.number,
+      labels,
+    })
+  }
   if (name === 'gitea') return giteaProvider()
   throw new TaskSyncError(`unknown provider: ${name}`, { code: 'unknown-provider' })
 }
@@ -94,6 +83,7 @@ export async function syncTasks({
   provider = 'github',
   createProvider,
   labels = DEFAULT_LABELS,
+  project,
 }) {
   const path = join(root, 'changes', changeId, 'tasks.json')
   if (!existsSync(path)) throw new TaskSyncError(`task draft not found: changes/${changeId}/tasks.json`, { code: 'no-draft' })
@@ -102,7 +92,8 @@ export async function syncTasks({
   const tasks = Array.isArray(payload.tasks) ? payload.tasks : []
   // Dry-run must work without board credentials: only build a provider when
   // applying, or when a test injects one.
-  const adapter = createProvider ? createProvider() : apply ? providerFor(provider, labels) : null
+  const adapter = createProvider ? createProvider() : apply ? providerFor(provider, labels, project) : null
+  const mapping = readMapping(root)
   const actions = []
 
   for (const task of tasks) {
@@ -116,8 +107,12 @@ export async function syncTasks({
     if (existing) {
       task.issue = { provider: adapter.name, number: existing.number, url: existing.url }
       task.status = 'open'
+      mapping.tasks[task.id] = task.issue
       actions.push({ task: task.id, action: 'adopt', issue: task.issue, title })
-      if (apply) writePayload(path, payload)
+      if (apply) {
+        writePayload(path, payload)
+        writeMapping(root, mapping)
+      }
       continue
     }
 
@@ -126,10 +121,14 @@ export async function syncTasks({
       continue
     }
 
-    const created = adapter.create({ title, body: taskIssueBody(task), labels })
+    const parent = mapping.requirements[task.covers?.[0]]?.number
+    const created = adapter.create({ title, body: taskIssueBody(task), labels, parent })
     task.issue = { provider: adapter.name, number: created.number, url: created.url }
     task.status = 'open'
+    task.issue.parent = parent ?? null
+    mapping.tasks[task.id] = task.issue
     writePayload(path, payload)
+    writeMapping(root, mapping)
     actions.push({ task: task.id, action: 'created', issue: task.issue, title })
   }
 
