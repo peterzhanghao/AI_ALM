@@ -7,7 +7,7 @@
   "github": {
     "owner": "peterzhanghao",
     "repo": "AI_ALM",
-    "project": { "number": 1 }
+    "project": { "number": 1, "status": { "ready": "Ready" } }
   },
   "teams": ["支付团队"]
 }

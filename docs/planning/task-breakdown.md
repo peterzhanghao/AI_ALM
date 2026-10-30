@@ -609,3 +609,19 @@
   - 正例：先需求后任务；`addToProject` 调用；第二次全部 skip；dry-run 不落任何文件
   - 反例：无项目配置时 apply 拒绝；需求标题相同则 adopt 不重复
 - 证据：5 个单测，全量 176/176
+
+### ALM-07.14 PR 归属与看板状态
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.13（#97，已关闭）
+- 技能：`ai-github-pr-workflow`、`alm-mvp-dev`
+- 实施范围：`tasks/draft.mjs`、`github/{provider,sync-requirements}.mjs`、`tasks/sync.mjs`、PR 模板
+- 不在范围：DSH 插件项目切换器（ALM-07.15）
+- 接口：任务草案带 `project`；需求/任务 Issue 创建后按项目配置 `github.project.status.ready` 设置看板 Status；PR 模板增加 Project/Requirement/Change/Board 段
+- 交付物：
+  - [ ] `changes/<CHG>/tasks.json` 与 proposal 记录项目 ID
+  - [ ] 建单后 `gh project item-edit` 将 Status 置为 Ready（失败不阻断建单）
+  - [ ] PR 模板要求填写项目、需求 Issue、变更号、看板状态
+- 验收：
+  - 正例：apply 后需求与 3 张任务各一次 `setStatus Ready`；tasks.json 含 `project: PAY`
+  - 反例：看板状态失败只记录不丢单；缺项目配置仍拒绝 apply
+- 证据：单测更新，全量 176/176

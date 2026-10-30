@@ -129,6 +129,17 @@ export async function syncTasks({
     mapping.tasks[task.id] = task.issue
     writePayload(path, payload)
     writeMapping(root, mapping)
+    if (project?.github?.project?.number) {
+      adapter.addToProject?.(task.issue.url, project.github.project.number)
+      const ready = project.github.project.status?.ready
+      if (ready && adapter.setStatus) {
+        try {
+          adapter.setStatus(task.issue.url, ready, project.github.project.number)
+        } catch {
+          // status is best-effort; the issue itself is already persisted
+        }
+      }
+    }
     actions.push({ task: task.id, action: 'created', issue: task.issue, title })
   }
 
