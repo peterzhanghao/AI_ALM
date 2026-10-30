@@ -80,7 +80,7 @@
 | ALM-07.14 | PR 归属与看板状态 | task | @peterzhanghao | P1 | core | done | ALM-07.13（#97，已关闭） | 确认发布 | #99 | #100 | in-sync | 2026-10-30 23:15 |
 | ALM-07.15 | 需求工作台项目切换器 | task | @peterzhanghao | P1 | plugin | done | ALM-07.14（#99，已关闭） | 确认发布 | #102 | #103 | in-sync | 2026-10-30 23:50 |
 | ALM-07.16 | 原型补充：项目切换与 GitHub 归属 | task | @peterzhanghao | P2 | plugin | done | ALM-07.15（#102，已关闭） | 确认发布 | #104 | #105 | in-sync | 2026-10-31 00:25 |
-| ALM-08.01 | 插件工作台 v2：列表/筛选/聚合/抽屉/详情/GitHub 归属 | task | @peterzhanghao | P1 | plugin | review | ALM-07.16（#104，已关闭） | 确认发布 | #106 | #107 | in-sync | 2026-10-31 01:05 |
+| ALM-08.01 | 插件工作台 v2：列表/筛选/聚合/抽屉/详情/GitHub 归属 | task | @peterzhanghao | P1 | plugin | done | ALM-07.16（#104，已关闭） | 确认发布 | #106 | #107 | in-sync | 2026-10-31 01:15 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
@@ -100,6 +100,7 @@
 > 批次 6 已收口：`ALM-07.01`（PR `#76`）、`ALM-07.02`（PR `#77`）、`ALM-07.03`（PR `#78`）、`ALM-07.04`（PR `#80`，技能与 CI drill）、`ALM-07.05`（PR `#82`，样例 `REQ-PAY-004`）；`#72`–`#75`、`#79`、`#81` 全部关闭。全量测试 152。
 > 2026-10-30 需求插件选型：评估报告（docs/analysis/requirements-plugin-evaluation.md）与 ADR 0004 已合并（PR `#71`）；批次 6 建卡 `#72`–`#75`，`ALM-07.01` 由 PR `#76` 收口。
 > 原型补充（ALM-07.16）：v7 增加项目切换器、全部项目聚合视图、GitHub Issue/标签/ProjectV2/任务子议题/PR 归属、一键建单与新建向导同步；Playwright 12 项断言通过、0 pageerror，截图见 `docs/assets/design/`。已合并：PR `#105` → merge commit `47fbffe`，Issue `#104` 已关闭并置 `status::done`。
+> 插件工作台 v2（ALM-08.01）：列表/状态筛选/全部项目聚合/抽屉/详情/GitHub 归属已落地，数据层新增 `requirementsAll` 与 `?project=ALL`；`pnpm test` 182/182、eval 6 项断言通过；已合并 PR `#107` → `39309c9`，Issue `#106` 关闭。下一卡 ALM-08.02 评审与版本。
 > 批次 5 已收口：`ALM-06.01`（PR `#61`）、`ALM-06.02`（PR `#62`）、`#57`（ALM-06）与 `#1`（ALM-00）全部关闭并置 `status::done`。最终证据见 [验证报告](verification-report.md)：119 测试、3 演练 / 21 步、UI 28/28（本地 + 宿主）。`#60`（ALM-03.07 分隔符乱码）经复查为终端解码误报，已关闭且未改代码。
 > 2026-10-24 05:44 用户指示继续收尾：新增 `ALM-04.05`（Playwright UI 验证的按需 GitHub Actions）与 `ALM-04.06`（Gitea SCM 适配器），`确认结论=确认发布`；两者都在批次 4 的 SCM/CI 主题内。
 > 两张卡已收口：`ALM-04.05`（PR `#66`）按需 UI workflow 真实触发一次绿 / 一次红并留 artifact；`ALM-04.06`（PR `#67`）Gitea 客户端 + 8 个 mock 测试，全量测试 127。为让 `workflow_dispatch` 生效，`main` 从 `b94381f` 快进到 `95578b7`（`main` 是 `develop` 严格祖先，fast-forward，无强推）；后续 `main` 可继续与 `develop` 快进同步。
