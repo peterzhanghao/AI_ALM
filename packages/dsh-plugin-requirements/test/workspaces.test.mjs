@@ -69,9 +69,10 @@ test('listWorkspaces reports missing workspace paths and unreadable stores', () 
 
 test('workspacesFile honours DSH_WORKSPACES_FILE', () => {
   const previous = process.env.DSH_WORKSPACES_FILE
-  process.env.DSH_WORKSPACES_FILE = 'C:/tmp/override-workspace.json'
+  const target = join(tmpdir(), 'override-workspace.json')
+  process.env.DSH_WORKSPACES_FILE = target
   try {
-    assert.equal(workspacesFile(), 'C:\\tmp\\override-workspace.json')
+    assert.equal(workspacesFile(), target)
   } finally {
     if (previous === undefined) delete process.env.DSH_WORKSPACES_FILE
     else process.env.DSH_WORKSPACES_FILE = previous
