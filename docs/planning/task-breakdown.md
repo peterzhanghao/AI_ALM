@@ -446,3 +446,19 @@
   - 正例：dry-run 生成 3 条五要素正文；`--apply` 两次只建 3 个 Issue；回写后 `tasks.json` 状态为 `open`
   - 反例：无凭据时 `--apply` 明确报错且不写状态；重复运行不产生重复 Issue
 - 证据：mock server 测试、dry-run 输出
+
+### ALM-07.04 技能正文与 CI 演练：需求→任务→看板
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P2 ｜ 前置：ALM-07.02（#74，已关闭）、ALM-07.03（#75，已关闭）
+- 技能：`ai-github-issue-workflow`（自身章节）、`alm-mvp-dev`（CI 纪律）
+- 实施范围：`.dsh/skills/ai-github-issue-workflow/{SKILL.md,references/task-draft-sync.md}`、`scripts/task-drill.mjs`、`.github/workflows/alm-ci.yml`
+- 不在范围：真实建 Issue（需凭据）、改 `sync-tasks` 的实现
+- 接口：技能新增 5.1 节与参考文件；`node scripts/task-drill.mjs` 在 CI 中执行（draft → TASK-001 → dry-run → 反例）
+- 交付物：
+  - [ ] 技能正文记录 `alm task draft` / `sync-tasks` 的步骤、权限与失败处理
+  - [ ] CI drill 脚本与 workflow 步骤
+  - [ ] 台账与技能校验同步
+- 验收：
+  - 正例：`node scripts/task-drill.mjs` 输出 `draft=3 TASK-001=pass sync=dry-run negative=fail`，退出 0；CI 绿
+  - 反例：清空一张卡的 `covers` → drill 的负例步骤必须看到 `fail TASK-001`；技能超 8 KB 或链接失效 → 校验失败
+- 证据：drill 输出、CI 运行记录、`validate-skills.ps1` 与 `check-alm-skill.mjs` 通过
