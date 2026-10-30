@@ -199,3 +199,29 @@ test('maps combined statuses and posts comments and merges', async () => {
   assert.equal(merge.method, 'POST')
   assert.deepEqual(JSON.parse(merge.body), { Do: 'merge', MergeMessageField: 'merge feature/x' })
 })
+
+test('creates an issue and finds it by exact title', async () => {
+  const { server, client } = await clientFor((entry) => {
+    if (entry.method === 'POST') {
+      assert.equal(entry.url, '/api/v1/repos/acme/app/issues')
+      assert.deepEqual(JSON.parse(entry.body), { title: 'TASK-PAY-001 x', body: 'b', labels: ['type::task'] })
+      return { status: 201, body: { number: 5, html_url: 'https://gitea.test/acme/app/issues/5', title: 'TASK-PAY-001 x' } }
+    }
+    assert.match(entry.url, /^\/api\/v1\/repos\/acme\/app\/issues\?state=all&q=/)
+    return {
+      status: 200,
+      body: [
+        { number: 4, title: 'other', html_url: 'https://gitea.test/acme/app/issues/4' },
+        { number: 5, title: 'TASK-PAY-001 x', html_url: 'https://gitea.test/acme/app/issues/5' },
+      ],
+    }
+  })
+
+  const created = await client.createIssue({ title: 'TASK-PAY-001 x', body: 'b', labels: ['type::task'] })
+  assert.equal(created.number, 5)
+  assert.equal(server.requests.filter((entry) => entry.method === 'POST').length, 1)
+
+  const found = await client.findIssue('TASK-PAY-001 x')
+  assert.equal(found.number, 5)
+  assert.equal(await client.findIssue('missing'), null)
+})

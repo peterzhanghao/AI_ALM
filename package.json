@@ -12,7 +12,8 @@
     "test:ui": "node scripts/ui-verify.mjs",
     "serve:pages": "node scripts/serve-alm-pages.mjs",
     "drill": "node scripts/drill.mjs",
-    "ci": "node --test \"packages/*/test/**/*.test.mjs\" && node packages/alm-core/bin/alm.mjs contract verify"
+    "ci": "node --test \"packages/*/test/**/*.test.mjs\" && node packages/alm-core/bin/alm.mjs contract verify",
+    "sync:tasks": "node scripts/sync-tasks.mjs"
   },
   "devDependencies": {
     "playwright": "^1.64.1"
