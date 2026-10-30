@@ -152,22 +152,33 @@ window.__ModuleLoader__.load({
     }
 
     function RequirementDetail({ item, gaps, root }) {
+      // Defensive defaults: a host that predates the enriched payload returns
+      // no links/line, and clicking a row must not blank the whole panel.
+      const verifiedBy = Array.isArray(item.verifiedBy) ? item.verifiedBy : []
+      const links = Array.isArray(item.links) ? item.links : []
       const related = gaps.filter((gap) => gap.assetId === item.id || gap.file === item.file)
       return h(
         'div',
         { style: card },
         h('h3', { style: { margin: '0 0 4px', fontSize: '15px' } }, `${item.id} · ${item.title}`),
-        h('p', { style: muted }, `${item.status} · ${item.owner} · ${item.file}:${item.line}`),
+        h('p', { style: muted }, `${item.status} · ${item.owner} · ${item.file ?? ''}${item.line ? `:${item.line}` : ''}`),
+        Array.isArray(item.links)
+          ? null
+          : h(
+              'p',
+              { style: { ...muted, color: 'var(--dsw-alias-state-warn-primary)' } },
+              '宿主插件返回的是旧版数据（没有关系与行号）。重启 DSH，或在插件页禁用再启用 Requirements 后重试。',
+            ),
         h('h4', { style: { margin: '10px 0 4px', fontSize: '13px' } }, '验收覆盖'),
-        item.verifiedBy.length > 0
-          ? h('ul', { style: { margin: 0, paddingLeft: '18px', fontSize: '13px' } }, item.verifiedBy.map((id) => h('li', { key: id }, id)))
+        verifiedBy.length > 0
+          ? h('ul', { style: { margin: 0, paddingLeft: '18px', fontSize: '13px' } }, verifiedBy.map((id) => h('li', { key: id }, id)))
           : h('p', { style: { ...muted, color: 'var(--dsw-alias-state-warn-primary)' } }, '没有 verified_by，COV-001 会失败。'),
         h('h4', { style: { margin: '10px 0 4px', fontSize: '13px' } }, '关系'),
-        item.links.length > 0
+        links.length > 0
           ? h(
               'ul',
               { style: { margin: 0, paddingLeft: '18px', fontSize: '13px' } },
-              item.links.map((link, index) => h('li', { key: `${link.type}-${link.target}-${index}` }, `${link.type} → ${link.target}`)),
+              links.map((link, index) => h('li', { key: `${link.type}-${link.target}-${index}` }, `${link.type} → ${link.target}`)),
             )
           : h('p', { style: muted }, '暂无关系。'),
         related.length > 0
@@ -233,7 +244,7 @@ window.__ModuleLoader__.load({
         ? h(
             'div',
             { style: card },
-            h('h3', { style: { margin: '0 0 6px', fontSize: '14px' } }, next ? `下一步：${next.nextActionLabel}` : '全部就绪'),
+            h('h3', { style: { margin: '0 0 6px', fontSize: '14px' } }, next ? `下一步：${next.nextActionLabel ?? '查看'}` : '全部就绪'),
             h(
               'p',
               { style: { ...muted, margin: '0 0 8px' } },
@@ -257,10 +268,15 @@ window.__ModuleLoader__.load({
           h('td', { style: td }, item.owner),
           h(
             'td',
-            { style: { ...td, color: item.verifiedBy.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-warn-primary)' } },
-            item.verifiedBy.length ? item.verifiedBy.join(', ') : '未覆盖',
+            {
+              style: {
+                ...td,
+                color: item.verifiedBy?.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-warn-primary)',
+              },
+            },
+            item.verifiedBy?.length ? item.verifiedBy.join(', ') : '未覆盖',
           ),
-          h('td', { style: td }, item.nextActionLabel),
+          h('td', { style: td }, item.nextActionLabel ?? '查看'),
         ),
       )
 
