@@ -592,3 +592,20 @@
   - 正例：`project init/show/verify` 通过；registry 列出两个项目；样例 `PRJ-001` pass
   - 反例：remote 与 `github.repo` 不一致、重复项目 ID、需求项目不一致 → 失败
 - 证据：新增 6 个单测，全量 171/171
+
+### ALM-07.13 GitHub 归属：需求 Issue、任务子议题与 ProjectV2
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.12（#95，已关闭）
+- 技能：`ai-github-issue-workflow`、`alm-mvp-dev`
+- 实施范围：`alm-core/src/github/{provider,mapping,sync-requirements}.mjs`、`src/tasks/sync.mjs`、`scripts/sync-tasks.mjs`
+- 不在范围：PR 模板与看板 Status 自动流转（ALM-07.14）
+- 接口：需求先建 Issue（`[REQ-ID] 标题`，label `type::requirement` + `project::<id>` + `priority::P*`）→ `gh project item-add` 进项目看板 → 任务 Issue 以需求 Issue 为 parent；映射写 `.alm/github.json`
+- 交付物：
+  - [ ] 需求 Issue 自动创建/按标题 adopt，dry-run 只输出正文
+  - [ ] 项目配置驱动 repo 与 ProjectV2（`.alm/project.json`）
+  - [ ] 任务 Issue 带 parent，回写 `.alm/github.json` 与 `tasks.json`
+  - [ ] 重复执行幂等
+- 验收：
+  - 正例：先需求后任务；`addToProject` 调用；第二次全部 skip；dry-run 不落任何文件
+  - 反例：无项目配置时 apply 拒绝；需求标题相同则 adopt 不重复
+- 证据：5 个单测，全量 176/176
