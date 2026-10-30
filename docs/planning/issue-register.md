@@ -68,7 +68,7 @@
 | ALM-07.03 | 任务看板接入（GitHub Issues / Gitea） | task | @peterzhanghao | P1 | release | done | ALM-07.02（#74，已关闭） | 确认发布 | #75 | #78 | in-sync | 2026-10-30 16:50 |
 | ALM-07.04 | 技能正文与 CI 演练：需求→任务→看板 | task | @peterzhanghao | P2 | skills | done | ALM-07.02（#74，已关闭）、ALM-07.03（#75，已关闭） | 确认发布 | #79 | #80 | in-sync | 2026-10-30 17:20 |
 | ALM-07.05 | 样例资产：REQ-PAY-004 退款幂等 | task | @peterzhanghao | P2 | core | done | ALM-02.02（#8，已关闭） | 确认发布 | #81 | #82 | in-sync | 2026-10-30 17:50 |
-| ALM-07.06 | 需求插件侧边栏入口 | task | @peterzhanghao | P2 | plugin | review | ALM-07.01（#73，已关闭） | 确认发布 | #83 | — | in-sync | 2026-10-30 18:50 |
+| ALM-07.06 | 需求插件侧边栏入口 | task | @peterzhanghao | P2 | plugin | done | ALM-07.01（#73，已关闭） | 确认发布 | #83 | #84 | in-sync | 2026-10-30 19:00 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
