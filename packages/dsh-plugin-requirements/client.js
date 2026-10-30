@@ -695,7 +695,15 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, compact }) {
+    function TraceLink({ onClick }) {
+      return h(
+        'button',
+        { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick },
+        '查看追溯图 ›',
+      )
+    }
+
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, compact }) {
       const relations = relationsOf(item, allItems)
       return h(
         'div',
@@ -735,7 +743,7 @@ window.__ModuleLoader__.load({
             : h('p', { style: { margin: 0, color: T.warn, fontSize: '12.5px' } }, '没有 verified_by，COV-001 会失败。'),
         ),
 
-        h(Section, { title: '关系' },
+        h(Section, { title: '关系', action: h(TraceLink, { onClick: () => onTrace(item) }) },
           relations.length
             ? h('div', null, relations.map(([label, ids]) => h('div', { key: label, style: row }, h('span', { style: rowLabel }, label), h('span', { style: { color: T.text } }, ids.join('、')))))
             : h('p', { style: { margin: 0, ...muted } }, '暂无关系。'),
@@ -762,7 +770,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -792,12 +800,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -857,7 +865,7 @@ window.__ModuleLoader__.load({
                   ? h('div', null, item.verifiedBy.map((id) => h('div', { key: id, style: { ...row, color: T.text } }, h('span', { style: { color: T.ok } }, '✓'), id)))
                   : h('p', { style: { margin: 0, color: T.warn, fontSize: '12.5px' } }, '没有 verified_by，COV-001 会失败。'),
               ),
-              h(Section, { title: '关系' },
+              h(Section, { title: '关系', action: h(TraceLink, { onClick: () => onTrace(item) }) },
                 relations.length
                   ? h('div', null, relations.map(([label, ids]) => h('div', { key: label, style: row }, h('span', { style: rowLabel }, label), h('span', { style: { color: T.text } }, ids.join('、')))))
                   : h('p', { style: { margin: 0, ...muted } }, '暂无关系。'),
@@ -956,6 +964,243 @@ window.__ModuleLoader__.load({
       )
     }
 
+    const TRACE_DIM = {
+      req: [172, 54],
+      test: [162, 40],
+      adr: [172, 42],
+      module: [162, 42],
+      interface: [172, 42],
+      data: [162, 42],
+      risk: [162, 42],
+      missing: [162, 40],
+      other: [162, 40],
+    }
+    const TRACE_COLOR = {
+      req: T.brand,
+      test: T.ok,
+      adr: T.warn,
+      module: T.text2,
+      interface: '#7fa7ff',
+      data: '#c9b8ff',
+      risk: T.err,
+      missing: T.err,
+      other: T.text2,
+    }
+    const TRACE_LABEL = {
+      req: '需求',
+      test: '验收',
+      adr: '决策',
+      module: '模块',
+      interface: '接口',
+      data: '数据',
+      risk: '风险',
+      missing: '缺失资产',
+      other: '资产',
+    }
+
+    function TraceModal({ item, allItems, onClose, onOpenRequirement }) {
+      const trace = item.trace
+      const [selectedNode, setSelectedNode] = useState(null)
+      useEffect(() => {
+        const onKey = (event) => {
+          if (event.key === 'Escape') onClose()
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+      }, [onClose])
+
+      const current = trace?.nodes.find((node) => node.current) ?? null
+      const related = (trace?.nodes ?? []).filter((node) => !node.current)
+      const isTarget = (id) => (trace?.edges ?? []).some((edge) => edge.from === current?.id && edge.to === id)
+      const targets = related.filter((node) => isTarget(node.id))
+      const sources = related.filter((node) => !isTarget(node.id))
+      const place = (list, x) =>
+        list.map((node, index) => {
+          const [width, height] = TRACE_DIM[node.type] ?? TRACE_DIM.other
+          return { ...node, x, y: 56 + index * 74, w: width, h: height }
+        })
+      const laid = [
+        ...place(sources, 36),
+        current ? { ...current, x: 344, y: 190, w: TRACE_DIM.req[0], h: TRACE_DIM.req[1] } : null,
+        ...place(targets, 652),
+      ].filter(Boolean)
+      const boxes = new Map(laid.map((node) => [node.id, node]))
+      const graphHeight = Math.max(420, 56 + Math.max(sources.length, targets.length) * 74 + 40)
+      const edges = (trace?.edges ?? [])
+        .map((edge, index) => {
+          const from = boxes.get(edge.from)
+          const to = boxes.get(edge.to)
+          if (!from || !to) return null
+          const x1 = from.x + from.w
+          const y1 = from.y + from.h / 2
+          const x2 = to.x
+          const y2 = to.y + to.h / 2
+          const mx = (x1 + x2) / 2
+          const my = (y1 + y2) / 2
+          // Put labels at 68% of the curve so parallel edges do not stack in
+          // the narrow gap right next to the current node.
+          const t = 0.68
+          const labelX = (1 - t) ** 3 * x1 + 3 * (1 - t) ** 2 * t * mx + 3 * (1 - t) * t ** 2 * mx + t ** 3 * x2
+          const labelY = (1 - t) ** 3 * y1 + 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t ** 2 * y2 + t ** 3 * y2
+          return {
+            key: `${edge.from}-${edge.to}-${index}`,
+            path: `M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`,
+            label: edge.type,
+            mx: labelX,
+            my: labelY,
+          }
+        })
+        .filter(Boolean)
+      const stats = trace?.stats ?? { parent: 0, children: 0, tests: 0, dependencies: 0, constraints: 0, impacted: 0 }
+      const types = [...new Set((trace?.nodes ?? []).map((node) => node.type))]
+
+      return h(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 55,
+            background: 'rgba(4,6,9,.62)',
+            backdropFilter: 'blur(6px)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: '24px',
+          },
+          onClick: onClose,
+        },
+        h(
+          'div',
+          {
+            role: 'dialog',
+            'aria-label': `追溯视图 ${item.id}`,
+            onClick: (event) => event.stopPropagation(),
+            style: {
+              width: '980px',
+              maxWidth: '96vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              background: T.base,
+              border: `1px solid ${T.line2}`,
+              borderRadius: '16px',
+              padding: '24px 28px',
+              boxShadow: '0 24px 80px rgba(0,0,0,.5)',
+            },
+          },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' } },
+            h('h3', { style: { margin: 0, fontSize: '18px' } }, `追溯视图 · ${item.id}`),
+            h('button', { style: { ...button, borderColor: 'transparent', background: 'transparent', color: T.text2, fontSize: '18px' }, onClick: onClose, 'aria-label': '关闭' }, '×'),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', gap: '12px', flexWrap: 'wrap', margin: '8px 0 12px', fontSize: '11.5px', color: T.text2 } },
+            types.map((type) =>
+              h(
+                'span',
+                { key: type, style: { display: 'inline-flex', alignItems: 'center', gap: '5px' } },
+                h('span', { style: { width: '9px', height: '9px', borderRadius: '2px', background: TRACE_COLOR[type] ?? T.text2 } }),
+                TRACE_LABEL[type] ?? type,
+              ),
+            ),
+            h('span', { style: { marginLeft: 'auto', color: T.text3 } }, '点击需求节点切换当前需求'),
+          ),
+          h(
+            'svg',
+            { viewBox: `0 0 900 ${graphHeight}`, role: 'img', 'aria-label': '需求追溯图', style: { width: '100%', height: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '12px' } },
+            h(
+              'defs',
+              null,
+              h(
+                'marker',
+                { id: 'alm-trace-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' },
+                h('path', { d: 'M0 0 L10 5 L0 10 z', fill: '#4a5563' }),
+              ),
+            ),
+            edges.map((edge) =>
+              h(
+                'g',
+                { key: edge.key },
+                h('path', { d: edge.path, fill: 'none', stroke: '#3a4450', strokeWidth: 1.2, markerEnd: 'url(#alm-trace-arrow)' }),
+                h('text', { x: edge.mx, y: edge.my - 6, fill: '#8b95a3', fontSize: 10.5, fontFamily: 'inherit', textAnchor: 'middle' }, edge.label),
+              ),
+            ),
+            laid.map((node) =>
+              h(
+                'g',
+                {
+                  key: node.id,
+                  role: 'button',
+                  tabIndex: 0,
+                  'aria-label': `${node.id} ${node.title ?? ''}`,
+                  onClick: () => {
+                    if (!node.current && node.type === 'req' && allItems.some((entry) => entry.id === node.id)) {
+                      onOpenRequirement(node.id)
+                    } else {
+                      setSelectedNode(node)
+                    }
+                  },
+                  onKeyDown: (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      if (!node.current && node.type === 'req' && allItems.some((entry) => entry.id === node.id)) {
+                        onOpenRequirement(node.id)
+                      } else {
+                        setSelectedNode(node)
+                      }
+                    }
+                  },
+                  style: { cursor: 'pointer' },
+                },
+                h('rect', {
+                  x: node.x,
+                  y: node.y,
+                  width: node.w,
+                  height: node.h,
+                  rx: 10,
+                  fill: node.current ? 'rgba(77,107,254,.12)' : T.layer2,
+                  stroke: node.current ? TRACE_COLOR.req : T.line2,
+                  strokeWidth: selectedNode?.id === node.id ? 2 : 1,
+                }),
+                h('text', { x: node.x + 12, y: node.y + (node.h > 48 ? 21 : 16), fill: T.text, fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }, node.id),
+                h(
+                  'text',
+                  { x: node.x + 12, y: node.y + (node.h > 48 ? 38 : 31), fill: T.text2, fontSize: 10.5, fontFamily: 'inherit' },
+                  (() => {
+                    const title = node.title ?? (node.type === 'missing' ? '目标资产不存在' : '')
+                    return title.length > 20 ? `${title.slice(0, 19)}…` : title
+                  })(),
+                ),
+              ),
+            ),
+          ),
+          h(
+            'p',
+            { style: { margin: '10px 0 0', fontSize: '12px', color: T.text2 } },
+            `影响面：上级 ${stats.parent} · 子需求 ${stats.children} · 验收 ${stats.tests} · 依赖 ${stats.dependencies} · 约束 ${stats.constraints} · 受影响资产 ${stats.impacted}`,
+          ),
+          trace?.cycles?.length
+            ? h('p', { style: { margin: '6px 0 0', fontSize: '12px', color: T.err } }, `检测到关系环：${trace.cycles.map((cycle) => cycle.join(' → ')).join('；')}`)
+            : null,
+          selectedNode
+            ? h(
+                'div',
+                { style: { marginTop: '10px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '10px 12px', fontSize: '12px', color: T.text2, lineHeight: 1.7 } },
+                h('b', { style: { color: T.text } }, selectedNode.id),
+                ` · ${TRACE_LABEL[selectedNode.type] ?? selectedNode.type}${selectedNode.status ? ` · ${selectedNode.status}` : ''}`,
+                selectedNode.title
+                  ? h('div', null, selectedNode.title)
+                  : h('div', { style: { color: T.warn } }, '目标资产不存在；REL-001 会把它报为悬空关系。'),
+              )
+            : null,
+          h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '14px' } },
+            h('button', { style: button, onClick: onClose }, '关闭'),
+          ),
+        ),
+      )
+    }
+
     function EmptyState({ root, onOpenPanel }) {
       return h(
         'div',
@@ -984,6 +1229,7 @@ window.__ModuleLoader__.load({
       const [selectedId, setSelectedId] = useState(null)
       const [detailOpen, setDetailOpen] = useState(false)
       const [snapshot, setSnapshot] = useState(null)
+      const [traceItem, setTraceItem] = useState(null)
       const [showRoot, setShowRoot] = useState(false)
       const { loading, error, data, reload } = useRequirements({ root, projectId })
 
@@ -1228,6 +1474,7 @@ window.__ModuleLoader__.load({
               onClose: () => setSelectedId(null),
               onDetail: () => setDetailOpen(true),
               onSnapshot: openSnapshot,
+              onTrace: (entry) => setTraceItem(entry),
             })
           : null,
         detailOpen && selected
@@ -1238,9 +1485,22 @@ window.__ModuleLoader__.load({
               root: data?.root ?? root,
               onClose: () => setDetailOpen(false),
               onSnapshot: openSnapshot,
+              onTrace: (entry) => setTraceItem(entry),
             })
           : null,
         snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
+        traceItem
+          ? h(TraceModal, {
+              item: traceItem,
+              allItems: items,
+              onClose: () => setTraceItem(null),
+              onOpenRequirement: (id) => {
+                setTraceItem(null)
+                setDetailOpen(false)
+                setSelectedId(id)
+              },
+            })
+          : null,
         h(
           'div',
           { style: { display: 'flex', gap: '8px', marginTop: '20px' } },
