@@ -4,6 +4,7 @@ export const level = 'block'
 
 const ALLOWED = {
   satisfies: (source, target) => source === 'requirement' && target === 'requirement',
+  parent_of: (source, target) => source === 'requirement' && target === 'requirement',
   allocated_to: (source, target) => source === 'requirement' && target === 'module',
   depends_on: (source, target) =>
     ['module', 'interface', 'data-model'].includes(source) && ['module', 'interface'].includes(target),

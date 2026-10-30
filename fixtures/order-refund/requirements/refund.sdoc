@@ -9,6 +9,9 @@ UID: REQ-PAY-001
 TITLE: 支持订单部分退款
 STATUS: proposed
 OWNER: team-payments
+PRIORITY: P1
+CATEGORY: functional
+REVISION: 1
 
 [RELATION]
 Type: allocated_to
@@ -21,3 +24,7 @@ Value: ADR-PAY-003
 [RELATION]
 Type: verified_by
 Value: TEST-PAY-001
+
+[RELATION]
+Type: parent_of
+Value: REQ-PAY-004

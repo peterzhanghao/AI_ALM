@@ -12,7 +12,10 @@ test('nextActionFor follows acceptance, relation and status order', () => {
   assert.equal(nextActionFor({ ...base, verifiedBy: [] }, []), 'missing-acceptance')
   assert.equal(nextActionFor(base, [{ assetId: null, file: 'requirements/x.sdoc', rule: 'REL-001' }]), 'dangling-relation')
   assert.equal(nextActionFor(base, []), 'ready-to-change')
-  assert.equal(nextActionFor({ ...base, status: 'accepted' }, []), 'done')
+  assert.equal(nextActionFor({ ...base, status: 'accepted' }, []), 'ready-to-change')
+  assert.equal(nextActionFor({ ...base, status: 'in-progress' }, []), 'in-progress')
+  assert.equal(nextActionFor({ ...base, status: 'implemented' }, []), 'verify')
+  assert.equal(nextActionFor({ ...base, status: 'verified' }, []), 'done')
 })
 
 test('resolveRequirementsRoot accepts a relative fixture path and rejects traversal', () => {

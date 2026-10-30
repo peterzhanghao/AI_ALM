@@ -1,8 +1,8 @@
-import { AssetError, normalizeAsset } from '../model/asset.mjs'
+import { AssetError, STATUS_ALIASES, normalizeAsset } from '../model/asset.mjs'
 
 const NODE_RE = /^\[([A-Z][A-Z0-9_-]*)\]\s*$/
 const FIELD_RE = /^([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$/
-const FIELD_KEYS = new Set(['UID', 'TITLE', 'STATUS', 'OWNER'])
+const FIELD_KEYS = new Set(['UID', 'TITLE', 'STATUS', 'OWNER', 'REVISION', 'PRIORITY', 'CATEGORY', 'BRIEF', 'SOURCE'])
 
 /** Infer the asset type from the StrictDoc UID prefix. */
 function typeOf(uid) {
@@ -108,8 +108,15 @@ export function parseSdocAsset(text, file) {
           id: requirement.fields.UID,
           type: typeOf(requirement.fields.UID),
           title: requirement.fields.TITLE,
-          status: requirement.fields.STATUS ?? 'proposed',
+          status: STATUS_ALIASES[requirement.fields.STATUS] ?? requirement.fields.STATUS ?? 'proposed',
           owner: requirement.fields.OWNER,
+          ...(requirement.fields.REVISION ? { revision: Number(requirement.fields.REVISION) } : {}),
+          ...(requirement.fields.PRIORITY ? { priority: requirement.fields.PRIORITY } : {}),
+          ...(requirement.fields.CATEGORY ? { category: requirement.fields.CATEGORY } : {}),
+          ...(requirement.fields.BRIEF ? { brief: requirement.fields.BRIEF } : {}),
+          ...(requirement.fields.SOURCE
+            ? { sources: requirement.fields.SOURCE.split(',').map((entry) => entry.trim()).filter(Boolean) }
+            : {}),
           links: requirement.relations.map((entry) => ({ type: entry.type, target: entry.target })),
         },
         { path: file, format: 'sdoc', line: requirement.line },
