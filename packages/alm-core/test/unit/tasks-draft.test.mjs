@@ -44,6 +44,7 @@ test('draftTasks writes proposal, tasks.md and tasks.json with three cards per r
 
   const payload = JSON.parse(readFileSync(join(root, 'changes/CHG-TEST/tasks.json'), 'utf8'))
   assert.equal(payload.schema, 'alm.tasks/v1')
+  assert.equal(payload.project, 'PAY')
   assert.deepEqual(payload.requirements, ['REQ-PAY-001'])
 })
 

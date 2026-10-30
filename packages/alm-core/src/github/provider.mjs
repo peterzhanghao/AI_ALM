@@ -32,5 +32,25 @@ export function githubProvider({ repo, owner, labels = [], projectNumber } = {})
       gh(['project', 'item-add', String(number), '--owner', owner, '--url', url])
       return { number, url }
     },
+    setStatus(url, statusName, number = projectNumber) {
+      if (!number || !owner || !statusName) return null
+      const project = JSON.parse(gh(['project', 'view', String(number), '--owner', owner, '--format', 'json']))
+      const fields = JSON.parse(gh(['project', 'field-list', String(number), '--owner', owner, '--format', 'json']))
+      const field = (fields.fields ?? []).find((entry) => entry.name === 'Status')
+      const option = (field?.options ?? []).find((entry) => entry.name === statusName)
+      const items = JSON.parse(
+        gh(['project', 'item-list', String(number), '--owner', owner, '--format', 'json', '--limit', '200']),
+      )
+      const item = (items.items ?? []).find((entry) => entry.content?.url === url)
+      if (!field || !option || !item) return null
+      gh([
+        'project', 'item-edit',
+        '--id', item.id,
+        '--field-id', field.id,
+        '--project-id', project.id,
+        '--single-select-option-id', option.id,
+      ])
+      return { item: item.id, status: statusName }
+    },
   }
 }

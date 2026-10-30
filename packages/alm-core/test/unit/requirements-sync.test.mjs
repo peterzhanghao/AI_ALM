@@ -30,10 +30,12 @@ function makeRepo() {
 function fakeProvider(existing = []) {
   const created = []
   const board = []
+  const statuses = []
   let sequence = 100
   return {
     created,
     board,
+    statuses,
     adapter: {
       name: 'fake',
       find: (title) => existing.find((issue) => issue.title === title) ?? created.find((issue) => issue.title === title) ?? null,
@@ -44,6 +46,7 @@ function fakeProvider(existing = []) {
         return issue
       },
       addToProject: (url, number) => board.push({ url, number }),
+      setStatus: (url, name) => statuses.push({ url, name }),
     },
   }
 }
@@ -89,6 +92,7 @@ test('apply creates requirement issue, adds it to the board and writes the mappi
   assert.equal(result.actions[0].action, 'created')
   assert.equal(fake.created.length, 1)
   assert.deepEqual(fake.board, [{ url: fake.created[0].url, number: 1 }])
+  assert.deepEqual(fake.statuses, [{ url: fake.created[0].url, name: 'Ready' }])
 
   const mapping = readMapping(root)
   assert.equal(mapping.requirements['REQ-PAY-004'].number, 101)
@@ -108,6 +112,7 @@ test('tasks adopt the requirement issue as parent and are idempotent', async () 
   const second = await syncTasks({ root, changeId: 'CHG-GH-001', apply: true, createProvider: () => fake.adapter, project })
   assert.equal(second.actions.filter((action) => action.action === 'skip').length, 3)
   assert.equal(fake.created.length, 4)
+  assert.equal(fake.statuses.filter((entry) => entry.name === 'Ready').length, 4)
 
   const mapping = readMapping(root)
   assert.equal(Object.keys(mapping.tasks).length, 3)

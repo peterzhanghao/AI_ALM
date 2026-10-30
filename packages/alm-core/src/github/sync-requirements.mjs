@@ -117,7 +117,17 @@ export async function syncRequirementIssues({
     const created = adapter.create({ title, body, labels: issueLabels })
     mapping.requirements[id] = { provider: adapter.name, number: created.number, url: created.url }
     writeMapping(root, mapping)
-    if (project?.github?.project?.number) adapter.addToProject(created.url, project.github.project.number)
+    if (project?.github?.project?.number) {
+      adapter.addToProject(created.url, project.github.project.number)
+      const ready = project.github.project.status?.ready
+      if (ready && adapter.setStatus) {
+        try {
+          adapter.setStatus(created.url, ready, project.github.project.number)
+        } catch {
+          // a board status failure must not lose the created issue
+        }
+      }
+    }
     actions.push({ requirement: id, action: 'created', issue: mapping.requirements[id], title })
   }
 
