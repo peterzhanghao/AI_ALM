@@ -641,3 +641,21 @@
   - 正例：eval 实测下拉含「支付平台（PAY）」，切换后按项目根加载；177/177
   - 反例：无 registry 时仍显示当前仓库项目；未知 `?project=` 返回 404
 - 证据：截图 `docs/assets/design/project-picker.png`、单测
+
+### ALM-07.16 原型补充：项目切换与 GitHub 归属
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P2 ｜ 前置：ALM-07.15（#102，已关闭）
+- 技能：`alm-mvp-dev`、`frontend-design`
+- 实施范围：`docs/design/requirements-workbench-prototype.html`、`docs/assets/design/{projects,projects-all,github-attribution,detail-github,start-github,github-create,new-github}.png`
+- 不在范围：插件代码改动、真实 GitHub 建单（ALM-07.13/07.14 已实现）
+- 接口：原型对齐 `.alm/project.json`、需求 `PROJECT`、`.alm/github.json`、ProjectV2 Status、PR 归属
+- 交付物：
+  - [ ] 顶部项目切换器（支付平台 PAY / 客户 CRM / 全部项目），切换后按项目根加载并持久化
+  - [ ] 全部项目聚合视图：按项目分组、项目徽标、仓库与「GitHub 已归属」统计
+  - [ ] 需求抽屉与详情新增 GitHub 归属：仓库、需求 Issue、标签、ProjectV2 看板、任务子议题、PR
+  - [ ] 未建单需求一键「创建需求 Issue 并加入看板」；开始开发弹窗与新建向导展示将创建的 Issue/看板
+  - [ ] 新增 CRM 样例需求，验证项目隔离与跨项目聚合
+- 验收：
+  - 正例：切换项目后列表互不串；REQ-PAY-004 显示 #104 / ProjectV2 #1 / Ready / #105–#107；CRM 显示 #12 / In progress / PR #15
+  - 反例：无 Issue 的需求显示建单入口；未知项目不参与聚合
+- 证据：Playwright 12 项断言通过、0 pageerror；截图 7 张

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>需求 · 概念原型 v3（评审 / 版本 / 开发与验收）</title>
+<title>需求 · 概念原型 v7（项目切换 / GitHub 归属 / 看板）</title>
 <style>
   :root {
     color-scheme: dark;
@@ -212,6 +212,47 @@
   .filelist { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
   .filerow { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--text-2); border-bottom: 1px solid #1b1f25; padding: 7px 0; }
   .filerow b { color: var(--text); font-weight: 500; }
+  /* 项目切换（一仓库一项目；全部项目为聚合视图） */
+  .project-switch { position: relative; }
+  .project-btn { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line-strong); background: #101318; color: var(--text); border-radius: 10px; padding: 7px 12px; font-size: 12.5px; }
+  .project-btn:hover { background: #1b1f26; }
+  .pdot { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); flex: none; }
+  .pdot.crm { background: var(--amber); }
+  .pdot.all { background: linear-gradient(90deg, var(--blue), var(--amber)); }
+  .pkey { color: var(--text-3); font-size: 10.5px; letter-spacing: .04em; }
+  .project-btn svg { color: var(--text-3); }
+  .project-menu { position: absolute; top: calc(100% + 8px); right: 0; width: 300px; background: #12151a; border: 1px solid var(--line-strong); border-radius: 12px; padding: 6px; box-shadow: 0 18px 50px rgba(0,0,0,.5); z-index: 30; }
+  .project-menu > button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text); padding: 9px 10px; border-radius: 8px; font-size: 13px; }
+  .project-menu > button:hover { background: #1b2028; }
+  .project-menu > button[aria-selected="true"] { background: #1d222a; }
+  .project-menu .pmeta { margin-left: auto; color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .project-menu-foot { border-top: 1px solid var(--line); margin-top: 6px; padding: 8px 10px 4px; color: var(--text-3); font-size: 11px; line-height: 1.6; }
+  .group { margin-bottom: 26px; }
+  .group:last-child { margin-bottom: 0; }
+  .group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-2); font-size: 12px; flex-wrap: wrap; }
+  .group-head b { color: var(--text); font-weight: 600; font-size: 13px; }
+  .group-head .gh-sum { margin-left: auto; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .proj-badge { font-size: 10.5px; letter-spacing: .04em; border: 1px solid #2a3b57; color: #9dc0ff; border-radius: 5px; padding: 1px 6px; }
+  .proj-badge.crm { border-color: #4a3b1e; color: #f0cf8d; }
+  .gh-chip { color: var(--text-3); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  /* GitHub 归属 / ProjectV2 看板 */
+  .gh-panel { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .gh-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; font-size: 12.5px; color: var(--text-2); border-bottom: 1px solid #1b1f25; }
+  .gh-row:last-child { border-bottom: 0; }
+  .gh-row > b { color: var(--text-3); font-weight: 500; width: 70px; flex: none; font-size: 11.5px; }
+  .gh-row .val { color: var(--text); min-width: 0; }
+  .gh-row .chips { margin: 0; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+  .board { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 2px 8px; border-radius: 999px; }
+  .board::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .board.ready { color: #9dc0ff; background: #16233a; }
+  .board.progress { color: #f0cf8d; background: #2a2416; }
+  .board.review { color: #c9b8ff; background: #241f38; }
+  .board.done { color: #8fe0b4; background: #14261d; }
+  .gh-empty { border: 1px dashed var(--line-strong); border-radius: 10px; padding: 14px; font-size: 12.5px; color: var(--text-2); line-height: 1.7; }
+  .gh-empty .row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .gh-link { color: #9dc0ff; text-decoration: none; }
+  .gh-link:hover { text-decoration: underline; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -219,7 +260,16 @@
 <div class="shell">
   <header class="head">
     <div><h1>需求</h1><p class="sub" id="summary"></p></div>
-    <div class="head-actions"><button class="btn ghost" id="newBtn">＋ 新建</button><button class="icon-btn" aria-label="更多">⋯</button></div>
+    <div class="head-actions">
+      <div class="project-switch" id="projectSwitch">
+        <button class="project-btn" id="projectBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="切换项目">
+          <span class="pdot" id="pDot"></span><span id="pName">支付平台</span><span class="pkey" id="pKey">PAY</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="project-menu" id="projectMenu" role="listbox" aria-label="项目" hidden></div>
+      </div>
+      <button class="btn ghost" id="newBtn">＋ 新建</button><button class="icon-btn" aria-label="更多">⋯</button>
+    </div>
   </header>
   <div class="toolbar">
     <div class="seg" id="seg">
@@ -227,8 +277,8 @@
       <button data-filter="proposed">待评审<span id="countProposed"></span></button>
       <button data-filter="reviewing">评审中<span id="countReviewing"></span></button>
       <button data-filter="accepted">已采纳<span id="countAccepted"></span></button>
-      <button data-filter="doing">开发中<span>0</span></button>
-      <button data-filter="done">已验收<span>0</span></button>
+      <button data-filter="doing">开发中<span id="countDoing"></span></button>
+      <button data-filter="done">已验收<span id="countDone"></span></button>
     </div>
     <label class="search">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.2" stroke="currentColor" stroke-width="1.3"/><path d="M10.4 10.4 13.5 13.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
@@ -269,6 +319,9 @@
     <div class="section-title">关系 <button class="link" id="openTrace">查看追溯</button></div>
     <div id="dRelations"></div>
 
+    <div class="section-title">GitHub 归属 <button class="link" id="openGithub">在 GitHub 打开</button></div>
+    <div id="dGithub"></div>
+
     <div class="section-title">历史 <button class="link" id="openVersion">对比版本</button></div>
     <ol class="timeline" id="dHistory"></ol>
 
@@ -296,7 +349,7 @@
 
 <div class="modal-scrim" id="versionModal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-label="版本对比">
-    <h3>版本对比 · v2.0.1 → v2.1.0</h3>
+    <h3 id="versionTitle">版本对比 · v2.0.1 → v2.1.0</h3>
     <p class="lead">MINOR：新增并发验收，语义向后兼容；需要重新评审，不要求重做验收基线。</p>
     <div class="diff" id="versionDiff"></div>
     <p class="note" id="versionLog"></p>
@@ -309,14 +362,16 @@
     <h3>开始开发</h3>
     <p class="lead" id="startLead"></p>
     <div class="env">
-      <div>变更 <b>CHG-PAY-005</b></div><div>分支 <b>alm/chg-pay-005</b></div>
+      <div>项目 <b id="startProject">支付平台（PAY）</b></div><div>仓库 <b id="startRepo">peterzhanghao/AI_ALM</b></div>
+      <div>变更 <b id="startChange">CHG-PAY-005</b></div><div>分支 <b id="startBranch">alm/chg-pay-005</b></div>
       <div>基线 <b>c678e16（HEAD）</b></div><div>状态 <b id="startState">评审中 → 已采纳 → 开发中</b></div>
-      <div>工作区 <b>隔离 worktree</b></div><div>上下文包 <b>.alm/context/CHG-PAY-005/</b></div>
+      <div>工作区 <b>隔离 worktree</b></div><div>上下文包 <b id="startContext">.alm/context/CHG-PAY-005/</b></div>
+      <div>GitHub <b id="startGithub">需求 #104 + 任务 #105–#107</b></div><div>看板 <b id="startBoard">ProjectV2 #1 · Ready</b></div>
       <div>允许命令 <b>alm check / node --test / alm ci run</b></div><div>网络 <b>默认关闭</b></div>
     </div>
     <div id="startTasks"></div>
-    <label class="toggle"><input type="checkbox" id="syncBox"> 同时创建看板 Issue（GitHub / Gitea）</label>
-    <p class="note">确认后写入 changes/&lt;CHG&gt;/、生成 3 张任务卡与上下文包；建 Issue 需要本机凭据。</p>
+    <label class="toggle"><input type="checkbox" id="syncBox" checked> 同时创建需求 Issue 与任务子议题（加入 ProjectV2 看板）</label>
+    <p class="note">确认后写入 changes/&lt;CHG&gt;/、生成任务卡与上下文包；勾选时在该项目仓库建 1 个需求 Issue + 任务子议题并置看板 Ready（失败不阻断建单）。</p>
     <div class="modal-actions"><button class="btn" id="startCancel">取消</button><button class="btn primary" id="startConfirm">确认并生成</button></div>
   </div>
 </div>
@@ -383,6 +438,7 @@
   const REQS = [
     {
       id: 'REQ-PAY-004',
+      project: 'PAY',
       title: '同一幂等键的重复退款请求返回同一退款单',
       status: 'reviewing', statusText: '评审中', version: '2.1.0',
       team: '支付团队', priority: 'P1',
@@ -430,10 +486,19 @@
         ['v2.0.0', 'MAJOR', '2026-10-28', 'CHG-PAY-002', '幂等键方案定稿']
       ],
       tech: { file: 'requirements/refund-idempotent.sdoc:7', manifest: 'manifest.json · sha256 c485187b…', rules: 'COV-001 / REL-002 / ATT-001 / TASK-001 通过' },
+      github: {
+        repo: 'peterzhanghao/AI_ALM',
+        issue: 104,
+        labels: ['type::requirement', 'project::PAY', 'priority::P1'],
+        board: { project: 1, status: 'Ready' },
+        tasks: [105, 106, 107],
+        pr: null
+      },
       tasks: [['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'], ['实现（退款模块）', '幂等键、去重表与事务边界'], ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']]
     },
     {
       id: 'REQ-PAY-001',
+      project: 'PAY',
       title: '支持订单部分退款',
       status: 'proposed', statusText: '待评审', version: '1.0.0',
       team: '支付团队', priority: 'P1',
@@ -466,6 +531,52 @@
       versions: [['v1.0.0', 'MAJOR', '2026-10-23', 'CHG-PAY-001', '初始版本']],
       tech: { file: 'requirements/refund.sdoc:7', manifest: '无附件', rules: 'COV-001 / REL-002 通过' },
       tasks: [['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'], ['实现（退款模块）', '退款金额与订单状态一次事务内更新'], ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']]
+    },
+    {
+      id: 'REQ-CRM-002',
+      project: 'CRM',
+      title: '客户合并后保留原跟进记录',
+      status: 'doing', statusText: '开发中', version: '2.0.0',
+      team: 'CRM 团队', priority: 'P2',
+      brief: '两个重复客户合并后，原客户下的跟进记录、商机与合同引用全部转移到主客户；历史记录不丢失、不重复，来源客户标记为已合并。',
+      goal: '合并完成后主客户下可见双方全部跟进记录，来源客户不可再次被合并，重复合并返回同一结果。',
+      scopeOut: '客户字段冲突合并策略、跨租户合并、外部 CRM 同步。',
+      decisions: ['合并前对两个客户做全量引用扫描', '跟进记录保留原 customer_id 作为来源标记', '合并操作写审计日志，可按合并批次回放'],
+      sources: ['聊天', '截图'], attachments: [{ name: 'customer-merge-2026-10-30.png', size: '840 KB' }],
+      review: { completed: 5, total: 5, blockers: 0, passed: true, roles: [['业务', 'pass'], ['架构', 'pass'], ['测试', 'pass'], ['安全', 'pass'], ['交付', 'pass']], findings: [] },
+      checks: ['合并后主客户下跟进记录数等于双方之和', '来源客户不可再被合并，重复合并返回同一结果'],
+      acceptState: '已覆盖 2/2 · 已验证 · 已签收',
+      relations: [['上级', ['REQ-CRM-001 客户主数据合并']], ['验收', ['TEST-CRM-003']], ['依赖', []]],
+      graph: {
+        stats: { parent: 1, children: 0, tests: 1 },
+        nodes: [
+          { id: 'REQ-CRM-001', label: 'REQ-CRM-001 客户主数据合并', type: 'req', x: 70, y: 80 },
+          { id: 'REQ-CRM-002', label: 'REQ-CRM-002 保留跟进记录', type: 'req', x: 340, y: 190 },
+          { id: 'TEST-CRM-003', label: 'TEST-CRM-003 合并后记录数', type: 'test', x: 680, y: 140 },
+          { id: 'ADR-CRM-002', label: 'ADR-CRM-002 合并审计日志', type: 'adr', x: 360, y: 340 },
+          { id: 'MOD-CRM-MERGE', label: 'MOD-CRM-MERGE 合并模块', type: 'module', x: 70, y: 300 }
+        ],
+        edges: [
+          { from: 'REQ-CRM-001', to: 'REQ-CRM-002', label: 'parent_of' },
+          { from: 'REQ-CRM-002', to: 'TEST-CRM-003', label: 'verified_by' },
+          { from: 'REQ-CRM-002', to: 'ADR-CRM-002', label: 'constrained_by' },
+          { from: 'REQ-CRM-002', to: 'MOD-CRM-MERGE', label: 'allocated_to' }
+        ]
+      },
+      versions: [
+        ['v2.0.0', 'MAJOR', '2026-10-30', 'CHG-CRM-004', '合并方案定稿：引用扫描与来源标记'],
+        ['v1.2.0', 'MINOR', '2026-10-29', 'CHG-CRM-003', '补充审计日志与回放要求']
+      ],
+      tech: { file: 'requirements/customer-merge.sdoc:9', manifest: 'manifest.json · sha256 7f2a91…', rules: 'COV-001 / REL-002 / PRJ-001 通过' },
+      github: {
+        repo: 'peterzhanghao/crm-platform',
+        issue: 12,
+        labels: ['type::requirement', 'project::CRM', 'priority::P2'],
+        board: { project: 3, status: 'In progress' },
+        tasks: [13, 14],
+        pr: 15
+      },
+      tasks: [['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'], ['实现（合并模块）', '引用扫描、记录转移与来源标记'], ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']]
     }
   ]
 
@@ -476,29 +587,140 @@
 
   let filter = 'all'
   let keyword = ''
+  let project = 'PAY' // 'ALL' 为跨项目聚合视图
+
+  // 一仓库一项目：项目来自 .alm/project.json；需求可省略 PROJECT，默认取仓库项目。
+  const PROJECTS = [
+    { id: 'PAY', name: '支付平台', repo: 'peterzhanghao/AI_ALM', board: 1, dot: '' },
+    { id: 'CRM', name: '客户 CRM', repo: 'peterzhanghao/crm-platform', board: 3, dot: 'crm' }
+  ]
+  const projectOf = (id) => PROJECTS.find((entry) => entry.id === id) ?? null
+  const scoped = () => REQS.filter((req) => project === 'ALL' || req.project === project)
+  const countOf = (status) => scoped().filter((req) => req.status === status).length
+
+  const BOARD_CLASS = { Ready: 'ready', 'In progress': 'progress', 'In review': 'review', Done: 'done' }
+  function boardPill(status) {
+    return `<span class="board ${BOARD_CLASS[status] ?? 'ready'}">${status}</span>`
+  }
+
+  function nextIssueNumber() {
+    let next = 103
+    for (const req of REQS) {
+      if (!req.github) continue
+      next = Math.max(next, req.github.issue)
+      for (const task of req.github.tasks) next = Math.max(next, task)
+    }
+    return next + 1
+  }
+
+  function githubPanel(req) {
+    const projectMeta = projectOf(req.project)
+    if (!req.github) {
+      return `<div class="gh-empty">
+        <div>尚未建立 GitHub 归属：需求 Issue、任务子议题与看板条目会在「开始开发」时一并创建。</div>
+        <div class="row"><button class="btn sm" data-gh-create="${req.id}">创建需求 Issue 并加入看板</button><span class="muted">${projectMeta?.repo ?? '—'} · ProjectV2 #${projectMeta?.board ?? '—'}</span></div>
+      </div>`
+    }
+    const gh = req.github
+    const taskLinks = gh.tasks.length
+      ? gh.tasks.map((num) => `<a class="gh-link" href="#" data-gh-open="${num}">#${num}</a>`).join(' · ')
+      : '—'
+    return `<div class="gh-panel">
+      <div class="gh-row"><b>仓库</b><span class="val mono">${gh.repo}</span></div>
+      <div class="gh-row"><b>需求 Issue</b><span class="val"><a class="gh-link" href="#" data-gh-open="${gh.issue}">#${gh.issue}</a> · [${req.id}] ${req.title}</span></div>
+      <div class="gh-row"><b>标签</b><span class="chips">${gh.labels.map((label) => `<span class="chip">${label}</span>`).join('')}</span></div>
+      <div class="gh-row"><b>看板</b><span class="val">ProjectV2 #${gh.board.project} ${boardPill(gh.board.status)}</span></div>
+      <div class="gh-row"><b>任务子议题</b><span class="val">${taskLinks}${gh.tasks.length ? `<span class="muted">（parent #${gh.issue}）</span>` : ''}</span></div>
+      <div class="gh-row"><b>PR / 交付</b><span class="val">${gh.pr ? `<a class="gh-link" href="#" data-gh-open="${gh.pr}">#${gh.pr}</a> · 看板 ${boardPill('In review')}` : '<span class="muted">尚未开 PR；PR 模板要求填写项目 / 需求 Issue / 变更 / 看板状态</span>'}</span></div>
+    </div>`
+  }
 
   function card(req) {
+    const projectMeta = projectOf(req.project)
+    const gh = req.github ? `<span class="gh-chip">#${req.github.issue}</span>` : ''
     return `<article class="card" data-id="${req.id}" tabindex="0" role="button" aria-label="查看 ${req.title}">
       <div>
-        <div class="card-head"><span class="pill ${req.status}">${req.statusText}</span><span class="id">${req.id}</span><span class="rev">v${req.version}</span></div>
+        <div class="card-head"><span class="pill ${req.status}">${req.statusText}</span><span class="id">${req.id}</span><span class="rev">v${req.version}</span>${project === 'ALL' && projectMeta ? `<span class="proj-badge ${projectMeta.dot}">${projectMeta.id}</span>` : ''}${gh}</div>
         <h2>${req.title}</h2>
-        <p class="meta">${req.team}<span class="dot">·</span>验收 ${req.checks.length}/${req.checks.length}${req.attachments.length ? `<span class="dot">·</span><span class="src">${req.attachments.length} 个附件</span>` : ''}${req.sources.length ? `<span class="dot">·</span><span class="src">${req.sources.join(' / ')}</span>` : ''}</p>
+        <p class="meta">${req.team}<span class="dot">·</span>验收 ${req.checks.length}/${req.checks.length}${req.attachments.length ? `<span class="dot">·</span><span class="src">${req.attachments.length} 个附件</span>` : ''}${req.sources.length ? `<span class="dot">·</span><span class="src">${req.sources.join(' / ')}</span>` : ''}${req.github ? `<span class="dot">·</span><span class="src">看板 ${req.github.board.status}</span>` : ''}</p>
       </div>
       <button class="btn primary sm card-cta" data-start="${req.id}">开始开发</button>
     </article>`
   }
 
+  function renderProjectMenu() {
+    el('projectMenu').innerHTML = `
+      <button role="option" data-project="ALL" aria-selected="${project === 'ALL'}"><span class="pdot all"></span>全部项目<span class="pmeta">${REQS.length} 条</span></button>
+      ${PROJECTS.map((entry) => {
+        const count = REQS.filter((req) => req.project === entry.id).length
+        return `<button role="option" data-project="${entry.id}" aria-selected="${project === entry.id}"><span class="pdot ${entry.dot}"></span>${entry.name}<span class="pmeta">${entry.id} · ${count} 条</span></button>`
+      }).join('')}
+      <div class="project-menu-foot">每仓库一个项目（.alm/project.json）；切换后按项目根加载需求，新建默认归属当前项目。</div>`
+  }
+
+  function renderProjectSwitch() {
+    const current = projectOf(project)
+    el('pName').textContent = current ? current.name : '全部项目'
+    el('pKey').textContent = current ? current.id : 'ALL'
+    el('pDot').className = `pdot ${current ? current.dot : 'all'}`
+    el('projectBtn').setAttribute('aria-label', `切换项目：当前 ${current ? `${current.name}（${current.id}）` : '全部项目'}`)
+  }
+
   function render() {
-    const visible = REQS.filter((req) => filter === 'all' || req.status === filter)
+    const inScope = scoped()
+    const visible = inScope.filter((req) => filter === 'all' || req.status === filter)
       .filter((req) => req.title.includes(keyword) || req.id.includes(keyword.toUpperCase()))
-    el('list').innerHTML = visible.map(card).join('')
+    if (project === 'ALL') {
+      el('list').innerHTML = PROJECTS.map((entry) => {
+        const items = visible.filter((req) => req.project === entry.id)
+        if (!items.length) return ''
+        const linked = items.filter((req) => req.github).length
+        return `<section class="group" data-group="${entry.id}">
+          <div class="group-head"><span class="proj-badge ${entry.dot}">${entry.id}</span><b>${entry.name}</b><span class="pmeta">${entry.repo} · ${items.length} 条</span><span class="gh-sum">GitHub 已归属 ${linked}/${items.length}</span></div>
+          <div class="list">${items.map(card).join('')}</div>
+        </section>`
+      }).join('')
+    } else {
+      el('list').innerHTML = visible.map(card).join('')
+    }
     el('empty').hidden = visible.length > 0
-    el('summary').textContent = `${REQS.length} 条需求 · ${REQS.filter((r) => r.status === 'proposed').length} 条待评审 · ${REQS.filter((r) => r.status === 'reviewing').length} 条评审中`
-    el('countAll').textContent = REQS.length
-    el('countProposed').textContent = REQS.filter((r) => r.status === 'proposed').length
-    el('countReviewing').textContent = REQS.filter((r) => r.status === 'reviewing').length
-    el('countAccepted').textContent = REQS.filter((r) => r.status === 'accepted').length
+    const current = projectOf(project)
+    el('summary').textContent = `${current ? `${current.name}（${current.id}）` : '全部项目'} · ${inScope.length} 条需求 · ${countOf('proposed')} 条待评审 · ${countOf('reviewing')} 条评审中 · ${inScope.filter((req) => req.github).length} 条已建 Issue`
+    el('countAll').textContent = inScope.length
+    el('countProposed').textContent = countOf('proposed')
+    el('countReviewing').textContent = countOf('reviewing')
+    el('countAccepted').textContent = countOf('accepted')
+    el('countDoing').textContent = countOf('doing')
+    el('countDone').textContent = countOf('done')
     for (const btn of el('seg').querySelectorAll('button')) btn.classList.toggle('active', btn.dataset.filter === filter)
+    renderProjectSwitch()
+    renderProjectMenu()
+  }
+
+  function setProject(id) {
+    project = id
+    el('projectMenu').hidden = true
+    el('projectBtn').setAttribute('aria-expanded', 'false')
+    render()
+    toast(id === 'ALL' ? '已切换到「全部项目」：跨项目聚合视图，按项目分组' : `已切换到「${projectOf(id).name}」：按项目根加载需求，新建默认归属该项目`)
+  }
+
+  function createGithub(reqId) {
+    const req = REQS.find((entry) => entry.id === reqId)
+    if (!req) return
+    const projectMeta = projectOf(req.project)
+    const issue = nextIssueNumber()
+    req.github = {
+      repo: projectMeta.repo,
+      issue,
+      labels: ['type::requirement', `project::${projectMeta.id}`, `priority::${req.priority}`],
+      board: { project: projectMeta.board, status: 'Ready' },
+      tasks: [],
+      pr: null
+    }
+    if (currentId === reqId) openDrawer(reqId)
+    render()
+    toast(`已在 ${projectMeta.repo} 创建需求 Issue #${issue}，并加入 ProjectV2 #${projectMeta.board}（Status = Ready）`)
   }
 
   let currentId = null
@@ -511,7 +733,7 @@
     el('dPill').textContent = req.statusText
     el('dRev').textContent = `v${req.version}`
     el('dTitle').textContent = req.title
-    el('dMeta').textContent = `${req.team} · ${req.priority} · ${req.id}`
+    el('dMeta').textContent = `${req.team} · ${req.priority} · ${req.id} · ${projectOf(req.project)?.name ?? '未归属项目'}（${req.project ?? '—'}）`
     el('dBrief').textContent = req.brief
     el('dChips').innerHTML = req.sources.map((s) => `<span class="chip">来源 · ${s}</span>`).join('')
     el('dAttachments').innerHTML = req.attachments.map((a) => `<div class="attach">${fileSvg}<span>${a.name}</span><span class="size">${a.size}</span></div>`).join('')
@@ -532,6 +754,8 @@
     el('dAcceptState').textContent = req.acceptState
     el('dChecks').innerHTML = req.checks.map((c) => `<div class="check">${checkSvg}<span>${c}</span></div>`).join('')
     el('dRelations').innerHTML = req.relations.map(([label, items]) => `<div class="rel"><b>${label}</b><span>${items.length ? items.join('、') : '无'}</span></div>`).join('')
+    el('dGithub').innerHTML = githubPanel(req)
+    el('openGithub').dataset.id = req.id
     el('dHistory').innerHTML = req.versions.map(([v, type, date, change, note]) =>
       `<li data-version="${v}" style="cursor:pointer" title="查看 ${v} 快照"><b>${v}</b><span class="badge ${type.toLowerCase()}">${type}</span> ${date} · ${change} · ${note} <span style="color:var(--text-3)">查看快照 ›</span></li>`).join('')
     el('dTech').innerHTML = `<div><code>${req.id}</code> · <code>${req.tech.file}</code></div><div>附件：${req.tech.manifest}</div><div>门禁：${req.tech.rules}</div>`
@@ -567,23 +791,43 @@
   function openVersion(id) {
     const req = REQS.find((r) => r.id === id)
     if (!req) return
+    const latest = req.versions[0]
+    const previous = req.versions[1] ?? latest
+    el('versionTitle').textContent = `版本对比 · ${previous[0]} → ${latest[0]}`
     el('versionDiff').innerHTML = `
-      <div>版本：<span class="old">v2.0.1</span> → <span class="new">v2.1.0（MINOR）</span></div>
-      <div>背景：<span class="new">新增“幂等记录保留 7 天”说明</span></div>
-      <div>验收：<span class="new">新增“并发同键只产生一条退款单”</span></div>
+      <div>版本：<span class="old">${previous[0]}</span> → <span class="new">${latest[0]}（${latest[1]}）</span></div>
+      <div>变更：<span class="new">${latest[4]}</span></div>
+      <div>评审影响：<span class="new">${latest[1] === 'MAJOR' ? '需要重新评审，并按新基线重做验收' : latest[1] === 'MINOR' ? '需要重新评审，不要求重做验收基线' : '不改变语义，可复用验收基线'}</span></div>
       <div>标题：未变</div>
       <div>关系：未变</div>`
-    el('versionLog').textContent = '变更记录：v2.1.0 · 2026-10-30 · CHG-PAY-004 · 新增并发验收与幂等记录说明（MINOR 需重新评审）'
+    el('versionLog').textContent = `变更记录：${latest[0]} · ${latest[2]} · ${latest[3]} · ${latest[4]}（${latest[1]}；版本内容变化后人工签收自动失效）`
     el('versionModal').hidden = false
   }
 
   function closeVersion() { el('versionModal').hidden = true }
 
+  let startId = null
+
   function openStart(id) {
     const req = REQS.find((r) => r.id === id)
     if (!req) return
-    el('startLead').textContent = `为「${req.title}」生成 ${req.tasks.length} 张任务卡，并准备 AI 执行环境。`
+    startId = id
+    const projectMeta = projectOf(req.project)
+    const change = `CHG-${req.project}-005`
+    el('startLead').textContent = `为「${req.title}」生成 ${req.tasks.length} 张任务卡，准备 AI 执行环境，并在 ${projectMeta.name} 项目建单。`
     el('startState').textContent = `${req.statusText} → 已采纳 → 开发中`
+    el('startProject').textContent = `${projectMeta.name}（${projectMeta.id}）`
+    el('startRepo').textContent = projectMeta.repo
+    el('startChange').textContent = change
+    el('startBranch').textContent = `alm/${change.toLowerCase()}`
+    el('startContext').textContent = `.alm/context/${change}/`
+    el('startGithub').textContent = req.github
+      ? `需求 #${req.github.issue} + ${req.github.tasks.length} 个任务子议题`
+      : `待创建：需求 1 + 任务 ${req.tasks.length}`
+    el('startBoard').textContent = req.github
+      ? `ProjectV2 #${req.github.board.project} · ${req.github.board.status}`
+      : `ProjectV2 #${projectMeta.board} · Ready（建单后）`
+    el('syncBox').checked = true
     el('startTasks').innerHTML = req.tasks.map(([name, hint], i) => `<div class="task-row"><div class="task-index">0${i + 1}</div><div><strong>${name}</strong><span>${hint}</span></div></div>`).join('')
     el('startModal').hidden = false
   }
@@ -615,6 +859,14 @@
     'REQ-PAY-001@1.0.0': {
       brief: '订单支持按金额部分退款，退款金额与订单状态保持一致。',
       checks: ['部分退款金额与订单状态一致']
+    },
+    'REQ-CRM-002@2.0.0': {
+      brief: '两个重复客户合并后，原客户下的跟进记录、商机与合同引用全部转移到主客户；历史记录不丢失、不重复。',
+      checks: ['合并后主客户下跟进记录数等于双方之和', '来源客户不可再被合并，重复合并返回同一结果']
+    },
+    'REQ-CRM-002@1.2.0': {
+      brief: '合并后原客户的跟进记录需要保留，避免销售历史丢失。',
+      checks: ['合并后主客户下跟进记录数等于双方之和']
     }
   }
 
@@ -623,9 +875,13 @@
     if (!req) return
     el('detailPills').innerHTML = `<span class="pill ${req.status}">${req.statusText}</span><span class="id">${req.id}</span><span class="rev">v${req.version}</span>`
     el('detailTitle').textContent = req.title
-    el('detailMeta').textContent = `${req.team} · ${req.priority} · 最近更新 2026-10-30`
+    el('detailMeta').textContent = `${req.team} · ${req.priority} · ${projectOf(req.project)?.name ?? '未归属项目'}（${req.project ?? '—'}）· 最近更新 2026-10-30`
     const checks = req.checks.map((c) => `<div class="check">${checkSvg}<span>${c}</span></div>`).join('')
     const decisions = (req.decisions ?? []).map((d) => `<li>${d}</li>`).join('')
+    const projectMeta = projectOf(req.project)
+    const ghSide = req.github
+      ? `<p><a class="gh-link" href="#" data-gh-open="${req.github.issue}">需求 Issue #${req.github.issue}</a><br><span class="muted mono">${req.github.repo}</span><br>ProjectV2 #${req.github.board.project} ${boardPill(req.github.board.status)}${req.github.pr ? `<br>PR <a class="gh-link" href="#" data-gh-open="${req.github.pr}">#${req.github.pr}</a> · 看板 ${boardPill('In review')}` : ''}</p>`
+      : `<p class="muted">未建 Issue · 开始开发时按项目配置自动创建</p>`
     el('detailMain').innerHTML = `
       <h4>目标</h4><p>${req.goal ?? req.brief}</p>
       <h4>范围外</h4><p>${req.scopeOut ?? '—'}</p>
@@ -638,6 +894,8 @@
     const roleRows = req.review.roles.map(([name, verdict]) =>
       `<div class="role"><span>${name}</span><span class="v ${verdict === 'pending' ? '' : verdict}">${VERDICT[verdict] ?? verdict}</span></div>`).join('')
     el('detailSide').innerHTML = `
+      <h4>项目</h4><p><b>${projectMeta?.name ?? '未归属'}</b>（${projectMeta?.id ?? '—'}）<br><span class="muted mono">${projectMeta?.repo ?? '—'}</span></p>
+      <h4>GitHub / 看板</h4>${ghSide}
       <h4>关系</h4><div>${req.relations.map(([label, items]) => `<div class="rel"><b>${label}</b><span>${items.length ? items.join('、') : '无'}</span></div>`).join('')}</div>
       <h4>版本历史</h4><div>${versionRows}</div>
       <h4>评审</h4><p>${req.review.completed}/${req.review.total} 角色 · ${req.review.blockers} 个阻塞</p><div class="review-roles">${roleRows}</div>
@@ -787,18 +1045,26 @@
       el('newCreate').onclick = () => { newStep = 3; renderNew() }
       return
     }
+    const target = projectOf(project) ?? PROJECTS[0]
     el('newBody').innerHTML = `
       <h4 class="section-title" style="margin-top:0">将创建</h4>
       <div class="filelist">
-        <div class="filerow"><span><b>REQ-PAY-005.sdoc</b> · 结构化字段与关系</span><span class="muted">v1.0.0</span></div>
-        <div class="filerow"><span><b>briefs/REQ-PAY-005.md</b> · 背景、目标、范围外、决策</span><span class="muted">Markdown</span></div>
-        <div class="filerow"><span><b>attachments/REQ-PAY-005/manifest.json</b> · 3 个原始文件 + sha256</span><span class="muted">不可变</span></div>
-        <div class="filerow"><span><b>attachments/REQ-PAY-005/</b> · screenshot-01.png、chat、会议纪要</span><span class="muted">原始件</span></div>
+        <div class="filerow"><span><b>REQ-${target.id}-005.sdoc</b> · 结构化字段与关系 · PROJECT: ${target.id}</span><span class="muted">v1.0.0</span></div>
+        <div class="filerow"><span><b>briefs/REQ-${target.id}-005.md</b> · 背景、目标、范围外、决策</span><span class="muted">Markdown</span></div>
+        <div class="filerow"><span><b>attachments/REQ-${target.id}-005/manifest.json</b> · 3 个原始文件 + sha256</span><span class="muted">不可变</span></div>
+        <div class="filerow"><span><b>attachments/REQ-${target.id}-005/</b> · screenshot-01.png、chat、会议纪要</span><span class="muted">原始件</span></div>
+        <div class="filerow"><span><b>GitHub Issue [REQ-${target.id}-005]</b> · 标签 type::requirement / project::${target.id} / priority::P1</span><span class="muted">待创建</span></div>
+        <div class="filerow"><span><b>ProjectV2 #${target.board}</b> · 看板 Status Ready；任务 Issue 以需求 Issue 为 parent</span><span class="muted">${target.repo}</span></div>
       </div>
-      <p class="note">保存后状态为「待评审」；AI 多角色评审通过并人工签收后才可开始开发。原始材料只读，每个字段保留引用。</p>`
+      <label class="toggle"><input type="checkbox" id="syncNew" checked> 同步创建需求 Issue 并加入 ${target.name} 看板</label>
+      <p class="note">保存后状态为「待评审」，归属项目 ${target.name}（${target.id}）；AI 多角色评审通过并人工签收后才可开始开发。原始材料只读，每个字段保留引用。</p>`
     el('newActions').innerHTML = '<button class="btn" id="newPrev2">上一步</button><button class="btn primary" id="newFinish">完成</button>'
     el('newPrev2').onclick = () => { newStep = 2; renderNew() }
-    el('newFinish').onclick = () => { closeNew(); toast('已创建 REQ-PAY-005（待评审 · v1.0.0），原始材料已归档') }
+    el('newFinish').onclick = () => {
+      const sync = el('syncNew')?.checked
+      closeNew()
+      toast(sync ? `已创建 REQ-${target.id}-005（待评审 · v1.0.0），并在 ${target.repo} 建 Issue、加入 ProjectV2 #${target.board}` : `已创建 REQ-${target.id}-005（待评审 · v1.0.0），未创建 GitHub Issue`)
+    }
   }
 
   function openNew() {
@@ -822,19 +1088,46 @@
     if (start) { event.stopPropagation(); openStart(start.dataset.start); return }
     const versionEl = event.target.closest('[data-version]')
     if (versionEl) { openSnapshot(versionEl.dataset.version); return }
+    const projectEl = event.target.closest('[data-project]')
+    if (projectEl) { setProject(projectEl.dataset.project); return }
+    const ghCreate = event.target.closest('[data-gh-create]')
+    if (ghCreate) { createGithub(ghCreate.dataset.ghCreate); return }
+    const ghOpen = event.target.closest('[data-gh-open]')
+    if (ghOpen) { event.preventDefault(); toast(`在 GitHub 打开 #${ghOpen.dataset.ghOpen}（原型占位）`); return }
     const nodeEl = event.target.closest('[data-node]')
     if (nodeEl) {
       const nodeId = nodeEl.dataset.node
-      if (nodeId.startsWith('REQ-')) { closeTrace(); openDetail(nodeId) }
-      else toast('打开 ' + nodeId + '（原型占位）')
+      if (nodeId.startsWith('REQ-')) {
+        closeTrace()
+        if (REQS.some((req) => req.id === nodeId)) openDetail(nodeId)
+        else toast('打开 ' + nodeId + '（原型占位）')
+      } else toast('打开 ' + nodeId + '（原型占位）')
       return
     }
     const cardEl = event.target.closest('.card')
     if (cardEl) openDrawer(cardEl.dataset.id)
   })
 
+  el('projectBtn').addEventListener('click', (event) => {
+    event.stopPropagation()
+    const willOpen = el('projectMenu').hidden
+    el('projectMenu').hidden = !willOpen
+    el('projectBtn').setAttribute('aria-expanded', String(willOpen))
+  })
+
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('#projectSwitch')) return
+    el('projectMenu').hidden = true
+    el('projectBtn').setAttribute('aria-expanded', 'false')
+  })
+
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return
+    if (!el('projectMenu').hidden) {
+      el('projectMenu').hidden = true
+      el('projectBtn').setAttribute('aria-expanded', 'false')
+      return
+    }
     const ids = ['reviewModal', 'versionModal', 'startModal', 'acceptModal', 'detailModal', 'snapshotModal', 'traceModal', 'newModal']
     if (ids.some((id) => !el(id).hidden)) {
       closeReview(); closeVersion(); closeStart(); closeAccept(); closeDetail(); closeSnapshot(); closeTrace(); closeNew()
@@ -875,13 +1168,44 @@
     toast('评审通过：已记录签收人、版本与内容哈希')
   })
   el('openVersion').addEventListener('click', () => openVersion(currentId))
+  el('openGithub').addEventListener('click', () => {
+    const req = REQS.find((r) => r.id === currentId)
+    if (!req) return
+    if (req.github) toast(`在 GitHub 打开 ${req.github.repo} #${req.github.issue}（原型占位）`)
+    else toast('尚未建立 Issue：在「开始开发」时按项目配置创建')
+  })
   el('versionClose').addEventListener('click', closeVersion)
   el('versionOpen').addEventListener('click', () => { closeVersion(); toast('打开变更记录（原型占位）') })
   el('openDetail').addEventListener('click', () => openDetail(currentId))
   el('openTrace').addEventListener('click', () => toast('打开追溯视图（原型占位）'))
   el('dEdit').addEventListener('click', () => toast('进入编辑（仅工作区内可写）'))
   el('startCancel').addEventListener('click', closeStart)
-  el('startConfirm').addEventListener('click', () => { closeStart(); toast('已生成变更、3 张任务卡与上下文包（原型）') })
+  el('startConfirm').addEventListener('click', () => {
+    const req = REQS.find((r) => r.id === startId)
+    const sync = el('syncBox').checked
+    closeStart()
+    if (!req) return
+    if (!sync) {
+      toast('已生成变更、任务卡与上下文包（未创建 GitHub Issue）')
+      return
+    }
+    const projectMeta = projectOf(req.project)
+    if (!req.github) {
+      const issue = nextIssueNumber()
+      req.github = {
+        repo: projectMeta.repo,
+        issue,
+        labels: ['type::requirement', `project::${projectMeta.id}`, `priority::${req.priority}`],
+        board: { project: projectMeta.board, status: 'Ready' },
+        tasks: [],
+        pr: null
+      }
+    }
+    req.github.tasks = Array.from({ length: req.tasks.length }, (_, index) => req.github.issue + 1 + index)
+    req.github.board.status = 'Ready'
+    render()
+    toast(`已生成变更与上下文包；在 ${projectMeta.repo} 建需求 Issue #${req.github.issue} + ${req.github.tasks.length} 个任务子议题，看板 Status = Ready`)
+  })
   el('acceptCancel').addEventListener('click', closeAccept)
   el('acceptRun').addEventListener('click', () => {
     const req = REQS.find((r) => r.id === currentId)
