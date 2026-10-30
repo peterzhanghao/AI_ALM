@@ -703,7 +703,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, compact }) {
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, compact }) {
       const relations = relationsOf(item, allItems)
       return h(
         'div',
@@ -763,14 +763,16 @@ window.__ModuleLoader__.load({
           h(CopyPrompt, { text: nextPrompt(item, root) }),
         ),
 
-        h('div', { style: { display: 'flex', gap: '10px', marginTop: '22px' } },
-          h('button', { style: primary, onClick: () => onDetail(item) }, '查看详情'),
+        h('div', { style: { display: 'flex', gap: '10px', marginTop: '22px', flexWrap: 'wrap' } },
+          h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
+          h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁验收'),
+          h('button', { style: button, onClick: () => onDetail(item) }, '查看详情'),
           onClose ? h('button', { style: button, onClick: onClose }, '关闭') : null,
         ),
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -800,12 +802,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -888,7 +890,9 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' } },
+          h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', flexWrap: 'wrap' } },
+            h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
+            h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁验收'),
             h('button', { style: button, onClick: onClose }, '关闭'),
           ),
         ),
@@ -1201,6 +1205,306 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function writeJson(path, body, root) {
+      return fetch(`/api/alm/requirements/${path}?root=${encodeURIComponent(root)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(async (response) => {
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || payload?.ok === false) {
+          throw new Error(payload?.error?.message ?? `HTTP ${response.status}`)
+        }
+        return payload
+      })
+    }
+
+    function ModalShell({ title, lead, onClose, children, footer, width = '720px' }) {
+      useEffect(() => {
+        const onKey = (event) => {
+          if (event.key === 'Escape') onClose()
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+      }, [onClose])
+      return h(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            inset: 0,
+            zIndex: 60,
+            background: 'rgba(4,6,9,.62)',
+            backdropFilter: 'blur(6px)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: '24px',
+          },
+          onClick: onClose,
+        },
+        h(
+          'div',
+          {
+            role: 'dialog',
+            'aria-label': title,
+            onClick: (event) => event.stopPropagation(),
+            style: {
+              width,
+              maxWidth: '96vw',
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              background: T.base,
+              border: `1px solid ${T.line2}`,
+              borderRadius: '16px',
+              padding: '24px 28px',
+              boxShadow: '0 24px 80px rgba(0,0,0,.5)',
+            },
+          },
+          h('h3', { style: { margin: 0, fontSize: '18px' } }, title),
+          lead ? h('p', { style: { margin: '8px 0 0', ...muted, lineHeight: 1.7 } }, lead) : null,
+          children,
+          footer ? h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' } }, footer) : null,
+        ),
+      )
+    }
+
+    function PlanRows({ rows }) {
+      return h(
+        'div',
+        { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '4px 12px', marginTop: '14px' } },
+        rows.map(([label, value], index) =>
+          h(
+            'div',
+            { key: label, style: { ...row, borderBottom: index === rows.length - 1 ? 'none' : `1px solid ${T.line}` } },
+            h('span', { style: rowLabel }, label),
+            h('span', { style: { color: T.text, minWidth: 0, fontSize: '12.5px' } }, value),
+          ),
+        ),
+      )
+    }
+
+    function StartModal({ item, root, onClose }) {
+      const [state, setState] = useState({ loading: true, error: null, plan: null, result: null, applying: false })
+      const load = useCallback(() => {
+        setState({ loading: true, error: null, plan: null, result: null, applying: false })
+        writeJson('start', { requirementId: item.id }, root)
+          .then((plan) => setState({ loading: false, error: null, plan, result: null, applying: false }))
+          .catch((error) => setState({ loading: false, error: error.message, plan: null, result: null, applying: false }))
+      }, [item.id, root])
+      useEffect(() => {
+        load()
+      }, [load])
+
+      const apply = () => {
+        setState((current) => ({ ...current, applying: true, error: null }))
+        writeJson('start', { requirementId: item.id, apply: true }, root)
+          .then((result) => setState((current) => ({ ...current, applying: false, result })))
+          .catch((error) => setState((current) => ({ ...current, applying: false, error: error.message })))
+      }
+
+      const plan = state.plan
+      const result = state.result
+      return h(
+        ModalShell,
+        {
+          title: `开始开发 · ${item.id}`,
+          lead: '登记变更并生成任务卡；不会切换当前分支，GitHub 建单走 scripts/sync-tasks.mjs。',
+          onClose,
+          footer: [
+            h('button', { key: 'cancel', style: button, onClick: onClose }, result ? '关闭' : '取消'),
+            result
+              ? null
+              : plan
+                ? h('button', { key: 'apply', style: primary, onClick: apply, disabled: state.applying }, state.applying ? '生成中…' : '确认并生成')
+                : null,
+          ],
+        },
+        state.loading ? h('p', { style: muted }, '正在预演变更…') : null,
+        state.error ? h('p', { style: { color: T.err, fontSize: '13px' } }, state.error) : null,
+        plan
+          ? h(
+              'div',
+              null,
+              h(PlanRows, {
+                rows: [
+                  ['项目', `${plan.project ?? '—'}`],
+                  ['变更', plan.changeId],
+                  ['分支', plan.branch],
+                  ['基线', plan.baselineSha.slice(0, 8)],
+                  ['任务卡', `${plan.taskCount} 张`],
+                  ['需求', plan.requirementIds.join('、')],
+                ],
+              }),
+              h('div', { style: { marginTop: '12px', fontSize: '12px', color: T.text3 } }, '将写入：'),
+              h(
+                'ul',
+                { style: { margin: '6px 0 0', paddingLeft: '18px', fontSize: '12px', color: T.text2, lineHeight: 1.9 } },
+                plan.plannedFiles.map((file) => h('li', { key: file, style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } }, file)),
+              ),
+            )
+          : null,
+        result
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['状态', '已生成'],
+                  ['变更', result.changeId],
+                  ['任务卡', `${result.draft.tasks.length} 张`],
+                  ['文件', result.draft.files.join('、')],
+                ],
+              }),
+              h(
+                'div',
+                { style: { marginTop: '10px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '8px 12px' } },
+                result.draft.tasks.map((task) =>
+                  h('div', { key: task.id, style: { ...row, borderBottom: 'none', padding: '4px 0' } },
+                    h('span', { style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11.5px', color: T.text3 } }, task.id),
+                    h('span', { style: { color: T.text, fontSize: '12px' } }, task.title),
+                  ),
+                ),
+              ),
+            )
+          : null,
+      )
+    }
+
+    function AcceptModal({ item, root, onClose }) {
+      const [state, setState] = useState({ loading: true, error: null, result: null })
+      const run = useCallback(() => {
+        setState({ loading: true, error: null, result: null })
+        writeJson('accept', {}, root)
+          .then((result) => setState({ loading: false, error: null, result }))
+          .catch((error) => setState({ loading: false, error: error.message, result: null }))
+      }, [root])
+      useEffect(() => {
+        run()
+      }, [run])
+      return h(
+        ModalShell,
+        {
+          title: `运行门禁验收 · ${item.id}`,
+          lead: '执行 `alm ci run`（固定白名单命令，不接受任意命令）；证据写入 .alm/ci/<sha>/。',
+          onClose,
+          footer: [
+            h('button', { key: 'again', style: button, onClick: run }, '再次运行'),
+            h('button', { key: 'close', style: primary, onClick: onClose }, '关闭'),
+          ],
+        },
+        state.loading ? h('p', { style: muted }, '正在运行门禁…') : null,
+        state.error ? h('p', { style: { color: T.err, fontSize: '13px' } }, state.error) : null,
+        state.result
+          ? h(
+              'div',
+              null,
+              h(PlanRows, {
+                rows: [
+                  ['结果', state.result.result],
+                  ['状态', state.result.status],
+                  ['提交', state.result.headSha?.slice(0, 12) ?? '—'],
+                  ['runId', state.result.runId ?? '—'],
+                  ['证据', state.result.path],
+                ],
+              }),
+              h('p', { style: { margin: '10px 0 0', ...muted } }, '重复运行同一提交 + 同一规则包时返回 unchanged，只保留一份证据。'),
+            )
+          : null,
+      )
+    }
+
+    function CreateModal({ root, project, projectName, onClose, onCreated }) {
+      const [form, setForm] = useState({ title: '', brief: '', priority: 'P1', owner: '' })
+      const [state, setState] = useState({ loading: false, error: null, plan: null, result: null })
+      const field = (key) => ({
+        value: form[key],
+        onChange: (event) => setForm((current) => ({ ...current, [key]: event.target.value })),
+      })
+      const preview = () => {
+        setState({ loading: true, error: null, plan: null, result: null })
+        writeJson('create', { ...form, apply: false }, root)
+          .then((plan) => setState({ loading: false, error: null, plan, result: null }))
+          .catch((error) => setState({ loading: false, error: error.message, plan: null, result: null }))
+      }
+      const apply = () => {
+        setState((current) => ({ ...current, loading: true, error: null }))
+        writeJson('create', { ...form, apply: true }, root)
+          .then((result) => {
+            setState((current) => ({ ...current, loading: false, result }))
+            onCreated?.(result)
+          })
+          .catch((error) => setState((current) => ({ ...current, loading: false, error: error.message })))
+      }
+      const result = state.result
+      return h(
+        ModalShell,
+        {
+          title: '新建需求',
+          lead: `归属项目 ${projectName ?? project ?? '—'}；先预览再创建，写入 sdoc 与 brief 两个文件。`,
+          onClose,
+          width: '760px',
+          footer: [
+            h('button', { key: 'cancel', style: button, onClick: onClose }, result ? '关闭' : '取消'),
+            result
+              ? null
+              : state.plan
+                ? h('button', { key: 'apply', style: primary, onClick: apply, disabled: state.loading }, state.loading ? '创建中…' : '确认创建')
+                : h('button', { key: 'preview', style: primary, onClick: preview, disabled: state.loading || form.title.trim() === '' }, '预览'),
+          ],
+        },
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } },
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '标题', h('input', { ...field('title'), style: input, placeholder: '例如：退款状态对账' })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '背景 / 目标', h('textarea', { ...field('brief'), style: { ...input, minHeight: '88px', resize: 'vertical', fontFamily: 'inherit' }, placeholder: '原始诉求、目标与范围外' })),
+          h(
+            'div',
+            { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+            h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '优先级', h('select', { ...field('priority'), style: input }, ['P0', 'P1', 'P2'].map((value) => h('option', { key: value, value }, value)))),
+            h('label', { style: { flex: 1, display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '负责人', h('input', { ...field('owner'), style: input, placeholder: '默认取项目 teams[0]' })),
+          ),
+        ),
+        state.loading ? h('p', { style: { margin: '12px 0 0', ...muted } }, '处理中…') : null,
+        state.error ? h('p', { style: { margin: '12px 0 0', color: T.err, fontSize: '13px' } }, state.error) : null,
+        state.plan
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['需求', state.plan.requirementId],
+                  ['项目', state.plan.project],
+                  ['sdoc', state.plan.file],
+                  ['brief', state.plan.briefFile],
+                ],
+              }),
+              h('div', { style: { marginTop: '10px', fontSize: '12px', color: T.text3 } }, '文件内容预览：'),
+              h(
+                'pre',
+                { style: { margin: '6px 0 0', padding: '12px', maxHeight: '180px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '10px', fontSize: '11.5px', lineHeight: 1.7, whiteSpace: 'pre-wrap' } },
+                state.plan.content,
+              ),
+            )
+          : null,
+        result
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['状态', '已创建'],
+                  ['需求', result.requirementId],
+                  ['sdoc', result.file],
+                  ['brief', result.briefFile],
+                  ['门禁', `${result.check.result} · ${result.check.gaps} 个覆盖缺口`],
+                ],
+              }),
+              h('p', { style: { margin: '10px 0 0', ...muted } }, '需求状态为 proposed；补验收后 COV-001 才会通过。'),
+            )
+          : null,
+      )
+    }
+
     function EmptyState({ root, onOpenPanel }) {
       return h(
         'div',
@@ -1230,6 +1534,9 @@ window.__ModuleLoader__.load({
       const [detailOpen, setDetailOpen] = useState(false)
       const [snapshot, setSnapshot] = useState(null)
       const [traceItem, setTraceItem] = useState(null)
+      const [startItem, setStartItem] = useState(null)
+      const [acceptItem, setAcceptItem] = useState(null)
+      const [createOpen, setCreateOpen] = useState(false)
       const [showRoot, setShowRoot] = useState(false)
       const { loading, error, data, reload } = useRequirements({ root, projectId })
 
@@ -1352,6 +1659,7 @@ window.__ModuleLoader__.load({
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject }),
+          h('button', { style: primary, onClick: () => setCreateOpen(true) }, '＋ 新建'),
           h('button', { style: button, onClick: reload, title: '重新读取资产' }, '刷新'),
           h('button', { style: { ...button, borderColor: 'transparent', background: 'transparent', color: T.text2 }, onClick: () => setShowRoot((value) => !value) }, showRoot ? '收起根目录' : '仓库根'),
         ),
@@ -1475,6 +1783,8 @@ window.__ModuleLoader__.load({
               onDetail: () => setDetailOpen(true),
               onSnapshot: openSnapshot,
               onTrace: (entry) => setTraceItem(entry),
+              onStart: (entry) => setStartItem(entry),
+              onAccept: (entry) => setAcceptItem(entry),
             })
           : null,
         detailOpen && selected
@@ -1486,9 +1796,36 @@ window.__ModuleLoader__.load({
               onClose: () => setDetailOpen(false),
               onSnapshot: openSnapshot,
               onTrace: (entry) => setTraceItem(entry),
+              onStart: (entry) => setStartItem(entry),
+              onAccept: (entry) => setAcceptItem(entry),
             })
           : null,
         snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
+        startItem
+          ? h(StartModal, {
+              item: startItem,
+              root: startItem.root ?? data?.root ?? root,
+              onClose: () => setStartItem(null),
+            })
+          : null,
+        acceptItem
+          ? h(AcceptModal, {
+              item: acceptItem,
+              root: acceptItem.root ?? data?.root ?? root,
+              onClose: () => setAcceptItem(null),
+            })
+          : null,
+        createOpen
+          ? h(CreateModal, {
+              root: data?.root ?? root,
+              project: data?.project ?? currentProject?.id,
+              projectName: data?.projectName ?? currentProject?.name,
+              onClose: () => setCreateOpen(false),
+              onCreated: () => {
+                reload()
+              },
+            })
+          : null,
         traceItem
           ? h(TraceModal, {
               item: traceItem,
