@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>需求 · 概念原型 v2</title>
+<title>需求 · 概念原型 v3（评审 / 版本 / 开发与验收）</title>
 <style>
   :root {
     color-scheme: dark;
     --bg: #0b0d10; --surface: #14171c; --surface-hover: #171b21;
     --line: #232830; --line-strong: #2e343d;
     --text: #f2f4f7; --text-2: #9aa3ae; --text-3: #6b7480;
-    --blue: #6ea0ff; --green: #35c47a; --amber: #e7b04b;
+    --blue: #6ea0ff; --green: #35c47a; --amber: #e7b04b; --red: #ff8b8b;
     --radius: 14px;
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   }
@@ -23,18 +23,19 @@
   h1 { margin: 0; font-size: 30px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 600; }
   .sub { margin: 8px 0 0; color: var(--text-2); font-size: 13px; }
   .head-actions { display: flex; align-items: center; gap: 8px; }
-  .btn { border: 1px solid var(--line-strong); background: transparent; color: var(--text); border-radius: 10px; padding: 8px 14px; font-size: 13px; transition: background 150ms ease-out, border-color 150ms ease-out; }
+  .btn { border: 1px solid var(--line-strong); background: transparent; color: var(--text); border-radius: 10px; padding: 8px 14px; font-size: 13px; transition: background 150ms, border-color 150ms; }
   .btn:hover { background: #1b1f26; }
   .btn.primary { background: #f2f4f7; border-color: transparent; color: #0b0d10; font-weight: 600; }
   .btn.primary:hover { background: #fff; }
   .btn.sm { padding: 6px 12px; font-size: 12px; border-radius: 9px; }
   .btn.ghost { border-color: transparent; color: var(--text-2); }
   .btn.ghost:hover { color: var(--text); background: #15181d; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
   .icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--text-2); font-size: 18px; line-height: 1; }
   .icon-btn:hover { background: #15181d; color: var(--text); }
   .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 36px 0 20px; flex-wrap: wrap; }
   .seg { display: inline-flex; padding: 3px; gap: 2px; background: #101318; border: 1px solid var(--line); border-radius: 11px; }
-  .seg button { border: 0; background: transparent; color: var(--text-2); padding: 6px 12px; border-radius: 8px; font-size: 12.5px; transition: color 150ms, background 150ms; }
+  .seg button { border: 0; background: transparent; color: var(--text-2); padding: 6px 12px; border-radius: 8px; font-size: 12.5px; }
   .seg button:hover { color: var(--text); }
   .seg button.active { background: #1d222a; color: var(--text); }
   .seg span { color: var(--text-3); margin-left: 6px; font-variant-numeric: tabular-nums; }
@@ -50,35 +51,43 @@
   .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 3px 9px; border-radius: 999px; }
   .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
   .pill.proposed { color: #b9c0c9; background: #1c2027; }
+  .pill.reviewing { color: #f0cf8d; background: #2a2416; }
   .pill.accepted { color: #9dc0ff; background: #16233a; }
   .pill.doing { color: #f0cf8d; background: #2a2416; }
   .pill.done { color: #8fe0b4; background: #14261d; }
-  .id { color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .id { color: var(--text-3); font-size: 11.5px; }
   .rev { color: var(--text-3); font-size: 11px; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-variant-numeric: tabular-nums; }
   .card h2 { margin: 0; font-size: 17px; line-height: 1.45; font-weight: 600; letter-spacing: -0.01em; }
   .meta { margin: 8px 0 0; color: var(--text-2); font-size: 12.5px; }
   .meta .dot { margin: 0 7px; color: var(--text-3); }
   .src { color: var(--text-3); }
-  .card-cta { background: transparent; border-color: var(--line-strong); color: var(--text-2); transition: background 160ms, color 160ms, border-color 160ms; }
+  .card-cta { background: transparent; border-color: var(--line-strong); color: var(--text-2); }
   .card:hover .card-cta, .card:focus-within .card-cta { background: #f2f4f7; border-color: transparent; color: #0b0d10; }
   .empty { border: 1px dashed var(--line-strong); border-radius: var(--radius); padding: 56px 24px; text-align: center; color: var(--text-2); }
   .empty strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
   .scrim { position: fixed; inset: 0; background: rgba(4,6,9,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; transition: opacity 200ms ease-out; }
   .scrim.show { opacity: 1; }
-  .drawer { position: fixed; top: 0; right: 0; height: 100%; width: 500px; max-width: 94vw; background: #101318; border-left: 1px solid var(--line); transform: translateX(24px); opacity: 0; transition: transform 220ms cubic-bezier(.2,.7,.2,1), opacity 200ms ease-out; overflow-y: auto; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100%; width: 520px; max-width: 94vw; background: #101318; border-left: 1px solid var(--line); transform: translateX(24px); opacity: 0; transition: transform 220ms cubic-bezier(.2,.7,.2,1), opacity 200ms; overflow-y: auto; }
   .drawer.show { transform: translateX(0); opacity: 1; }
-  .drawer-inner { padding: 36px 32px 48px; }
+  .drawer-inner { padding: 32px 30px 48px; }
   .drawer-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .drawer h2 { margin: 14px 0 0; font-size: 22px; line-height: 1.35; letter-spacing: -0.01em; }
   .drawer .meta { margin-top: 10px; }
-  .section-title { margin: 28px 0 10px; font-size: 11.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; display: flex; align-items: center; justify-content: space-between; }
+  .section-title { margin: 26px 0 10px; font-size: 11.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; display: flex; align-items: center; justify-content: space-between; }
   .section-title .link { text-transform: none; letter-spacing: 0; }
   .brief { margin: 0; color: var(--text-2); font-size: 13.5px; line-height: 1.75; }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .chip { font-size: 11.5px; color: var(--text-2); border: 1px solid var(--line); background: #14171c; border-radius: 999px; padding: 3px 9px; }
   .attach { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text-2); font-size: 12.5px; }
   .attach svg { flex: none; color: var(--text-3); }
-  .attach .size { margin-left: auto; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .attach .size { margin-left: auto; color: var(--text-3); }
+  .review-summary { font-size: 12.5px; color: var(--text-2); margin-bottom: 10px; }
+  .review-roles { display: grid; gap: 6px; }
+  .role { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; color: var(--text-2); }
+  .role .v { font-variant-numeric: tabular-nums; }
+  .role .v.block { color: var(--red); }
+  .role .v.warn { color: var(--amber); }
+  .role .v.pass { color: var(--green); }
   .check { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid #1b1f25; font-size: 13.5px; }
   .check:last-child { border-bottom: 0; }
   .check svg { color: var(--green); flex: none; margin-top: 1px; }
@@ -92,9 +101,13 @@
   .timeline li::before { content: ""; position: absolute; left: -4px; top: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
   .timeline li:first-child::before { background: var(--blue); }
   .timeline b { color: var(--text); font-weight: 600; }
-  .drawer-actions { display: flex; gap: 10px; margin-top: 28px; }
+  .badge { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--text-3); margin-left: 6px; }
+  .badge.minor { color: #9dc0ff; border-color: #2a3b57; }
+  .badge.patch { color: #b9c0c9; }
+  .badge.major { color: #f0cf8d; border-color: #4a3b1e; }
+  .drawer-actions { display: flex; gap: 10px; margin-top: 26px; }
   .drawer-actions .btn { flex: 1; text-align: center; }
-  details.tech { margin-top: 30px; border-top: 1px solid var(--line); padding-top: 16px; }
+  details.tech { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 16px; }
   details.tech summary { list-style: none; cursor: pointer; color: var(--text-2); font-size: 12.5px; display: flex; align-items: center; gap: 8px; }
   details.tech summary::-webkit-details-marker { display: none; }
   details.tech summary::before { content: "▸"; transition: transform 150ms; }
@@ -104,20 +117,35 @@
   .link { border: 0; background: transparent; color: var(--text-2); padding: 0; font-size: 12px; }
   .link:hover { color: var(--text); }
   .modal-scrim { position: fixed; inset: 0; background: rgba(4,6,9,.6); backdrop-filter: blur(8px); display: grid; place-items: center; }
-  .modal { width: 600px; max-width: 94vw; background: #12151a; border: 1px solid var(--line-strong); border-radius: 18px; padding: 28px; box-shadow: 0 24px 80px rgba(0,0,0,.5); }
+  .modal { width: 640px; max-width: 94vw; max-height: 88vh; overflow-y: auto; background: #12151a; border: 1px solid var(--line-strong); border-radius: 18px; padding: 26px; box-shadow: 0 24px 80px rgba(0,0,0,.5); }
   .modal h3 { margin: 0; font-size: 19px; letter-spacing: -0.01em; }
-  .modal p.lead { margin: 8px 0 18px; color: var(--text-2); font-size: 13px; }
-  .context { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: var(--text-2); margin-bottom: 18px; }
-  .context b { color: var(--text); font-weight: 500; display: block; font-size: 12.5px; margin-top: 2px; }
-  .task-row { display: flex; gap: 12px; padding: 13px 0; border-top: 1px solid #1b1f25; }
+  .modal p.lead { margin: 8px 0 16px; color: var(--text-2); font-size: 13px; }
+  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .role-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; font-size: 12.5px; color: var(--text-2); }
+  .role-card strong { display: flex; justify-content: space-between; color: var(--text); font-weight: 500; margin-bottom: 6px; }
+  .role-card .v { font-size: 11.5px; }
+  .role-card .v.pass { color: var(--green); }
+  .role-card .v.warn { color: var(--amber); }
+  .role-card .v.block { color: var(--red); }
+  .finding { padding: 8px 0; border-top: 1px solid #1b1f25; font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+  .finding b { color: var(--text); font-weight: 500; }
+  .sev { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; margin-right: 6px; }
+  .sev.blocker { background: #3a1d1d; color: var(--red); }
+  .sev.major { background: #2a2416; color: var(--amber); }
+  .sev.minor { background: #1c2027; color: #b9c0c9; }
+  .diff { font-size: 12.5px; color: var(--text-2); line-height: 2; }
+  .diff .old { color: var(--red); text-decoration: line-through; }
+  .diff .new { color: #8fe0b4; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  .note { color: var(--text-3); font-size: 12px; margin-top: 12px; }
+  .env { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: var(--text-2); margin: 14px 0; }
+  .env b { color: var(--text); font-weight: 500; display: block; font-size: 12.5px; margin-top: 2px; }
+  .task-row { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid #1b1f25; }
   .task-row:last-of-type { border-bottom: 1px solid #1b1f25; }
-  .task-index { width: 22px; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; padding-top: 2px; }
+  .task-index { width: 22px; color: var(--text-3); font-size: 12px; padding-top: 2px; }
   .task-row strong { display: block; font-size: 13.5px; font-weight: 600; }
   .task-row span { display: block; margin-top: 3px; color: var(--text-2); font-size: 12.5px; }
-  .modal-note { margin: 16px 0 0; color: var(--text-3); font-size: 12px; }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-  .toggle { display: flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--text-2); font-size: 12.5px; }
-  .toggle input { accent-color: #4d8dff; }
+  .toggle { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--text-2); font-size: 12.5px; }
   .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: #1b2028; border: 1px solid var(--line-strong); color: var(--text); font-size: 12.5px; padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity 180ms; pointer-events: none; }
   .toast.show { opacity: 1; }
   [hidden] { display: none !important; }
@@ -126,20 +154,15 @@
 <body>
 <div class="shell">
   <header class="head">
-    <div>
-      <h1>需求</h1>
-      <p class="sub" id="summary">2 条需求 · 验收齐全 · 1 条待评审</p>
-    </div>
-    <div class="head-actions">
-      <button class="btn ghost" id="newBtn">＋ 新建</button>
-      <button class="icon-btn" aria-label="更多">⋯</button>
-    </div>
+    <div><h1>需求</h1><p class="sub" id="summary"></p></div>
+    <div class="head-actions"><button class="btn ghost" id="newBtn">＋ 新建</button><button class="icon-btn" aria-label="更多">⋯</button></div>
   </header>
   <div class="toolbar">
     <div class="seg" id="seg">
-      <button class="active" data-filter="all">全部<span id="countAll">2</span></button>
-      <button data-filter="proposed">待评审<span id="countProposed">1</span></button>
-      <button data-filter="accepted">已采纳<span id="countAccepted">1</span></button>
+      <button class="active" data-filter="all">全部<span id="countAll"></span></button>
+      <button data-filter="proposed">待评审<span id="countProposed"></span></button>
+      <button data-filter="reviewing">评审中<span id="countReviewing"></span></button>
+      <button data-filter="accepted">已采纳<span id="countAccepted"></span></button>
       <button data-filter="doing">开发中<span>0</span></button>
       <button data-filter="done">已验收<span>0</span></button>
     </div>
@@ -157,24 +180,34 @@
   <div class="drawer-inner">
     <div class="drawer-top">
       <div class="card-head" style="margin:0"><span class="pill" id="dPill"></span><span class="rev" id="dRev"></span></div>
-      <div style="display:flex;gap:4px">
-        <button class="btn sm ghost" id="dEdit">编辑</button>
-        <button class="icon-btn" id="closeDrawer" aria-label="关闭">×</button>
-      </div>
+      <div style="display:flex;gap:4px"><button class="btn sm ghost" id="dEdit">编辑</button><button class="icon-btn" id="closeDrawer" aria-label="关闭">×</button></div>
     </div>
     <h2 id="dTitle"></h2>
     <p class="meta" id="dMeta"></p>
+
     <div class="section-title">背景与来源 <button class="link" id="openBrief">查看简报</button></div>
     <p class="brief" id="dBrief"></p>
     <div class="chips" id="dChips"></div>
     <div id="dAttachments"></div>
+
+    <div class="section-title">评审 <button class="link" id="openReview">查看报告</button></div>
+    <div class="review-summary" id="dReviewSummary"></div>
+    <div class="review-roles" id="dReviewRoles"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn sm" id="startReview">发起 AI 评审</button>
+      <button class="btn sm primary" id="signReview" disabled>通过评审（人工签收）</button>
+    </div>
+
     <div class="section-title">验收</div>
     <div class="accept-state" id="dAcceptState"></div>
     <div id="dChecks"></div>
+
     <div class="section-title">关系 <button class="link" id="openTrace">查看追溯</button></div>
     <div id="dRelations"></div>
-    <div class="section-title">历史</div>
+
+    <div class="section-title">历史 <button class="link" id="openVersion">对比版本</button></div>
     <ol class="timeline" id="dHistory"></ol>
+
     <div class="drawer-actions">
       <button class="btn" id="runAccept">运行验收</button>
       <button class="btn primary" id="dStart">开始开发</button>
@@ -183,25 +216,60 @@
   </div>
 </aside>
 
-<div class="modal-scrim" id="modal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-label="生成开发任务">
-    <h3>开始开发</h3>
-    <p class="lead" id="modalLead"></p>
-    <div class="context">
-      <div>变更 <b>CHG-PAY-005</b></div>
-      <div>分支 <b>alm/chg-pay-005</b></div>
-      <div>基线 <b>c678e16（HEAD）</b></div>
-      <div>状态 <b id="ctxStatus">已采纳 → 开发中</b></div>
-    </div>
-    <div id="modalTasks"></div>
-    <label class="toggle"><input type="checkbox" id="syncBox"> 同时创建看板 Issue（GitHub / Gitea）</label>
-    <p class="modal-note">确认后写入 changes/&lt;CHG&gt;/，生成 3 张任务卡；建 Issue 需要本机凭据。</p>
+<div class="modal-scrim" id="reviewModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="AI 评审报告">
+    <h3>AI 评审报告</h3>
+    <p class="lead" id="reviewLead"></p>
+    <div class="role-grid" id="reviewRoles"></div>
+    <div id="reviewFindings"></div>
+    <p class="note">AI 只给证据与修改建议，不替人签字；“通过评审”由人工执行，且版本内容变化后自动失效。</p>
     <div class="modal-actions">
-      <button class="btn" id="modalCancel">取消</button>
-      <button class="btn primary" id="modalConfirm">确认并生成</button>
+      <button class="btn" id="reviewClose">关闭</button>
+      <button class="btn primary" id="reviewApply">应用建议并复审</button>
     </div>
   </div>
 </div>
+
+<div class="modal-scrim" id="versionModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="版本对比">
+    <h3>版本对比 · v2.0.1 → v2.1.0</h3>
+    <p class="lead">MINOR：新增并发验收，语义向后兼容；需要重新评审，不要求重做验收基线。</p>
+    <div class="diff" id="versionDiff"></div>
+    <p class="note" id="versionLog"></p>
+    <div class="modal-actions"><button class="btn" id="versionClose">关闭</button><button class="btn primary" id="versionOpen">查看变更记录</button></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="startModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="开始开发">
+    <h3>开始开发</h3>
+    <p class="lead" id="startLead"></p>
+    <div class="env">
+      <div>变更 <b>CHG-PAY-005</b></div><div>分支 <b>alm/chg-pay-005</b></div>
+      <div>基线 <b>c678e16（HEAD）</b></div><div>状态 <b id="startState">评审中 → 已采纳 → 开发中</b></div>
+      <div>工作区 <b>隔离 worktree</b></div><div>上下文包 <b>.alm/context/CHG-PAY-005/</b></div>
+      <div>允许命令 <b>alm check / node --test / alm ci run</b></div><div>网络 <b>默认关闭</b></div>
+    </div>
+    <div id="startTasks"></div>
+    <label class="toggle"><input type="checkbox" id="syncBox"> 同时创建看板 Issue（GitHub / Gitea）</label>
+    <p class="note">确认后写入 changes/&lt;CHG&gt;/、生成 3 张任务卡与上下文包；建 Issue 需要本机凭据。</p>
+    <div class="modal-actions"><button class="btn" id="startCancel">取消</button><button class="btn primary" id="startConfirm">确认并生成</button></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="acceptModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="运行验收">
+    <h3>运行验收</h3>
+    <p class="lead" id="acceptLead"></p>
+    <div class="env">
+      <div>命令 <b>alm ci run --requirement REQ-PAY-004</b></div><div>环境 <b>隔离工作区 · 离线</b></div>
+      <div>超时 <b>10 分钟</b></div><div>证据 <b>.alm/acceptance/REQ-PAY-004/&lt;sha&gt;.json</b></div>
+    </div>
+    <p class="note">只执行需求登记的白名单命令；输出、退出码、耗时与 SHA 一并归档，结果不可手改。</p>
+    <div class="modal-actions"><button class="btn" id="acceptCancel">取消</button><button class="btn primary" id="acceptRun">运行</button></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -209,28 +277,44 @@
     {
       id: 'REQ-PAY-004',
       title: '同一幂等键的重复退款请求返回同一退款单',
-      status: 'accepted', statusText: '已采纳', revision: 2,
+      status: 'reviewing', statusText: '评审中', version: '2.1.0',
       team: '支付团队', priority: 'P1',
       brief: '退款金额不得超过订单可退余额；同一订单 + 同一幂等键只产生一张退款单，重复请求返回首次结果。',
       sources: ['聊天', '会议'], attachments: [{ name: 'chat-2026-10-29.md', size: '1.2 KB' }],
+      review: {
+        completed: 3, total: 5, blockers: 1, passed: false,
+        roles: [
+          ['业务', 'pass'], ['架构', 'warn'], ['测试', 'block'], ['安全', 'pass'], ['交付', 'warn']
+        ],
+        findings: [
+          ['blocker', '测试', '并发场景缺少可判定验收：只说“并发安全”，没有可执行断言。', '新增用例：两个相同幂等键请求同时到达，只产生一条退款单。'],
+          ['major', '架构', '未说明幂等记录的存储与过期策略。', '在 brief 增加：幂等记录保留 7 天，订单号 + 幂等键唯一约束。'],
+          ['minor', '交付', '缺少回滚说明。', '补充：异常时按退款单号补偿，不回滚已入账金额。']
+        ]
+      },
       checks: ['同键重放返回同一 refundId，且不新增退款记录', '并发同键请求只产生一条退款单'],
-      acceptState: '已覆盖 2/2 · 待验证',
+      acceptState: '已覆盖 2/2 · 未验证',
       relations: [['上级', ['REQ-PAY-001 支持订单部分退款']], ['验收', ['TEST-PAY-004', 'TEST-PAY-005']], ['依赖', []]],
-      history: [['v2', '2026-10-30', 'CHG-PAY-004', '补充并发验收'], ['v1', '2026-10-28', 'CHG-PAY-002', '初始版本']],
+      versions: [
+        ['v2.1.0', 'MINOR', '2026-10-30', 'CHG-PAY-004', '新增并发验收与幂等记录说明'],
+        ['v2.0.1', 'PATCH', '2026-10-29', 'CHG-PAY-003', '修正背景里的错别字'],
+        ['v2.0.0', 'MAJOR', '2026-10-28', 'CHG-PAY-002', '幂等键方案定稿']
+      ],
       tech: { file: 'requirements/refund-idempotent.sdoc:7', manifest: 'manifest.json · sha256 c485187b…', rules: 'COV-001 / REL-002 / ATT-001 / TASK-001 通过' },
       tasks: [['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'], ['实现（退款模块）', '幂等键、去重表与事务边界'], ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']]
     },
     {
       id: 'REQ-PAY-001',
       title: '支持订单部分退款',
-      status: 'proposed', statusText: '待评审', revision: 1,
+      status: 'proposed', statusText: '待评审', version: '1.0.0',
       team: '支付团队', priority: 'P1',
       brief: '订单支持按金额部分退款，退款金额与订单状态保持一致。',
       sources: ['会议'], attachments: [],
+      review: { completed: 0, total: 5, blockers: 0, passed: false, roles: [['业务', 'pending'], ['架构', 'pending'], ['测试', 'pending'], ['安全', 'pending'], ['交付', 'pending']], findings: [] },
       checks: ['部分退款金额与订单状态一致'],
-      acceptState: '已覆盖 1/1 · 待验证',
+      acceptState: '已覆盖 1/1 · 未验证',
       relations: [['子需求', ['REQ-PAY-004 退款幂等']], ['验收', ['TEST-PAY-001']], ['依赖', []]],
-      history: [['v1', '2026-10-23', 'CHG-PAY-001', '初始版本']],
+      versions: [['v1.0.0', 'MAJOR', '2026-10-23', 'CHG-PAY-001', '初始版本']],
       tech: { file: 'requirements/refund.sdoc:7', manifest: '无附件', rules: 'COV-001 / REL-002 通过' },
       tasks: [['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'], ['实现（退款模块）', '退款金额与订单状态一次事务内更新'], ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']]
     }
@@ -239,20 +323,19 @@
   const el = (id) => document.getElementById(id)
   const checkSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.2 8.4 6.3 11.5 12.8 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   const fileSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 2.5h6l3 3v8a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 7h5M5.5 10h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
+  const VERDICT = { pass: '通过', warn: '有建议', block: '阻塞', pending: '未开始' }
 
   let filter = 'all'
   let keyword = ''
 
   function card(req) {
-    const sources = req.sources.length ? `<span class="dot">·</span><span class="src">${req.sources.join(' / ')}</span>` : ''
-    const attach = req.attachments.length ? `<span class="dot">·</span><span class="src">${req.attachments.length} 个附件</span>` : ''
     return `<article class="card" data-id="${req.id}" tabindex="0" role="button" aria-label="查看 ${req.title}">
       <div>
-        <div class="card-head"><span class="pill ${req.status}">${req.statusText}</span><span class="id">${req.id}</span><span class="rev">v${req.revision}</span></div>
+        <div class="card-head"><span class="pill ${req.status}">${req.statusText}</span><span class="id">${req.id}</span><span class="rev">v${req.version}</span></div>
         <h2>${req.title}</h2>
-        <p class="meta">${req.team}<span class="dot">·</span>验收 ${req.checks.length}/${req.checks.length}${sources}${attach}</p>
+        <p class="meta">${req.team}<span class="dot">·</span>验收 ${req.checks.length}/${req.checks.length}${req.attachments.length ? `<span class="dot">·</span><span class="src">${req.attachments.length} 个附件</span>` : ''}${req.sources.length ? `<span class="dot">·</span><span class="src">${req.sources.join(' / ')}</span>` : ''}</p>
       </div>
-      <button class="btn bg sm card-cta" data-start="${req.id}">开始开发</button>
+      <button class="btn primary sm card-cta" data-start="${req.id}">开始开发</button>
     </article>`
   }
 
@@ -261,30 +344,50 @@
       .filter((req) => req.title.includes(keyword) || req.id.includes(keyword.toUpperCase()))
     el('list').innerHTML = visible.map(card).join('')
     el('empty').hidden = visible.length > 0
-    el('summary').textContent = visible.length
-      ? `${REQS.length} 条需求 · 验收齐全 · ${REQS.filter((r) => r.status === 'proposed').length} 条待评审`
-      : '没有匹配的需求'
+    el('summary').textContent = `${REQS.length} 条需求 · ${REQS.filter((r) => r.status === 'proposed').length} 条待评审 · ${REQS.filter((r) => r.status === 'reviewing').length} 条评审中`
+    el('countAll').textContent = REQS.length
+    el('countProposed').textContent = REQS.filter((r) => r.status === 'proposed').length
+    el('countReviewing').textContent = REQS.filter((r) => r.status === 'reviewing').length
+    el('countAccepted').textContent = REQS.filter((r) => r.status === 'accepted').length
     for (const btn of el('seg').querySelectorAll('button')) btn.classList.toggle('active', btn.dataset.filter === filter)
   }
+
+  let currentId = null
 
   function openDrawer(id) {
     const req = REQS.find((r) => r.id === id)
     if (!req) return
+    currentId = id
     el('dPill').className = `pill ${req.status}`
     el('dPill').textContent = req.statusText
-    el('dRev').textContent = `v${req.revision}`
+    el('dRev').textContent = `v${req.version}`
     el('dTitle').textContent = req.title
     el('dMeta').textContent = `${req.team} · ${req.priority} · ${req.id}`
     el('dBrief').textContent = req.brief
     el('dChips').innerHTML = req.sources.map((s) => `<span class="chip">来源 · ${s}</span>`).join('')
     el('dAttachments').innerHTML = req.attachments.map((a) => `<div class="attach">${fileSvg}<span>${a.name}</span><span class="size">${a.size}</span></div>`).join('')
+
+    const rv = req.review
+    if (rv.passed) {
+      el('dReviewSummary').textContent = '5/5 角色完成 · 0 个阻塞 · 人工已签收'
+      el('dReviewRoles').innerHTML = rv.roles.map(([name, verdict]) => `<div class="role"><span>${name}</span><span class="v ${verdict === 'pending' ? '' : verdict}">${VERDICT[verdict] ?? verdict}</span></div>`).join('')
+      el('signReview').disabled = true
+      el('signReview').textContent = '已通过评审'
+    } else {
+      el('dReviewSummary').textContent = `${rv.completed}/${rv.total} 角色完成 · ${rv.blockers} 个阻塞`
+      el('dReviewRoles').innerHTML = rv.roles.map(([name, verdict]) => `<div class="role"><span>${name}</span><span class="v ${verdict === 'pending' ? '' : verdict}">${VERDICT[verdict] ?? verdict}</span></div>`).join('')
+      el('signReview').disabled = rv.completed < rv.total || rv.blockers > 0
+      el('signReview').textContent = '通过评审（人工签收）'
+    }
+
     el('dAcceptState').textContent = req.acceptState
     el('dChecks').innerHTML = req.checks.map((c) => `<div class="check">${checkSvg}<span>${c}</span></div>`).join('')
     el('dRelations').innerHTML = req.relations.map(([label, items]) => `<div class="rel"><b>${label}</b><span>${items.length ? items.join('、') : '无'}</span></div>`).join('')
-    el('dHistory').innerHTML = req.history.map(([v, date, change, note]) => `<li><b>${v}</b> ${date} · ${change} · ${note}</li>`).join('')
+    el('dHistory').innerHTML = req.versions.map(([v, type, date, change, note]) => `<li><b>${v}</b><span class="badge ${type.toLowerCase()}">${type}</span> ${date} · ${change} · ${note}</li>`).join('')
     el('dTech').innerHTML = `<div><code>${req.id}</code> · <code>${req.tech.file}</code></div><div>附件：${req.tech.manifest}</div><div>门禁：${req.tech.rules}</div>`
     el('dStart').dataset.start = req.id
     el('runAccept').dataset.id = req.id
+    el('startReview').dataset.id = req.id
     el('scrim').hidden = false
     el('drawer').hidden = false
     requestAnimationFrame(() => { el('scrim').classList.add('show'); el('drawer').classList.add('show') })
@@ -297,35 +400,75 @@
     setTimeout(() => { el('scrim').hidden = true; el('drawer').hidden = true }, 200)
   }
 
-  function openModal(id) {
+  function openReview(id) {
     const req = REQS.find((r) => r.id === id)
     if (!req) return
-    el('modalLead').textContent = `为「${req.title}」生成 ${req.tasks.length} 张任务卡，并启动变更。`
-    el('ctxStatus').textContent = `${req.statusText} → 开发中`
-    el('modalTasks').innerHTML = req.tasks.map(([name, hint], i) => `<div class="task-row"><div class="task-index">0${i + 1}</div><div><strong>${name}</strong><span>${hint}</span></div></div>`).join('')
-    el('modal').hidden = false
+    const rv = req.review
+    el('reviewLead').textContent = `${req.id} · v${req.version} · ${rv.completed}/${rv.total} 角色完成，${rv.blockers} 个阻塞`
+    el('reviewRoles').innerHTML = rv.roles.map(([name, verdict]) => `<div class="role-card"><strong>${name}<span class="v ${verdict === 'pending' ? '' : verdict}">${VERDICT[verdict] ?? verdict}</span></strong>${verdict === 'pending' ? '等待评审…' : verdict === 'pass' ? '未发现问题。' : verdict === 'warn' ? '有建议，不阻塞。' : '存在阻塞项。'}</div>`).join('')
+    el('reviewFindings').innerHTML = rv.findings.length
+      ? rv.findings.map(([sev, role, text, suggestion]) => `<div class="finding"><span class="sev ${sev}">${sev}</span><b>${role}</b>：${text}<br><span style="color:var(--text-3)">建议：${suggestion}</span></div>`).join('')
+      : '<p class="note">没有阻塞项；可以发起人工签收。</p>'
+    el('reviewModal').hidden = false
   }
 
-  function closeModal() { el('modal').hidden = true }
+  function closeReview() { el('reviewModal').hidden = true }
+
+  function openVersion(id) {
+    const req = REQS.find((r) => r.id === id)
+    if (!req) return
+    el('versionDiff').innerHTML = `
+      <div>版本：<span class="old">v2.0.1</span> → <span class="new">v2.1.0（MINOR）</span></div>
+      <div>背景：<span class="new">新增“幂等记录保留 7 天”说明</span></div>
+      <div>验收：<span class="new">新增“并发同键只产生一条退款单”</span></div>
+      <div>标题：未变</div>
+      <div>关系：未变</div>`
+    el('versionLog').textContent = '变更记录：v2.1.0 · 2026-10-30 · CHG-PAY-004 · 新增并发验收与幂等记录说明（MINOR 需重新评审）'
+    el('versionModal').hidden = false
+  }
+
+  function closeVersion() { el('versionModal').hidden = true }
+
+  function openStart(id) {
+    const req = REQS.find((r) => r.id === id)
+    if (!req) return
+    el('startLead').textContent = `为「${req.title}」生成 ${req.tasks.length} 张任务卡，并准备 AI 执行环境。`
+    el('startState').textContent = `${req.statusText} → 已采纳 → 开发中`
+    el('startTasks').innerHTML = req.tasks.map(([name, hint], i) => `<div class="task-row"><div class="task-index">0${i + 1}</div><div><strong>${name}</strong><span>${hint}</span></div></div>`).join('')
+    el('startModal').hidden = false
+  }
+
+  function closeStart() { el('startModal').hidden = true }
+
+  function openAccept(id) {
+    const req = REQS.find((r) => r.id === id)
+    if (!req) return
+    el('acceptLead').textContent = `运行 ${req.id} 的验收命令，生成不可手改的证据。`
+    el('acceptModal').hidden = false
+  }
+
+  function closeAccept() { el('acceptModal').hidden = true }
 
   let toastTimer
   function toast(text) {
     el('toast').textContent = text
     el('toast').classList.add('show')
     clearTimeout(toastTimer)
-    toastTimer = setTimeout(() => el('toast').classList.remove('show'), 1600)
+    toastTimer = setTimeout(() => el('toast').classList.remove('show'), 1800)
   }
 
   document.addEventListener('click', (event) => {
     const start = event.target.closest('[data-start]')
-    if (start) { event.stopPropagation(); openModal(start.dataset.start); return }
+    if (start) { event.stopPropagation(); openStart(start.dataset.start); return }
     const cardEl = event.target.closest('.card')
     if (cardEl) openDrawer(cardEl.dataset.id)
   })
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') { closeModal(); closeDrawer() }
-    if (event.key === 'Enter' && document.activeElement?.classList?.contains('card')) openDrawer(document.activeElement.dataset.id)
+    if (event.key !== 'Escape') return
+    const modalOpen = !el('reviewModal').hidden || !el('versionModal').hidden || !el('startModal').hidden || !el('acceptModal').hidden
+    if (modalOpen) { closeReview(); closeVersion(); closeStart(); closeAccept(); return }
+    closeDrawer()
   })
 
   el('seg').addEventListener('click', (event) => {
@@ -337,13 +480,44 @@
   el('search').addEventListener('input', (event) => { keyword = event.target.value.trim(); render() })
   el('scrim').addEventListener('click', closeDrawer)
   el('closeDrawer').addEventListener('click', closeDrawer)
-  el('dStart').addEventListener('click', () => openModal(el('dStart').dataset.start))
-  el('runAccept').addEventListener('click', () => toast('验收命令已排队：alm ci run --requirement ' + el('runAccept').dataset.id))
+  el('dStart').addEventListener('click', () => openStart(el('dStart').dataset.start))
+  el('runAccept').addEventListener('click', () => openAccept(el('runAccept').dataset.id))
+  el('startReview').addEventListener('click', () => openReview(el('startReview').dataset.id))
+  el('openReview').addEventListener('click', () => openReview(el('startReview').dataset.id))
+  el('reviewClose').addEventListener('click', closeReview)
+  el('reviewApply').addEventListener('click', () => {
+    const req = REQS.find((r) => r.id === currentId)
+    if (req) { req.review.completed = 5; req.review.blockers = 0; req.review.roles = req.review.roles.map(([n]) => [n, 'pass']); req.review.findings = [] }
+    closeReview()
+    if (req) openDrawer(req.id)
+    toast('已应用建议并完成复审：5/5 通过，等待人工签收')
+  })
+  el('signReview').addEventListener('click', () => {
+    const req = REQS.find((r) => r.id === currentId)
+    if (!req) return
+    req.review.passed = true
+    req.status = 'accepted'
+    req.statusText = '已采纳'
+    openDrawer(req.id)
+    render()
+    toast('评审通过：已记录签收人、版本与内容哈希')
+  })
+  el('openVersion').addEventListener('click', () => openVersion(currentId))
+  el('versionClose').addEventListener('click', closeVersion)
+  el('versionOpen').addEventListener('click', () => { closeVersion(); toast('打开变更记录（原型占位）') })
   el('openBrief').addEventListener('click', () => toast('打开 brief（原型占位）'))
   el('openTrace').addEventListener('click', () => toast('打开追溯视图（原型占位）'))
   el('dEdit').addEventListener('click', () => toast('进入编辑（仅工作区内可写）'))
-  el('modalCancel').addEventListener('click', closeModal)
-  el('modalConfirm').addEventListener('click', () => { closeModal(); toast('已生成变更与 3 张任务卡（原型）') })
+  el('startCancel').addEventListener('click', closeStart)
+  el('startConfirm').addEventListener('click', () => { closeStart(); toast('已生成变更、3 张任务卡与上下文包（原型）') })
+  el('acceptCancel').addEventListener('click', closeAccept)
+  el('acceptRun').addEventListener('click', () => {
+    const req = REQS.find((r) => r.id === currentId)
+    if (req) req.acceptState = '已覆盖 2/2 · 已验证 · 待签收'
+    closeAccept()
+    if (req) openDrawer(req.id)
+    toast('验收完成：证据已归档，等待人工签收')
+  })
   el('newBtn').addEventListener('click', () => toast('新建：一句话 / 粘贴截图 / 导入聊天记录'))
   render()
 </script>
