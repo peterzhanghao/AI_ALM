@@ -86,6 +86,63 @@ export function writeProject({ root, id, name, githubRepo, projectNumber, requir
   return { ...project, file }
 }
 
+/**
+ * Attach (or update) a GitHub-backed project on an existing workspace root.
+ * Unlike `writeProject`, this is the explicit "link this workspace to a repo"
+ * action: it may overwrite the project file and creates the requirement root.
+ */
+export function associateProject({
+  root,
+  id,
+  name,
+  owner,
+  repo,
+  projectNumber,
+  requirementRoot = 'requirements',
+  defaultBranch = 'main',
+  teams = [],
+}) {
+  const workspaceRoot = resolve(root)
+  if (!existsSync(workspaceRoot)) throw new ProjectError(`workspace root not found: ${workspaceRoot}`)
+  if (!owner || !repo) throw new ProjectError('github owner and repo are required')
+  const github = { owner: String(owner).trim(), repo: String(repo).trim() }
+  if (projectNumber !== undefined && projectNumber !== null && projectNumber !== '') {
+    const number = Number(projectNumber)
+    if (!Number.isInteger(number) || number < 1) throw new ProjectError('github project number must be a positive integer')
+    github.project = { number }
+  }
+  const project = {
+    schema: PROJECT_SCHEMA,
+    id,
+    name,
+    defaultBranch,
+    requirementRoot,
+    github,
+    teams,
+  }
+  assertProject(project)
+
+  mkdirSync(join(workspaceRoot, '.alm'), { recursive: true })
+  if (!existsSync(join(workspaceRoot, requirementRoot))) {
+    mkdirSync(join(workspaceRoot, requirementRoot), { recursive: true })
+  }
+  writeFileSync(projectFile(workspaceRoot), `${JSON.stringify(project, null, 2)}\n`, 'utf8')
+
+  let remote = null
+  try {
+    const url = execFileSync('git', ['-C', workspaceRoot, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+    const slug = remoteSlug(url)
+    remote = { slug, matches: slug === `${github.owner}/${github.repo}` }
+  } catch {
+    remote = { slug: null, matches: null }
+  }
+
+  return { ...project, file: projectFile(workspaceRoot), remote }
+}
+
 /** Compare the project file with the git remote and the requirement folder. */
 export function verifyProject({ root, exec = execFileSync } = {}) {
   const findings = []

@@ -737,3 +737,24 @@
   - 正例：开始开发生成 `CHG-PAY-001` + `TASK-PAY-001..003` 且不切分支；验收返回 `pass/created` 与证据路径；新建生成 `REQ-PAY-005`（`OWNER: 支付团队`）+ brief，门禁 `fail + 1 个覆盖缺口`
   - 反例：重复变更 409；未知需求 404；非 POST 405；非 git 根验收 400 且不落半成品
 - 证据：新增 9 个单测（全量 197/197）；eval 宿主 6 项断言通过、0 pageerror；截图 `docs/assets/design/plugin-{start,start-done,accept,create,create-done}.png`
+
+### ALM-09.01 工作区项目空间 + 新建按钮修复 + UI 全流程回归
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-08.04（#112，已关闭）
+- 技能：`alm-mvp-dev`、`cordis-plugin-development`
+- 实施范围：`packages/dsh-plugin-requirements/{workspaces.mjs,index.js,client.js,test}`、`packages/alm-core/src/project/project.mjs`
+- 不在范围：GitHub 建单（ALM-09.02）、验收证据（ALM-09.03）、评审/版本/分支/入库（ALM-09.04–09.07）
+- 接口：
+  - `GET /api/alm/projects` 改为 DSH 工作区来源（`~/.dsh/storages/workspace.json`，`DSH_WORKSPACES_FILE` 覆盖），剔除默认工作区，未关联工作区 `linked=false`
+  - `POST /api/alm/projects/associate?root=<workspace>`：写/更新 `.alm/project.json`、创建 `requirements/`、返回 git remote 一致性
+  - `?project=ALL` 改为聚合工作区（跳过路径缺失者）
+- 交付物：
+  - [ ] `workspaces.mjs` + 单测（默认工作区剔除、关联/未关联、缺失路径、文件覆盖）
+  - [ ] `associateProject` + 单测（创建/更新、remote 匹配）
+  - [ ] 服务端路由改造 + HTTP 测试（工作区列表、关联、聚合）
+  - [ ] 客户端工作区选择、未关联标记、关联/更新关联弹窗、未关联时新建先引导关联
+  - [ ] primary 按钮改为 label/base 反色对，修复单色深色主题白底白字
+- 验收：
+  - 正例：picker 列出 `DSH`、`演示工作区 · 未关联仓库`，不含 `default-workspace`；关联后写 `.alm/project.json` 且列表可用；全流程（关联→列表→抽屉→评审→版本→追溯→开始→验收→新建）14 项断言通过
+  - 反例：默认工作区不出现；路径缺失工作区标记 `exists=false` 且不可选；未关联工作区点新建先进入关联弹窗
+- 证据：全量 202/202；Playwright 14/14、0 pageerror；按钮对比度（模拟单色深色主题）17.7:1、旧方案 1:1；截图 `docs/assets/design/plugin-{associate,workspace-linked,traces-demo,create-demo,dark-button}.png`

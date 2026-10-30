@@ -9,7 +9,7 @@ import { loadRepo } from '../../src/parse/load.mjs'
 import { parseSdocAsset } from '../../src/parse/sdoc.mjs'
 import { buildIndex } from '../../src/index/index.mjs'
 import * as prj001 from '../../src/gates/rules/prj-001.mjs'
-import { ProjectError, listProjects, readProject, remoteSlug, verifyProject, writeProject } from '../../src/project/project.mjs'
+import { ProjectError, associateProject, listProjects, readProject, remoteSlug, verifyProject, writeProject } from '../../src/project/project.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../../..')
 const fixture = join(repoRoot, 'fixtures/order-refund')
@@ -53,6 +53,37 @@ test('writeProject, readProject and verifyProject agree with the git remote', ()
     () => writeProject({ root, id: 'PAY', name: 'dup', githubRepo: 'acme/pay-platform' }),
     (error) => error instanceof ProjectError,
   )
+})
+
+test('associateProject creates and updates the project file on a workspace root', () => {
+  const root = tempRepo()
+  const created = associateProject({
+    root,
+    id: 'CRM',
+    name: '客户 CRM',
+    owner: 'acme',
+    repo: 'crm-platform',
+    projectNumber: 2,
+    teams: ['CRM 团队'],
+  })
+  assert.equal(created.file, join(root, '.alm/project.json'))
+  assert.deepEqual(created.remote, { slug: 'acme/pay-platform', matches: false })
+  assert.equal(readProject(root).id, 'CRM')
+  assert.equal(readProject(root).github.project.number, 2)
+  assert.equal(created.teams[0], 'CRM 团队')
+
+  const updated = associateProject({
+    root,
+    id: 'CRM',
+    name: '客户 CRM v2',
+    owner: 'acme',
+    repo: 'pay-platform',
+    projectNumber: 3,
+  })
+  assert.equal(updated.remote.matches, true)
+  const project = readProject(root)
+  assert.equal(project.name, '客户 CRM v2')
+  assert.equal(project.github.project.number, 3)
 })
 
 test('invalid project ids and missing requirement roots are rejected', () => {
