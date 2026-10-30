@@ -182,7 +182,11 @@ export default class RequirementsService {
 
   handle(req, res) {
     try {
-      const payload = query.requirements(this.rootFor(req))
+      const url = new URL(req?.url ?? '/', 'http://127.0.0.1')
+      const payload =
+        url.searchParams.get('project') === 'ALL'
+          ? query.requirementsAll(this.projectsPayload().projects)
+          : query.requirements(this.rootFor(req))
       if (payload && payload.ok === false) {
         res.writeHead(500, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
         res.end(JSON.stringify({ ok: false, error: { code: 'index-failed', message: payload.error } }))

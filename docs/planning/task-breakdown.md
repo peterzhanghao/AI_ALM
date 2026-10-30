@@ -659,3 +659,21 @@
   - 正例：切换项目后列表互不串；REQ-PAY-004 显示 #104 / ProjectV2 #1 / Ready / #105–#107；CRM 显示 #12 / In progress / PR #15
   - 反例：无 Issue 的需求显示建单入口；未知项目不参与聚合
 - 证据：Playwright 12 项断言通过、0 pageerror；截图 7 张
+
+### ALM-08.01 插件工作台 v2：列表 / 筛选 / 项目聚合 / 抽屉 / 详情 / GitHub 归属
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.16（#104，已关闭）
+- 技能：`alm-mvp-dev`、`cordis-plugin-development`
+- 实施范围：`packages/dsh-plugin-requirements/{query.mjs,index.js,client.js,test}`、`docs/planning/requirements-plugin-ui-plan.md`
+- 不在范围：评审报告、版本对比、追溯视图、开始开发/验收/新建向导（ALM-08.02–08.04）
+- 接口：`requirements()` 增加 `project/projectName/briefText/attachmentFiles/github/projectInfo`；新增 `requirementsAll(projects)` 与 `GET /api/alm/requirements?project=ALL`；`item.github = { provider, repo, issue, url, labels, board, tasks }`
+- 交付物：
+  - [ ] 卡片列表（状态色、ID、修订、优先级、验收数、附件/来源、GitHub Issue 徽标、看板状态）替代旧表格
+  - [ ] 状态筛选与搜索；项目选择（含「全部项目」聚合视图，按项目分组）
+  - [ ] 右侧抽屉：背景（brief markdown）、来源、附件、验收覆盖、关系、GitHub 归属、历史占位、技术详情与提示词
+  - [ ] 详情弹层：主栏背景/验收/关系，侧栏项目/GitHub/评审占位/技术
+  - [ ] 保留仓库根切换、刷新、追踪缺口与应用内提示词复制
+- 验收：
+  - 正例：PAY 列表仅 2 条；全部项目显示 PAY/CRM 两组与各自需求；`REQ-PAY-004` 抽屉显示 `#104`、`ProjectV2 #1`、`#105–#107 (parent #104)` 与标签；详情页可打开
+  - 反例：无 `.alm/github.json` 时显示「尚未建立 GitHub 归属」；坏项目根在聚合视图按项目报错且不影响其他项目
+- 证据：新增 5 个单测（全量 182/182）；eval 宿主实测 6 项断言通过、0 pageerror；截图 `docs/assets/design/plugin-{list,projects,drawer,github,detail}.png`
