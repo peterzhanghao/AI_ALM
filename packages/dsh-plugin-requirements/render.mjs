@@ -54,7 +54,7 @@ export function renderRequirementsPage(payload, options = {}) {
           (item) => `<tr>
         <td><code>${escapeHtml(item.id)}</code></td>
         <td>${escapeHtml(item.title)}</td>
-        <td>${escapeHtml(item.status)}</td>
+        <td>${escapeHtml(item.statusLabel ?? item.status)}</td>
         <td>${escapeHtml(item.owner)}</td>
         <td>${item.verifiedBy?.length ? item.verifiedBy.map((id) => `<code>${escapeHtml(id)}</code>`).join(' ') : '<span class="muted">—</span>'}</td>
       </tr>`,
@@ -93,7 +93,7 @@ export function renderRequirementsPage(payload, options = {}) {
   }
 
   <table>
-    <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Owner</th><th>Verified by</th></tr></thead>
+    <thead><tr><th>ID</th><th>标题</th><th>状态</th><th>负责人</th><th>验收</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
 

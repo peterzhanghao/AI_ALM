@@ -1,12 +1,26 @@
 import { existsSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { STATUS_LABELS } from '../alm-core/src/model/asset.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 
 const NEXT = {
   'missing-acceptance': '补验收',
   'dangling-relation': '修关系',
   'ready-to-change': '发起变更',
-  done: '查看影响',
+  'in-progress': '查看进度',
+  verify: '去验收',
+  done: '已完成',
+}
+
+function attachmentCount(root, id) {
+  const file = join(root, 'requirements', 'attachments', id, 'manifest.json')
+  if (!existsSync(file)) return 0
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')).files?.length ?? 0
+  } catch {
+    return 0
+  }
 }
 
 export function nextActionLabel(action) {
@@ -24,7 +38,9 @@ export function nextActionFor(item, gaps = []) {
     (gap) => gap.assetId === item.id || (gap.file === item.file && gap.rule === 'REL-001'),
   )
   if (related) return 'dangling-relation'
-  if (item.status === 'accepted') return 'done'
+  if (item.status === 'implemented') return 'verify'
+  if (item.status === 'in-progress') return 'in-progress'
+  if (['verified', 'deprecated', 'superseded'].includes(item.status)) return 'done'
   return 'ready-to-change'
 }
 
@@ -76,11 +92,19 @@ export function requirements(root) {
     .filter((asset) => asset.type === 'requirement')
     .map((asset) => {
       const verifiedBy = asset.links.filter((link) => link.type === 'verified_by').map((link) => link.target)
+      const extra = asset.extra ?? {}
       const item = {
         id: asset.id,
         title: asset.title,
         status: asset.status,
+        statusLabel: STATUS_LABELS[asset.status] ?? asset.status,
         owner: asset.owner,
+        priority: extra.priority ?? null,
+        category: extra.category ?? null,
+        revision: extra.revision ?? 1,
+        brief: extra.brief ?? null,
+        sources: Array.isArray(extra.sources) ? extra.sources : [],
+        attachments: attachmentCount(root, asset.id),
         verifiedBy,
         file: asset.source.path,
         line: asset.source.line,

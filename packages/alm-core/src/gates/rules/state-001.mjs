@@ -7,7 +7,10 @@ export const level = 'block'
 
 const ALLOWED = {
   proposed: ['accepted', 'deprecated', 'superseded'],
-  accepted: ['deprecated', 'superseded'],
+  accepted: ['in-progress', 'deprecated', 'superseded'],
+  'in-progress': ['implemented', 'accepted', 'deprecated'],
+  implemented: ['verified', 'in-progress', 'deprecated'],
+  verified: ['in-progress', 'deprecated'],
   deprecated: [],
   superseded: [],
 }

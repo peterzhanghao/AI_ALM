@@ -6,7 +6,7 @@ import { parseSdocAsset } from './sdoc.mjs'
 import { parseYamlAsset } from './yaml.mjs'
 
 const ASSET_EXTENSIONS = new Set(['.yml', '.yaml', '.sdoc', '.md'])
-const IGNORED_DIRS = new Set(['node_modules', '.git', '.alm', 'tmp', 'changes'])
+const IGNORED_DIRS = new Set(['node_modules', '.git', '.alm', 'tmp', 'changes', 'briefs', 'attachments'])
 
 /** Recursively collect asset files under `root`, in stable path order. */
 export function findAssetFiles(root) {

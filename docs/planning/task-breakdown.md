@@ -526,3 +526,20 @@
   - 正例：非技术用户能在 3 秒内说出“这条做到哪、还缺什么、下一步做什么”；点卡片出抽屉、点开始开发出预览
   - 反例：技术字段默认不可见；取消所有弹层后回到列表，不留副作用
 - 证据：三张截图与 HTML；评审通过后再开实现 PR
+
+### ALM-07.09 需求富内容与版本模型（M1）
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.05（#81，已关闭）
+- 技能：`alm-requirements`、`alm-mvp-dev`
+- 实施范围：`packages/alm-core/{src/model,src/parse,src/gates,src/contracts}`、`fixtures/order-refund`、`dsh-plugin-requirements/{query,render}`
+- 不在范围：编辑器 UI、执行验收、看板同步（M3/M4）
+- 接口：SDoc 新增 `REVISION/PRIORITY/CATEGORY/BRIEF/SOURCE`；`STATUS` 支持中文别名；新增关系 `parent_of`；新增门禁 `REL-003/REV-001/BRIEF-001/ATT-001`；状态扩展为 7 个（界面中文标签）
+- 交付物：
+  - [ ] 解析与模型：富字段、中文状态别名、`parent_of`
+  - [ ] 门禁：层级环、版本递增、brief、附件哈希
+  - [ ] 样例：`REQ-PAY-004` 带 brief、聊天附件与 manifest，`REQ-PAY-001 parent_of REQ-PAY-004`
+  - [ ] 插件 payload 带 `statusLabel/revision/priority/brief/sources/attachments`
+- 验收：
+  - 正例：`alm check --root fixtures/order-refund` 退出 0；`ATT-001`/`BRIEF-001`/`REL-003` pass；`REV-001` 无 base 时 skip
+  - 反例：篡改附件哈希 → `ATT-001` fail；内容改动未升 `REVISION` → `REV-001` fail；父子成环 → `REL-003` fail
+- 证据：新增 7 个单测，全量 159/159；`alm contract verify` ok

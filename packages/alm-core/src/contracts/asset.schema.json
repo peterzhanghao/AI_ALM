@@ -22,7 +22,7 @@
       ]
     },
     "title": { "type": "string", "minLength": 1 },
-    "status": { "enum": ["proposed", "accepted", "deprecated", "superseded"] },
+    "status": { "enum": ["proposed", "accepted", "in-progress", "implemented", "verified", "deprecated", "superseded"] },
     "owner": { "type": "string", "minLength": 1 },
     "links": {
       "type": "array",
@@ -37,7 +37,8 @@
               "depends_on",
               "constrained_by",
               "verified_by",
-              "supersedes"
+              "supersedes",
+              "parent_of"
             ]
           },
           "target": { "type": "string" },

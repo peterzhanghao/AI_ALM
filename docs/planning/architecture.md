@@ -157,6 +157,10 @@ R1（ALM-02.03）实现 `FMT/ID/REL/COV/STATE/SEC/REN`；R2（ALM-02.05、ALM-04
 | `REN-001` | block | Markdown 链接与 Mermaid 块结构可渲染 | 悬空相对链接 |
 | `REN-002` | warn | StrictDoc 渲染证据（manifest/版本/产物哈希）；工具或产物缺失记 `skip` | 渲染失败、版本不符、产物哈希不匹配 |
 | `TASK-001` | block | 变更任务草案（`changes/<CHG>/tasks.json`）覆盖每条需求 | 需求无任务覆盖 / 任务无 covers / 重复任务 ID |
+| `REL-003` | block | 需求层级（`parent_of` / `satisfies`）无环 | 父子关系成环 |
+| `REV-001` | block | `REVISION` 为正整数；内容变化必须递增（状态变更交给 STATE-001） | 版本回退 / 改了内容没升版本 |
+| `BRIEF-001` | warn | 声明了 `BRIEF` 的文件必须存在且有内容；`accepted` 需求应有 brief | brief 缺失 / 过短 |
+| `ATT-001` | block | `requirements/attachments/<ID>/manifest.json` 的文件存在且哈希匹配 | 附件缺失 / 哈希不符 / manifest 逃逸目录 |
 | `APPROVAL-001` | block | 存在绑定当前 head SHA 的 approve | 用旧 SHA 审批合并 |
 | `APPROVAL-002` | block | 审批者 kind=human 且非提交者 | Agent 自批 |
 | `PUB-001` | block | 发布证据完整且不可覆盖 | 缺证据直接建基线 |
