@@ -156,6 +156,20 @@ export function createGiteaClient({
       return { state: payload?.state ?? 'unknown', statuses }
     },
 
+    /** Create an issue; labels are names Gitea resolves for the repository. */
+    async createIssue({ title, body, labels = [] }) {
+      const payload = await request('POST', '/issues', { title, body, labels })
+      return { number: payload?.number ?? null, url: payload?.html_url ?? null, title: payload?.title ?? title }
+    },
+
+    /** Find one issue by exact title across open and closed issues. */
+    async findIssue(title) {
+      const issues = await request('GET', `/issues?state=all&q=${encodeURIComponent(title)}&limit=50`)
+      if (!Array.isArray(issues)) return null
+      const match = issues.find((issue) => issue?.title === title)
+      return match ? { number: match.number, url: match.html_url ?? null, title: match.title } : null
+    },
+
     async comment(number, body) {
       const payload = await request('POST', `/issues/${number}/comments`, { body })
       return { id: payload?.id ?? null, url: payload?.html_url ?? null }
