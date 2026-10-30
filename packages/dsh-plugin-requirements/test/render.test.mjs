@@ -59,3 +59,14 @@ test('the sidebar hint escapes its url', () => {
   const html = renderRequirementsPage(payload, { sidebarUrl: 'http://localhost:1/"><script>x</script>' })
   assert.ok(!html.includes('<script>x</script>'))
 })
+
+test('empty payload renders the start-here guidance', () => {
+  const html = renderRequirementsPage({
+    ...payload,
+    requirements: [],
+    gaps: [],
+    summary: { requirements: 0, gaps: 0 },
+  })
+  assert.match(html, /Start here/)
+  assert.match(html, /fixtures\/order-refund/)
+})

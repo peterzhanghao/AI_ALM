@@ -62,10 +62,10 @@
 | ALM-06 | 跟踪：试点评估与文档 | tracking | @peterzhanghao | P2 | pilot | done | ALM-00 | 确认发布 | #57 | — | in-sync | 2026-10-23 22:20 |
 | ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | done | ALM-04.04（#41，已关闭） | 确认发布 | #58 | #61 | in-sync | 2026-10-23 22:20 |
 | ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | done | ALM-06.01（#58，已关闭） | 确认发布 | #59 | #62 | in-sync | 2026-10-23 22:20 |
-| ALM-07 | 跟踪：需求工作台与任务链路 | tracking | @peterzhanghao | P1 | plugin | ready | ALM-00 | 确认发布 | — | — | local-newer | — |
-| ALM-07.01 | 需求工作台：空态、详情与下一步 | task | @peterzhanghao | P1 | plugin | ready | ALM-03.03（#29，已关闭） | 确认发布 | — | — | local-newer | — |
-| ALM-07.02 | 需求→任务草案与 TASK-001 | task | @peterzhanghao | P1 | core | ready | ALM-07.01 | 确认发布 | — | — | local-newer | — |
-| ALM-07.03 | 任务看板接入（GitHub Issues / Gitea） | task | @peterzhanghao | P1 | release | ready | ALM-07.02 | 确认发布 | — | — | local-newer | — |
+| ALM-07 | 跟踪：需求工作台与任务链路 | tracking | @peterzhanghao | P1 | plugin | ready | ALM-00 | 确认发布 | #72 | — | in-sync | 2026-10-30 15:05 |
+| ALM-07.01 | 需求工作台：空态、详情与下一步 | task | @peterzhanghao | P1 | plugin | review | ALM-03.03（#29，已关闭） | 确认发布 | #73 | — | in-sync | 2026-10-30 15:05 |
+| ALM-07.02 | 需求→任务草案与 TASK-001 | task | @peterzhanghao | P1 | core | blocked | ALM-07.01（#73） | 确认发布 | #74 | — | in-sync | 2026-10-30 15:05 |
+| ALM-07.03 | 任务看板接入（GitHub Issues / Gitea） | task | @peterzhanghao | P1 | release | blocked | ALM-07.02（#74） | 确认发布 | #75 | — | in-sync | 2026-10-30 15:05 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。

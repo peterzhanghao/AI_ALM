@@ -21,6 +21,10 @@ const STYLE = `
   .ok { color: #3fb950; }
   .fail { color: #f85149; }
   a { color: #58a6ff; }
+  .empty { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 20px; margin: 0 0 16px; }
+  .empty h2 { margin: 0 0 8px; font-size: 15px; }
+  .empty ol { margin: 0; padding-left: 20px; color: #c9d1d9; }
+  .empty li { margin: 4px 0; }
   ul { padding-left: 20px; }
 `
 
@@ -74,6 +78,19 @@ export function renderRequirementsPage(payload, options = {}) {
   <h1>ALM Requirements</h1>
   <p class="summary">${requirements.length} requirements · ${gaps.length} gaps · <span class="${resultClass}">check ${escapeHtml(payload.result)}</span>
     · <a href="/api/alm/requirements">JSON</a></p>
+
+  ${
+    requirements.length === 0
+      ? `<section class="empty">
+    <h2>Start here</h2>
+    <ol>
+      <li>Load the sample: point <code>?root=fixtures/order-refund</code> at the demo assets.</li>
+      <li>Or ask the agent: &quot;draft a requirement for the change&quot;, then run <code>alm check</code>.</li>
+      <li>Open the workbench for the next action, relations and acceptance coverage.</li>
+    </ol>
+  </section>`
+      : ""
+  }
 
   <table>
     <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Owner</th><th>Verified by</th></tr></thead>

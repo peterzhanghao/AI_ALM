@@ -9,6 +9,8 @@
 | [`development/gitea-adapter.md`](development/gitea-adapter.md) | Gitea SCM 适配器：PR/检查/评论/合并的接口与错误语义 |
 | [`planning/architecture.md`](planning/architecture.md) | ALM MVP 模块边界、契约、命令面与门禁规则 |
 | [`planning/verification-report.md`](planning/verification-report.md) | 验证报告：版本、命令矩阵、演练与 UI 证据、缺口 |
+| [`analysis/requirements-plugin-evaluation.md`](analysis/requirements-plugin-evaluation.md) | 需求插件选型评估：SpecFlow / TeamFlow 实测与六维评分 |
+| [`adr/0004-requirements-workbench-composition.md`](adr/0004-requirements-workbench-composition.md) | 需求工作台的组合式决策与分工 |
 | [`planning/issue-register.md`](planning/issue-register.md) | 规划键、GitHub 编号、状态与同步台账 |
 | [`planning/task-breakdown.md`](planning/task-breakdown.md) | 逐卡范围、依赖与验收 |
 | [`planning/skill-plan.md`](planning/skill-plan.md) | 产品能力 → 契约 → 技能 → 任务的转化方法与技能清单 |
