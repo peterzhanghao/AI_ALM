@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
+import { resolveRequirementsRoot } from './query.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -100,15 +101,22 @@ export default class RequirementsService {
     })
   }
 
-  handlePage(_req, res) {
+  rootFor(req) {
+    const url = new URL(req?.url ?? '/', 'http://127.0.0.1')
+    const requested = url.searchParams.get('root') ?? undefined
+    return resolveRequirementsRoot(requested, this.root)
+  }
+
+  handlePage(req, res) {
     try {
-      const payload = query.requirements(this.root)
+      const payload = query.requirements(this.rootFor(req))
       const sidebarUrl = this.sidecarOrigin ? `${this.sidecarOrigin}${SIDEBAR_PATH}` : undefined
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
       res.end(renderRequirementsPage(payload, { sidebarUrl }))
     } catch (error) {
-      res.writeHead(500, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
-      res.end(renderErrorPage(error?.message ?? String(error), 500))
+      const status = error?.status ?? 500
+      res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(renderErrorPage(error?.message ?? String(error), status))
     }
   }
 
@@ -126,14 +134,25 @@ export default class RequirementsService {
     res.end('not found')
   }
 
-  handle(_req, res) {
+  handle(req, res) {
     try {
-      const payload = query.requirements(this.root)
+      const payload = query.requirements(this.rootFor(req))
+      if (payload && payload.ok === false) {
+        res.writeHead(500, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+        res.end(JSON.stringify({ ok: false, error: { code: 'index-failed', message: payload.error } }))
+        return
+      }
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
       res.end(JSON.stringify(payload))
     } catch (error) {
-      res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({ error: error?.message ?? String(error) }))
+      const status = error?.status ?? 500
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(
+        JSON.stringify({
+          ok: false,
+          error: { code: error?.code ?? 'internal-error', message: error?.message ?? String(error) },
+        }),
+      )
     }
   }
 }
