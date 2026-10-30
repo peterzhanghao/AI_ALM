@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { STATUS_LABELS } from '../alm-core/src/model/asset.mjs'
+import { readProject } from '../alm-core/src/project/project.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 
 const NEXT = {
@@ -115,9 +116,18 @@ export function requirements(root) {
       return item
     })
 
+  let project = null
+  try {
+    project = readProject(root)
+  } catch {
+    project = null
+  }
+
   return {
     schema: 'alm.requirements/v1',
     root: index.root,
+    project: project?.id ?? null,
+    projectName: project?.name ?? null,
     result: check.result,
     requirements: items,
     gaps,

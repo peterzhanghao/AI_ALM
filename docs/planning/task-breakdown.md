@@ -625,3 +625,19 @@
   - 正例：apply 后需求与 3 张任务各一次 `setStatus Ready`；tasks.json 含 `project: PAY`
   - 反例：看板状态失败只记录不丢单；缺项目配置仍拒绝 apply
 - 证据：单测更新，全量 176/176
+
+### ALM-07.15 需求工作台项目切换器
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.14（#99，已关闭）
+- 技能：`alm-mvp-dev`、`cordis-plugin-development`
+- 实施范围：`dsh-plugin-requirements/{index.js,query.mjs,client.js}`、HTTP/query 测试
+- 不在范围：项目内需求编辑、跨项目聚合视图
+- 接口：`GET /api/alm/projects`（registry + 当前仓库项目）；`?project=<ID>` 解析到项目根；payload 增加 `project/projectName`；工作台顶部项目下拉
+- 交付物：
+  - [ ] 项目 API 与未知项目 404
+  - [ ] 下拉切换项目根、持久化到 localStorage
+  - [ ] 当前项目名进入摘要行
+- 验收：
+  - 正例：eval 实测下拉含「支付平台（PAY）」，切换后按项目根加载；177/177
+  - 反例：无 registry 时仍显示当前仓库项目；未知 `?project=` 返回 404
+- 证据：截图 `docs/assets/design/project-picker.png`、单测
