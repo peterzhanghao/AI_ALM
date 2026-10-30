@@ -73,7 +73,7 @@
 | ALM-07.08 | 需求工作台视觉原型（Tesla / Apple 风格） | task | @peterzhanghao | P2 | plugin | review | ALM-07.06（#83，已关闭） | 确认发布 | #87 | — | in-sync | 2026-10-30 19:55 |
 | ALM-07.09 | 需求富内容与版本模型（M1） | task | @peterzhanghao | P1 | core | review | ALM-07.05（#81，已关闭） | 确认发布 | #89 | — | in-sync | 2026-10-30 20:15 |
 | ALM-07.10 | 原始材料入库：聊天 Markdown 与本地 OCR 适配 | task | @peterzhanghao | P1 | core | done | ALM-07.09（#89，已关闭） | 确认发布 | #91 | #92 | in-sync | 2026-10-30 21:35 |
-| ALM-07.11 | 多项目归属：需求 / 看板 / 开发 | task | @peterzhanghao | P1 | core | review | ALM-07.10（#91，已关闭） | 确认发布 | #93 | — | in-sync | 2026-10-30 21:45 |
+| ALM-07.11 | 多项目归属：需求 / 看板 / 开发 | task | @peterzhanghao | P1 | core | done | ALM-07.10（#91，已关闭） | 确认发布 | #93 | #94 | in-sync | 2026-10-30 21:55 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
