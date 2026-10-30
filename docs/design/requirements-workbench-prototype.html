@@ -185,6 +185,33 @@
   .gnode-title { fill: var(--text-2); font-size: 10.5px; font-family: var(--font); }
   .gedge path { fill: none; stroke: #3a4450; stroke-width: 1.2; }
   .gedge-label { fill: #8b95a3; font-size: 10.5px; font-family: var(--font); }
+  .stepper { display: flex; gap: 10px; margin: 6px 0 18px; flex-wrap: wrap; }
+  .step { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+  .step b { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line); font-size: 11px; font-weight: 500; }
+  .step.active { color: var(--text); }
+  .step.active b { background: #f2f4f7; color: #0b0d10; border-color: transparent; }
+  .step.done b { border-color: var(--green); color: var(--green); }
+  .source-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .source-tab { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text-2); }
+  .source-tab.active { background: #1d222a; color: var(--text); border-color: var(--line-strong); }
+  .dropzone { border: 1px dashed var(--line-strong); border-radius: 12px; padding: 16px; background: #0d1014; }
+  .dropzone textarea { width: 100%; min-height: 104px; background: transparent; border: 0; outline: 0; color: var(--text); font-family: var(--font); font-size: 13px; line-height: 1.7; resize: vertical; }
+  .attach-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .attach-chip { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; background: #12151a; }
+  .attach-chip button { border: 0; background: transparent; color: var(--text-3); font-size: 12px; padding: 0; }
+  .extract-grid { display: grid; grid-template-columns: 1fr 1.1fr; gap: 16px; margin-top: 8px; }
+  .raw-pane { background: #0d1014; border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 12.5px; color: var(--text-2); line-height: 1.85; max-height: 340px; overflow: auto; }
+  .raw-pane h4, .draft-pane h4 { margin: 0 0 8px; font-size: 11.5px; color: var(--text-3); letter-spacing: .06em; text-transform: uppercase; }
+  .raw-pane mark { background: #1f2b3f; color: #cfe0ff; padding: 0 2px; border-radius: 3px; }
+  .draft-pane { display: flex; flex-direction: column; gap: 8px; }
+  .field-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #14171c; }
+  .field-card .k { font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .field-card .v { margin-top: 4px; font-size: 13px; color: var(--text); line-height: 1.6; }
+  .citation { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 10.5px; color: #9dc0ff; border: 1px solid #2a3b57; border-radius: 999px; padding: 1px 7px; }
+  .question { border: 1px solid #4a3b1e; background: #1f1a10; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: #f0cf8d; margin-top: 12px; }
+  .filelist { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+  .filerow { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--text-2); border-bottom: 1px solid #1b1f25; padding: 7px 0; }
+  .filerow b { color: var(--text); font-weight: 500; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -337,6 +364,16 @@
   <div class="detail-panel">
     <div class="detail-head"><h3 style="margin:0">追溯视图</h3><button class="icon-btn" id="traceClose" aria-label="关闭">×</button></div>
     <div id="traceBody"></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="newModal" hidden>
+  <div class="modal" style="width: 800px">
+    <h3>新建需求</h3>
+    <p class="lead">从原始材料开始：文本、截图、聊天记录、会议纪要；AI 提取为软件需求，由你确认。</p>
+    <div class="stepper" id="newStepper"></div>
+    <div id="newBody"></div>
+    <div class="modal-actions" id="newActions"></div>
   </div>
 </div>
 
@@ -688,6 +725,90 @@
   el('detailEdit').addEventListener('click', () => toast('进入编辑（仅工作区内可写）'))
   el('snapshotFork').addEventListener('click', () => { closeSnapshot(); toast('已创建修订草稿：基于该快照的新版本（原型）') })
 
+  let newStep = 1
+
+  function renderNewStepper() {
+    const labels = ['原始材料', 'AI 提取', '确认创建']
+    el('newStepper').innerHTML = labels
+      .map((label, index) => {
+        const n = index + 1
+        const cls = n === newStep ? 'active' : n < newStep ? 'done' : ''
+        return `<div class="step ${cls}"><b>${n < newStep ? '✓' : n}</b>${label}</div>`
+      })
+      .join('')
+  }
+
+  function renderNew() {
+    renderNewStepper()
+    if (newStep === 1) {
+      el('newBody').innerHTML = `
+        <div class="source-tabs">
+          <button class="source-tab active">文本</button>
+          <button class="source-tab">截图 / OCR</button>
+          <button class="source-tab">聊天记录</button>
+          <button class="source-tab">会议纪要</button>
+        </div>
+        <div class="dropzone">
+          <textarea id="rawInput">客服反馈：同一个订单退款失败后重试，后台出现了两笔退款单，财务对账时发现。支付同学说调用方重试没带幂等键，服务端也没去重。产品要求重复提交返回第一次的退款单，不能让用户以为失败又点一次。</textarea>
+        </div>
+        <div class="attach-row">
+          <span class="attach-chip">screenshot-01.png <button>×</button></span>
+          <span class="attach-chip">chat-2026-10-29.md <button>×</button></span>
+          <span class="attach-chip">meeting-2026-10-28.md <button>×</button></span>
+        </div>
+        <p class="note">原文件按哈希归档；图片做 OCR，聊天/纪要保留时间、发言者与消息位置；敏感信息先脱敏再送 AI。</p>`
+      el('newActions').innerHTML = '<button class="btn" id="newCancel">取消</button><button class="btn primary" id="newParse">AI 解析</button>'
+      el('newCancel').onclick = closeNew
+      el('newParse').onclick = () => { newStep = 2; renderNew() }
+      return
+    }
+    if (newStep === 2) {
+      el('newBody').innerHTML = `
+        <div class="extract-grid">
+          <div class="raw-pane">
+            <h4>原始材料 · 引用位置</h4>
+            客服反馈：同一个订单退款失败后重试，后台出现了两笔退款单，财务对账时发现。<br>
+            支付同学说调用方重试没带幂等键，服务端也没去重。<br>
+            产品要求重复提交返回第一次的退款单，不能让用户以为失败又点一次。
+            <p class="note">截图 OCR：聊天窗口第 3 条（客服-小林，10:12）</p>
+          </div>
+          <div class="draft-pane">
+            <h4>AI 提取的软件需求草案</h4>
+            <div class="field-card"><div class="k">标题</div><div class="v">退款重试需按幂等键去重</div><span class="citation">来源 · 聊天 10:15</span></div>
+            <div class="field-card"><div class="k">目标</div><div class="v">同一订单 + 同一幂等键只产生一张退款单，重复请求返回首次结果。</div><span class="citation">来源 · 聊天 10:18</span></div>
+            <div class="field-card"><div class="k">范围外</div><div class="v">退款审批流、跨渠道对账、前端提示文案。</div><span class="citation">来源 · 会议 10:30</span></div>
+            <div class="field-card"><div class="k">验收</div><div class="v">① 同键重放返回同一 refundId，不新增记录；② 并发同键只产生一条退款单。</div><span class="citation">来源 · 会议 10:30 / 聊天 10:22</span></div>
+            <div class="field-card"><div class="k">优先级</div><div class="v">P1</div><span class="citation">来源 · 会议 10:30</span></div>
+          </div>
+        </div>
+        <div class="question">待确认 2 项：① 幂等记录保留多久（建议 7 天）？② 退款失败时前端提示文案由谁提供？</div>`
+      el('newActions').innerHTML = '<button class="btn" id="newPrev">上一步</button><button class="btn primary" id="newCreate">确认并创建</button>'
+      el('newPrev').onclick = () => { newStep = 1; renderNew() }
+      el('newCreate').onclick = () => { newStep = 3; renderNew() }
+      return
+    }
+    el('newBody').innerHTML = `
+      <h4 class="section-title" style="margin-top:0">将创建</h4>
+      <div class="filelist">
+        <div class="filerow"><span><b>REQ-PAY-005.sdoc</b> · 结构化字段与关系</span><span class="muted">v1.0.0</span></div>
+        <div class="filerow"><span><b>briefs/REQ-PAY-005.md</b> · 背景、目标、范围外、决策</span><span class="muted">Markdown</span></div>
+        <div class="filerow"><span><b>attachments/REQ-PAY-005/manifest.json</b> · 3 个原始文件 + sha256</span><span class="muted">不可变</span></div>
+        <div class="filerow"><span><b>attachments/REQ-PAY-005/</b> · screenshot-01.png、chat、会议纪要</span><span class="muted">原始件</span></div>
+      </div>
+      <p class="note">保存后状态为「待评审」；AI 多角色评审通过并人工签收后才可开始开发。原始材料只读，每个字段保留引用。</p>`
+    el('newActions').innerHTML = '<button class="btn" id="newPrev2">上一步</button><button class="btn primary" id="newFinish">完成</button>'
+    el('newPrev2').onclick = () => { newStep = 2; renderNew() }
+    el('newFinish').onclick = () => { closeNew(); toast('已创建 REQ-PAY-005（待评审 · v1.0.0），原始材料已归档') }
+  }
+
+  function openNew() {
+    newStep = 1
+    el('newModal').hidden = false
+    renderNew()
+  }
+
+  function closeNew() { el('newModal').hidden = true }
+
   let toastTimer
   function toast(text) {
     el('toast').textContent = text
@@ -714,9 +835,9 @@
 
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return
-    const ids = ['reviewModal', 'versionModal', 'startModal', 'acceptModal', 'detailModal', 'snapshotModal', 'traceModal']
+    const ids = ['reviewModal', 'versionModal', 'startModal', 'acceptModal', 'detailModal', 'snapshotModal', 'traceModal', 'newModal']
     if (ids.some((id) => !el(id).hidden)) {
-      closeReview(); closeVersion(); closeStart(); closeAccept(); closeDetail(); closeSnapshot(); closeTrace()
+      closeReview(); closeVersion(); closeStart(); closeAccept(); closeDetail(); closeSnapshot(); closeTrace(); closeNew()
       return
     }
     closeDrawer()
@@ -769,7 +890,7 @@
     if (req) openDrawer(req.id)
     toast('验收完成：证据已归档，等待人工签收')
   })
-  el('newBtn').addEventListener('click', () => toast('新建：一句话 / 粘贴截图 / 导入聊天记录'))
+  el('newBtn').addEventListener('click', openNew)
   render()
 </script>
 </body>
