@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { draftTasks } from '../../alm-core/src/tasks/draft.mjs'
 import RequirementsService from '../index.js'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -399,4 +400,49 @@ test('write endpoints reject non-POST and broken roots', async () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+})
+
+test('POST /api/alm/requirements/github previews issue plan without network', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-github-http-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    mkdirSync(join(dir, '.alm', 'changes'), { recursive: true })
+    writeFileSync(
+      join(dir, '.alm', 'changes', 'CHG-GH-001.json'),
+      JSON.stringify({
+        schema: 'alm.change/v1',
+        changeId: 'CHG-GH-001',
+        baselineSha: 'a'.repeat(40),
+        branch: 'alm/chg-gh-001',
+        status: 'open',
+      }),
+    )
+    draftTasks({ root: dir, changeId: 'CHG-GH-001', requirementIds: ['REQ-PAY-004'] })
+
+    await withWriteServer(dir, async (base) => {
+      const response = await fetch(`${base}/api/alm/requirements/github?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ changeId: 'CHG-GH-001' }),
+      })
+      const payload = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(payload.schema, 'alm.github.plan/v1')
+      assert.equal(payload.repo, 'peterzhanghao/AI_ALM')
+      assert.equal(payload.requirements.length, 1)
+      assert.match(payload.requirements[0].title, /^\[REQ-PAY-004\]/)
+      assert.equal(payload.tasks.length, 3)
+      assert.ok(!existsSync(join(dir, '.alm', 'github.json')))
+
+      const missing = await fetch(`${base}/api/alm/requirements/github?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ changeId: 'CHG-NOPE-001' }),
+      })
+      assert.equal(missing.status, 404)
+      assert.equal((await missing.json()).error.code, 'no-draft')
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

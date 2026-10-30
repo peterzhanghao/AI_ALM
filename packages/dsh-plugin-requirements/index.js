@@ -8,6 +8,7 @@ import { listWorkspaces } from './workspaces.mjs'
 import { openChange } from '../alm-core/src/changes/open.mjs'
 import { createRequirement } from '../alm-core/src/requirements/create.mjs'
 import { runCi } from '../alm-core/src/ci/ci.mjs'
+import { applyGithub, previewGithub } from './github-sync.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -131,6 +132,7 @@ export default class RequirementsService {
       ['/api/alm/requirements/start', 'start'],
       ['/api/alm/requirements/accept', 'accept'],
       ['/api/alm/requirements/create', 'create'],
+      ['/api/alm/requirements/github', 'github'],
     ]) {
       webServer.register({
         kind: 'exact',
@@ -314,6 +316,11 @@ export default class RequirementsService {
           id: body.id,
           apply: body.apply === true,
         })
+      } else if (action === 'github') {
+        payload =
+          body.apply === true
+            ? await applyGithub({ root, changeId: body.changeId })
+            : await previewGithub({ root, changeId: body.changeId })
       } else {
         respond(404, { ok: false, error: { code: 'unknown-action', message: String(action) } })
         return

@@ -758,3 +758,22 @@
   - 正例：picker 列出 `DSH`、`演示工作区 · 未关联仓库`，不含 `default-workspace`；关联后写 `.alm/project.json` 且列表可用；全流程（关联→列表→抽屉→评审→版本→追溯→开始→验收→新建）14 项断言通过
   - 反例：默认工作区不出现；路径缺失工作区标记 `exists=false` 且不可选；未关联工作区点新建先进入关联弹窗
 - 证据：全量 202/202；Playwright 14/14、0 pageerror；按钮对比度（模拟单色深色主题）17.7:1、旧方案 1:1；截图 `docs/assets/design/plugin-{associate,workspace-linked,traces-demo,create-demo,dark-button}.png`
+
+### ALM-09.02 GitHub Issue 自动创建进插件
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.01（#114，已关闭）
+- 技能：`ai-github-issue-workflow`、`alm-mvp-dev`
+- 实施范围：`packages/dsh-plugin-requirements/{github-sync.mjs,index.js,client.js,test}`
+- 不在范围：看板字段自定义、PR 状态联动（现有 PR 模板承担）、跨仓库建单
+- 接口：
+  - `POST /api/alm/requirements/github?root=` body `{changeId, apply?}`：默认 `alm.github.plan/v1`（需求 Issue + 任务子议题标题/正文/标签，0 网络）；`apply:true` 调 `gh` 创建并写 `.alm/github.json`，返回 `alm.github.sync/v1`
+  - 未关联项目 409 `no-project`；无任务草稿 404 `no-draft`
+- 交付物：
+  - [ ] `github-sync.mjs`（preview/apply、上下文校验、任务失败信息）
+  - [ ] 插件路由 + lifecycle 路由表
+  - [ ] 开始开发弹窗「GitHub 归属」：仓库/看板、预览、创建、结果动作（创建/复用/跳过）
+  - [ ] 单测：preview 不写文件；fake provider apply 幂等；未关联/无草稿错误；HTTP preview
+- 验收：
+  - 正例：预览显示 `[REQ-DEMO-004]` + 3 个任务标题且不写 `.alm/github.json`；fake provider apply 创建 4 个 Issue、4 次看板/状态，第二次全部 skip；HTTP preview 返回 200
+  - 反例：未关联工作区 409；无任务草稿 404；不点「创建」不会触网
+- 证据：全量 206/206；Playwright 全流程 15/15（含 GitHub 预览）、0 pageerror；真实创建未在 eval 执行（避免污染仓库），apply 路径由 fake provider 单测覆盖；截图 `docs/assets/design/plugin-github-preview.png`

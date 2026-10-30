@@ -1296,8 +1296,9 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function StartModal({ item, root, onClose }) {
+    function StartModal({ item, root, projectMeta, onClose, onGithubApplied }) {
       const [state, setState] = useState({ loading: true, error: null, plan: null, result: null, applying: false })
+      const [github, setGithub] = useState({ loading: false, plan: null, result: null, error: null })
       const load = useCallback(() => {
         setState({ loading: true, error: null, plan: null, result: null, applying: false })
         writeJson('start', { requirementId: item.id }, root)
@@ -1315,13 +1316,32 @@ window.__ModuleLoader__.load({
           .catch((error) => setState((current) => ({ ...current, applying: false, error: error.message })))
       }
 
+      const previewGithubIssues = (changeId) => {
+        setGithub({ loading: true, plan: null, result: null, error: null })
+        writeJson('github', { changeId, apply: false }, root)
+          .then((plan) => setGithub({ loading: false, plan, result: null, error: null }))
+          .catch((error) => setGithub({ loading: false, plan: null, result: null, error: error.message }))
+      }
+
+      const applyGithubIssues = (changeId) => {
+        setGithub((current) => ({ ...current, loading: true, error: null }))
+        writeJson('github', { changeId, apply: true }, root)
+          .then((result) => {
+            setGithub({ loading: false, plan: null, result, error: null })
+            onGithubApplied?.()
+          })
+          .catch((error) => setGithub((current) => ({ ...current, loading: false, error: error.message })))
+      }
+
+      const canGithub = Boolean(projectMeta?.repo)
       const plan = state.plan
       const result = state.result
+      const actionLabel = { create: '创建', created: '已创建', adopt: '复用', skip: '跳过' }
       return h(
         ModalShell,
         {
           title: `开始开发 · ${item.id}`,
-          lead: '登记变更并生成任务卡；不会切换当前分支，GitHub 建单走 scripts/sync-tasks.mjs。',
+          lead: '登记变更并生成任务卡；不会切换当前分支。GitHub 建单可在此预览并显式创建。',
           onClose,
           footer: [
             h('button', { key: 'cancel', style: button, onClick: onClose }, result ? '关闭' : '取消'),
@@ -1378,6 +1398,60 @@ window.__ModuleLoader__.load({
                   ),
                 ),
               ),
+            )
+          : null,
+        result
+          ? h(
+              'div',
+              { style: { marginTop: '16px', borderTop: `1px solid ${T.line}`, paddingTop: '14px' } },
+              h('div', { style: { ...sectionTitle, margin: '0 0 8px' } }, 'GitHub 归属'),
+              !canGithub
+                ? h('p', { style: { margin: 0, ...muted } }, '当前工作区未关联 GitHub 仓库，无法建单；请先在顶部「关联仓库」。')
+                : h(
+                    'div',
+                    null,
+                    h('p', { style: { margin: '0 0 8px', ...muted } }, `${projectMeta.repo}${projectMeta.board ? ` · ProjectV2 #${projectMeta.board}` : ''}`),
+                    github.loading ? h('p', { style: muted }, '正在处理 GitHub…') : null,
+                    github.error ? h('p', { style: { margin: '6px 0', color: T.err, fontSize: '12.5px' } }, github.error) : null,
+                    github.plan
+                      ? h(
+                          'div',
+                          null,
+                          h('p', { style: { margin: '0 0 4px', fontSize: '12.5px', color: T.text2 } }, `将创建 1 个需求 Issue + ${github.plan.tasks.length} 个任务子议题：`),
+                          h(
+                            'ul',
+                            { style: { margin: 0, paddingLeft: '18px', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+                            [github.plan.requirements[0]?.title, ...github.plan.tasks.map((task) => task.title)]
+                              .filter(Boolean)
+                              .map((title, index) => h('li', { key: index }, title)),
+                          ),
+                        )
+                      : null,
+                    github.result
+                      ? h(
+                          'div',
+                          null,
+                          h(
+                            'ul',
+                            { style: { margin: 0, paddingLeft: '18px', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+                            [...github.result.requirements, ...github.result.tasks].map((action, index) =>
+                              h('li', { key: index }, `${actionLabel[action.action] ?? action.action}：${action.title ?? action.issue?.title ?? ''}`),
+                            ),
+                          ),
+                          h('p', { style: { margin: '6px 0 0', ...muted } }, `映射已写入 .alm/github.json（${github.result.repo}）`),
+                        )
+                      : null,
+                    h(
+                      'div',
+                      { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } },
+                      !github.result
+                        ? h('button', { style: button, onClick: () => previewGithubIssues(result.changeId), disabled: github.loading }, github.plan ? '重新预览' : '预览 GitHub 建单')
+                        : null,
+                      github.plan && !github.result
+                        ? h('button', { style: primary, onClick: () => applyGithubIssues(result.changeId), disabled: github.loading }, '创建 GitHub Issue')
+                        : null,
+                    ),
+                  ),
             )
           : null,
       )
@@ -1915,7 +1989,9 @@ window.__ModuleLoader__.load({
           ? h(StartModal, {
               item: startItem,
               root: startItem.root ?? data?.root ?? root,
+              projectMeta: projectMetaFor(startItem),
               onClose: () => setStartItem(null),
+              onGithubApplied: () => reload(),
             })
           : null,
         acceptItem
