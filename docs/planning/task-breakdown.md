@@ -509,3 +509,20 @@
   - 正例：新宿主点击 `REQ-PAY-004` → 详情含三条关系与 `requirements/refund-idempotent.sdoc:7`
   - 反例：Playwright 截获无 `links` 的旧 payload → 详情渲染、无 pageerror、显示旧版数据提示
 - 证据：两条 Playwright 输出、全量测试 152
+
+### ALM-07.08 需求工作台视觉原型（Tesla / Apple 风格）
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P2 ｜ 前置：ALM-07.06（#83，已关闭）
+- 技能：`alm-mvp-dev`（插件集成）
+- 实施范围：`docs/design/requirements-workbench-prototype.html`、`docs/assets/design/{list,detail,tasks}.png`
+- 不在范围：改动插件源码（评审通过后另开实现卡）
+- 接口：静态 HTML + 可交互原型（筛选、搜索、详情抽屉、任务预览弹窗），数据取自 `fixtures/order-refund`
+- 交付物：
+  - [ ] 列表态：卡片、状态 pill、验收进度、单一主行动
+  - [ ] 详情态：右侧抽屉、验收清单、AI 补充验收、技术详情折叠
+  - [ ] 任务预览态：3 张任务卡预览与确认/取消
+  - [ ] 文案去技术化：隐藏 repo/file:line/命令，状态与团队用人类语言
+- 验收：
+  - 正例：非技术用户能在 3 秒内说出“这条做到哪、还缺什么、下一步做什么”；点卡片出抽屉、点开始开发出预览
+  - 反例：技术字段默认不可见；取消所有弹层后回到列表，不留副作用
+- 证据：三张截图与 HTML；评审通过后再开实现 PR
