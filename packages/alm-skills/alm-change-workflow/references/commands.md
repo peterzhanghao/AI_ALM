@@ -9,6 +9,7 @@
 | `alm workspace status` | 当前分支、活动 change、dirty |
 | `alm workspace create` | 从基线建变更分支与记录 |
 | `alm workspace guard` | 写入前校验路径白名单 |
+| `alm task draft` | 从需求生成五要素任务卡（`changes/<CHG>/`） |
 | `alm check` | R1 门禁；`--out` 写证据 |
 | `alm diff` | 基线到工作区的字段/关系差异 |
 | `alm impact` | 受影响资产（反向闭包） |

@@ -156,6 +156,7 @@ R1（ALM-02.03）实现 `FMT/ID/REL/COV/STATE/SEC/REN`；R2（ALM-02.05、ALM-04
 | `SEC-001` | block | 秘密/高熵串扫描 | 提交 `api_key=sk-...` |
 | `REN-001` | block | Markdown 链接与 Mermaid 块结构可渲染 | 悬空相对链接 |
 | `REN-002` | warn | StrictDoc 渲染证据（manifest/版本/产物哈希）；工具或产物缺失记 `skip` | 渲染失败、版本不符、产物哈希不匹配 |
+| `TASK-001` | block | 变更任务草案（`changes/<CHG>/tasks.json`）覆盖每条需求 | 需求无任务覆盖 / 任务无 covers / 重复任务 ID |
 | `APPROVAL-001` | block | 存在绑定当前 head SHA 的 approve | 用旧 SHA 审批合并 |
 | `APPROVAL-002` | block | 审批者 kind=human 且非提交者 | Agent 自批 |
 | `PUB-001` | block | 发布证据完整且不可覆盖 | 缺证据直接建基线 |

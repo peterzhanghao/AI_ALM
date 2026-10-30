@@ -122,7 +122,7 @@ test('evidence from another rule pack is refused', async () => {
 
     const recorded = await invoke(['ci', 'record', '--root', root, '--evidence', evidencePath, '--json'])
     assert.equal(recorded.code, 1)
-    assert.match(recorded.err, /pack 0\.9\.0 != 1\.1\.0/)
+    assert.match(recorded.err, /pack 0\.9\.0 != 1\.2\.0/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

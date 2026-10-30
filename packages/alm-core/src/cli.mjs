@@ -4,6 +4,7 @@ import { verifyContracts } from './contracts/verify.mjs'
 import { checkReport, diffReport, impactReport, indexReport, queryReport, showReport, traceReport } from './commands.mjs'
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
+import { TaskDraftError, draftTasks } from './tasks/draft.mjs'
 import { publishBaseline, rollbackRelease, verifyRelease } from './baseline/release.mjs'
 import { WorkspaceError, createWorkspace, guardWrite, statusWorkspace } from './workspace/workspace.mjs'
 import { loadApprovals, recordApproval, verifyApproval } from './approvals/approval.mjs'
@@ -46,6 +47,7 @@ Commands:
   release rollback  Switch the current release pointer to a baseline
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
+  task draft        Draft five-element task cards from requirements
   contract verify   Validate the five ALM contract schemas
   help              Show this help
   version           Print the CLI version
@@ -779,6 +781,63 @@ export async function run(argv, io = {}) {
       } catch (error) {
         err.write(`alm: ${error.message}\n`)
         return 1
+      }
+    }
+
+    if (command === 'task' && rest[0] === 'draft') {
+      const args = rest.slice(1)
+      const options = { root: process.cwd(), out: 'changes', from: [], force: false, json: false }
+
+      for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (arg === '--force') {
+          options.force = true
+          continue
+        }
+        if (['--root', '--change', '--from', '--out'].includes(arg)) {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          if (arg === '--from') options.from.push(...value.split(',').map((entry) => entry.trim()).filter(Boolean))
+          else options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        err.write(`alm: unknown option: ${arg}\n`)
+        return 2
+      }
+
+      if (!options.change || options.from.length === 0) {
+        err.write('alm: task draft requires --change and --from <REQ-ID,...>\n')
+        return 2
+      }
+
+      try {
+        const result = draftTasks({
+          root: options.root,
+          changeId: options.change,
+          requirementIds: options.from,
+          outDir: options.out,
+          force: options.force,
+        })
+        if (options.json) out.write(`${JSON.stringify(result, null, 2)}\n`)
+        else {
+          out.write(`drafted ${result.tasks.length} tasks for ${result.changeId} -> ${result.dir}\n`)
+          for (const task of result.tasks) out.write(`${task.id}  ${task.title}\n`)
+        }
+        return 0
+      } catch (error) {
+        if (error instanceof TaskDraftError) {
+          err.write(`alm: ${error.message}\n`)
+          return 1
+        }
+        throw error
       }
     }
 

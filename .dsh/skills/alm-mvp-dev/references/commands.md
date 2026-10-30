@@ -26,6 +26,7 @@
 | `alm ci record` | `--evidence <file>` `--root <dir>` `--json` | 0 接收 / 1 拒绝 | 与复跑结果比对后接收 |
 | `alm ci status` | `--sha <ref>` `--root <dir>` `--json` | 0 通过 / 1 不通过 | 必需检查是否满足 |
 | `alm baseline create` | `--root <dir>` `--commit <sha>` `--tag <name>` `--approval <file>` `[--id <id>]` `[--out <dir>]` `--json` | 0 成功/幂等 / 1 同 id 内容冲突 / 2 用法错误 | 生成不可变基线清单 |
+| `alm task draft` | `--change <CHG-ID>` `--from <REQ-ID,...>` `[--out <dir>]` `[--force]` `--json` | 0 成功 / 1 已存在或目标不存在 / 2 用法错误 | 生成 `changes/<CHG>/{proposal,tasks}.md` 与 `tasks.json` |
 | `alm baseline verify` | `--root <dir>` `--manifest <file>` `--json` | 0 一致 / 1 有差异 / 2 用法错误 | 从 commit 重算哈希并比对 |
 | `alm release publish` | `--manifest <file>` `--root <dir>` `[--out <dir>]` `--json` | 0 发布/幂等 / 1 失败 | 写入不可覆盖发布存储 |
 | `alm release verify` | `--baseline <id>` `--root <dir>` `[--out <dir>]` `--json` | 0 一致 / 1 有差异 | 重建归档并核对清单 |
