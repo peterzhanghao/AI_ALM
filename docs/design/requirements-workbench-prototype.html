@@ -169,6 +169,22 @@
   .matrix th { color: var(--text-3); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
   .matrix .ok { color: var(--green); }
   .impact { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 12.5px; color: var(--text-2); }
+  .graph-legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); margin: 10px 0 8px; flex-wrap: wrap; }
+  .lg { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-left: 14px; }
+  .lg.req { background: var(--blue); }
+  .lg.test { background: var(--green); }
+  .lg.adr { background: var(--amber); }
+  .lg.module { background: var(--text-2); }
+  .lg-hint { margin-left: auto; color: var(--text-3); }
+  .graph { width: 100%; height: auto; background: #0d1014; border: 1px solid var(--line); border-radius: 12px; }
+  .gnode rect { fill: #151a20; stroke: #2c333d; stroke-width: 1; transition: fill 150ms, stroke 150ms; }
+  .gnode:hover rect, .gnode:focus-visible rect { fill: #1a2028; stroke: #4d8dff; }
+  .gnode.current rect { stroke: #4d8dff; }
+  .gnode { cursor: pointer; outline: none; }
+  .gnode-id { fill: var(--text); font-size: 11px; font-family: var(--font); font-weight: 600; }
+  .gnode-title { fill: var(--text-2); font-size: 10.5px; font-family: var(--font); }
+  .gedge path { fill: none; stroke: #3a4450; stroke-width: 1.2; }
+  .gedge-label { fill: #8b95a3; font-size: 10.5px; font-family: var(--font); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -352,6 +368,25 @@
       checks: ['同键重放返回同一 refundId，且不新增退款记录', '并发同键请求只产生一条退款单'],
       acceptState: '已覆盖 2/2 · 未验证',
       relations: [['上级', ['REQ-PAY-001 支持订单部分退款']], ['验收', ['TEST-PAY-004', 'TEST-PAY-005']], ['依赖', []]],
+      graph: {
+        stats: { parent: 1, children: 0, tests: 2 },
+        nodes: [
+          { id: 'REQ-PAY-001', label: 'REQ-PAY-001 支持订单部分退款', type: 'req', x: 70, y: 60 },
+          { id: 'REQ-PAY-004', label: 'REQ-PAY-004 退款幂等', type: 'req', x: 340, y: 170 },
+          { id: 'TEST-PAY-004', label: 'TEST-PAY-004 同键重放', type: 'test', x: 680, y: 110 },
+          { id: 'TEST-PAY-005', label: 'TEST-PAY-005 并发同键', type: 'test', x: 680, y: 190 },
+          { id: 'ADR-PAY-003', label: 'ADR-PAY-003 退款事务边界', type: 'adr', x: 360, y: 350 },
+          { id: 'MOD-PAY-REFUND', label: 'MOD-PAY-REFUND 退款模块', type: 'module', x: 70, y: 290 }
+        ],
+        edges: [
+          { from: 'REQ-PAY-001', to: 'REQ-PAY-004', label: 'parent_of' },
+          { from: 'REQ-PAY-004', to: 'TEST-PAY-004', label: 'verified_by' },
+          { from: 'REQ-PAY-004', to: 'TEST-PAY-005', label: 'verified_by' },
+          { from: 'REQ-PAY-004', to: 'ADR-PAY-003', label: 'constrained_by' },
+          { from: 'REQ-PAY-004', to: 'MOD-PAY-REFUND', label: 'allocated_to' }
+        ]
+      },
+
       versions: [
         ['v2.1.0', 'MINOR', '2026-10-30', 'CHG-PAY-004', '新增并发验收与幂等记录说明'],
         ['v2.0.1', 'PATCH', '2026-10-29', 'CHG-PAY-003', '修正背景里的错别字'],
@@ -374,6 +409,23 @@
       checks: ['部分退款金额与订单状态一致'],
       acceptState: '已覆盖 1/1 · 未验证',
       relations: [['子需求', ['REQ-PAY-004 退款幂等']], ['验收', ['TEST-PAY-001']], ['依赖', []]],
+      graph: {
+        stats: { parent: 0, children: 1, tests: 1 },
+        nodes: [
+          { id: 'REQ-PAY-001', label: 'REQ-PAY-001 支持订单部分退款', type: 'req', x: 330, y: 160 },
+          { id: 'REQ-PAY-004', label: 'REQ-PAY-004 退款幂等', type: 'req', x: 640, y: 100 },
+          { id: 'TEST-PAY-001', label: 'TEST-PAY-001 金额与状态', type: 'test', x: 640, y: 250 },
+          { id: 'ADR-PAY-003', label: 'ADR-PAY-003 退款事务边界', type: 'adr', x: 340, y: 340 },
+          { id: 'MOD-PAY-REFUND', label: 'MOD-PAY-REFUND 退款模块', type: 'module', x: 70, y: 270 }
+        ],
+        edges: [
+          { from: 'REQ-PAY-001', to: 'REQ-PAY-004', label: 'parent_of' },
+          { from: 'REQ-PAY-001', to: 'TEST-PAY-001', label: 'verified_by' },
+          { from: 'REQ-PAY-001', to: 'ADR-PAY-003', label: 'constrained_by' },
+          { from: 'REQ-PAY-001', to: 'MOD-PAY-REFUND', label: 'allocated_to' }
+        ]
+      },
+
       versions: [['v1.0.0', 'MAJOR', '2026-10-23', 'CHG-PAY-001', '初始版本']],
       tech: { file: 'requirements/refund.sdoc:7', manifest: '无附件', rules: 'COV-001 / REL-002 通过' },
       tasks: [['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'], ['实现（退款模块）', '退款金额与订单状态一次事务内更新'], ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']]
@@ -578,30 +630,51 @@
 
   function openTrace(id) {
     const req = REQS.find((r) => r.id === id)
-    if (!req) return
-    const parent = req.relations.find(([label]) => label === '上级')?.[1] ?? []
-    const children = req.relations.find(([label]) => label === '子需求')?.[1] ?? []
-    const tests = req.relations.find(([label]) => label === '验收')?.[1] ?? []
+    if (!req || !req.graph) return
+    const W = { req: 178, test: 158, adr: 180, module: 180 }
+    const H = { req: 56, test: 42, adr: 44, module: 44 }
+    const nodes = req.graph.nodes
+      .map((n) => {
+        const w = W[n.type]
+        const h = H[n.type]
+        const title = n.label.replace(n.id, '').trim()
+        const label = title.length > 18 ? `${title.slice(0, 17)}…` : title
+        const cls = n.type === 'req' ? (n.id === req.id ? 'gnode current' : 'gnode') : 'gnode'
+        return `<g class="${cls}" data-node="${n.id}" tabindex="0" role="button" aria-label="${n.label}">
+          <rect x="${n.x}" y="${n.y}" width="${w}" height="${h}" rx="10"></rect>
+          <text x="${n.x + 12}" y="${n.y + 21}" class="gnode-id">${n.id}</text>
+          <text x="${n.x + 12}" y="${n.y + 38}" class="gnode-title">${label}</text>
+        </g>`
+      })
+      .join('')
+    const edges = req.graph.edges
+      .map((e) => {
+        const from = req.graph.nodes.find((n) => n.id === e.from)
+        const to = req.graph.nodes.find((n) => n.id === e.to)
+        if (!from || !to) return ''
+        const x1 = from.x + W[from.type]
+        const y1 = from.y + H[from.type] / 2
+        const x2 = to.x
+        const y2 = to.y + H[to.type] / 2
+        const mx = (x1 + x2) / 2
+        const my = (y1 + y2) / 2
+        return `<g class="gedge"><path d="M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}" marker-end="url(#arrow)"></path><text x="${mx}" y="${my - 6}" class="gedge-label">${e.label}</text></g>`
+      })
+      .join('')
     el('traceBody').innerHTML = `
-      <div class="detail-grid" style="margin-top:16px">
-        <div>
-          <h4>需求树</h4>
-          <ul class="tree">
-            ${parent.map((p) => `<li>${p}</li>`).join('')}
-            <li class="current"><b>${req.id}</b> ${req.title}</li>
-            ${children.map((c) => `<li>${c}</li>`).join('')}
-          </ul>
-          <div class="impact">影响面：上级 ${parent.length} · 子需求 ${children.length} · 验收 ${tests.length} · 依赖 0</div>
-        </div>
-        <div>
-          <h4>需求 × 验收矩阵</h4>
-          <table class="matrix"><thead><tr><th>验收</th><th>${req.id}</th></tr></thead><tbody>
-            ${tests.map((t) => `<tr><td>${t}</td><td class="ok">✓</td></tr>`).join('')}
-          </tbody></table>
-          <h4>关系明细</h4>
-          ${req.relations.map(([label, items]) => `<div class="rel"><b>${label}</b><span>${items.length ? items.join('、') : '无'}</span></div>`).join('')}
-        </div>
-      </div>`
+      <div class="graph-legend">
+        <span class="lg req"></span>需求
+        <span class="lg test"></span>验收
+        <span class="lg adr"></span>决策
+        <span class="lg module"></span>模块
+        <span class="lg-hint">点击需求节点查看详情</span>
+      </div>
+      <svg class="graph" viewBox="0 0 900 430" role="img" aria-label="需求追溯图">
+        <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#4a5563"></path></marker></defs>
+        ${edges}
+        ${nodes}
+      </svg>
+      <div class="impact">影响面：上级 ${req.graph.stats.parent} · 子需求 ${req.graph.stats.children} · 验收 ${req.graph.stats.tests} · 依赖 0</div>`
     el('traceModal').hidden = false
   }
 
@@ -628,6 +701,13 @@
     if (start) { event.stopPropagation(); openStart(start.dataset.start); return }
     const versionEl = event.target.closest('[data-version]')
     if (versionEl) { openSnapshot(versionEl.dataset.version); return }
+    const nodeEl = event.target.closest('[data-node]')
+    if (nodeEl) {
+      const nodeId = nodeEl.dataset.node
+      if (nodeId.startsWith('REQ-')) { closeTrace(); openDetail(nodeId) }
+      else toast('打开 ' + nodeId + '（原型占位）')
+      return
+    }
     const cardEl = event.target.closest('.card')
     if (cardEl) openDrawer(cardEl.dataset.id)
   })
