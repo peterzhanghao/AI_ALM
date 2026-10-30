@@ -29,6 +29,7 @@ test('requirements plugin disposes its routes and tool on unload', () => {
   assert.deepEqual(routes.map((route) => route.path).sort(), [
     '/alm/requirements',
     '/api/alm/projects',
+    '/api/alm/projects/associate',
     '/api/alm/requirements',
     '/api/alm/requirements/accept',
     '/api/alm/requirements/create',

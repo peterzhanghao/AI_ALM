@@ -71,7 +71,10 @@ window.__ModuleLoader__.load({
       fontSize: '12px',
       cursor: 'pointer',
     }
-    const primary = { ...button, background: T.brand, color: '#fff', borderColor: 'transparent' }
+    // Primary actions invert the foreground/background pair. Using the brand
+    // token as a filled background breaks in monochrome themes where brand is
+    // white (white text on a white button) — the label/base pair always contrasts.
+    const primary = { ...button, background: T.text, color: T.base, borderColor: 'transparent' }
     const input = {
       border: `1px solid ${T.line}`,
       background: T.layer,
@@ -374,13 +377,19 @@ window.__ModuleLoader__.load({
       return h(
         'label',
         { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: T.text2 } },
-        '项目',
+        '工作区',
         h(
           'select',
-          { style: input, value: currentId ?? '', onChange: (event) => onPick(event.target.value), 'aria-label': '选择项目' },
-          h('option', { value: '' }, '选择项目…'),
+          { style: input, value: currentId ?? '', onChange: (event) => onPick(event.target.value), 'aria-label': '选择工作区项目' },
+          h('option', { value: '' }, '选择工作区…'),
           h('option', { value: ALL_PROJECTS }, '全部项目（聚合）'),
-          projects.map((project) => h('option', { key: project.id, value: project.id }, `${project.name}（${project.id}）`)),
+          projects.map((project) =>
+            h(
+              'option',
+              { key: project.id, value: project.id, disabled: project.exists === false },
+              `${project.title}${project.linked ? `（${project.projectId}）` : ' · 未关联仓库'}${project.exists === false ? ' · 路径缺失' : ''}`,
+            ),
+          ),
         ),
       )
     }
@@ -1205,8 +1214,8 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function writeJson(path, body, root) {
-      return fetch(`/api/alm/requirements/${path}?root=${encodeURIComponent(root)}`, {
+    function postJson(path, body, root) {
+      return fetch(`/api/alm/${path}?root=${encodeURIComponent(root)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -1217,6 +1226,10 @@ window.__ModuleLoader__.load({
         }
         return payload
       })
+    }
+
+    function writeJson(path, body, root) {
+      return postJson(`requirements/${path}`, body, root)
     }
 
     function ModalShell({ title, lead, onClose, children, footer, width = '720px' }) {
@@ -1505,6 +1518,83 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function AssociateModal({ workspace, onClose, onLinked }) {
+      const [form, setForm] = useState({
+        id: workspace.projectId ?? '',
+        name: workspace.linked ? workspace.name : workspace.title,
+        owner: workspace.github?.owner ?? '',
+        repo: workspace.github?.repo ?? '',
+        projectNumber: workspace.github?.project?.number ? String(workspace.github.project.number) : '',
+      })
+      const [state, setState] = useState({ loading: false, error: null, result: null })
+      const field = (key) => ({
+        value: form[key],
+        onChange: (event) => setForm((current) => ({ ...current, [key]: event.target.value })),
+      })
+      const submit = () => {
+        setState({ loading: true, error: null, result: null })
+        postJson(
+          'projects/associate',
+          {
+            id: form.id.trim(),
+            name: form.name.trim(),
+            owner: form.owner.trim(),
+            repo: form.repo.trim(),
+            projectNumber: form.projectNumber.trim() === '' ? undefined : Number(form.projectNumber),
+          },
+          workspace.root,
+        )
+          .then((result) => {
+            setState({ loading: false, error: null, result })
+            onLinked?.(result)
+          })
+          .catch((error) => setState({ loading: false, error: error.message, result: null }))
+      }
+      const disabled = state.loading || ['id', 'name', 'owner', 'repo'].some((key) => form[key].trim() === '')
+      const remote = state.result?.remote
+      return h(
+        ModalShell,
+        {
+          title: `关联 GitHub 仓库 · ${workspace.title}`,
+          lead: `写入 ${workspace.root}/.alm/project.json（缺失时创建 requirements/）。关联后该工作区即作为需求项目空间。`,
+          onClose,
+          footer: [
+            h('button', { key: 'cancel', style: button, onClick: onClose }, state.result ? '关闭' : '取消'),
+            state.result ? null : h('button', { key: 'submit', style: primary, onClick: submit, disabled }, state.loading ? '关联中…' : '关联仓库'),
+          ],
+        },
+        h(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '14px' } },
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '项目 ID', h('input', { ...field('id'), style: input, placeholder: 'PAY' })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '项目名称', h('input', { ...field('name'), style: input, placeholder: '支付平台' })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, 'GitHub owner', h('input', { ...field('owner'), style: input, placeholder: 'peterzhanghao' })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '仓库名', h('input', { ...field('repo'), style: input, placeholder: 'AI_ALM' })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, 'ProjectV2 编号（可选）', h('input', { ...field('projectNumber'), style: input, placeholder: '1' })),
+        ),
+        state.loading ? h('p', { style: { margin: '12px 0 0', ...muted } }, '正在写入…') : null,
+        state.error ? h('p', { style: { margin: '12px 0 0', color: T.err, fontSize: '13px' } }, state.error) : null,
+        state.result
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['项目', `${state.result.id} · ${state.result.name}`],
+                  ['仓库', `${state.result.github?.owner}/${state.result.github?.repo}`],
+                  ['文件', state.result.file],
+                ],
+              }),
+              remote?.matches === false
+                ? h('p', { style: { margin: '10px 0 0', color: T.warn, fontSize: '12px' } }, `当前 git remote 是 ${remote.slug ?? '无'}，与关联仓库不一致；推送前请确认。`)
+                : remote?.matches === true
+                  ? h('p', { style: { margin: '10px 0 0', color: T.ok, fontSize: '12px' } }, 'git remote 与关联仓库一致。')
+                  : h('p', { style: { margin: '10px 0 0', ...muted } }, '该目录不是 git 仓库，未校验 remote。'),
+            )
+          : null,
+      )
+    }
+
     function EmptyState({ root, onOpenPanel }) {
       return h(
         'div',
@@ -1537,11 +1627,12 @@ window.__ModuleLoader__.load({
       const [startItem, setStartItem] = useState(null)
       const [acceptItem, setAcceptItem] = useState(null)
       const [createOpen, setCreateOpen] = useState(false)
+      const [associateTarget, setAssociateTarget] = useState(null)
       const [showRoot, setShowRoot] = useState(false)
       const { loading, error, data, reload } = useRequirements({ root, projectId })
 
-      useEffect(() => {
-        fetch('/api/alm/projects')
+      const loadProjects = useCallback(() => {
+        return fetch('/api/alm/projects')
           .then((response) => (response.ok ? response.json() : null))
           .then((payload) => {
             if (!payload?.projects) return
@@ -1549,6 +1640,10 @@ window.__ModuleLoader__.load({
           })
           .catch(() => {})
       }, [])
+
+      useEffect(() => {
+        loadProjects()
+      }, [loadProjects])
 
       useEffect(() => {
         if (!data?.project) return
@@ -1574,10 +1669,10 @@ window.__ModuleLoader__.load({
           if (typeof localStorage !== 'undefined') localStorage.setItem(PROJECT_KEY, ALL_PROJECTS)
           return
         }
-        const project = projects.find((entry) => entry.id === id)
+        const project = projects.find((entry) => entry.id === id || entry.workspaceId === id)
         if (!project) return
-        setProjectId(id)
-        if (typeof localStorage !== 'undefined') localStorage.setItem(PROJECT_KEY, id)
+        setProjectId(project.id)
+        if (typeof localStorage !== 'undefined') localStorage.setItem(PROJECT_KEY, project.id)
         applyRoot(project.root)
         setRootInput(project.root ?? '')
       }
@@ -1604,20 +1699,22 @@ window.__ModuleLoader__.load({
       const projectMetaFor = useCallback(
         (item) => {
           if (!item) return null
-          const fromProjects = projects.find((entry) => entry.id === item.project)
+          const fromProjects = projects.find((entry) => entry.projectId === item.project || entry.id === item.project)
           if (fromProjects) {
             return {
               name: fromProjects.name,
               repo: fromProjects.github ? `${fromProjects.github.owner}/${fromProjects.github.repo}` : null,
               board: fromProjects.github?.project?.number ?? null,
+              workspaceTitle: fromProjects.title,
+              linked: fromProjects.linked,
             }
           }
           if (data?.projectInfo) {
-            return { name: data.projectInfo.name, repo: data.projectInfo.repo, board: data.projectInfo.board }
+            return { name: data.projectInfo.name, repo: data.projectInfo.repo, board: data.projectInfo.board, workspaceTitle: data.projectName, linked: true }
           }
           return { name: item.projectName, repo: null, board: null }
         },
-        [projects, data?.projectInfo],
+        [projects, data?.projectInfo, data?.projectName],
       )
 
       const items = data?.requirements ?? []
@@ -1637,11 +1734,11 @@ window.__ModuleLoader__.load({
         })
 
       const selected = items.find((item) => item.id === selectedId) ?? null
-      const currentProject = projects.find((entry) => entry.id === projectId) ?? null
+      const currentProject = projects.find((entry) => entry.id === projectId || entry.workspaceId === projectId) ?? null
       const projectLabel =
         projectId === ALL_PROJECTS
           ? '全部项目'
-          : currentProject?.name ?? data?.projectName ?? null
+          : currentProject?.title ?? data?.projectName ?? null
       const summary = data
         ? `${projectLabel ? `${projectLabel} · ` : ''}${data.summary.requirements} 条需求 · ${counts.proposed ?? 0} 条待评审 · ${counts['in-progress'] ?? 0} 条开发中 · check ${data.result}${data.scope === 'all' ? ` · ${data.summary.projects} 个项目` : ''}`
         : '加载中…'
@@ -1659,7 +1756,20 @@ window.__ModuleLoader__.load({
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
           h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject }),
-          h('button', { style: primary, onClick: () => setCreateOpen(true) }, '＋ 新建'),
+          currentProject && projectId !== ALL_PROJECTS
+            ? h('button', { style: button, onClick: () => setAssociateTarget(currentProject), title: '关联/更新该工作区的 GitHub 仓库与 ProjectV2' }, currentProject.linked ? '更新关联' : '关联仓库')
+            : null,
+          h('button', {
+            style: primary,
+            onClick: () => {
+              if (currentProject && !currentProject.linked) {
+                setAssociateTarget(currentProject)
+                return
+              }
+              setCreateOpen(true)
+            },
+            title: currentProject && !currentProject.linked ? '先关联该工作区的 GitHub 仓库' : '新建需求',
+          }, '＋ 新建'),
           h('button', { style: button, onClick: reload, title: '重新读取资产' }, '刷新'),
           h('button', { style: { ...button, borderColor: 'transparent', background: 'transparent', color: T.text2 }, onClick: () => setShowRoot((value) => !value) }, showRoot ? '收起根目录' : '仓库根'),
         ),
@@ -1815,10 +1925,22 @@ window.__ModuleLoader__.load({
               onClose: () => setAcceptItem(null),
             })
           : null,
+        associateTarget
+          ? h(AssociateModal, {
+              workspace: associateTarget,
+              onClose: () => setAssociateTarget(null),
+              onLinked: (result) => {
+                setProjectId(result.id)
+                if (typeof localStorage !== 'undefined') localStorage.setItem(PROJECT_KEY, result.id)
+                loadProjects()
+                reload()
+              },
+            })
+          : null,
         createOpen
           ? h(CreateModal, {
               root: data?.root ?? root,
-              project: data?.project ?? currentProject?.id,
+              project: data?.project ?? currentProject?.projectId,
               projectName: data?.projectName ?? currentProject?.name,
               onClose: () => setCreateOpen(false),
               onCreated: () => {

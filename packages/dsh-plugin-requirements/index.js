@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
 import { resolveRequirementsRoot } from './query.mjs'
-import { listProjects, readProject } from '../alm-core/src/project/project.mjs'
+import { associateProject } from '../alm-core/src/project/project.mjs'
+import { listWorkspaces } from './workspaces.mjs'
 import { openChange } from '../alm-core/src/changes/open.mjs'
 import { createRequirement } from '../alm-core/src/requirements/create.mjs'
 import { runCi } from '../alm-core/src/ci/ci.mjs'
@@ -116,6 +117,12 @@ export default class RequirementsService {
 
     webServer.register({
       kind: 'exact',
+      path: '/api/alm/projects/associate',
+      handler: (req, res) => this.handleAssociate(req, res),
+    })
+
+    webServer.register({
+      kind: 'exact',
       path: '/api/alm/requirements/version',
       handler: (req, res) => this.handleVersion(req, res),
     })
@@ -155,26 +162,38 @@ export default class RequirementsService {
   }
 
   projectsPayload() {
-    const listed = listProjects()
-    const projects = [...listed.projects]
-    const current = readProject(this.root)
-    if (current && !projects.some((project) => project.id === current.id)) {
-      projects.unshift({ ...current, root: this.root, current: true })
-    } else if (current) {
-      for (const project of projects) if (project.id === current.id) project.current = true
-    }
-    return { schema: 'alm.projects/v1', defaultRoot: this.root, projects, errors: listed.errors }
+    const listed = listWorkspaces()
+    const projects = listed.workspaces.map((workspace) => ({
+      id: workspace.id,
+      projectId: workspace.projectId,
+      workspaceId: workspace.workspaceId,
+      name: workspace.name,
+      title: workspace.title,
+      root: workspace.root,
+      linked: workspace.linked,
+      exists: workspace.exists,
+      github: workspace.github,
+      teams: workspace.teams,
+      current: resolve(workspace.root) === resolve(this.root),
+    }))
+    return { schema: 'alm.projects/v1', source: listed.source, defaultRoot: this.root, projects, errors: listed.errors }
   }
 
   rootFor(req) {
     const url = new URL(req?.url ?? '/', 'http://127.0.0.1')
     const projectId = url.searchParams.get('project')
     if (projectId) {
-      const project = this.projectsPayload().projects.find((entry) => entry.id === projectId)
+      const project = this.projectsPayload().projects.find((entry) => entry.id === projectId || entry.workspaceId === projectId)
       if (!project) {
         const error = new Error(`project not found: ${projectId}`)
         error.status = 404
         error.code = 'project-not-found'
+        throw error
+      }
+      if (!project.exists) {
+        const error = new Error(`workspace path is missing: ${project.root}`)
+        error.status = 404
+        error.code = 'project-workspace-missing'
         throw error
       }
       return project.root
@@ -227,6 +246,38 @@ export default class RequirementsService {
       const status = error?.status ?? 500
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
       res.end(JSON.stringify({ ok: false, error: { code: error?.code ?? 'internal-error', message: error?.message ?? String(error) } }))
+    }
+  }
+
+  async handleAssociate(req, res) {
+    const respond = (status, payload) => {
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(payload))
+    }
+    try {
+      if (req.method !== 'POST') {
+        respond(405, { ok: false, error: { code: 'method-not-allowed', message: 'POST required' } })
+        return
+      }
+      const body = await readJsonBody(req)
+      const root = this.rootFor(req)
+      const result = associateProject({
+        root,
+        id: body.id,
+        name: body.name,
+        owner: body.owner,
+        repo: body.repo,
+        projectNumber: body.projectNumber,
+        requirementRoot: body.requirementRoot,
+        defaultBranch: body.defaultBranch,
+        teams: Array.isArray(body.teams) ? body.teams : [],
+      })
+      respond(200, { ...result, schema: 'alm.project.associate/v1' })
+    } catch (error) {
+      respond(error?.status ?? 400, {
+        ok: false,
+        error: { code: error?.code ?? 'associate-failed', message: error?.message ?? String(error) },
+      })
     }
   }
 
@@ -299,7 +350,7 @@ export default class RequirementsService {
       const url = new URL(req?.url ?? '/', 'http://127.0.0.1')
       const payload =
         url.searchParams.get('project') === 'ALL'
-          ? query.requirementsAll(this.projectsPayload().projects)
+          ? query.requirementsAll(this.projectsPayload().projects.filter((project) => project.exists))
           : query.requirements(this.rootFor(req))
       if (payload && payload.ok === false) {
         res.writeHead(500, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })

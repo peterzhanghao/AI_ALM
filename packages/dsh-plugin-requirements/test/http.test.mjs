@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -89,7 +89,37 @@ test('invalid root is rejected with 400 instead of walking the filesystem', asyn
 })
 
 
-test('GET /api/alm/projects lists the repository project', async () => {
+function makeWorkspaceStore(entries, defaultId = 'default-ws') {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-ws-http-'))
+  const file = join(dir, 'workspace.json')
+  writeFileSync(
+    file,
+    JSON.stringify({
+      unit: { name: 'workspace', version: 2 },
+      global: { initialized: true, defaultWorkspaceId: defaultId, workspaceIds: Object.keys(entries) },
+      tables: { workspaces: entries },
+    }),
+  )
+  return { dir, file }
+}
+
+function useWorkspaceStore(file) {
+  const previous = process.env.DSH_WORKSPACES_FILE
+  process.env.DSH_WORKSPACES_FILE = file
+  return () => {
+    if (previous === undefined) delete process.env.DSH_WORKSPACES_FILE
+    else process.env.DSH_WORKSPACES_FILE = previous
+  }
+}
+
+test('GET /api/alm/projects lists DSH workspaces and excludes the default workspace', async () => {
+  const bare = mkdtempSync(join(tmpdir(), 'alm-ws-bare-'))
+  const store = makeWorkspaceStore({
+    'default-ws': { path: join(bare, 'default'), title: 'default-workspace' },
+    'pay-ws': { path: fixture, title: '支付平台工作区' },
+    'bare-ws': { path: bare, title: 'plug-in' },
+  })
+  const restore = useWorkspaceStore(store.file)
   const routes = new Map()
   const ctx = {
     effect(callback) {
@@ -121,18 +151,63 @@ test('GET /api/alm/projects lists the repository project', async () => {
     const payload = await response.json()
     assert.equal(response.status, 200)
     assert.equal(payload.schema, 'alm.projects/v1')
-    assert.ok(payload.projects.some((project) => project.id === 'PAY' && project.root))
+    assert.ok(!payload.projects.some((project) => project.workspaceId === 'default-ws'))
+    const pay = payload.projects.find((project) => project.workspaceId === 'pay-ws')
+    assert.ok(pay)
+    assert.equal(pay.projectId, 'PAY')
+    assert.equal(pay.linked, true)
+    assert.equal(pay.root, fixture)
+    const bareEntry = payload.projects.find((project) => project.workspaceId === 'bare-ws')
+    assert.equal(bareEntry.linked, false)
+    assert.equal(bareEntry.projectId, null)
   } finally {
     await new Promise((resolve) => server.close(resolve))
+    restore()
+    rmSync(store.dir, { recursive: true, force: true })
+    rmSync(bare, { recursive: true, force: true })
   }
 })
 
-test('GET /api/alm/requirements?project=ALL aggregates registry projects', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'alm-all-'))
-  const registry = join(dir, 'projects.json')
-  writeFileSync(registry, JSON.stringify({ schema: 'alm.projects/v1', projects: [{ id: 'PAY', root: fixture }] }))
-  const previous = process.env.DSH_ALM_REGISTRY
-  process.env.DSH_ALM_REGISTRY = registry
+test('POST /api/alm/projects/associate links a workspace to a GitHub repo', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'alm-ws-assoc-'))
+  const store = makeWorkspaceStore({ 'bare-ws': { path: workspace, title: '新工作区' } })
+  const restore = useWorkspaceStore(store.file)
+  try {
+    await withWriteServer(fixture, async (base) => {
+      const response = await fetch(`${base}/api/alm/projects/associate?root=${encodeURIComponent(workspace)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: 'DEMO',
+          name: '演示项目',
+          owner: 'peterzhanghao',
+          repo: 'AI_ALM',
+          projectNumber: 2,
+        }),
+      })
+      const payload = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(payload.schema, 'alm.project.associate/v1')
+      assert.equal(payload.id, 'DEMO')
+      assert.ok(existsSync(join(workspace, '.alm/project.json')))
+      assert.ok(existsSync(join(workspace, 'requirements')))
+      assert.equal(JSON.parse(readFileSync(join(workspace, '.alm/project.json'), 'utf8')).github.repo, 'AI_ALM')
+
+      const listed = await (await fetch(`${base}/api/alm/projects`)).json()
+      const linked = listed.projects.find((project) => project.workspaceId === 'bare-ws')
+      assert.equal(linked.linked, true)
+      assert.equal(linked.projectId, 'DEMO')
+    })
+  } finally {
+    restore()
+    rmSync(store.dir, { recursive: true, force: true })
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+test('GET /api/alm/requirements?project=ALL aggregates workspaces', async () => {
+  const store = makeWorkspaceStore({ 'pay-ws': { path: fixture, title: '支付平台工作区' } })
+  const restore = useWorkspaceStore(store.file)
 
   const routes = new Map()
   const ctx = {
@@ -170,9 +245,8 @@ test('GET /api/alm/requirements?project=ALL aggregates registry projects', async
     assert.ok(payload.projects.some((project) => project.project === 'PAY' && project.result === 'pass'))
   } finally {
     await new Promise((resolve) => server.close(resolve))
-    if (previous === undefined) delete process.env.DSH_ALM_REGISTRY
-    else process.env.DSH_ALM_REGISTRY = previous
-    rmSync(dir, { recursive: true, force: true })
+    restore()
+    rmSync(store.dir, { recursive: true, force: true })
   }
 })
 
