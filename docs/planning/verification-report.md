@@ -69,7 +69,7 @@ MVP 的“改资产 → 门禁 → 差异/影响 → 基线 → 发布/回滚”
 
 每次演练结束后跑一次 UI 验证（需求页、架构页、`/api/alm/*`），断言：HTTP 200、标题、表头、资产行、缺口区、`·` 分隔符、无乱码、无 console error、无 4xx/5xx 资源。
 
-![需求页：1 条需求、0 缺口、check pass](../assets/verification/requirements.png)
+![需求页：2 条需求、0 缺口、check pass](../assets/verification/requirements.png)
 
 ![架构页：4 节点、4 条依赖边、影响计数、check pass](../assets/verification/architecture.png)
 

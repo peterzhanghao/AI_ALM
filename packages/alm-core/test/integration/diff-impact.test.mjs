@@ -83,7 +83,7 @@ test('impact of the ADR reaches every constrained asset', async () => {
   assert.equal(impact.schema, 'alm.impact/v1')
   assert.deepEqual(
     impact.impacted.map((entry) => entry.id).sort(),
-    ['DM-PAY-REFUND', 'IF-PAY-REFUND-API', 'MOD-PAY-REFUND', 'REQ-PAY-001', 'RISK-PAY-001'],
+    ['DM-PAY-REFUND', 'IF-PAY-REFUND-API', 'MOD-PAY-REFUND', 'REQ-PAY-001', 'REQ-PAY-004', 'RISK-PAY-001'],
   )
   assert.deepEqual(impact.cycles, [])
 })

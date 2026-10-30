@@ -41,7 +41,8 @@ test('serves JSON payloads the pages link to', async () => {
   const architecture = await (await fetch(`${server.url}/api/alm/architecture`)).json()
   assert.equal(requirements.schema, 'alm.requirements/v1')
   assert.equal(architecture.schema, 'alm.architecture/v1')
-  assert.equal(requirements.requirements[0].id, 'REQ-PAY-001')
+  assert.ok(requirements.requirements.some((item) => item.id === 'REQ-PAY-001'))
+  assert.ok(requirements.requirements.some((item) => item.id === 'REQ-PAY-004'))
 })
 
 test('unknown routes return 404', async () => {

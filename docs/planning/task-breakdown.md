@@ -462,3 +462,19 @@
   - 正例：`node scripts/task-drill.mjs` 输出 `draft=3 TASK-001=pass sync=dry-run negative=fail`，退出 0；CI 绿
   - 反例：清空一张卡的 `covers` → drill 的负例步骤必须看到 `fail TASK-001`；技能超 8 KB 或链接失效 → 校验失败
 - 证据：drill 输出、CI 运行记录、`validate-skills.ps1` 与 `check-alm-skill.mjs` 通过
+
+### ALM-07.05 样例资产：REQ-PAY-004 退款幂等
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P2 ｜ 前置：ALM-02.02（#8，已关闭）
+- 技能：`alm-requirements`（SDoc 与验收写法）
+- 实施范围：`fixtures/order-refund/{requirements,tests,README.md}`、受影响的测试断言与截图
+- 不在范围：真实退款服务实现（样例只含资产）
+- 接口：新增 `REQ-PAY-004`（sdoc）与 `TEST-PAY-004/005`；关系 `allocated_to/constrained_by/verified_by`
+- 交付物：
+  - [ ] 幂等需求与两条验收用例进样例仓库
+  - [ ] 受影响断言更新（资产数 10、需求 2 条、ADR 影响 6）
+  - [ ] README 与验证截图同步
+- 验收：
+  - 正例：`alm check --root fixtures/order-refund` 退出 0；`alm index` 仍为 7 类资产、10 个；工作台显示 2 条需求且 `REQ-PAY-004` 的 next 为“发起变更”
+  - 反例：删除 `REQ-PAY-004` 的 `verified_by` → `COV-001` 失败并定位到 `requirements/refund-idempotent.sdoc:7`
+- 证据：`node --test "packages/*/test/**/*.test.mjs"`、`ui-verify` 截图

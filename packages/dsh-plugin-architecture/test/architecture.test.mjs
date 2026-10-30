@@ -15,7 +15,7 @@ test('architecture payload lists nodes, edges and impact counts', () => {
   assert.equal(payload.dataModels[0].id, 'DM-PAY-REFUND')
   assert.equal(payload.summary.nodes, 4)
   assert.equal(payload.summary.edges, 4)
-  assert.equal(payload.impact['ADR-PAY-003'], 5)
+  assert.equal(payload.impact['ADR-PAY-003'], 6)
   assert.deepEqual(payload.gaps, [])
 })
 
