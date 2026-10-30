@@ -33,6 +33,7 @@ test('requirements plugin disposes its routes and tool on unload', () => {
     '/api/alm/requirements',
     '/api/alm/requirements/accept',
     '/api/alm/requirements/create',
+    '/api/alm/requirements/github',
     '/api/alm/requirements/start',
     '/api/alm/requirements/version',
   ])

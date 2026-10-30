@@ -22,8 +22,11 @@
 
 ### ALM-09.02 GitHub Issue 自动创建进插件（item 6）
 
-- 复用 `syncRequirementIssues` / `syncTasks`，在「开始开发」确认后可选建需求 Issue + 任务子议题 + ProjectV2 状态；写 `.alm/github.json`；失败不阻断本地变更。
-- 依赖：工作区已关联 GitHub 仓库。
+- `github-sync.mjs`：`previewGithub`（无网络，输出需求 Issue 标题/正文/标签与 3 个任务子议题标题）、`applyGithub`（复用 `syncRequirementIssues` + `syncTasks`，创建/复用需求 Issue、任务子议题、ProjectV2 Ready，逐条写 `.alm/github.json`）。
+- `POST /api/alm/requirements/github`：默认 preview，`apply:true` 才调用 `gh`；未关联项目/无任务草稿返回 409/404。
+- UI：开始开发生成变更后出现「GitHub 归属」，可预览再显式创建；成功后刷新抽屉 GitHub 区块。
+- 依赖：工作区已关联 GitHub 仓库；真实创建需要 `gh auth`。
+- 验收：单测用 fake provider 覆盖 create/adopt/skip 与幂等；eval 只验证 preview（不向真实仓库建单）。
 
 ### ALM-09.03 需求级验收证据契约（item 2）
 
@@ -49,4 +52,4 @@
 
 ## 3. 本轮交付
 
-ALM-09.01：工作区项目空间 + 关联 GitHub 仓库 + 新建按钮修复 + Playwright 全流程回归。完成后跑全量测试、更新台账，并进入 ALM-09.02。
+ALM-09.02：GitHub Issue 自动创建进入插件——开始开发生成变更后可预览/创建需求 Issue + 任务子议题 + ProjectV2 状态，映射写 `.alm/github.json`。完成后进入 ALM-09.03 验收证据契约。
