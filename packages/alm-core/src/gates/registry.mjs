@@ -7,6 +7,7 @@ import * as id002 from './rules/id-002.mjs'
 import * as rel001 from './rules/rel-001.mjs'
 import * as rel002 from './rules/rel-002.mjs'
 import * as rel003 from './rules/rel-003.mjs'
+import * as prj001 from './rules/prj-001.mjs'
 import * as rev001 from './rules/rev-001.mjs'
 import * as brief001 from './rules/brief-001.mjs'
 import * as att001 from './rules/att-001.mjs'
@@ -27,6 +28,7 @@ export const rules = [
   rel001,
   rel002,
   rel003,
+  prj001,
   rev001,
   brief001,
   att001,

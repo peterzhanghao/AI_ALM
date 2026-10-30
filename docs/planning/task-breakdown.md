@@ -576,3 +576,19 @@
   - 正例：两个项目各自的需求列表互不串；任务建单落在对应 repo 与看板；PR 自动关联需求 Issue
   - 反例：项目 ID 冲突 / repo 与 `.alm/project.json` 不一致 / 需求引用了未注册项目 → 门禁失败
 - 证据：项目切换与建单归属的原型/接口设计
+
+### ALM-07.12 项目模型与 CLI（一仓库一项目）
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.11（#93，已关闭）
+- 技能：`alm-mvp-dev`
+- 实施范围：`alm-core/src/project/project.mjs`、`alm project` 命令、SDoc `PROJECT`、门禁 `PRJ-001`、样例项目文件
+- 不在范围：GitHub 需求 Issue/看板（ALM-07.13）、插件项目切换 UI
+- 接口：`.alm/project.json`（id/name/github.repo/project.number）；`alm project init/show/verify/list`；需求 `PROJECT` 字段；`PRJ-001`
+- 交付物：
+  - [ ] 项目文件读写与校验（ID 规则、repo 与 `git remote` 一致、需求根存在）
+  - [ ] DSH registry（`~/.dsh/alm/projects.json`，`DSH_ALM_REGISTRY` 可覆盖）与重复 ID 检测
+  - [ ] 需求 `PROJECT` 解析与不一致门禁
+- 验收：
+  - 正例：`project init/show/verify` 通过；registry 列出两个项目；样例 `PRJ-001` pass
+  - 反例：remote 与 `github.repo` 不一致、重复项目 ID、需求项目不一致 → 失败
+- 证据：新增 6 个单测，全量 171/171
