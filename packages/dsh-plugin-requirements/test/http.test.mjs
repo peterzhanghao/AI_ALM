@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -223,4 +223,106 @@ test('GET /api/alm/requirements/version serves a committed snapshot and rejects 
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }
+})
+
+async function withWriteServer(root, run) {
+  const routes = new Map()
+  const ctx = {
+    effect(callback) {
+      callback()
+    },
+    webServer: {
+      register(route) {
+        routes.set(route.path, route.handler)
+        return () => routes.delete(route.path)
+      },
+    },
+    tools: { register: () => () => {} },
+  }
+  new RequirementsService(ctx, { root })
+  const server = createServer((req, res) => {
+    const handler = routes.get(new URL(req.url, 'http://127.0.0.1').pathname)
+    if (!handler) {
+      res.writeHead(404).end('not found')
+      return
+    }
+    handler(req, res)
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    await run(`http://127.0.0.1:${server.address().port}`)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+}
+
+test('POST /api/alm/requirements/start previews without writing', async () => {
+  await withWriteServer(fixture, async (base) => {
+    const response = await fetch(`${base}/api/alm/requirements/start`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ requirementId: 'REQ-PAY-004' }),
+    })
+    const payload = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(payload.schema, 'alm.change.plan/v1')
+    assert.equal(payload.applied, false)
+    assert.equal(payload.changeId, 'CHG-PAY-001')
+    assert.equal(payload.taskCount, 3)
+    assert.ok(!existsSync(join(fixture, '.alm/changes/CHG-PAY-001.json')))
+  })
+})
+
+test('POST /api/alm/requirements/create previews and applies on a temp root', async () => {
+  await withWriteServer(fixture, async (base) => {
+    const preview = await fetch(`${base}/api/alm/requirements/create`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: '退款状态对账', brief: '每天对账退款状态' }),
+    })
+    const plan = await preview.json()
+    assert.equal(preview.status, 200)
+    assert.equal(plan.requirementId, 'REQ-PAY-005')
+    assert.ok(!existsSync(join(fixture, plan.file)))
+  })
+
+  const dir = mkdtempSync(join(tmpdir(), 'alm-create-http-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    await withWriteServer(dir, async (base) => {
+      const response = await fetch(`${base}/api/alm/requirements/create`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: '退款状态对账', brief: '每天对账退款状态', apply: true }),
+      })
+      const payload = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(payload.applied, true)
+      assert.ok(existsSync(join(dir, 'requirements/req-pay-005.sdoc')))
+      assert.ok(existsSync(join(dir, 'requirements/briefs/REQ-PAY-005.md')))
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('write endpoints reject non-POST and broken roots', async () => {
+  await withWriteServer(fixture, async (base) => {
+    const getResponse = await fetch(`${base}/api/alm/requirements/start`)
+    assert.equal(getResponse.status, 405)
+
+    const dir = mkdtempSync(join(tmpdir(), 'alm-accept-http-'))
+    try {
+      // runCi needs a git repository; a plain temp dir must fail, not hang.
+      const accept = await fetch(`${base}/api/alm/requirements/accept?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      assert.equal(accept.status, 400)
+      assert.equal((await accept.json()).error.code, 'write-failed')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

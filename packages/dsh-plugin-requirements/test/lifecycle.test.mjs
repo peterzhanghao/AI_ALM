@@ -30,6 +30,9 @@ test('requirements plugin disposes its routes and tool on unload', () => {
     '/alm/requirements',
     '/api/alm/projects',
     '/api/alm/requirements',
+    '/api/alm/requirements/accept',
+    '/api/alm/requirements/create',
+    '/api/alm/requirements/start',
     '/api/alm/requirements/version',
   ])
   assert.deepEqual(tools.map((tool) => tool.name), ['alm_requirements'])

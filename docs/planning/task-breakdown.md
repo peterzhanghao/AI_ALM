@@ -716,3 +716,24 @@
   - 正例：`REQ-PAY-004` 显示 6 节点 5 边、`parent_of`、`验收 2`、`受影响资产 1`；点击 `REQ-PAY-001` 节点后抽屉切换成功
   - 反例：关系指向不存在的 `MOD-NOPE` 时图中出现 `missing` 节点且 title=null
 - 证据：新增 2 个单测（全量 188/188）；eval 宿主 3 项断言通过、0 pageerror；截图 `docs/assets/design/plugin-{trace,trace-nav}.png`
+
+### ALM-08.04 写操作：开始开发 / 运行门禁验收 / 新建需求
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-08.03（#110，已关闭）
+- 技能：`alm-mvp-dev`、`ai-github-issue-workflow`、`cordis-plugin-development`
+- 实施范围：`packages/alm-core/src/{changes/open.mjs,requirements/create.mjs}`、`packages/dsh-plugin-requirements/{index.js,client.js,test}`
+- 不在范围：切换 git 分支/createWorkspace、任意命令执行、GitHub Issue 自动创建（仍走 `scripts/sync-tasks.mjs`）
+- 接口（均为本地 POST，默认 dry-run，`apply:true` 才落盘）：
+  - `POST /api/alm/requirements/start` → `alm.change.plan/v1`：`CHG-<PROJECT>-NNN`、branch、baseline、plannedFiles、taskCount；apply 后写变更记录 + 3 张任务卡
+  - `POST /api/alm/requirements/accept` → `alm.ci.run/v1`：固定 `alm ci run`，证据写 `.alm/ci/<sha>/<pack>.json`
+  - `POST /api/alm/requirements/create` → `alm.requirement.plan/v1`：`REQ-<PROJECT>-NNN`、sdoc 与 brief 内容；apply 后写两个文件并返回门禁结果
+- 交付物：
+  - [ ] `changes/open.mjs`：变更 id 推导、预演、写变更记录 + `draftTasks`，失败删半成品、不动当前分支
+  - [ ] `requirements/create.mjs`：id 推导、sdoc/brief 生成、owner 回落项目 teams[0]、重复/项目不匹配校验
+  - [ ] 插件写接口（bounded JSON body、405/400/409 错误映射）
+  - [ ] UI：抽屉/详情「开始开发」「运行门禁验收」、顶部「＋ 新建」向导，均先预演再确认
+  - [ ] 单测：变更预演/落盘/重复；需求预演/落盘/校验；HTTP 预演与错误
+- 验收：
+  - 正例：开始开发生成 `CHG-PAY-001` + `TASK-PAY-001..003` 且不切分支；验收返回 `pass/created` 与证据路径；新建生成 `REQ-PAY-005`（`OWNER: 支付团队`）+ brief，门禁 `fail + 1 个覆盖缺口`
+  - 反例：重复变更 409；未知需求 404；非 POST 405；非 git 根验收 400 且不落半成品
+- 证据：新增 9 个单测（全量 197/197）；eval 宿主 6 项断言通过、0 pageerror；截图 `docs/assets/design/plugin-{start,start-done,accept,create,create-done}.png`

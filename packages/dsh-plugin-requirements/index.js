@@ -4,6 +4,9 @@ import { resolve } from 'node:path'
 import * as query from './query.mjs'
 import { resolveRequirementsRoot } from './query.mjs'
 import { listProjects, readProject } from '../alm-core/src/project/project.mjs'
+import { openChange } from '../alm-core/src/changes/open.mjs'
+import { createRequirement } from '../alm-core/src/requirements/create.mjs'
+import { runCi } from '../alm-core/src/ci/ci.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -20,6 +23,31 @@ const OUTPUT = {
 
 function jsonSafe(value) {
   return JSON.parse(JSON.stringify(value))
+}
+
+/** Bounded JSON body reader for the local write endpoints. */
+function readJsonBody(req, limit = 64 * 1024) {
+  return new Promise((resolveBody, reject) => {
+    let size = 0
+    const chunks = []
+    req.on('data', (chunk) => {
+      size += chunk.length
+      if (size > limit) {
+        reject(Object.assign(new Error('request body is too large'), { status: 413, code: 'body-too-large' }))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      try {
+        resolveBody(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {})
+      } catch (error) {
+        reject(Object.assign(new Error(`invalid JSON: ${error.message}`), { status: 400, code: 'invalid-json' }))
+      }
+    })
+    req.on('error', reject)
+  })
 }
 
 /**
@@ -91,6 +119,18 @@ export default class RequirementsService {
       path: '/api/alm/requirements/version',
       handler: (req, res) => this.handleVersion(req, res),
     })
+
+    for (const [path, action] of [
+      ['/api/alm/requirements/start', 'start'],
+      ['/api/alm/requirements/accept', 'accept'],
+      ['/api/alm/requirements/create', 'create'],
+    ]) {
+      webServer.register({
+        kind: 'exact',
+        path,
+        handler: (req, res) => this.handleWrite(req, res, action),
+      })
+    }
 
     // Standalone read-only page: the GUI origin itself needs the dsh web token,
     // so expose an HTML view that can be opened directly from a browser.
@@ -187,6 +227,53 @@ export default class RequirementsService {
       const status = error?.status ?? 500
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
       res.end(JSON.stringify({ ok: false, error: { code: error?.code ?? 'internal-error', message: error?.message ?? String(error) } }))
+    }
+  }
+
+  async handleWrite(req, res, action) {
+    const respond = (status, payload) => {
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(payload))
+    }
+    try {
+      if (req.method !== 'POST') {
+        respond(405, { ok: false, error: { code: 'method-not-allowed', message: 'POST required' } })
+        return
+      }
+      const body = await readJsonBody(req)
+      const root = this.rootFor(req)
+      let payload
+      if (action === 'start') {
+        payload = openChange({
+          root,
+          requirementIds: [body.requirementId],
+          changeId: body.changeId,
+          apply: body.apply === true,
+        })
+      } else if (action === 'accept') {
+        payload = runCi({ root, base: body.base })
+      } else if (action === 'create') {
+        payload = createRequirement({
+          root,
+          title: body.title,
+          brief: body.brief,
+          goal: body.goal,
+          priority: body.priority,
+          owner: body.owner,
+          id: body.id,
+          apply: body.apply === true,
+        })
+      } else {
+        respond(404, { ok: false, error: { code: 'unknown-action', message: String(action) } })
+        return
+      }
+      respond(200, payload)
+    } catch (error) {
+      const status = error?.status ?? (error?.code === 'already-exists' ? 409 : 400)
+      respond(status, {
+        ok: false,
+        error: { code: error?.code ?? 'write-failed', message: error?.message ?? String(error) },
+      })
     }
   }
 

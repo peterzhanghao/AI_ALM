@@ -48,9 +48,13 @@
 
 ### ALM-08.04 写操作：开始开发 / 运行验收 / 新建需求
 
-- 宿主新增写接口（仅本地、需确认），复用 `alm task draft`、`workspace create`、`ci run`、intake 解析器。
-- 验收：每次写操作返回命令、退出码、证据路径；失败不落半成品。
+- 宿主新增三个本地 POST 接口，全部「先预演、apply 才落盘」，不接受任意命令：
+  - `start`：`alm-core/src/changes/open.mjs` 生成 `CHG-<PROJECT>-NNN` 并写 `.alm/changes/<CHG>.json` + `changes/<CHG>/tasks.json|md|proposal.md`；**不切换当前分支**，GitHub 建单仍走 `scripts/sync-tasks.mjs`。
+  - `accept`：直接调用 `alm ci run`（固定白名单门禁命令），证据写 `.alm/ci/<sha>/<pack>.json`，同提交同规则包重复运行返回 `unchanged`。
+  - `create`：`alm-core/src/requirements/create.mjs` 生成 `REQ-<PROJECT>-NNN`、sdoc 与 brief；状态 `proposed`，门禁返回 `fail + 覆盖缺口数`（补验收前属正常草稿态）。
+- UI：抽屉/详情「开始开发」「运行门禁验收」，顶部「＋ 新建」向导；每个弹层先展示预演结果，二次确认后才写盘。
+- 验收：开始开发生成 1 个变更 + 3 张任务卡；验收返回 pass/created 与证据路径；新建生成 REQ-PAY-005 + brief，且 OWNER 回落到项目 teams[0]。
 
 ## 4. 本轮交付
 
-ALM-08.03：插件补齐追溯图形视图——`item.trace` 由索引关系图一次构图，SVG 可点击节点与影响面统计和 `alm impact` 同口径；悬空关系保留 `missing` 节点。评审/版本（08.02）与列表/聚合/抽屉/详情（08.01）保持可用。完成后全量测试、eval 宿主实测截图，再进入 ALM-08.04。
+ALM-08.04：插件补齐写操作三件套——开始开发（登记变更 + 任务卡，不切分支）、运行门禁验收（`alm ci run` + 证据）、新建需求（sdoc + brief 预览后创建）。全部写接口默认 dry-run、显式 `apply` 才落盘，失败回滚半成品。至此原型 v7 的只读与写操作主路径都已进入插件，目标收口。
