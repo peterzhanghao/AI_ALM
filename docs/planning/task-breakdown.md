@@ -543,3 +543,19 @@
   - 正例：`alm check --root fixtures/order-refund` 退出 0；`ATT-001`/`BRIEF-001`/`REL-003` pass；`REV-001` 无 base 时 skip
   - 反例：篡改附件哈希 → `ATT-001` fail；内容改动未升 `REVISION` → `REV-001` fail；父子成环 → `REL-003` fail
 - 证据：新增 7 个单测，全量 159/159；`alm contract verify` ok
+
+### ALM-07.10 原始材料入库：聊天 Markdown 与本地 OCR 适配
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.09（#89，已关闭）
+- 技能：`alm-requirements`、`alm-mvp-dev`
+- 实施范围：`packages/alm-core/src/intake/{chat,ocr}.mjs`、单测
+- 不在范围：入库向导 UI、AI 字段抽取（M3 后续）
+- 接口：`parseChatMarkdown` / `normalizeChatMarkdown`（行号引用）；`runOcr` / `normalizeOcrResult`（`alm.ocr/v1`，行置信度 + `#L` 引用），运行时自动发现 `dsh-ocr-local` 与 `~/.dsh-ocr` 引擎
+- 交付物：
+  - [ ] 聊天 Markdown 四种格式解析，保留 `line` 用于引用
+  - [ ] OCR 适配器：JSON 解析、字段归一、`ref: image#L3`、失败诊断
+  - [ ] 引擎选择与验证：`dsh-ocr-local` 0.5.1（PP-OCRv5 + ONNX，离线）
+- 验收：
+  - 正例：`parseChatMarkdown` 解析 10:12/header/bracket/无时间四种形态；`runOcr` 归一化行与引用；全量 165/165
+  - 反例：缺图/缺脚本/OCR 非零退出给出明确错误，不返回空文本
+- 证据：`ocr_test`（真实引擎 5 秒识别 28 行，doctor 全绿）、单测 6 个
