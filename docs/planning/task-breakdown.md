@@ -677,3 +677,23 @@
   - 正例：PAY 列表仅 2 条；全部项目显示 PAY/CRM 两组与各自需求；`REQ-PAY-004` 抽屉显示 `#104`、`ProjectV2 #1`、`#105–#107 (parent #104)` 与标签；详情页可打开
   - 反例：无 `.alm/github.json` 时显示「尚未建立 GitHub 归属」；坏项目根在聚合视图按项目报错且不影响其他项目
 - 证据：新增 5 个单测（全量 182/182）；eval 宿主实测 6 项断言通过、0 pageerror；截图 `docs/assets/design/plugin-{list,projects,drawer,github,detail}.png`
+
+### ALM-08.02 评审与版本视图
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-08.01（#106，已关闭）
+- 技能：`alm-mvp-dev`、`cordis-plugin-development`
+- 实施范围：`packages/dsh-plugin-requirements/{query.mjs,index.js,client.js,test}`
+- 不在范围：人工签收写接口与 AI 评审执行器（ALM-08.04 起）、追溯图（ALM-08.03）
+- 接口：
+  - `item.review`：`alm.review/v1`，五角色（业务/架构/测试/安全/交付）映射门禁规则，含 `verdict`、`findings`、`summary`，`signoff: null`
+  - `item.versions`：`git log --follow` 的提交列表（sha/short/date/subject）
+  - `GET /api/alm/requirements/version?root&asset&sha`：`alm.version/v1` 只读快照
+- 交付物：
+  - [ ] 抽屉与详情新增「评审」：5 角色结论、阻塞统计、findings（规则、严重度、file:line）
+  - [ ] 「历史」改为 git 版本列表，点击打开只读快照弹层
+  - [ ] 版本快照接口与坏 sha / 未知资产错误处理
+  - [ ] 单测覆盖评审阻塞推导、版本历史、快照与 HTTP 路由
+- 验收：
+  - 正例：fixture 需求显示 5/5 角色通过、0 阻塞；点击版本行打开快照，内容含 `REQ-PAY-004`；详情页侧栏同时显示评审与版本历史
+  - 反例：删掉 `verified_by` 后测试角色变 `block` 且 blockers=1；非法 sha 返回 400 `invalid-sha`，未知资产返回 404 `asset-not-found`
+- 证据：新增 4 个单测（全量 186/186）；eval 宿主 4 项断言通过、0 pageerror；截图 `docs/assets/design/plugin-{review,snapshot,detail-review}.png`

@@ -86,6 +86,12 @@ export default class RequirementsService {
       handler: (req, res) => this.handleProjects(req, res),
     })
 
+    webServer.register({
+      kind: 'exact',
+      path: '/api/alm/requirements/version',
+      handler: (req, res) => this.handleVersion(req, res),
+    })
+
     // Standalone read-only page: the GUI origin itself needs the dsh web token,
     // so expose an HTML view that can be opened directly from a browser.
     webServer.register({
@@ -164,6 +170,10 @@ export default class RequirementsService {
       this.handleProjects(req, res)
       return
     }
+    if (path === '/api/alm/requirements/version') {
+      this.handleVersion(req, res)
+      return
+    }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
     res.end('not found')
   }
@@ -171,6 +181,23 @@ export default class RequirementsService {
   handleProjects(req, res) {
     try {
       const payload = this.projectsPayload()
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(payload))
+    } catch (error) {
+      const status = error?.status ?? 500
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify({ ok: false, error: { code: error?.code ?? 'internal-error', message: error?.message ?? String(error) } }))
+    }
+  }
+
+  handleVersion(req, res) {
+    try {
+      const url = new URL(req?.url ?? '/', 'http://127.0.0.1')
+      const payload = query.versionSnapshot({
+        root: this.rootFor(req),
+        assetId: url.searchParams.get('asset'),
+        sha: url.searchParams.get('sha'),
+      })
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
       res.end(JSON.stringify(payload))
     } catch (error) {

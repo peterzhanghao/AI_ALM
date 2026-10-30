@@ -175,3 +175,52 @@ test('GET /api/alm/requirements?project=ALL aggregates registry projects', async
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('GET /api/alm/requirements/version serves a committed snapshot and rejects bad input', async () => {
+  const routes = new Map()
+  const ctx = {
+    effect(callback) {
+      callback()
+    },
+    webServer: {
+      register(route) {
+        routes.set(route.path, route.handler)
+        return () => routes.delete(route.path)
+      },
+    },
+    tools: { register: () => () => {} },
+  }
+
+  new RequirementsService(ctx, { root: fixture })
+  const server = createServer((req, res) => {
+    const handler = routes.get(new URL(req.url, 'http://127.0.0.1').pathname)
+    if (!handler) {
+      res.writeHead(404).end('not found')
+      return
+    }
+    handler(req, res)
+  })
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const { port } = server.address()
+    const base = `http://127.0.0.1:${port}`
+    const list = await (await fetch(`${base}/api/alm/requirements`)).json()
+    const item = list.requirements.find((entry) => entry.id === 'REQ-PAY-001')
+    assert.ok(item?.versions?.length, 'fixture requirement should have git history')
+    const sha = item.versions[0].sha
+
+    const response = await fetch(`${base}/api/alm/requirements/version?asset=REQ-PAY-001&sha=${sha}`)
+    const payload = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(payload.schema, 'alm.version/v1')
+    assert.equal(payload.asset, 'REQ-PAY-001')
+    assert.match(payload.content, /REQ-PAY-001/)
+
+    const bad = await fetch(`${base}/api/alm/requirements/version?asset=REQ-PAY-001&sha=zzz`)
+    assert.equal(bad.status, 400)
+    assert.equal((await bad.json()).error.code, 'invalid-sha')
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+})

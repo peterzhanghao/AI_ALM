@@ -1,5 +1,6 @@
 import { existsSync, statSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { STATUS_LABELS } from '../alm-core/src/model/asset.mjs'
 import { readProject } from '../alm-core/src/project/project.mjs'
@@ -58,6 +59,117 @@ function githubFor({ mapping, project, asset }) {
     labels: requirementLabels(project, asset),
     board: boardNumber ? { number: boardNumber, status: project?.github?.project?.status?.ready ?? null } : null,
     tasks,
+  }
+}
+
+/**
+ * Review roles map onto existing gate rules: no second source of truth, and a
+ * role is only "covered" when at least one of its rules actually ran.
+ */
+const REVIEW_ROLES = [
+  { id: 'business', label: '业务', rules: ['BRIEF-001'] },
+  { id: 'architecture', label: '架构', rules: ['REL-001', 'REL-002', 'REL-003', 'PRJ-001', 'REV-001'] },
+  { id: 'testing', label: '测试', rules: ['COV-001', 'COV-002'] },
+  { id: 'security', label: '安全', rules: ['SEC-001'] },
+  { id: 'delivery', label: '交付', rules: ['ATT-001', 'TASK-001'] },
+]
+
+function findingHits(finding, item) {
+  if (!finding) return false
+  return finding.assetId === item.id || finding.file === item.file
+}
+
+/** Gate-backed multi-role review. Human sign-off is a separate, explicit step. */
+export function reviewFor(item, check) {
+  const checks = new Map((check.checks ?? []).map((entry) => [entry.id, entry]))
+  const roles = REVIEW_ROLES.map((role) => {
+    const findings = []
+    const levels = []
+    for (const ruleId of role.rules) {
+      const rule = checks.get(ruleId)
+      if (!rule) continue
+      levels.push(rule.level)
+      for (const finding of rule.findings ?? []) {
+        if (!findingHits(finding, item)) continue
+        findings.push({
+          rule: ruleId,
+          severity: rule.level === 'warn' ? 'warn' : 'block',
+          message: finding.message,
+          file: finding.file ?? null,
+          line: finding.line ?? null,
+        })
+      }
+    }
+    const active = levels.filter((level) => level !== 'skip' && level !== 'off')
+    let verdict
+    if (active.length === 0) verdict = 'skip'
+    else if (findings.some((finding) => finding.severity === 'block')) verdict = 'block'
+    else if (findings.length > 0) verdict = 'warn'
+    else verdict = 'pass'
+    return { id: role.id, label: role.label, verdict, rules: role.rules, findings }
+  })
+  const blockers = roles.filter((role) => role.verdict === 'block').length
+  return {
+    schema: 'alm.review/v1',
+    source: 'gates',
+    roles,
+    summary: {
+      completed: roles.filter((role) => role.verdict !== 'skip').length,
+      total: roles.length,
+      blockers,
+      ready: blockers === 0,
+    },
+    signoff: null,
+  }
+}
+
+function git(root, args) {
+  return execFileSync('git', ['-C', root, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim()
+}
+
+/** Version history from git: the requirement file is the source of record. */
+export function versionHistory(root, file, limit = 20) {
+  try {
+    const top = git(root, ['rev-parse', '--show-toplevel'])
+    const path = relative(top, resolve(root, file)).replace(/\\/g, '/')
+    // Run from the repository top: `-C <subdir>` would resolve the path against
+    // that subdirectory and silently return no commits.
+    const output = git(top, ['log', '--follow', '--max-count', String(limit), '--format=%H%x1f%h%x1f%aI%x1f%s', '--', path])
+    return output
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [sha, short, date, subject] = line.split('\x1f')
+        return { sha, short, date, subject }
+      })
+  } catch {
+    return []
+  }
+}
+
+/** Read one committed snapshot of a requirement file, read-only. */
+export function versionSnapshot({ root, assetId, sha }) {
+  const invalid = (message, status, code) => {
+    const error = new Error(message)
+    error.status = status
+    error.code = code
+    return error
+  }
+  if (!/^[0-9a-f]{7,40}$/.test(String(sha ?? ''))) throw invalid('sha must be 7-40 hex characters', 400, 'invalid-sha')
+  const index = indexReport(root)
+  if (index.ok === false) throw invalid(index.error ?? 'index failed', 500, 'index-failed')
+  const asset = index.assets.find((entry) => entry.id === assetId)
+  if (!asset) throw invalid(`asset not found: ${assetId}`, 404, 'asset-not-found')
+  try {
+    const top = git(root, ['rev-parse', '--show-toplevel'])
+    const path = relative(top, resolve(root, asset.source.path)).replace(/\\/g, '/')
+    const content = git(top, ['show', `${sha}:${path}`])
+    return { schema: 'alm.version/v1', asset: asset.id, sha, path, content }
+  } catch (error) {
+    throw invalid(`cannot read ${sha}: ${error?.message ?? String(error)}`, 400, 'version-unavailable')
   }
 }
 
@@ -149,6 +261,7 @@ export function requirements(root) {
       }
     : null
 
+  const versionCache = new Map()
   const items = index.assets
     .filter((asset) => asset.type === 'requirement')
     .map((asset) => {
@@ -173,12 +286,17 @@ export function requirements(root) {
         attachmentFiles: files,
         verifiedBy,
         file: asset.source.path,
+        root: index.root,
         line: asset.source.line,
         links: asset.links.map((link) => ({ type: link.type, target: link.target, line: link.line ?? null })),
         github: githubFor({ mapping, project, asset }),
       }
       item.nextAction = nextActionFor(item, gaps)
       item.nextActionLabel = nextActionLabel(item.nextAction)
+      item.review = reviewFor(item, check)
+      const versions = versionCache.get(item.file) ?? versionHistory(root, item.file)
+      versionCache.set(item.file, versions)
+      item.versions = versions
       return item
     })
 
