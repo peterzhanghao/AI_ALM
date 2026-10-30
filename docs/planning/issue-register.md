@@ -70,7 +70,7 @@
 | ALM-07.05 | 样例资产：REQ-PAY-004 退款幂等 | task | @peterzhanghao | P2 | core | done | ALM-02.02（#8，已关闭） | 确认发布 | #81 | #82 | in-sync | 2026-10-30 17:50 |
 | ALM-07.06 | 需求插件侧边栏入口 | task | @peterzhanghao | P2 | plugin | done | ALM-07.01（#73，已关闭） | 确认发布 | #83 | #84 | in-sync | 2026-10-30 19:00 |
 | ALM-07.07 | 需求详情在旧宿主数据下点击后空白 | bug | @peterzhanghao | P1 | plugin | done | ALM-07.06（#83，已关闭） | 确认发布 | #85 | #86 | in-sync | 2026-10-30 19:25 |
-| ALM-07.08 | 需求工作台视觉原型（Tesla / Apple 风格） | task | @peterzhanghao | P2 | plugin | review | ALM-07.06（#83，已关闭） | 确认发布 | #87 | — | in-sync | 2026-10-30 19:55 |
+| ALM-07.08 | 需求工作台视觉原型（Tesla / Apple 风格） | task | @peterzhanghao | P2 | plugin | done | ALM-07.06（#83，已关闭） | 确认发布 | #87 | #88, #101 | in-sync | 2026-10-30 23:30 |
 | ALM-07.09 | 需求富内容与版本模型（M1） | task | @peterzhanghao | P1 | core | review | ALM-07.05（#81，已关闭） | 确认发布 | #89 | — | in-sync | 2026-10-30 20:15 |
 | ALM-07.10 | 原始材料入库：聊天 Markdown 与本地 OCR 适配 | task | @peterzhanghao | P1 | core | done | ALM-07.09（#89，已关闭） | 确认发布 | #91 | #92 | in-sync | 2026-10-30 21:35 |
 | ALM-07.11 | 多项目归属：需求 / 看板 / 开发 | task | @peterzhanghao | P1 | core | done | ALM-07.10（#91，已关闭） | 确认发布 | #93 | #94 | in-sync | 2026-10-30 21:55 |
