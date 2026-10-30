@@ -64,8 +64,8 @@
 | ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | done | ALM-06.01（#58，已关闭） | 确认发布 | #59 | #62 | in-sync | 2026-10-23 22:20 |
 | ALM-07 | 跟踪：需求工作台与任务链路 | tracking | @peterzhanghao | P1 | plugin | ready | ALM-00 | 确认发布 | #72 | — | in-sync | 2026-10-30 15:05 |
 | ALM-07.01 | 需求工作台：空态、详情与下一步 | task | @peterzhanghao | P1 | plugin | done | ALM-03.03（#29，已关闭） | 确认发布 | #73 | #76 | in-sync | 2026-10-30 15:12 |
-| ALM-07.02 | 需求→任务草案与 TASK-001 | task | @peterzhanghao | P1 | core | review | ALM-07.01（#73，已关闭） | 确认发布 | #74 | — | in-sync | 2026-10-30 16:05 |
-| ALM-07.03 | 任务看板接入（GitHub Issues / Gitea） | task | @peterzhanghao | P1 | release | blocked | ALM-07.02（#74） | 确认发布 | #75 | — | in-sync | 2026-10-30 15:05 |
+| ALM-07.02 | 需求→任务草案与 TASK-001 | task | @peterzhanghao | P1 | core | done | ALM-07.01（#73，已关闭） | 确认发布 | #74 | #77 | in-sync | 2026-10-30 16:12 |
+| ALM-07.03 | 任务看板接入（GitHub Issues / Gitea） | task | @peterzhanghao | P1 | release | ready | ALM-07.02（#74，已关闭） | 确认发布 | #75 | — | in-sync | 2026-10-30 16:12 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
