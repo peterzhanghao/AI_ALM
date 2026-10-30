@@ -99,6 +99,9 @@ export function normalizeAsset(raw, source) {
   if (!ASSET_TYPES.includes(type)) throw new AssetError(`unknown asset type: ${type}`, where)
   if (!ID_PATTERN.test(id)) throw new AssetError(`invalid asset id: ${id}`, where)
   if (!ASSET_STATUSES.includes(status)) throw new AssetError(`unknown status: ${status}`, where)
+  if (raw.project !== undefined && !/^[A-Z][A-Z0-9]{1,7}$/.test(String(raw.project))) {
+    throw new AssetError(`invalid project id: ${String(raw.project)}`, where)
+  }
 
   if (raw.revision !== undefined) {
     if (!Number.isInteger(raw.revision) || raw.revision < 1) {

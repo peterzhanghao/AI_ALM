@@ -5,6 +5,7 @@ import { checkReport, diffReport, impactReport, indexReport, queryReport, showRe
 import { buildEvidence, writeEvidence } from './evidence/evidence.mjs'
 import { BaselineConflictError, createBaseline, verifyBaseline } from './baseline/baseline.mjs'
 import { TaskDraftError, draftTasks } from './tasks/draft.mjs'
+import { ProjectError, listProjects, readProject, verifyProject, writeProject } from './project/project.mjs'
 import { publishBaseline, rollbackRelease, verifyRelease } from './baseline/release.mjs'
 import { WorkspaceError, createWorkspace, guardWrite, statusWorkspace } from './workspace/workspace.mjs'
 import { loadApprovals, recordApproval, verifyApproval } from './approvals/approval.mjs'
@@ -48,6 +49,10 @@ Commands:
   baseline create   Write an immutable baseline manifest for a commit
   baseline verify   Rebuild hashes and compare with a manifest
   task draft        Draft five-element task cards from requirements
+  project init      Write .alm/project.json for this repository
+  project show      Print the current project
+  project verify    Check project file, git remote and requirement root
+  project list      List projects from the DSH registry
   contract verify   Validate the five ALM contract schemas
   help              Show this help
   version           Print the CLI version
@@ -781,6 +786,86 @@ export async function run(argv, io = {}) {
       } catch (error) {
         err.write(`alm: ${error.message}\n`)
         return 1
+      }
+    }
+
+    if (command === 'project' && ['init', 'show', 'verify', 'list'].includes(rest[0])) {
+      const sub = rest[0]
+      const args = rest.slice(1)
+      const options = { root: process.cwd(), json: false }
+
+      for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (['--root', '--id', '--name', '--repo', '--project-number', '--registry'].includes(arg)) {
+          const value = args[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a value\n`)
+            return 2
+          }
+          options[arg.slice(2)] = value
+          i += 1
+          continue
+        }
+        err.write(`alm: unknown option: ${arg}\n`)
+        return 2
+      }
+
+      try {
+        if (sub === 'init') {
+          if (!options.id || !options.name || !options.repo) {
+            err.write('alm: project init requires --id, --name and --repo owner/repo\n')
+            return 2
+          }
+          const result = writeProject({
+            root: options.root,
+            id: options.id,
+            name: options.name,
+            githubRepo: options.repo,
+            projectNumber: options['project-number'] ? Number(options['project-number']) : undefined,
+          })
+          if (options.json) out.write(`${JSON.stringify(result, null, 2)}\n`)
+          else out.write(`project ${result.id} written to ${result.file}\n`)
+          return 0
+        }
+
+        if (sub === 'show') {
+          const project = readProject(options.root)
+          if (!project) {
+            err.write(`alm: no project file under ${options.root}\n`)
+            return 1
+          }
+          if (options.json) out.write(`${JSON.stringify(project, null, 2)}\n`)
+          else out.write(`${project.id}  ${project.name}  ${project.github.owner}/${project.github.repo}\n`)
+          return 0
+        }
+
+        if (sub === 'verify') {
+          const result = verifyProject({ root: options.root })
+          if (options.json) out.write(`${JSON.stringify(result, null, 2)}\n`)
+          else {
+            out.write(result.ok ? `project ok ${result.project.id}\n` : 'project failed\n')
+            for (const finding of result.findings) out.write(`  ${finding.field}: ${finding.message}\n`)
+          }
+          return result.ok ? 0 : 1
+        }
+
+        const listed = listProjects({ registry: options.registry })
+        if (options.json) out.write(`${JSON.stringify(listed, null, 2)}\n`)
+        else {
+          for (const project of listed.projects) out.write(`${project.id}  ${project.name}  ${project.root}\n`)
+          for (const error of listed.errors) out.write(`error: ${error.message}\n`)
+        }
+        return listed.errors.length === 0 ? 0 : 1
+      } catch (error) {
+        if (error instanceof ProjectError) {
+          err.write(`alm: ${error.message}\n`)
+          return 1
+        }
+        throw error
       }
     }
 
