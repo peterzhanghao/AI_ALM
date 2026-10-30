@@ -478,3 +478,19 @@
   - 正例：`alm check --root fixtures/order-refund` 退出 0；`alm index` 仍为 7 类资产、10 个；工作台显示 2 条需求且 `REQ-PAY-004` 的 next 为“发起变更”
   - 反例：删除 `REQ-PAY-004` 的 `verified_by` → `COV-001` 失败并定位到 `requirements/refund-idempotent.sdoc:7`
 - 证据：`node --test "packages/*/test/**/*.test.mjs"`、`ui-verify` 截图
+
+### ALM-07.06 需求插件侧边栏入口
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P2 ｜ 前置：ALM-07.01（#73，已关闭）
+- 技能：`alm-mvp-dev`（插件集成）
+- 实施范围：`packages/dsh-plugin-requirements/{client.js,README.md}`、截图
+- 不在范围：新增数据接口、写操作
+- 接口：注册 `sidebar.panellist`（id `requirements`，label `需求`）与 `main`（key `requirements`）同 id；Settings 与侧边栏都渲染同一个列表
+- 交付物：
+  - [ ] 侧边栏「需求」图标与主面板列表
+  - [ ] Settings 从引导页改为列表（空态仍保留引导）
+  - [ ] README 与截图同步
+- 验收：
+  - 正例：点侧边栏「需求」→ 直接看到 2 条需求、Coverage、Next 与「下一步」横幅；Settings 同样显示列表
+  - 反例：无需求时仍显示三步引导；接口失败显示错误与重试，不留空白
+- 证据：Playwright 截图 `docs/assets/requirements-workbench/sidebar.png`、全量测试

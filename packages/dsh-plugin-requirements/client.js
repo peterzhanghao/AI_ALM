@@ -298,27 +298,37 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Intro({ openPanel }) {
+    /** Sidebar rail icon: a small checklist glyph using the shell's current color. */
+    function RequirementsIcon() {
       return h(
-        'div',
-        { style: panel },
-        h('h2', { style: { margin: '0 0 6px', fontSize: '18px', fontWeight: 600 } }, '需求工作台'),
-        h('p', { style: { ...muted, margin: '0 0 12px' } }, '需求资产、验收覆盖与下一步动作都在这里。'),
-        h(EmptyState, { root: '', onOpenPanel: openPanel }),
+        'svg',
+        { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' },
+        h('path', {
+          d: 'M3.5 2.5h6l3 3v8a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z',
+          stroke: 'currentColor',
+          strokeWidth: 1.2,
+        }),
+        h('path', { d: 'M5.5 7h5M5.5 10h4', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round' }),
       )
     }
 
     return {
       inject: ['slots', 'layout'],
       apply(ctx) {
+        // Both entry points render the list: the sidebar rail icon opens the
+        // main panel, and Settings shows the same workbench instead of a
+        // second intro screen.
         function SettingsPage() {
-          return h(Intro, { openPanel: () => ctx.layout.selectPanel('requirements') })
+          return h(Workbench, { openPanel: () => ctx.layout.selectPanel('requirements') })
         }
         function MainPage() {
           return h(Workbench, {})
         }
         ctx.slots.inject('settings.section', () =>
           ctx.slots.register({ name: 'settings.section', id: 'requirements', order: 91, label: 'Requirements' }, SettingsPage),
+        )
+        ctx.slots.inject('sidebar.panellist', () =>
+          ctx.slots.register({ name: 'sidebar.panellist', id: 'requirements', order: 90, label: () => '需求' }, RequirementsIcon),
         )
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'requirements' }, MainPage))
       },
