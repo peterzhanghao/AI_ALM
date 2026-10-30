@@ -26,7 +26,7 @@ test('requirements plugin disposes its routes and tool on unload', () => {
 
   new RequirementsService(ctx, {})
 
-  assert.deepEqual(routes.map((route) => route.path).sort(), ['/alm/requirements', '/api/alm/requirements'])
+  assert.deepEqual(routes.map((route) => route.path).sort(), ['/alm/requirements', '/api/alm/projects', '/api/alm/requirements'])
   assert.deepEqual(tools.map((tool) => tool.name), ['alm_requirements'])
 
   for (const dispose of disposers) dispose()

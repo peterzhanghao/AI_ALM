@@ -29,6 +29,8 @@ test('resolveRequirementsRoot accepts a relative fixture path and rejects traver
 test('requirements payload carries file, links and the next action', () => {
   const payload = requirements(fixture)
   assert.equal(payload.schema, 'alm.requirements/v1')
+  assert.equal(payload.project, 'PAY')
+  assert.equal(payload.projectName, '支付平台')
   const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-001')
   assert.ok(item, 'REQ-PAY-001 missing from the fixture payload')
   assert.equal(item.file, 'requirements/refund.sdoc')

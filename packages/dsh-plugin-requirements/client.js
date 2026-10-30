@@ -6,6 +6,7 @@ window.__ModuleLoader__.load({
     const { useState, useEffect, useCallback } = React
 
     const ROOT_KEY = 'alm.requirements.root'
+    const PROJECT_KEY = 'alm.requirements.project'
     const panel = { padding: '24px', maxWidth: '980px', color: 'var(--dsw-alias-label-primary)' }
     const table = { width: '100%', borderCollapse: 'collapse', fontSize: '13px' }
     const th = {
@@ -130,6 +131,28 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function ProjectPicker({ projects, currentId, onPick }) {
+      if (!projects || projects.length === 0) return null
+      return h(
+        'label',
+        { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' } },
+        '项目',
+        h(
+          'select',
+          {
+            style: input,
+            value: currentId ?? '',
+            onChange: (event) => onPick(event.target.value),
+            'aria-label': '选择项目',
+          },
+          h('option', { value: '' }, '选择项目…'),
+          projects.map((project) =>
+            h('option', { key: project.id, value: project.id }, `${project.name}（${project.id}）`),
+          ),
+        ),
+      )
+    }
+
     function EmptyState({ root, onOpenPanel }) {
       return h(
         'div',
@@ -202,7 +225,24 @@ window.__ModuleLoader__.load({
       const [rootInput, setRootInput] = useState(stored)
       const [root, setRoot] = useState(stored)
       const [selected, setSelected] = useState(null)
+      const [projects, setProjects] = useState([])
+      const [projectId, setProjectId] = useState(() =>
+        typeof localStorage === 'undefined' ? '' : localStorage.getItem(PROJECT_KEY) ?? '',
+      )
       const { loading, error, data, reload } = useRequirements(root)
+
+      useEffect(() => {
+        fetch('/api/alm/projects')
+          .then((response) => (response.ok ? response.json() : null))
+          .then((payload) => { if (payload?.projects) setProjects(payload.projects) })
+          .catch(() => {})
+      }, [])
+
+      useEffect(() => {
+        if (!data?.project) return
+        setProjectId(data.project)
+        if (typeof localStorage !== 'undefined') localStorage.setItem(PROJECT_KEY, data.project)
+      }, [data?.project])
 
       const applyRoot = useCallback(
         (value) => {
@@ -216,14 +256,31 @@ window.__ModuleLoader__.load({
         [],
       )
 
+      const currentProject = projects.find((project) => project.id === projectId) ?? null
+
+      const applyProject = (id) => {
+        const project = projects.find((entry) => entry.id === id)
+        if (!project) return
+        setProjectId(id)
+        if (typeof localStorage !== 'undefined') localStorage.setItem(PROJECT_KEY, id)
+        applyRoot(project.root)
+      }
+
       const header = h(
         'div',
         null,
-        h('h2', { style: { margin: '0 0 4px', fontSize: '18px', fontWeight: 600 } }, 'Requirements'),
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' } },
+          h('h2', { style: { margin: '0 0 4px', fontSize: '18px', fontWeight: 600 } }, 'Requirements'),
+          h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject }),
+        ),
         h(
           'p',
           { style: muted },
-          data ? `${data.summary.requirements} 条需求 · ${data.summary.gaps} 个追踪缺口 · check ${data.result}` : '加载中…',
+          data
+            ? `${currentProject ? `${currentProject.name} · ` : ''}${data.summary.requirements} 条需求 · ${data.summary.gaps} 个追踪缺口 · check ${data.result}`
+            : '加载中…',
         ),
       )
 
