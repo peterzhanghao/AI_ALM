@@ -63,8 +63,8 @@
 | ALM-06.01 | 三次变更演练与指标 | task | @peterzhanghao | P2 | pilot | done | ALM-04.04（#41，已关闭） | 确认发布 | #58 | #61 | in-sync | 2026-10-23 22:20 |
 | ALM-06.02 | 架构/运行/权限/恢复文档与验证报告 | task | @peterzhanghao | P2 | pilot | done | ALM-06.01（#58，已关闭） | 确认发布 | #59 | #62 | in-sync | 2026-10-23 22:20 |
 | ALM-07 | 跟踪：需求工作台与任务链路 | tracking | @peterzhanghao | P1 | plugin | ready | ALM-00 | 确认发布 | #72 | — | in-sync | 2026-10-30 15:05 |
-| ALM-07.01 | 需求工作台：空态、详情与下一步 | task | @peterzhanghao | P1 | plugin | review | ALM-03.03（#29，已关闭） | 确认发布 | #73 | — | in-sync | 2026-10-30 15:05 |
-| ALM-07.02 | 需求→任务草案与 TASK-001 | task | @peterzhanghao | P1 | core | blocked | ALM-07.01（#73） | 确认发布 | #74 | — | in-sync | 2026-10-30 15:05 |
+| ALM-07.01 | 需求工作台：空态、详情与下一步 | task | @peterzhanghao | P1 | plugin | done | ALM-03.03（#29，已关闭） | 确认发布 | #73 | #76 | in-sync | 2026-10-30 15:12 |
+| ALM-07.02 | 需求→任务草案与 TASK-001 | task | @peterzhanghao | P1 | core | ready | ALM-07.01（#73，已关闭） | 确认发布 | #74 | — | in-sync | 2026-10-30 15:12 |
 | ALM-07.03 | 任务看板接入（GitHub Issues / Gitea） | task | @peterzhanghao | P1 | release | blocked | ALM-07.02（#74） | 确认发布 | #75 | — | in-sync | 2026-10-30 15:05 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
@@ -82,6 +82,7 @@
 > 批次 5 前收尾：`ALM-05.02`、`ALM-05.04` 前置已全部关闭，`确认结论` 改为 `确认发布` 并创建远端工作项；新增 `ALM-05.05`（`ALM-04.02–04.04` 卡片引用、但此前未交付的 `alm-release-verify` 产品技能），否则这些卡的“技能可加载”验收无判定依据。
 > `ALM-05.02`/`05.04`/`05.05` 已合并：PR `#53`/`#54`/`#55`，Issue `#50`/`#51`/`#52` 已关闭并置 `status::done`。产品技能现有四个：需求、架构、变更工作流、发布校验；`scripts/check-alm-skill.mjs` 在 CI 校验命令存在性、链接与权限-工具一致性。
 > 领域跟踪 Issue `#2`（ALM-01）、`#6`（ALM-02）、`#21`（ALM-03）、`#34`（ALM-04）、`#10`（ALM-05）已关闭；`#1`（ALM-00）保持打开，等待批次 5（`ALM-06.01`/`06.02`）收口。
+> 2026-10-30 需求插件选型：评估报告（docs/analysis/requirements-plugin-evaluation.md）与 ADR 0004 已合并（PR `#71`）；批次 6 建卡 `#72`–`#75`，`ALM-07.01` 由 PR `#76` 收口。
 > 批次 5 已收口：`ALM-06.01`（PR `#61`）、`ALM-06.02`（PR `#62`）、`#57`（ALM-06）与 `#1`（ALM-00）全部关闭并置 `status::done`。最终证据见 [验证报告](verification-report.md)：119 测试、3 演练 / 21 步、UI 28/28（本地 + 宿主）。`#60`（ALM-03.07 分隔符乱码）经复查为终端解码误报，已关闭且未改代码。
 > 2026-10-24 05:44 用户指示继续收尾：新增 `ALM-04.05`（Playwright UI 验证的按需 GitHub Actions）与 `ALM-04.06`（Gitea SCM 适配器），`确认结论=确认发布`；两者都在批次 4 的 SCM/CI 主题内。
 > 两张卡已收口：`ALM-04.05`（PR `#66`）按需 UI workflow 真实触发一次绿 / 一次红并留 artifact；`ALM-04.06`（PR `#67`）Gitea 客户端 + 8 个 mock 测试，全量测试 127。为让 `workflow_dispatch` 生效，`main` 从 `b94381f` 快进到 `95578b7`（`main` 是 `develop` 严格祖先，fast-forward，无强推）；后续 `main` 可继续与 `develop` 快进同步。
