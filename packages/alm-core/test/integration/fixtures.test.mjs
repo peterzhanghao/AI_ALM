@@ -33,7 +33,7 @@ test('order-refund sample parses seven asset types in four formats', async () =>
   assert.equal(code, 0)
   const payload = JSON.parse(out)
   assert.equal(payload.errors.length, 0)
-  assert.equal(payload.assets.length, 7)
+  assert.equal(payload.assets.length, 10)
   assert.deepEqual(
     [...new Set(payload.assets.map((asset) => asset.type))].sort(),
     [

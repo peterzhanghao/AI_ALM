@@ -1,0 +1,14 @@
+[DOCUMENT]
+TITLE: 退款幂等验收
+
+[REQUIREMENT]
+UID: TEST-PAY-004
+TITLE: 同键重放返回同一 refundId 且不新增退款记录
+STATUS: proposed
+OWNER: team-qa
+
+[REQUIREMENT]
+UID: TEST-PAY-005
+TITLE: 并发同键请求只产生一条退款单
+STATUS: proposed
+OWNER: team-qa
