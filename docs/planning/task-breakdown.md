@@ -559,3 +559,20 @@
   - 正例：`parseChatMarkdown` 解析 10:12/header/bracket/无时间四种形态；`runOcr` 归一化行与引用；全量 165/165
   - 反例：缺图/缺脚本/OCR 非零退出给出明确错误，不返回空文本
 - 证据：`ocr_test`（真实引擎 5 秒识别 28 行，doctor 全绿）、单测 6 个
+
+### ALM-07.11 多项目归属：需求 / 看板 / 开发
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.10（#91，已关闭）
+- 技能：`alm-requirements`、`ai-github-issue-workflow`、`alm-mvp-dev`
+- 实施范围：项目模型（`.alm/project.json` + 用户级 registry）、插件项目切换、`sync-tasks` 的 repo/board 解析、变更与 PR 归属
+- 不在范围：跨仓库迁移工具、组织级 ProjectV2 汇总（后续）
+- 接口：`alm project init/show/verify`；需求的 `PROJECT`（可省略，默认取仓库）；跨项目引用用 `PAY:REQ-…` 复合 ID；`sync-tasks` 从项目配置推导 GitHub repo + 看板
+- 交付物：
+  - [ ] 项目模型与 registry：`id / name / root / github.repo / project.number / labels`
+  - [ ] 工作台项目切换器与「全部项目」聚合视图；新建需求默认归属当前项目
+  - [ ] GitHub：需求 Issue（可选）+ 任务 Issue 归属同一 repo 与 ProjectV2 看板
+  - [ ] 开发归属：change/分支/PR/上下文包带项目 ID，看板 Status 随 PR 流转
+- 验收：
+  - 正例：两个项目各自的需求列表互不串；任务建单落在对应 repo 与看板；PR 自动关联需求 Issue
+  - 反例：项目 ID 冲突 / repo 与 `.alm/project.json` 不一致 / 需求引用了未注册项目 → 门禁失败
+- 证据：项目切换与建单归属的原型/接口设计
