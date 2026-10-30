@@ -3,211 +3,230 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>需求 · 概念原型</title>
+<title>需求 · 概念原型 v3（评审 / 版本 / 开发与验收）</title>
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0b0d10;
-    --surface: #14171c;
-    --surface-hover: #171b21;
-    --line: #232830;
-    --line-strong: #2e343d;
-    --text: #f2f4f7;
-    --text-2: #9aa3ae;
-    --text-3: #6b7480;
-    --accent: #f2f4f7;
-    --blue: #4d8dff;
-    --green: #35c47a;
-    --amber: #e7b04b;
+    --bg: #0b0d10; --surface: #14171c; --surface-hover: #171b21;
+    --line: #232830; --line-strong: #2e343d;
+    --text: #f2f4f7; --text-2: #9aa3ae; --text-3: #6b7480;
+    --blue: #6ea0ff; --green: #35c47a; --amber: #e7b04b; --red: #ff8b8b;
     --radius: 14px;
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font);
-    -webkit-font-smoothing: antialiased;
-    font-size: 14px;
-  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; font-size: 14px; }
   button { font-family: inherit; cursor: pointer; }
-  .shell { max-width: 1040px; margin: 0 auto; padding: 48px 40px 96px; }
-
-  /* header */
+  .shell { max-width: 1060px; margin: 0 auto; padding: 48px 40px 96px; }
   .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
   h1 { margin: 0; font-size: 30px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 600; }
   .sub { margin: 8px 0 0; color: var(--text-2); font-size: 13px; }
   .head-actions { display: flex; align-items: center; gap: 8px; }
-  .btn {
-    border: 1px solid var(--line-strong);
-    background: transparent;
-    color: var(--text);
-    border-radius: 10px;
-    padding: 8px 14px;
-    font-size: 13px;
-    transition: background 150ms ease-out, border-color 150ms ease-out, transform 150ms ease-out;
-  }
+  .btn { border: 1px solid var(--line-strong); background: transparent; color: var(--text); border-radius: 10px; padding: 8px 14px; font-size: 13px; transition: background 150ms, border-color 150ms; }
   .btn:hover { background: #1b1f26; }
-  .btn.primary {
-    background: var(--accent);
-    border-color: transparent;
-    color: #0b0d10;
-    font-weight: 600;
-  }
-  .btn.primary:hover { background: #ffffff; }
+  .btn.primary { background: #f2f4f7; border-color: transparent; color: #0b0d10; font-weight: 600; }
+  .btn.primary:hover { background: #fff; }
   .btn.sm { padding: 6px 12px; font-size: 12px; border-radius: 9px; }
   .btn.ghost { border-color: transparent; color: var(--text-2); }
   .btn.ghost:hover { color: var(--text); background: #15181d; }
-  .icon-btn {
-    width: 34px; height: 34px; border-radius: 10px;
-    border: 1px solid transparent; background: transparent;
-    color: var(--text-2); font-size: 18px; line-height: 1;
-  }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--text-2); font-size: 18px; line-height: 1; }
   .icon-btn:hover { background: #15181d; color: var(--text); }
-
-  /* toolbar */
-  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 36px 0 20px; }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 36px 0 20px; flex-wrap: wrap; }
   .seg { display: inline-flex; padding: 3px; gap: 2px; background: #101318; border: 1px solid var(--line); border-radius: 11px; }
-  .seg button {
-    border: 0; background: transparent; color: var(--text-2);
-    padding: 6px 12px; border-radius: 8px; font-size: 12.5px;
-    transition: color 150ms ease-out, background 150ms ease-out;
-  }
+  .seg button { border: 0; background: transparent; color: var(--text-2); padding: 6px 12px; border-radius: 8px; font-size: 12.5px; }
   .seg button:hover { color: var(--text); }
   .seg button.active { background: #1d222a; color: var(--text); }
   .seg span { color: var(--text-3); margin-left: 6px; font-variant-numeric: tabular-nums; }
-  .search {
-    display: flex; align-items: center; gap: 8px;
-    min-width: 240px; padding: 7px 12px;
-    border: 1px solid var(--line); border-radius: 10px; background: #101318;
-  }
+  .search { display: flex; align-items: center; gap: 8px; min-width: 240px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 10px; background: #101318; }
   .search svg { color: var(--text-3); flex: none; }
-  .search input {
-    border: 0; outline: 0; background: transparent; color: var(--text);
-    font-size: 13px; width: 100%;
-  }
+  .search input { border: 0; outline: 0; background: transparent; color: var(--text); font-size: 13px; width: 100%; }
   .search input::placeholder { color: var(--text-3); }
-
-  /* list */
   .list { display: grid; gap: 10px; }
-  .card {
-    display: flex; align-items: center; justify-content: space-between; gap: 20px;
-    padding: 20px 22px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    transition: background 160ms ease-out, border-color 160ms ease-out;
-    cursor: pointer;
-    outline: none;
-  }
+  .card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); transition: background 160ms, border-color 160ms; cursor: pointer; outline: none; }
   .card:hover, .card:focus-visible { background: var(--surface-hover); border-color: var(--line-strong); }
   .card:focus-visible { box-shadow: 0 0 0 2px #2f6fdd66; }
-  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-  .pill {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
-    border: 1px solid transparent;
-  }
+  .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 3px 9px; border-radius: 999px; }
   .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-  .pill.todo { color: #b9c0c9; background: #1c2027; }
-  .pill.doing { color: #9dc0ff; background: #16233a; }
+  .pill.proposed { color: #b9c0c9; background: #1c2027; }
+  .pill.reviewing { color: #f0cf8d; background: #2a2416; }
+  .pill.accepted { color: #9dc0ff; background: #16233a; }
+  .pill.doing { color: #f0cf8d; background: #2a2416; }
   .pill.done { color: #8fe0b4; background: #14261d; }
-  .id { color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+  .id { color: var(--text-3); font-size: 11.5px; }
+  .rev { color: var(--text-3); font-size: 11px; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-variant-numeric: tabular-nums; }
   .card h2 { margin: 0; font-size: 17px; line-height: 1.45; font-weight: 600; letter-spacing: -0.01em; }
   .meta { margin: 8px 0 0; color: var(--text-2); font-size: 12.5px; }
   .meta .dot { margin: 0 7px; color: var(--text-3); }
-  .card-cta {
-    background: transparent; border-color: var(--line-strong); color: var(--text-2);
-    transition: background 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out;
-  }
-  .card:hover .card-cta, .card:focus-within .card-cta {
-    background: var(--accent); border-color: transparent; color: #0b0d10;
-  }
-
-  /* empty state */
-  .empty {
-    border: 1px dashed var(--line-strong); border-radius: var(--radius);
-    padding: 56px 24px; text-align: center; color: var(--text-2);
-  }
+  .src { color: var(--text-3); }
+  .card-cta { background: transparent; border-color: var(--line-strong); color: var(--text-2); }
+  .card:hover .card-cta, .card:focus-within .card-cta { background: #f2f4f7; border-color: transparent; color: #0b0d10; }
+  .empty { border: 1px dashed var(--line-strong); border-radius: var(--radius); padding: 56px 24px; text-align: center; color: var(--text-2); }
   .empty strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
-
-  /* footer */
-  .foot { margin-top: 28px; display: flex; align-items: center; justify-content: space-between; color: var(--text-3); font-size: 12px; }
-  .link { border: 0; background: transparent; color: var(--text-2); padding: 0; font-size: 12px; }
-  .link:hover { color: var(--text); }
-
-  /* drawer */
-  .scrim {
-    position: fixed; inset: 0; background: rgba(4, 6, 9, 0.55);
-    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-    opacity: 0; transition: opacity 200ms ease-out;
-  }
+  .scrim { position: fixed; inset: 0; background: rgba(4,6,9,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; transition: opacity 200ms ease-out; }
   .scrim.show { opacity: 1; }
-  .drawer {
-    position: fixed; top: 0; right: 0; height: 100%; width: 480px; max-width: 92vw;
-    background: #101318; border-left: 1px solid var(--line);
-    transform: translateX(24px); opacity: 0;
-    transition: transform 220ms cubic-bezier(.2,.7,.2,1), opacity 200ms ease-out;
-    overflow-y: auto;
-  }
+  .drawer { position: fixed; top: 0; right: 0; height: 100%; width: 520px; max-width: 94vw; background: #101318; border-left: 1px solid var(--line); transform: translateX(24px); opacity: 0; transition: transform 220ms cubic-bezier(.2,.7,.2,1), opacity 200ms; overflow-y: auto; }
   .drawer.show { transform: translateX(0); opacity: 1; }
-  .drawer-inner { padding: 40px 32px 40px; }
-  .drawer-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  .drawer-inner { padding: 32px 30px 48px; }
+  .drawer-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .drawer h2 { margin: 14px 0 0; font-size: 22px; line-height: 1.35; letter-spacing: -0.01em; }
-  .drawer .desc { color: var(--text-2); font-size: 13.5px; line-height: 1.75; margin: 14px 0 0; }
-  .section-title { margin: 32px 0 12px; font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; }
-  .check { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid #1b1f25; font-size: 13.5px; color: var(--text); }
+  .drawer .meta { margin-top: 10px; }
+  .section-title { margin: 26px 0 10px; font-size: 11.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; display: flex; align-items: center; justify-content: space-between; }
+  .section-title .link { text-transform: none; letter-spacing: 0; }
+  .brief { margin: 0; color: var(--text-2); font-size: 13.5px; line-height: 1.75; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .chip { font-size: 11.5px; color: var(--text-2); border: 1px solid var(--line); background: #14171c; border-radius: 999px; padding: 3px 9px; }
+  .attach { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text-2); font-size: 12.5px; }
+  .attach svg { flex: none; color: var(--text-3); }
+  .attach .size { margin-left: auto; color: var(--text-3); }
+  .review-summary { font-size: 12.5px; color: var(--text-2); margin-bottom: 10px; }
+  .review-roles { display: grid; gap: 6px; }
+  .role { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; color: var(--text-2); }
+  .role .v { font-variant-numeric: tabular-nums; }
+  .role .v.block { color: var(--red); }
+  .role .v.warn { color: var(--amber); }
+  .role .v.pass { color: var(--green); }
+  .check { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid #1b1f25; font-size: 13.5px; }
   .check:last-child { border-bottom: 0; }
   .check svg { color: var(--green); flex: none; margin-top: 1px; }
-  .drawer-actions { display: flex; gap: 10px; margin-top: 28px; }
-  .drawer-actions .btn { flex: 1; text-align: center; padding: 11px 14px; }
-  details.tech { margin-top: 34px; border-top: 1px solid var(--line); padding-top: 18px; }
-  details.tech summary {
-    list-style: none; cursor: pointer; color: var(--text-2); font-size: 12.5px;
-    display: flex; align-items: center; gap: 8px;
-  }
+  .accept-state { margin-bottom: 4px; font-size: 12.5px; color: var(--amber); }
+  .rel { display: flex; gap: 10px; padding: 8px 0; font-size: 13px; color: var(--text-2); border-bottom: 1px solid #1b1f25; }
+  .rel:last-child { border-bottom: 0; }
+  .rel b { color: var(--text); font-weight: 500; width: 52px; flex: none; }
+  .timeline { margin: 0; padding: 0; list-style: none; }
+  .timeline li { position: relative; padding: 0 0 16px 18px; border-left: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+  .timeline li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  .timeline li::before { content: ""; position: absolute; left: -4px; top: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+  .timeline li:first-child::before { background: var(--blue); }
+  .timeline b { color: var(--text); font-weight: 600; }
+  .badge { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--text-3); margin-left: 6px; }
+  .badge.minor { color: #9dc0ff; border-color: #2a3b57; }
+  .badge.patch { color: #b9c0c9; }
+  .badge.major { color: #f0cf8d; border-color: #4a3b1e; }
+  .drawer-actions { display: flex; gap: 10px; margin-top: 26px; }
+  .drawer-actions .btn { flex: 1; text-align: center; }
+  details.tech { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 16px; }
+  details.tech summary { list-style: none; cursor: pointer; color: var(--text-2); font-size: 12.5px; display: flex; align-items: center; gap: 8px; }
   details.tech summary::-webkit-details-marker { display: none; }
-  details.tech summary::before { content: "▸"; transition: transform 150ms ease-out; }
+  details.tech summary::before { content: "▸"; transition: transform 150ms; }
   details.tech[open] summary::before { transform: rotate(90deg); }
-  .tech-body { margin-top: 14px; color: var(--text-2); font-size: 12.5px; line-height: 1.9; }
+  .tech-body { margin-top: 12px; color: var(--text-2); font-size: 12.5px; line-height: 1.9; }
   .tech-body code { color: var(--text); background: #171b21; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; font-size: 11.5px; }
-
-  /* modal */
+  .link { border: 0; background: transparent; color: var(--text-2); padding: 0; font-size: 12px; }
+  .link:hover { color: var(--text); }
   .modal-scrim { position: fixed; inset: 0; background: rgba(4,6,9,.6); backdrop-filter: blur(8px); display: grid; place-items: center; }
-  .modal {
-    width: 560px; max-width: 92vw; background: #12151a; border: 1px solid var(--line-strong);
-    border-radius: 18px; padding: 28px; box-shadow: 0 24px 80px rgba(0,0,0,.5);
-  }
+  .modal { width: 640px; max-width: 94vw; max-height: 88vh; overflow-y: auto; background: #12151a; border: 1px solid var(--line-strong); border-radius: 18px; padding: 26px; box-shadow: 0 24px 80px rgba(0,0,0,.5); }
   .modal h3 { margin: 0; font-size: 19px; letter-spacing: -0.01em; }
-  .modal p.lead { margin: 8px 0 20px; color: var(--text-2); font-size: 13px; }
-  .task-row { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid #1b1f25; }
+  .modal p.lead { margin: 8px 0 16px; color: var(--text-2); font-size: 13px; }
+  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .role-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; font-size: 12.5px; color: var(--text-2); }
+  .role-card strong { display: flex; justify-content: space-between; color: var(--text); font-weight: 500; margin-bottom: 6px; }
+  .role-card .v { font-size: 11.5px; }
+  .role-card .v.pass { color: var(--green); }
+  .role-card .v.warn { color: var(--amber); }
+  .role-card .v.block { color: var(--red); }
+  .finding { padding: 8px 0; border-top: 1px solid #1b1f25; font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+  .finding b { color: var(--text); font-weight: 500; }
+  .sev { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; margin-right: 6px; }
+  .sev.blocker { background: #3a1d1d; color: var(--red); }
+  .sev.major { background: #2a2416; color: var(--amber); }
+  .sev.minor { background: #1c2027; color: #b9c0c9; }
+  .diff { font-size: 12.5px; color: var(--text-2); line-height: 2; }
+  .diff .old { color: var(--red); text-decoration: line-through; }
+  .diff .new { color: #8fe0b4; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  .note { color: var(--text-3); font-size: 12px; margin-top: 12px; }
+  .env { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: var(--text-2); margin: 14px 0; }
+  .env b { color: var(--text); font-weight: 500; display: block; font-size: 12.5px; margin-top: 2px; }
+  .task-row { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid #1b1f25; }
   .task-row:last-of-type { border-bottom: 1px solid #1b1f25; }
-  .task-index { width: 22px; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; padding-top: 2px; }
+  .task-index { width: 22px; color: var(--text-3); font-size: 12px; padding-top: 2px; }
   .task-row strong { display: block; font-size: 13.5px; font-weight: 600; }
   .task-row span { display: block; margin-top: 3px; color: var(--text-2); font-size: 12.5px; }
-  .modal-note { margin: 16px 0 22px; color: var(--text-3); font-size: 12px; }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+  .toggle { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--text-2); font-size: 12.5px; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: #1b2028; border: 1px solid var(--line-strong); color: var(--text); font-size: 12.5px; padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity 180ms; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .detail-panel { width: 940px; max-width: 96vw; max-height: 90vh; overflow-y: auto; background: #0f1216; border: 1px solid var(--line-strong); border-radius: 18px; padding: 30px 34px; box-shadow: 0 24px 80px rgba(0,0,0,.5); }
+  .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+  .detail-title { margin: 14px 0 4px; font-size: 24px; line-height: 1.35; letter-spacing: -0.01em; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 300px; gap: 30px; margin-top: 22px; }
+  .detail-main h4, .detail-side h4 { margin: 22px 0 8px; font-size: 11.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+  .detail-main h4:first-child, .detail-side h4:first-child { margin-top: 0; }
+  .detail-main p, .detail-side p { margin: 0; color: var(--text-2); font-size: 13.5px; line-height: 1.75; }
+  .detail-main ul { margin: 0; padding-left: 18px; color: var(--text-2); font-size: 13.5px; line-height: 1.8; }
+  .version-row { display: flex; align-items: center; gap: 8px; padding: 9px 10px; margin: 0 -10px; border-radius: 8px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+  .version-row:hover { background: #171b21; }
+  .version-row b { color: var(--text); font-weight: 600; }
+  .muted { color: var(--text-3); }
+  .tree { list-style: none; margin: 0; padding-left: 0; }
+  .tree li { position: relative; padding: 6px 0 6px 18px; border-left: 1px solid var(--line); font-size: 13px; color: var(--text-2); }
+  .tree li::before { content: ""; position: absolute; left: -4px; top: 13px; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+  .tree li.current::before { background: var(--blue); }
+  .matrix { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; color: var(--text-2); }
+  .matrix th, .matrix td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #1b1f25; }
+  .matrix th { color: var(--text-3); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .matrix .ok { color: var(--green); }
+  .impact { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 12.5px; color: var(--text-2); }
+  .graph-legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); margin: 10px 0 8px; flex-wrap: wrap; }
+  .lg { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-left: 14px; }
+  .lg.req { background: var(--blue); }
+  .lg.test { background: var(--green); }
+  .lg.adr { background: var(--amber); }
+  .lg.module { background: var(--text-2); }
+  .lg-hint { margin-left: auto; color: var(--text-3); }
+  .graph { width: 100%; height: auto; background: #0d1014; border: 1px solid var(--line); border-radius: 12px; }
+  .gnode rect { fill: #151a20; stroke: #2c333d; stroke-width: 1; transition: fill 150ms, stroke 150ms; }
+  .gnode:hover rect, .gnode:focus-visible rect { fill: #1a2028; stroke: #4d8dff; }
+  .gnode.current rect { stroke: #4d8dff; }
+  .gnode { cursor: pointer; outline: none; }
+  .gnode-id { fill: var(--text); font-size: 11px; font-family: var(--font); font-weight: 600; }
+  .gnode-title { fill: var(--text-2); font-size: 10.5px; font-family: var(--font); }
+  .gedge path { fill: none; stroke: #3a4450; stroke-width: 1.2; }
+  .gedge-label { fill: #8b95a3; font-size: 10.5px; font-family: var(--font); }
+  .stepper { display: flex; gap: 10px; margin: 6px 0 18px; flex-wrap: wrap; }
+  .step { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+  .step b { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line); font-size: 11px; font-weight: 500; }
+  .step.active { color: var(--text); }
+  .step.active b { background: #f2f4f7; color: #0b0d10; border-color: transparent; }
+  .step.done b { border-color: var(--green); color: var(--green); }
+  .source-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .source-tab { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text-2); }
+  .source-tab.active { background: #1d222a; color: var(--text); border-color: var(--line-strong); }
+  .dropzone { border: 1px dashed var(--line-strong); border-radius: 12px; padding: 16px; background: #0d1014; }
+  .dropzone textarea { width: 100%; min-height: 104px; background: transparent; border: 0; outline: 0; color: var(--text); font-family: var(--font); font-size: 13px; line-height: 1.7; resize: vertical; }
+  .attach-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .attach-chip { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; background: #12151a; }
+  .attach-chip button { border: 0; background: transparent; color: var(--text-3); font-size: 12px; padding: 0; }
+  .extract-grid { display: grid; grid-template-columns: 1fr 1.1fr; gap: 16px; margin-top: 8px; }
+  .raw-pane { background: #0d1014; border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 12.5px; color: var(--text-2); line-height: 1.85; max-height: 340px; overflow: auto; }
+  .raw-pane h4, .draft-pane h4 { margin: 0 0 8px; font-size: 11.5px; color: var(--text-3); letter-spacing: .06em; text-transform: uppercase; }
+  .raw-pane mark { background: #1f2b3f; color: #cfe0ff; padding: 0 2px; border-radius: 3px; }
+  .draft-pane { display: flex; flex-direction: column; gap: 8px; }
+  .field-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #14171c; }
+  .field-card .k { font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .field-card .v { margin-top: 4px; font-size: 13px; color: var(--text); line-height: 1.6; }
+  .citation { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 10.5px; color: #9dc0ff; border: 1px solid #2a3b57; border-radius: 999px; padding: 1px 7px; }
+  .question { border: 1px solid #4a3b1e; background: #1f1a10; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: #f0cf8d; margin-top: 12px; }
+  .filelist { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+  .filerow { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--text-2); border-bottom: 1px solid #1b1f25; padding: 7px 0; }
+  .filerow b { color: var(--text); font-weight: 500; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <div class="shell">
   <header class="head">
-    <div>
-      <h1>需求</h1>
-      <p class="sub" id="summary">2 条需求，验收齐全</p>
-    </div>
-    <div class="head-actions">
-      <button class="btn ghost" id="newBtn">＋ 新建</button>
-      <button class="icon-btn" aria-label="更多">⋯</button>
-    </div>
+    <div><h1>需求</h1><p class="sub" id="summary"></p></div>
+    <div class="head-actions"><button class="btn ghost" id="newBtn">＋ 新建</button><button class="icon-btn" aria-label="更多">⋯</button></div>
   </header>
-
   <div class="toolbar">
     <div class="seg" id="seg">
-      <button class="active" data-filter="all">全部<span id="countAll">2</span></button>
-      <button data-filter="todo">待开发<span id="countTodo">2</span></button>
+      <button class="active" data-filter="all">全部<span id="countAll"></span></button>
+      <button data-filter="proposed">待评审<span id="countProposed"></span></button>
+      <button data-filter="reviewing">评审中<span id="countReviewing"></span></button>
+      <button data-filter="accepted">已采纳<span id="countAccepted"></span></button>
       <button data-filter="doing">开发中<span>0</span></button>
       <button data-filter="done">已验收<span>0</span></button>
     </div>
@@ -216,137 +235,309 @@
       <input id="search" type="search" placeholder="搜索需求" aria-label="搜索需求">
     </label>
   </div>
-
   <main class="list" id="list"></main>
-  <div class="empty" id="empty" hidden>
-    <strong>这里还没有需求</strong>
-    新建一条，或者让 AI 按业务描述起草。
-  </div>
-
-
+  <div class="empty" id="empty" hidden><strong>这里还没有需求</strong>新建一条，或从聊天记录、截图导入。</div>
 </div>
 
 <div class="scrim" id="scrim" hidden></div>
 <aside class="drawer" id="drawer" hidden aria-label="需求详情">
   <div class="drawer-inner">
     <div class="drawer-top">
-      <span class="pill todo" id="dPill">待开发</span>
-      <button class="icon-btn" id="closeDrawer" aria-label="关闭">×</button>
+      <div class="card-head" style="margin:0"><span class="pill" id="dPill"></span><span class="rev" id="dRev"></span></div>
+      <div style="display:flex;gap:4px"><button class="btn sm ghost" id="dEdit">编辑</button><button class="icon-btn" id="closeDrawer" aria-label="关闭">×</button></div>
     </div>
     <h2 id="dTitle"></h2>
-    <p class="desc" id="dDesc"></p>
+    <p class="meta" id="dMeta"></p>
 
-    <div class="section-title">验收</div>
-    <div id="dChecks"></div>
+    <div class="section-title">背景与来源 <button class="link" id="openDetail">查看详情</button></div>
+    <p class="brief" id="dBrief"></p>
+    <div class="chips" id="dChips"></div>
+    <div id="dAttachments"></div>
 
-    <div class="drawer-actions">
-      <button class="btn" id="aiBtn">让 AI 补充验收</button>
-      <button class="btn primary" id="dStart">开始开发</button>
+    <div class="section-title">评审 <button class="link" id="openReview">查看报告</button></div>
+    <div class="review-summary" id="dReviewSummary"></div>
+    <div class="review-roles" id="dReviewRoles"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn sm" id="startReview">发起 AI 评审</button>
+      <button class="btn sm primary" id="signReview" disabled>通过评审（人工签收）</button>
     </div>
 
-    <details class="tech">
-      <summary>技术详情</summary>
-      <div class="tech-body" id="dTech"></div>
-    </details>
+    <div class="section-title">验收</div>
+    <div class="accept-state" id="dAcceptState"></div>
+    <div id="dChecks"></div>
+
+    <div class="section-title">关系 <button class="link" id="openTrace">查看追溯</button></div>
+    <div id="dRelations"></div>
+
+    <div class="section-title">历史 <button class="link" id="openVersion">对比版本</button></div>
+    <ol class="timeline" id="dHistory"></ol>
+
+    <div class="drawer-actions">
+      <button class="btn" id="runAccept">运行验收</button>
+      <button class="btn primary" id="dStart">开始开发</button>
+    </div>
+    <details class="tech"><summary>技术详情</summary><div class="tech-body" id="dTech"></div></details>
   </div>
 </aside>
 
-<div class="modal-scrim" id="modal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-label="生成开发任务">
-    <h3>生成开发任务</h3>
-    <p class="lead" id="modalLead">将为「同一幂等键的重复退款请求返回同一退款单」生成 3 张任务卡。</p>
-    <div id="modalTasks"></div>
-    <p class="modal-note">这是预览：确认后才会写入变更目录并生成看板卡，可随时取消。</p>
+<div class="modal-scrim" id="reviewModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="AI 评审报告">
+    <h3>AI 评审报告</h3>
+    <p class="lead" id="reviewLead"></p>
+    <div class="role-grid" id="reviewRoles"></div>
+    <div id="reviewFindings"></div>
+    <p class="note">AI 只给证据与修改建议，不替人签字；“通过评审”由人工执行，且版本内容变化后自动失效。</p>
     <div class="modal-actions">
-      <button class="btn" id="modalCancel">取消</button>
-      <button class="btn primary" id="modalConfirm">生成预览</button>
+      <button class="btn" id="reviewClose">关闭</button>
+      <button class="btn primary" id="reviewApply">应用建议并复审</button>
     </div>
   </div>
 </div>
+
+<div class="modal-scrim" id="versionModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="版本对比">
+    <h3>版本对比 · v2.0.1 → v2.1.0</h3>
+    <p class="lead">MINOR：新增并发验收，语义向后兼容；需要重新评审，不要求重做验收基线。</p>
+    <div class="diff" id="versionDiff"></div>
+    <p class="note" id="versionLog"></p>
+    <div class="modal-actions"><button class="btn" id="versionClose">关闭</button><button class="btn primary" id="versionOpen">查看变更记录</button></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="startModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="开始开发">
+    <h3>开始开发</h3>
+    <p class="lead" id="startLead"></p>
+    <div class="env">
+      <div>变更 <b>CHG-PAY-005</b></div><div>分支 <b>alm/chg-pay-005</b></div>
+      <div>基线 <b>c678e16（HEAD）</b></div><div>状态 <b id="startState">评审中 → 已采纳 → 开发中</b></div>
+      <div>工作区 <b>隔离 worktree</b></div><div>上下文包 <b>.alm/context/CHG-PAY-005/</b></div>
+      <div>允许命令 <b>alm check / node --test / alm ci run</b></div><div>网络 <b>默认关闭</b></div>
+    </div>
+    <div id="startTasks"></div>
+    <label class="toggle"><input type="checkbox" id="syncBox"> 同时创建看板 Issue（GitHub / Gitea）</label>
+    <p class="note">确认后写入 changes/&lt;CHG&gt;/、生成 3 张任务卡与上下文包；建 Issue 需要本机凭据。</p>
+    <div class="modal-actions"><button class="btn" id="startCancel">取消</button><button class="btn primary" id="startConfirm">确认并生成</button></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="acceptModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="运行验收">
+    <h3>运行验收</h3>
+    <p class="lead" id="acceptLead"></p>
+    <div class="env">
+      <div>命令 <b>alm ci run --requirement REQ-PAY-004</b></div><div>环境 <b>隔离工作区 · 离线</b></div>
+      <div>超时 <b>10 分钟</b></div><div>证据 <b>.alm/acceptance/REQ-PAY-004/&lt;sha&gt;.json</b></div>
+    </div>
+    <p class="note">只执行需求登记的白名单命令；输出、退出码、耗时与 SHA 一并归档，结果不可手改。</p>
+    <div class="modal-actions"><button class="btn" id="acceptCancel">取消</button><button class="btn primary" id="acceptRun">运行</button></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="detailModal" hidden>
+  <div class="detail-panel">
+    <div class="detail-head">
+      <div class="card-head" id="detailPills" style="margin:0"></div>
+      <div style="display:flex;gap:4px"><button class="btn sm ghost" id="detailEdit">编辑</button><button class="icon-btn" id="detailClose" aria-label="关闭">×</button></div>
+    </div>
+    <h2 class="detail-title" id="detailTitle"></h2>
+    <p class="meta" id="detailMeta"></p>
+    <div class="detail-grid">
+      <div class="detail-main" id="detailMain"></div>
+      <aside class="detail-side" id="detailSide"></aside>
+    </div>
+    <div class="modal-actions"><button class="btn" id="detailTrace">查看追溯</button><button class="btn primary" id="detailStart">开始开发</button></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="snapshotModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="版本快照">
+    <h3 id="snapshotTitle"></h3>
+    <p class="lead" id="snapshotMeta"></p>
+    <div id="snapshotBody"></div>
+    <p class="note">只读快照：历史版本不会被修改；恢复需基于此版本创建新修订。</p>
+    <div class="modal-actions"><button class="btn" id="snapshotClose">关闭</button><button class="btn primary" id="snapshotFork">基于此版本创建修订</button></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="traceModal" hidden>
+  <div class="detail-panel">
+    <div class="detail-head"><h3 style="margin:0">追溯视图</h3><button class="icon-btn" id="traceClose" aria-label="关闭">×</button></div>
+    <div id="traceBody"></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="newModal" hidden>
+  <div class="modal" style="width: 800px">
+    <h3>新建需求</h3>
+    <p class="lead">从原始材料开始：文本、截图、聊天记录、会议纪要；AI 提取为软件需求，由你确认。</p>
+    <div class="stepper" id="newStepper"></div>
+    <div id="newBody"></div>
+    <div class="modal-actions" id="newActions"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
 
 <script>
   const REQS = [
     {
       id: 'REQ-PAY-004',
       title: '同一幂等键的重复退款请求返回同一退款单',
-      team: '支付团队',
-      state: 'todo',
-      stateText: '待开发',
-      desc: '退款金额不得超过订单可退余额；重复提交必须返回同一张退款单，不新增记录。',
-      checks: ['同键重放返回同一 refundId，且不新增退款记录', '并发同键请求只产生一条退款单'],
-      tech: {
-        file: 'requirements/refund-idempotent.sdoc:7',
-        rels: ['allocated_to → 退款模块', 'constrained_by → ADR-PAY-003', 'verified_by → TEST-PAY-004 / TEST-PAY-005'],
-        rule: 'COV-001 / REL-002 / TASK-001 通过'
+      status: 'reviewing', statusText: '评审中', version: '2.1.0',
+      team: '支付团队', priority: 'P1',
+      brief: '退款金额不得超过订单可退余额；同一订单 + 同一幂等键只产生一张退款单，重复请求返回首次结果。',
+      goal: '同一幂等键只产生一张退款单，重复请求返回首次结果，并发不重复扣减。',
+      scopeOut: '退款审批流、跨渠道对账、退款单 UI。',
+      decisions: ['幂等键由调用方传入，按订单号 + 幂等键唯一约束', '幂等记录保留 7 天', '金额校验与余额扣减在同一事务内完成'],
+      sources: ['聊天', '会议'], attachments: [{ name: 'chat-2026-10-29.md', size: '1.2 KB' }],
+      review: {
+        completed: 3, total: 5, blockers: 1, passed: false,
+        roles: [
+          ['业务', 'pass'], ['架构', 'warn'], ['测试', 'block'], ['安全', 'pass'], ['交付', 'warn']
+        ],
+        findings: [
+          ['blocker', '测试', '并发场景缺少可判定验收：只说“并发安全”，没有可执行断言。', '新增用例：两个相同幂等键请求同时到达，只产生一条退款单。'],
+          ['major', '架构', '未说明幂等记录的存储与过期策略。', '在 brief 增加：幂等记录保留 7 天，订单号 + 幂等键唯一约束。'],
+          ['minor', '交付', '缺少回滚说明。', '补充：异常时按退款单号补偿，不回滚已入账金额。']
+        ]
       },
-      tasks: [
-        ['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'],
-        ['实现（退款模块）', '幂等键、去重表与事务边界'],
-        ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']
-      ]
+      checks: ['同键重放返回同一 refundId，且不新增退款记录', '并发同键请求只产生一条退款单'],
+      acceptState: '已覆盖 2/2 · 未验证',
+      relations: [['上级', ['REQ-PAY-001 支持订单部分退款']], ['验收', ['TEST-PAY-004', 'TEST-PAY-005']], ['依赖', []]],
+      graph: {
+        stats: { parent: 1, children: 0, tests: 2 },
+        nodes: [
+          { id: 'REQ-PAY-001', label: 'REQ-PAY-001 支持订单部分退款', type: 'req', x: 70, y: 60 },
+          { id: 'REQ-PAY-004', label: 'REQ-PAY-004 退款幂等', type: 'req', x: 340, y: 170 },
+          { id: 'TEST-PAY-004', label: 'TEST-PAY-004 同键重放', type: 'test', x: 680, y: 110 },
+          { id: 'TEST-PAY-005', label: 'TEST-PAY-005 并发同键', type: 'test', x: 680, y: 190 },
+          { id: 'ADR-PAY-003', label: 'ADR-PAY-003 退款事务边界', type: 'adr', x: 360, y: 350 },
+          { id: 'MOD-PAY-REFUND', label: 'MOD-PAY-REFUND 退款模块', type: 'module', x: 70, y: 290 }
+        ],
+        edges: [
+          { from: 'REQ-PAY-001', to: 'REQ-PAY-004', label: 'parent_of' },
+          { from: 'REQ-PAY-004', to: 'TEST-PAY-004', label: 'verified_by' },
+          { from: 'REQ-PAY-004', to: 'TEST-PAY-005', label: 'verified_by' },
+          { from: 'REQ-PAY-004', to: 'ADR-PAY-003', label: 'constrained_by' },
+          { from: 'REQ-PAY-004', to: 'MOD-PAY-REFUND', label: 'allocated_to' }
+        ]
+      },
+
+      versions: [
+        ['v2.1.0', 'MINOR', '2026-10-30', 'CHG-PAY-004', '新增并发验收与幂等记录说明'],
+        ['v2.0.1', 'PATCH', '2026-10-29', 'CHG-PAY-003', '修正背景里的错别字'],
+        ['v2.0.0', 'MAJOR', '2026-10-28', 'CHG-PAY-002', '幂等键方案定稿']
+      ],
+      tech: { file: 'requirements/refund-idempotent.sdoc:7', manifest: 'manifest.json · sha256 c485187b…', rules: 'COV-001 / REL-002 / ATT-001 / TASK-001 通过' },
+      tasks: [['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'], ['实现（退款模块）', '幂等键、去重表与事务边界'], ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']]
     },
     {
       id: 'REQ-PAY-001',
       title: '支持订单部分退款',
-      team: '支付团队',
-      state: 'todo',
-      stateText: '待开发',
-      desc: '订单支持按金额部分退款，退款金额与订单状态保持一致。',
+      status: 'proposed', statusText: '待评审', version: '1.0.0',
+      team: '支付团队', priority: 'P1',
+      brief: '订单支持按金额部分退款，退款金额与订单状态保持一致。',
+      goal: '订单支持按金额部分退款，退款金额与订单状态一致。',
+      scopeOut: '退款审批流、跨渠道对账、通知。',
+      decisions: ['部分退款金额与订单状态在一次事务内更新'],
+      sources: ['会议'], attachments: [],
+      review: { completed: 0, total: 5, blockers: 0, passed: false, roles: [['业务', 'pending'], ['架构', 'pending'], ['测试', 'pending'], ['安全', 'pending'], ['交付', 'pending']], findings: [] },
       checks: ['部分退款金额与订单状态一致'],
-      tech: {
-        file: 'requirements/refund.sdoc:7',
-        rels: ['allocated_to → 退款模块', 'constrained_by → ADR-PAY-003', 'verified_by → TEST-PAY-001'],
-        rule: 'COV-001 / REL-002 通过'
+      acceptState: '已覆盖 1/1 · 未验证',
+      relations: [['子需求', ['REQ-PAY-004 退款幂等']], ['验收', ['TEST-PAY-001']], ['依赖', []]],
+      graph: {
+        stats: { parent: 0, children: 1, tests: 1 },
+        nodes: [
+          { id: 'REQ-PAY-001', label: 'REQ-PAY-001 支持订单部分退款', type: 'req', x: 330, y: 160 },
+          { id: 'REQ-PAY-004', label: 'REQ-PAY-004 退款幂等', type: 'req', x: 640, y: 100 },
+          { id: 'TEST-PAY-001', label: 'TEST-PAY-001 金额与状态', type: 'test', x: 640, y: 250 },
+          { id: 'ADR-PAY-003', label: 'ADR-PAY-003 退款事务边界', type: 'adr', x: 340, y: 340 },
+          { id: 'MOD-PAY-REFUND', label: 'MOD-PAY-REFUND 退款模块', type: 'module', x: 70, y: 270 }
+        ],
+        edges: [
+          { from: 'REQ-PAY-001', to: 'REQ-PAY-004', label: 'parent_of' },
+          { from: 'REQ-PAY-001', to: 'TEST-PAY-001', label: 'verified_by' },
+          { from: 'REQ-PAY-001', to: 'ADR-PAY-003', label: 'constrained_by' },
+          { from: 'REQ-PAY-001', to: 'MOD-PAY-REFUND', label: 'allocated_to' }
+        ]
       },
-      tasks: [
-        ['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'],
-        ['实现（退款模块）', '退款金额与订单状态一次事务内更新'],
-        ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']
-      ]
+
+      versions: [['v1.0.0', 'MAJOR', '2026-10-23', 'CHG-PAY-001', '初始版本']],
+      tech: { file: 'requirements/refund.sdoc:7', manifest: '无附件', rules: 'COV-001 / REL-002 通过' },
+      tasks: [['需求与验收资产', '补齐验收与关系（requirements/ · tests/）'], ['实现（退款模块）', '退款金额与订单状态一次事务内更新'], ['门禁、差异与证据', 'check / diff / impact，落 alm.evidence/v1']]
     }
   ]
 
   const el = (id) => document.getElementById(id)
   const checkSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.2 8.4 6.3 11.5 12.8 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  const fileSvg = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 2.5h6l3 3v8a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 7h5M5.5 10h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
+  const VERDICT = { pass: '通过', warn: '有建议', block: '阻塞', pending: '未开始' }
+
+  let filter = 'all'
+  let keyword = ''
 
   function card(req) {
     return `<article class="card" data-id="${req.id}" tabindex="0" role="button" aria-label="查看 ${req.title}">
       <div>
-        <div class="card-head"><span class="pill ${req.state}">${req.stateText}</span><span class="id">${req.id}</span></div>
+        <div class="card-head"><span class="pill ${req.status}">${req.statusText}</span><span class="id">${req.id}</span><span class="rev">v${req.version}</span></div>
         <h2>${req.title}</h2>
-        <p class="meta">${req.team}<span class="dot">·</span>验收 ${req.checks.length}/${req.checks.length}</p>
+        <p class="meta">${req.team}<span class="dot">·</span>验收 ${req.checks.length}/${req.checks.length}${req.attachments.length ? `<span class="dot">·</span><span class="src">${req.attachments.length} 个附件</span>` : ''}${req.sources.length ? `<span class="dot">·</span><span class="src">${req.sources.join(' / ')}</span>` : ''}</p>
       </div>
       <button class="btn primary sm card-cta" data-start="${req.id}">开始开发</button>
     </article>`
   }
 
-  let filter = 'all'
-  let keyword = ''
-
   function render() {
-    const visible = REQS.filter((r) => (filter === 'all' ? true : r.state === filter))
-      .filter((r) => r.title.includes(keyword) || r.id.includes(keyword.toUpperCase()))
+    const visible = REQS.filter((req) => filter === 'all' || req.status === filter)
+      .filter((req) => req.title.includes(keyword) || req.id.includes(keyword.toUpperCase()))
     el('list').innerHTML = visible.map(card).join('')
     el('empty').hidden = visible.length > 0
-    el('summary').textContent = visible.length
-      ? `${REQS.length} 条需求，验收齐全`
-      : '没有匹配的需求'
+    el('summary').textContent = `${REQS.length} 条需求 · ${REQS.filter((r) => r.status === 'proposed').length} 条待评审 · ${REQS.filter((r) => r.status === 'reviewing').length} 条评审中`
+    el('countAll').textContent = REQS.length
+    el('countProposed').textContent = REQS.filter((r) => r.status === 'proposed').length
+    el('countReviewing').textContent = REQS.filter((r) => r.status === 'reviewing').length
+    el('countAccepted').textContent = REQS.filter((r) => r.status === 'accepted').length
     for (const btn of el('seg').querySelectorAll('button')) btn.classList.toggle('active', btn.dataset.filter === filter)
   }
+
+  let currentId = null
 
   function openDrawer(id) {
     const req = REQS.find((r) => r.id === id)
     if (!req) return
-    el('dPill').className = `pill ${req.state}`
-    el('dPill').textContent = req.stateText
+    currentId = id
+    el('dPill').className = `pill ${req.status}`
+    el('dPill').textContent = req.statusText
+    el('dRev').textContent = `v${req.version}`
     el('dTitle').textContent = req.title
-    el('dDesc').textContent = req.desc
+    el('dMeta').textContent = `${req.team} · ${req.priority} · ${req.id}`
+    el('dBrief').textContent = req.brief
+    el('dChips').innerHTML = req.sources.map((s) => `<span class="chip">来源 · ${s}</span>`).join('')
+    el('dAttachments').innerHTML = req.attachments.map((a) => `<div class="attach">${fileSvg}<span>${a.name}</span><span class="size">${a.size}</span></div>`).join('')
+
+    const rv = req.review
+    if (rv.passed) {
+      el('dReviewSummary').textContent = '5/5 角色完成 · 0 个阻塞 · 人工已签收'
+      el('dReviewRoles').innerHTML = rv.roles.map(([name, verdict]) => `<div class="role"><span>${name}</span><span class="v ${verdict === 'pending' ? '' : verdict}">${VERDICT[verdict] ?? verdict}</span></div>`).join('')
+      el('signReview').disabled = true
+      el('signReview').textContent = '已通过评审'
+    } else {
+      el('dReviewSummary').textContent = `${rv.completed}/${rv.total} 角色完成 · ${rv.blockers} 个阻塞`
+      el('dReviewRoles').innerHTML = rv.roles.map(([name, verdict]) => `<div class="role"><span>${name}</span><span class="v ${verdict === 'pending' ? '' : verdict}">${VERDICT[verdict] ?? verdict}</span></div>`).join('')
+      el('signReview').disabled = rv.completed < rv.total || rv.blockers > 0
+      el('signReview').textContent = '通过评审（人工签收）'
+    }
+
+    el('dAcceptState').textContent = req.acceptState
     el('dChecks').innerHTML = req.checks.map((c) => `<div class="check">${checkSvg}<span>${c}</span></div>`).join('')
-    el('dTech').innerHTML = `
-      <div><code>${req.id}</code> · <code>${req.tech.file}</code></div>
-      <div>关系：${req.tech.rels.join('；')}</div>
-      <div>门禁：${req.tech.rule}</div>`
+    el('dRelations').innerHTML = req.relations.map(([label, items]) => `<div class="rel"><b>${label}</b><span>${items.length ? items.join('、') : '无'}</span></div>`).join('')
+    el('dHistory').innerHTML = req.versions.map(([v, type, date, change, note]) =>
+      `<li data-version="${v}" style="cursor:pointer" title="查看 ${v} 快照"><b>${v}</b><span class="badge ${type.toLowerCase()}">${type}</span> ${date} · ${change} · ${note} <span style="color:var(--text-3)">查看快照 ›</span></li>`).join('')
+    el('dTech').innerHTML = `<div><code>${req.id}</code> · <code>${req.tech.file}</code></div><div>附件：${req.tech.manifest}</div><div>门禁：${req.tech.rules}</div>`
     el('dStart').dataset.start = req.id
+    el('runAccept').dataset.id = req.id
+    el('startReview').dataset.id = req.id
     el('scrim').hidden = false
     el('drawer').hidden = false
     requestAnimationFrame(() => { el('scrim').classList.add('show'); el('drawer').classList.add('show') })
@@ -359,29 +550,297 @@
     setTimeout(() => { el('scrim').hidden = true; el('drawer').hidden = true }, 200)
   }
 
-  function openModal(id) {
+  function openReview(id) {
     const req = REQS.find((r) => r.id === id)
     if (!req) return
-    el('modalLead').textContent = `将为「${req.title}」生成 ${req.tasks.length} 张任务卡。`
-    el('modalTasks').innerHTML = req.tasks.map(([name, hint], i) =>
-      `<div class="task-row"><div class="task-index">0${i + 1}</div><div><strong>${name}</strong><span>${hint}</span></div></div>`).join('')
-    el('modal').hidden = false
+    const rv = req.review
+    el('reviewLead').textContent = `${req.id} · v${req.version} · ${rv.completed}/${rv.total} 角色完成，${rv.blockers} 个阻塞`
+    el('reviewRoles').innerHTML = rv.roles.map(([name, verdict]) => `<div class="role-card"><strong>${name}<span class="v ${verdict === 'pending' ? '' : verdict}">${VERDICT[verdict] ?? verdict}</span></strong>${verdict === 'pending' ? '等待评审…' : verdict === 'pass' ? '未发现问题。' : verdict === 'warn' ? '有建议，不阻塞。' : '存在阻塞项。'}</div>`).join('')
+    el('reviewFindings').innerHTML = rv.findings.length
+      ? rv.findings.map(([sev, role, text, suggestion]) => `<div class="finding"><span class="sev ${sev}">${sev}</span><b>${role}</b>：${text}<br><span style="color:var(--text-3)">建议：${suggestion}</span></div>`).join('')
+      : '<p class="note">没有阻塞项；可以发起人工签收。</p>'
+    el('reviewModal').hidden = false
   }
 
-  function closeModal() { el('modal').hidden = true }
+  function closeReview() { el('reviewModal').hidden = true }
+
+  function openVersion(id) {
+    const req = REQS.find((r) => r.id === id)
+    if (!req) return
+    el('versionDiff').innerHTML = `
+      <div>版本：<span class="old">v2.0.1</span> → <span class="new">v2.1.0（MINOR）</span></div>
+      <div>背景：<span class="new">新增“幂等记录保留 7 天”说明</span></div>
+      <div>验收：<span class="new">新增“并发同键只产生一条退款单”</span></div>
+      <div>标题：未变</div>
+      <div>关系：未变</div>`
+    el('versionLog').textContent = '变更记录：v2.1.0 · 2026-10-30 · CHG-PAY-004 · 新增并发验收与幂等记录说明（MINOR 需重新评审）'
+    el('versionModal').hidden = false
+  }
+
+  function closeVersion() { el('versionModal').hidden = true }
+
+  function openStart(id) {
+    const req = REQS.find((r) => r.id === id)
+    if (!req) return
+    el('startLead').textContent = `为「${req.title}」生成 ${req.tasks.length} 张任务卡，并准备 AI 执行环境。`
+    el('startState').textContent = `${req.statusText} → 已采纳 → 开发中`
+    el('startTasks').innerHTML = req.tasks.map(([name, hint], i) => `<div class="task-row"><div class="task-index">0${i + 1}</div><div><strong>${name}</strong><span>${hint}</span></div></div>`).join('')
+    el('startModal').hidden = false
+  }
+
+  function closeStart() { el('startModal').hidden = true }
+
+  function openAccept(id) {
+    const req = REQS.find((r) => r.id === id)
+    if (!req) return
+    el('acceptLead').textContent = `运行 ${req.id} 的验收命令，生成不可手改的证据。`
+    el('acceptModal').hidden = false
+  }
+
+  function closeAccept() { el('acceptModal').hidden = true }
+
+  const SNAPSHOTS = {
+    'REQ-PAY-004@2.1.0': {
+      brief: '退款金额不得超过订单可退余额；同一订单 + 同一幂等键只产生一张退款单，重复请求返回首次结果。',
+      checks: ['同键重放返回同一 refundId，且不新增退款记录', '并发同键请求只产生一条退款单']
+    },
+    'REQ-PAY-004@2.0.1': {
+      brief: '退款金额不得超过订单可退余额；重复提交返回同一张退款单。',
+      checks: ['同键重放返回同一 refundId，且不新增退款记录']
+    },
+    'REQ-PAY-004@2.0.0': {
+      brief: '退款金额不得超过可退余额；重复提交不应新增退款单。',
+      checks: ['同键重放返回同一 refundId']
+    },
+    'REQ-PAY-001@1.0.0': {
+      brief: '订单支持按金额部分退款，退款金额与订单状态保持一致。',
+      checks: ['部分退款金额与订单状态一致']
+    }
+  }
+
+  function openDetail(id) {
+    const req = REQS.find((r) => r.id === id)
+    if (!req) return
+    el('detailPills').innerHTML = `<span class="pill ${req.status}">${req.statusText}</span><span class="id">${req.id}</span><span class="rev">v${req.version}</span>`
+    el('detailTitle').textContent = req.title
+    el('detailMeta').textContent = `${req.team} · ${req.priority} · 最近更新 2026-10-30`
+    const checks = req.checks.map((c) => `<div class="check">${checkSvg}<span>${c}</span></div>`).join('')
+    const decisions = (req.decisions ?? []).map((d) => `<li>${d}</li>`).join('')
+    el('detailMain').innerHTML = `
+      <h4>目标</h4><p>${req.goal ?? req.brief}</p>
+      <h4>范围外</h4><p>${req.scopeOut ?? '—'}</p>
+      <h4>关键决策</h4><ul>${decisions || '<li>—</li>'}</ul>
+      <h4>验收标准（${req.checks.length}）</h4><div>${checks}</div>
+      <h4>来源与附件</h4><p>${req.sources.join(' / ') || '—'}</p>
+      <div>${req.attachments.map((a) => `<div class="attach">${fileSvg}<span>${a.name}</span><span class="size">${a.size}</span></div>`).join('') || '<p class="muted">无附件</p>'}</div>`
+    const versionRows = req.versions.map(([v, type, date, change, note]) =>
+      `<div class="version-row" data-version="${v}"><b>${v}</b><span class="badge ${type.toLowerCase()}">${type}</span><span class="muted">${date} · ${change} · ${note}</span></div>`).join('')
+    const roleRows = req.review.roles.map(([name, verdict]) =>
+      `<div class="role"><span>${name}</span><span class="v ${verdict === 'pending' ? '' : verdict}">${VERDICT[verdict] ?? verdict}</span></div>`).join('')
+    el('detailSide').innerHTML = `
+      <h4>关系</h4><div>${req.relations.map(([label, items]) => `<div class="rel"><b>${label}</b><span>${items.length ? items.join('、') : '无'}</span></div>`).join('')}</div>
+      <h4>版本历史</h4><div>${versionRows}</div>
+      <h4>评审</h4><p>${req.review.completed}/${req.review.total} 角色 · ${req.review.blockers} 个阻塞</p><div class="review-roles">${roleRows}</div>
+      <h4>技术</h4><p class="muted">${req.tech.file}</p>`
+    el('detailModal').hidden = false
+  }
+
+  function closeDetail() { el('detailModal').hidden = true }
+
+  function openSnapshot(version) {
+    const req = REQS.find((r) => r.id === currentId)
+    if (!req) return
+    const meta = req.versions.find(([v]) => v === version)
+    if (!meta) return
+    const [v, type, date, change, note] = meta
+    const snap = SNAPSHOTS[`${req.id}@${v.replace(/^v/, '')}`] ?? { brief: req.brief, checks: req.checks }
+    el('snapshotTitle').textContent = `需求快照 · ${v}`
+    el('snapshotMeta').textContent = `${type} · ${date} · ${change} · ${note}`
+    el('snapshotBody').innerHTML = `
+      <h4 class="section-title" style="margin-top:18px">标题</h4><p class="brief">${req.title}</p>
+      <h4 class="section-title">背景</h4><p class="brief">${snap.brief}</p>
+      <h4 class="section-title">验收</h4>${snap.checks.map((c) => `<div class="check">${checkSvg}<span>${c}</span></div>`).join('')}`
+    el('snapshotModal').hidden = false
+  }
+
+  function closeSnapshot() { el('snapshotModal').hidden = true }
+
+  function openTrace(id) {
+    const req = REQS.find((r) => r.id === id)
+    if (!req || !req.graph) return
+    const W = { req: 178, test: 158, adr: 180, module: 180 }
+    const H = { req: 56, test: 42, adr: 44, module: 44 }
+    const nodes = req.graph.nodes
+      .map((n) => {
+        const w = W[n.type]
+        const h = H[n.type]
+        const title = n.label.replace(n.id, '').trim()
+        const label = title.length > 18 ? `${title.slice(0, 17)}…` : title
+        const cls = n.type === 'req' ? (n.id === req.id ? 'gnode current' : 'gnode') : 'gnode'
+        return `<g class="${cls}" data-node="${n.id}" tabindex="0" role="button" aria-label="${n.label}">
+          <rect x="${n.x}" y="${n.y}" width="${w}" height="${h}" rx="10"></rect>
+          <text x="${n.x + 12}" y="${n.y + 21}" class="gnode-id">${n.id}</text>
+          <text x="${n.x + 12}" y="${n.y + 38}" class="gnode-title">${label}</text>
+        </g>`
+      })
+      .join('')
+    const edges = req.graph.edges
+      .map((e) => {
+        const from = req.graph.nodes.find((n) => n.id === e.from)
+        const to = req.graph.nodes.find((n) => n.id === e.to)
+        if (!from || !to) return ''
+        const x1 = from.x + W[from.type]
+        const y1 = from.y + H[from.type] / 2
+        const x2 = to.x
+        const y2 = to.y + H[to.type] / 2
+        const mx = (x1 + x2) / 2
+        const my = (y1 + y2) / 2
+        return `<g class="gedge"><path d="M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}" marker-end="url(#arrow)"></path><text x="${mx}" y="${my - 6}" class="gedge-label">${e.label}</text></g>`
+      })
+      .join('')
+    el('traceBody').innerHTML = `
+      <div class="graph-legend">
+        <span class="lg req"></span>需求
+        <span class="lg test"></span>验收
+        <span class="lg adr"></span>决策
+        <span class="lg module"></span>模块
+        <span class="lg-hint">点击需求节点查看详情</span>
+      </div>
+      <svg class="graph" viewBox="0 0 900 430" role="img" aria-label="需求追溯图">
+        <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#4a5563"></path></marker></defs>
+        ${edges}
+        ${nodes}
+      </svg>
+      <div class="impact">影响面：上级 ${req.graph.stats.parent} · 子需求 ${req.graph.stats.children} · 验收 ${req.graph.stats.tests} · 依赖 0</div>`
+    el('traceModal').hidden = false
+  }
+
+  function closeTrace() { el('traceModal').hidden = true }
+
+  el('detailClose').addEventListener('click', closeDetail)
+  el('snapshotClose').addEventListener('click', closeSnapshot)
+  el('traceClose').addEventListener('click', closeTrace)
+  el('detailTrace').addEventListener('click', () => openTrace(currentId))
+  el('detailStart').addEventListener('click', () => { closeDetail(); openStart(currentId) })
+  el('detailEdit').addEventListener('click', () => toast('进入编辑（仅工作区内可写）'))
+  el('snapshotFork').addEventListener('click', () => { closeSnapshot(); toast('已创建修订草稿：基于该快照的新版本（原型）') })
+
+  let newStep = 1
+
+  function renderNewStepper() {
+    const labels = ['原始材料', 'AI 提取', '确认创建']
+    el('newStepper').innerHTML = labels
+      .map((label, index) => {
+        const n = index + 1
+        const cls = n === newStep ? 'active' : n < newStep ? 'done' : ''
+        return `<div class="step ${cls}"><b>${n < newStep ? '✓' : n}</b>${label}</div>`
+      })
+      .join('')
+  }
+
+  function renderNew() {
+    renderNewStepper()
+    if (newStep === 1) {
+      el('newBody').innerHTML = `
+        <div class="source-tabs">
+          <button class="source-tab active">文本</button>
+          <button class="source-tab">截图 / OCR</button>
+          <button class="source-tab">聊天记录</button>
+          <button class="source-tab">会议纪要</button>
+        </div>
+        <div class="dropzone">
+          <textarea id="rawInput">客服反馈：同一个订单退款失败后重试，后台出现了两笔退款单，财务对账时发现。支付同学说调用方重试没带幂等键，服务端也没去重。产品要求重复提交返回第一次的退款单，不能让用户以为失败又点一次。</textarea>
+        </div>
+        <div class="attach-row">
+          <span class="attach-chip">screenshot-01.png <button>×</button></span>
+          <span class="attach-chip">chat-2026-10-29.md <button>×</button></span>
+          <span class="attach-chip">meeting-2026-10-28.md <button>×</button></span>
+        </div>
+        <p class="note">原文件按哈希归档；图片做 OCR，聊天/纪要保留时间、发言者与消息位置；敏感信息先脱敏再送 AI。</p>`
+      el('newActions').innerHTML = '<button class="btn" id="newCancel">取消</button><button class="btn primary" id="newParse">AI 解析</button>'
+      el('newCancel').onclick = closeNew
+      el('newParse').onclick = () => { newStep = 2; renderNew() }
+      return
+    }
+    if (newStep === 2) {
+      el('newBody').innerHTML = `
+        <div class="extract-grid">
+          <div class="raw-pane">
+            <h4>原始材料 · 引用位置</h4>
+            客服反馈：同一个订单退款失败后重试，后台出现了两笔退款单，财务对账时发现。<br>
+            支付同学说调用方重试没带幂等键，服务端也没去重。<br>
+            产品要求重复提交返回第一次的退款单，不能让用户以为失败又点一次。
+            <p class="note">截图 OCR：聊天窗口第 3 条（客服-小林，10:12）</p>
+          </div>
+          <div class="draft-pane">
+            <h4>AI 提取的软件需求草案</h4>
+            <div class="field-card"><div class="k">标题</div><div class="v">退款重试需按幂等键去重</div><span class="citation">来源 · 聊天 10:15</span></div>
+            <div class="field-card"><div class="k">目标</div><div class="v">同一订单 + 同一幂等键只产生一张退款单，重复请求返回首次结果。</div><span class="citation">来源 · 聊天 10:18</span></div>
+            <div class="field-card"><div class="k">范围外</div><div class="v">退款审批流、跨渠道对账、前端提示文案。</div><span class="citation">来源 · 会议 10:30</span></div>
+            <div class="field-card"><div class="k">验收</div><div class="v">① 同键重放返回同一 refundId，不新增记录；② 并发同键只产生一条退款单。</div><span class="citation">来源 · 会议 10:30 / 聊天 10:22</span></div>
+            <div class="field-card"><div class="k">优先级</div><div class="v">P1</div><span class="citation">来源 · 会议 10:30</span></div>
+          </div>
+        </div>
+        <div class="question">待确认 2 项：① 幂等记录保留多久（建议 7 天）？② 退款失败时前端提示文案由谁提供？</div>`
+      el('newActions').innerHTML = '<button class="btn" id="newPrev">上一步</button><button class="btn primary" id="newCreate">确认并创建</button>'
+      el('newPrev').onclick = () => { newStep = 1; renderNew() }
+      el('newCreate').onclick = () => { newStep = 3; renderNew() }
+      return
+    }
+    el('newBody').innerHTML = `
+      <h4 class="section-title" style="margin-top:0">将创建</h4>
+      <div class="filelist">
+        <div class="filerow"><span><b>REQ-PAY-005.sdoc</b> · 结构化字段与关系</span><span class="muted">v1.0.0</span></div>
+        <div class="filerow"><span><b>briefs/REQ-PAY-005.md</b> · 背景、目标、范围外、决策</span><span class="muted">Markdown</span></div>
+        <div class="filerow"><span><b>attachments/REQ-PAY-005/manifest.json</b> · 3 个原始文件 + sha256</span><span class="muted">不可变</span></div>
+        <div class="filerow"><span><b>attachments/REQ-PAY-005/</b> · screenshot-01.png、chat、会议纪要</span><span class="muted">原始件</span></div>
+      </div>
+      <p class="note">保存后状态为「待评审」；AI 多角色评审通过并人工签收后才可开始开发。原始材料只读，每个字段保留引用。</p>`
+    el('newActions').innerHTML = '<button class="btn" id="newPrev2">上一步</button><button class="btn primary" id="newFinish">完成</button>'
+    el('newPrev2').onclick = () => { newStep = 2; renderNew() }
+    el('newFinish').onclick = () => { closeNew(); toast('已创建 REQ-PAY-005（待评审 · v1.0.0），原始材料已归档') }
+  }
+
+  function openNew() {
+    newStep = 1
+    el('newModal').hidden = false
+    renderNew()
+  }
+
+  function closeNew() { el('newModal').hidden = true }
+
+  let toastTimer
+  function toast(text) {
+    el('toast').textContent = text
+    el('toast').classList.add('show')
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => el('toast').classList.remove('show'), 1800)
+  }
 
   document.addEventListener('click', (event) => {
     const start = event.target.closest('[data-start]')
-    if (start) { event.stopPropagation(); openModal(start.dataset.start); return }
+    if (start) { event.stopPropagation(); openStart(start.dataset.start); return }
+    const versionEl = event.target.closest('[data-version]')
+    if (versionEl) { openSnapshot(versionEl.dataset.version); return }
+    const nodeEl = event.target.closest('[data-node]')
+    if (nodeEl) {
+      const nodeId = nodeEl.dataset.node
+      if (nodeId.startsWith('REQ-')) { closeTrace(); openDetail(nodeId) }
+      else toast('打开 ' + nodeId + '（原型占位）')
+      return
+    }
     const cardEl = event.target.closest('.card')
-    if (cardEl) { openDrawer(cardEl.dataset.id); return }
+    if (cardEl) openDrawer(cardEl.dataset.id)
   })
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') { closeModal(); closeDrawer() }
-    if (event.key === 'Enter' && document.activeElement?.classList?.contains('card')) {
-      openDrawer(document.activeElement.dataset.id)
+    if (event.key !== 'Escape') return
+    const ids = ['reviewModal', 'versionModal', 'startModal', 'acceptModal', 'detailModal', 'snapshotModal', 'traceModal', 'newModal']
+    if (ids.some((id) => !el(id).hidden)) {
+      closeReview(); closeVersion(); closeStart(); closeAccept(); closeDetail(); closeSnapshot(); closeTrace(); closeNew()
+      return
     }
+    closeDrawer()
   })
 
   el('seg').addEventListener('click', (event) => {
@@ -393,10 +852,45 @@
   el('search').addEventListener('input', (event) => { keyword = event.target.value.trim(); render() })
   el('scrim').addEventListener('click', closeDrawer)
   el('closeDrawer').addEventListener('click', closeDrawer)
-  el('dStart').addEventListener('click', () => openModal(el('dStart').dataset.start))
-  el('modalCancel').addEventListener('click', closeModal)
-  el('modalConfirm').addEventListener('click', closeModal)
-  el('newBtn').addEventListener('click', () => alert('原型：这里会打开「新建需求」引导'))
+  el('dStart').addEventListener('click', () => openStart(el('dStart').dataset.start))
+  el('runAccept').addEventListener('click', () => openAccept(el('runAccept').dataset.id))
+  el('startReview').addEventListener('click', () => openReview(el('startReview').dataset.id))
+  el('openReview').addEventListener('click', () => openReview(el('startReview').dataset.id))
+  el('reviewClose').addEventListener('click', closeReview)
+  el('reviewApply').addEventListener('click', () => {
+    const req = REQS.find((r) => r.id === currentId)
+    if (req) { req.review.completed = 5; req.review.blockers = 0; req.review.roles = req.review.roles.map(([n]) => [n, 'pass']); req.review.findings = [] }
+    closeReview()
+    if (req) openDrawer(req.id)
+    toast('已应用建议并完成复审：5/5 通过，等待人工签收')
+  })
+  el('signReview').addEventListener('click', () => {
+    const req = REQS.find((r) => r.id === currentId)
+    if (!req) return
+    req.review.passed = true
+    req.status = 'accepted'
+    req.statusText = '已采纳'
+    openDrawer(req.id)
+    render()
+    toast('评审通过：已记录签收人、版本与内容哈希')
+  })
+  el('openVersion').addEventListener('click', () => openVersion(currentId))
+  el('versionClose').addEventListener('click', closeVersion)
+  el('versionOpen').addEventListener('click', () => { closeVersion(); toast('打开变更记录（原型占位）') })
+  el('openDetail').addEventListener('click', () => openDetail(currentId))
+  el('openTrace').addEventListener('click', () => toast('打开追溯视图（原型占位）'))
+  el('dEdit').addEventListener('click', () => toast('进入编辑（仅工作区内可写）'))
+  el('startCancel').addEventListener('click', closeStart)
+  el('startConfirm').addEventListener('click', () => { closeStart(); toast('已生成变更、3 张任务卡与上下文包（原型）') })
+  el('acceptCancel').addEventListener('click', closeAccept)
+  el('acceptRun').addEventListener('click', () => {
+    const req = REQS.find((r) => r.id === currentId)
+    if (req) req.acceptState = '已覆盖 2/2 · 已验证 · 待签收'
+    closeAccept()
+    if (req) openDrawer(req.id)
+    toast('验收完成：证据已归档，等待人工签收')
+  })
+  el('newBtn').addEventListener('click', openNew)
   render()
 </script>
 </body>
