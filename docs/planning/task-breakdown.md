@@ -494,3 +494,18 @@
   - 正例：点侧边栏「需求」→ 直接看到 2 条需求、Coverage、Next 与「下一步」横幅；Settings 同样显示列表
   - 反例：无需求时仍显示三步引导；接口失败显示错误与重试，不留空白
 - 证据：Playwright 截图 `docs/assets/requirements-workbench/sidebar.png`、全量测试
+
+### ALM-07.07 需求详情在旧宿主数据下点击后空白
+
+- 类型：Bug ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.06（#83，已关闭）
+- 技能：`alm-mvp-dev`（插件集成与故障诊断）
+- 实施范围：`packages/dsh-plugin-requirements/client.js`
+- 不在范围：宿主 `query.mjs` 的字段（已由 ALM-07.01 提供）
+- 接口：详情对 `links/verifiedBy/line` 使用防御默认值；检测到旧 payload 时显示提示，不卸载面板
+- 交付物：
+  - [ ] 旧 payload（无 `links`）下详情仍渲染并提示“重启 DSH / 重载插件”
+  - [ ] 新 payload 下关系、行号、下一步保持不变
+- 验收：
+  - 正例：新宿主点击 `REQ-PAY-004` → 详情含三条关系与 `requirements/refund-idempotent.sdoc:7`
+  - 反例：Playwright 截获无 `links` 的旧 payload → 详情渲染、无 pageerror、显示旧版数据提示
+- 证据：两条 Playwright 输出、全量测试 152
