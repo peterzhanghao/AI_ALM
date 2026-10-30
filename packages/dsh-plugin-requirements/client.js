@@ -53,6 +53,13 @@ window.__ModuleLoader__.load({
       parent_of: '子需求',
     }
 
+    const VERDICT = {
+      pass: { label: '通过', color: T.ok, bg: 'rgba(53,196,122,.12)' },
+      warn: { label: '有建议', color: T.warn, bg: 'rgba(231,176,75,.14)' },
+      block: { label: '阻塞', color: T.err, bg: 'rgba(255,139,139,.14)' },
+      skip: { label: '未覆盖', color: T.text3, bg: 'rgba(107,116,128,.12)' },
+    }
+
     const panel = { padding: '24px', maxWidth: '1080px', color: T.text }
     const muted = { color: T.text2, fontSize: '12px' }
     const button = {
@@ -135,6 +142,156 @@ window.__ModuleLoader__.load({
           },
         },
         children,
+      )
+    }
+
+    function VerdictBadge({ verdict }) {
+      const meta = VERDICT[verdict] ?? VERDICT.skip
+      return h(
+        'span',
+        {
+          style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            fontSize: '11px',
+            color: meta.color,
+            background: meta.bg,
+            borderRadius: '999px',
+            padding: '1px 8px',
+            whiteSpace: 'nowrap',
+          },
+        },
+        meta.label,
+      )
+    }
+
+    function ReviewBlock({ review }) {
+      if (!review) return h('p', { style: { margin: 0, ...muted } }, '暂无评审数据。')
+      const summary = review.summary
+      return h(
+        'div',
+        null,
+        h(
+          'p',
+          { style: { margin: '0 0 8px', fontSize: '12.5px', color: summary.blockers > 0 ? T.err : T.text2 } },
+          `${summary.completed}/${summary.total} 角色完成 · ${summary.blockers} 个阻塞`,
+          summary.ready ? h('span', { style: { color: T.ok } }, ' · 无阻塞，可进入人工签收') : h('span', null, ' · 先修复阻塞项'),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: '5px' } },
+          review.roles.map((role) =>
+            h(
+              'div',
+              {
+                key: role.id,
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  border: `1px solid ${T.line}`,
+                  borderRadius: '8px',
+                  padding: '6px 10px',
+                  fontSize: '12.5px',
+                  color: T.text2,
+                },
+              },
+              h('span', null, role.label),
+              h(VerdictBadge, { verdict: role.verdict }),
+            ),
+          ),
+        ),
+        review.roles.some((role) => role.findings.length)
+          ? h(
+              'div',
+              { style: { marginTop: '8px' } },
+              review.roles.flatMap((role) =>
+                role.findings.map((finding, index) =>
+                  h(
+                    'div',
+                    {
+                      key: `${role.id}-${index}`,
+                      style: {
+                        borderTop: index === 0 ? 'none' : `1px solid ${T.line}`,
+                        padding: '7px 0',
+                        fontSize: '12px',
+                        lineHeight: 1.7,
+                        color: T.text2,
+                      },
+                    },
+                    h(
+                      'span',
+                      {
+                        style: {
+                          marginRight: '6px',
+                          fontSize: '10.5px',
+                          padding: '1px 6px',
+                          borderRadius: '5px',
+                          color: finding.severity === 'block' ? T.err : T.warn,
+                          background: finding.severity === 'block' ? 'rgba(255,139,139,.14)' : 'rgba(231,176,75,.14)',
+                        },
+                      },
+                      finding.severity === 'block' ? '阻塞' : '建议',
+                    ),
+                    h('b', { style: { color: T.text, fontWeight: 500 } }, `${finding.rule} `),
+                    finding.message,
+                    finding.file ? h('span', { style: { ...muted, marginLeft: '6px' } }, `${finding.file}${finding.line ? `:${finding.line}` : ''}`) : null,
+                  ),
+                ),
+              ),
+            )
+          : null,
+        h('p', { style: { margin: '8px 0 0', ...muted } }, '结论来自现有门禁规则；人工签收将在 ALM-08.04 写接口接入。'),
+      )
+    }
+
+    function VersionList({ item, onSnapshot, compact }) {
+      const versions = item.versions ?? []
+      return h(
+        'div',
+        null,
+        h(
+          'div',
+          { style: { ...row, paddingTop: 0 } },
+          h('span', { style: rowLabel }, '当前修订'),
+          h('span', { style: { color: T.text } }, `v${item.revision ?? 1}（最新）`),
+        ),
+        versions.length === 0
+          ? h('p', { style: { margin: '6px 0 0', ...muted } }, '没有 git 历史（工作区可能不是 git 仓库）。')
+          : h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
+              versions.map((version) =>
+                h(
+                  'button',
+                  {
+                    key: version.sha,
+                    'data-version-sha': version.sha,
+                    onClick: () => onSnapshot(item, version),
+                    style: {
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: '8px',
+                      textAlign: 'left',
+                      border: 0,
+                      background: 'transparent',
+                      color: T.text2,
+                      padding: '5px 0',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      borderTop: `1px solid ${T.line}`,
+                      lineHeight: 1.6,
+                    },
+                  },
+                  h('span', { style: { color: T.text3, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11px', flex: 'none' } }, version.short),
+                  h('span', { style: { color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, version.subject),
+                  h('span', { style: { color: T.text3, fontSize: '11px', marginLeft: 'auto', flex: 'none' } }, version.date?.slice(0, 10)),
+                ),
+              ),
+            ),
+        compact ? null : h('p', { style: { margin: '8px 0 0', ...muted } }, '只读快照：读取该提交时的需求文件内容。'),
       )
     }
 
@@ -258,6 +415,7 @@ window.__ModuleLoader__.load({
       if (item.attachments) meta.push(`${item.attachments} 个附件`)
       if (item.sources?.length) meta.push(item.sources.join(' / '))
       if (item.github?.board?.status) meta.push(`看板 ${item.github.board.status}`)
+      if (item.review?.summary?.blockers > 0) meta.push(`${item.review.summary.blockers} 个评审阻塞`)
 
       return h(
         'article',
@@ -537,7 +695,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, compact }) {
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, compact }) {
       const relations = relationsOf(item, allItems)
       return h(
         'div',
@@ -569,6 +727,8 @@ window.__ModuleLoader__.load({
         item.sources?.length ? h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } }, item.sources.map((source) => h(Chip, { key: source }, `来源 · ${source}`))) : null,
         h(Attachments, { item }),
 
+        h(Section, { title: '评审' }, h(ReviewBlock, { review: item.review })),
+
         h(Section, { title: '验收覆盖' },
           (item.verifiedBy ?? []).length
             ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '0' } }, item.verifiedBy.map((id) => h('div', { key: id, style: { ...row, color: T.text } }, h('span', { style: { color: T.ok } }, '✓'), id)))
@@ -583,10 +743,7 @@ window.__ModuleLoader__.load({
 
         h(Section, { title: 'GitHub 归属' }, h(GithubBlock, { item, projectMeta })),
 
-        h(Section, { title: '历史' },
-          h('div', { style: row }, h('span', { style: rowLabel }, '当前修订'), h('span', { style: { color: T.text } }, `v${item.revision ?? 1}（最新）`)),
-          h('p', { style: { margin: '8px 0 0', ...muted } }, '版本对比与快照将在 ALM-08.03 接入（读取 changes/ 与 REVISION 历史）。'),
-        ),
+        h(Section, { title: '历史' }, h(VersionList, { item, onSnapshot })),
 
         h('details', { style: { marginTop: '22px', borderTop: `1px solid ${T.line}`, paddingTop: '12px' } },
           h('summary', { style: { cursor: 'pointer', color: T.text2, fontSize: '12.5px' } }, '技术详情'),
@@ -605,7 +762,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -635,12 +792,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -714,7 +871,8 @@ window.__ModuleLoader__.load({
                 h('p', { style: { margin: '4px 0 0', ...muted } }, projectMeta?.repo ?? item.github?.repo ?? '—'),
               ),
               h(Section, { title: 'GitHub / 看板' }, h(GithubBlock, { item, projectMeta })),
-              h(Section, { title: '评审' }, h('p', { style: { margin: 0, ...muted } }, '评审报告数据将在 ALM-08.02 接入（AI 多角色结论 + findings）。')),
+              h(Section, { title: '评审' }, h(ReviewBlock, { review: item.review })),
+              h(Section, { title: '版本历史' }, h(VersionList, { item, onSnapshot, compact: true })),
               h(Section, { title: '技术' },
                 h('p', { style: { margin: 0, ...muted } }, `${item.file}${item.line ? `:${item.line}` : ''}`),
                 item.brief ? h('p', { style: { margin: '4px 0 0', ...muted } }, `简报：${item.brief}`) : null,
@@ -723,6 +881,75 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' } },
+            h('button', { style: button, onClick: onClose }, '关闭'),
+          ),
+        ),
+      )
+    }
+
+    function SnapshotModal({ snapshot, onClose }) {
+      const { item, version, loading, content, error } = snapshot
+      useEffect(() => {
+        const onKey = (event) => {
+          if (event.key === 'Escape') onClose()
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+      }, [onClose])
+      return h(
+        'div',
+        { style: { position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(4,6,9,.62)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', padding: '24px' }, onClick: onClose },
+        h(
+          'div',
+          {
+            role: 'dialog',
+            'aria-label': `版本快照 ${version.short}`,
+            onClick: (event) => event.stopPropagation(),
+            style: {
+              width: '860px',
+              maxWidth: '96vw',
+              maxHeight: '88vh',
+              display: 'flex',
+              flexDirection: 'column',
+              background: T.base,
+              border: `1px solid ${T.line2}`,
+              borderRadius: '16px',
+              padding: '24px 28px',
+              boxShadow: '0 24px 80px rgba(0,0,0,.5)',
+            },
+          },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' } },
+            h('h3', { style: { margin: 0, fontSize: '18px' } }, `版本快照 · ${version.short}`),
+            h('button', { style: { ...button, borderColor: 'transparent', background: 'transparent', color: T.text2, fontSize: '18px' }, onClick: onClose, 'aria-label': '关闭' }, '×'),
+          ),
+          h('p', { style: { margin: '6px 0 12px', ...muted } }, `${item.id} · ${version.date?.slice(0, 10) ?? ''} · ${version.subject}`),
+          loading
+            ? h('p', { style: muted }, '正在读取快照…')
+            : error
+              ? h('p', { style: { color: T.err, fontSize: '13px' } }, error)
+              : h(
+                  'pre',
+                  {
+                    style: {
+                      margin: 0,
+                      padding: '14px',
+                      overflow: 'auto',
+                      maxHeight: '56vh',
+                      background: T.layer,
+                      border: `1px solid ${T.line}`,
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      lineHeight: 1.7,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    },
+                  },
+                  content,
+                ),
+          h('p', { style: { margin: '10px 0 0', ...muted } }, '只读快照：读取该提交时的需求文件内容，不会改动工作区。'),
+          h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '14px' } },
             h('button', { style: button, onClick: onClose }, '关闭'),
           ),
         ),
@@ -756,6 +983,7 @@ window.__ModuleLoader__.load({
       const [keyword, setKeyword] = useState('')
       const [selectedId, setSelectedId] = useState(null)
       const [detailOpen, setDetailOpen] = useState(false)
+      const [snapshot, setSnapshot] = useState(null)
       const [showRoot, setShowRoot] = useState(false)
       const { loading, error, data, reload } = useRequirements({ root, projectId })
 
@@ -799,6 +1027,25 @@ window.__ModuleLoader__.load({
         if (typeof localStorage !== 'undefined') localStorage.setItem(PROJECT_KEY, id)
         applyRoot(project.root)
         setRootInput(project.root ?? '')
+      }
+
+      const openSnapshot = (item, version) => {
+        const snapshotRoot = item.root ?? data?.root ?? root
+        setSnapshot({ item, version, loading: true, content: null, error: null })
+        const query = `root=${encodeURIComponent(snapshotRoot)}&asset=${encodeURIComponent(item.id)}&sha=${encodeURIComponent(version.sha)}`
+        fetch(`/api/alm/requirements/version?${query}`, { headers: { accept: 'application/json' } })
+          .then(async (response) => {
+            const body = await response.json().catch(() => null)
+            if (!response.ok || body?.ok === false) throw new Error(body?.error?.message ?? `HTTP ${response.status}`)
+            setSnapshot((current) =>
+              current?.version.sha === version.sha ? { ...current, loading: false, content: body.content } : current,
+            )
+          })
+          .catch((error) =>
+            setSnapshot((current) =>
+              current?.version.sha === version.sha ? { ...current, loading: false, error: error.message } : current,
+            ),
+          )
       }
 
       const projectMetaFor = useCallback(
@@ -980,6 +1227,7 @@ window.__ModuleLoader__.load({
               root: data?.root ?? root,
               onClose: () => setSelectedId(null),
               onDetail: () => setDetailOpen(true),
+              onSnapshot: openSnapshot,
             })
           : null,
         detailOpen && selected
@@ -989,8 +1237,10 @@ window.__ModuleLoader__.load({
               projectMeta: projectMetaFor(selected),
               root: data?.root ?? root,
               onClose: () => setDetailOpen(false),
+              onSnapshot: openSnapshot,
             })
           : null,
+        snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
         h(
           'div',
           { style: { display: 'flex', gap: '8px', marginTop: '20px' } },

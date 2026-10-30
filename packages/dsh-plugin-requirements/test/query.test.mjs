@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { nextActionFor, requirements, requirementsAll, resolveRequirementsRoot } from '../query.mjs'
+import { nextActionFor, requirements, requirementsAll, resolveRequirementsRoot, versionSnapshot } from '../query.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 const fixture = join(repoRoot, 'fixtures/order-refund')
@@ -120,4 +120,60 @@ test('requirementsAll reports a broken project without dropping the others', () 
   assert.equal(payload.summary.failed, 1)
   assert.ok(payload.requirements.length >= 2)
   assert.ok(payload.projects.some((project) => project.project === 'CRM' && project.error))
+})
+
+test('review derives role verdicts from the real gate report', () => {
+  const payload = requirements(fixture)
+  const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-001')
+  assert.equal(item.review.schema, 'alm.review/v1')
+  assert.equal(item.review.source, 'gates')
+  assert.equal(item.review.roles.length, 5)
+  assert.equal(item.review.summary.total, 5)
+  assert.equal(item.review.summary.blockers, 0)
+  assert.ok(item.review.roles.every((role) => ['pass', 'skip'].includes(role.verdict)))
+  assert.equal(item.review.signoff, null)
+})
+
+test('review blocks the testing role when acceptance is missing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-review-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    const file = join(dir, 'requirements/refund.sdoc')
+    const source = readFileSync(file, 'utf8').replace(
+      /\[RELATION\]\nType: verified_by\nValue: TEST-PAY-001\n/,
+      '',
+    )
+    writeFileSync(file, source)
+    const payload = requirements(dir)
+    const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-001')
+    const testing = item.review.roles.find((role) => role.id === 'testing')
+    assert.equal(testing.verdict, 'block')
+    assert.ok(testing.findings.some((finding) => finding.rule === 'COV-001' && /verified_by/.test(finding.message)))
+    assert.equal(item.review.summary.blockers, 1)
+    assert.equal(item.review.summary.ready, false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('version history and snapshot are read from git', () => {
+  const payload = requirements(fixture)
+  const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-001')
+  assert.ok(item.versions.length >= 1, 'fixture file should have git history')
+  const first = item.versions[0]
+  assert.match(first.sha, /^[0-9a-f]{40}$/)
+  assert.match(first.short, /^[0-9a-f]{7,}$/)
+  assert.ok(first.date && first.subject)
+  const snapshot = versionSnapshot({ root: fixture, assetId: 'REQ-PAY-001', sha: first.sha })
+  assert.equal(snapshot.schema, 'alm.version/v1')
+  assert.equal(snapshot.asset, 'REQ-PAY-001')
+  assert.match(snapshot.content, /REQ-PAY-001/)
+  assert.throws(
+    () => versionSnapshot({ root: fixture, assetId: 'REQ-PAY-001', sha: 'not-a-sha' }),
+    (error) => error.status === 400 && error.code === 'invalid-sha',
+  )
+  assert.throws(
+    () => versionSnapshot({ root: fixture, assetId: 'REQ-NOPE', sha: first.sha }),
+    (error) => error.status === 404 && error.code === 'asset-not-found',
+  )
 })
