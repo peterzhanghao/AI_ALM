@@ -177,3 +177,46 @@ test('version history and snapshot are read from git', () => {
     (error) => error.status === 404 && error.code === 'asset-not-found',
   )
 })
+
+test('trace graph exposes direct nodes, edges and impact stats', () => {
+  const payload = requirements(fixture)
+  const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-004')
+  assert.equal(item.trace.schema, 'alm.trace/v1')
+  const ids = item.trace.nodes.map((node) => node.id)
+  assert.deepEqual(ids.sort(), [
+    'ADR-PAY-003',
+    'MOD-PAY-REFUND',
+    'REQ-PAY-001',
+    'REQ-PAY-004',
+    'TEST-PAY-004',
+    'TEST-PAY-005',
+  ])
+  assert.equal(item.trace.nodes.filter((node) => node.current).length, 1)
+  assert.equal(item.trace.stats.parent, 1)
+  assert.equal(item.trace.stats.children, 0)
+  assert.equal(item.trace.stats.tests, 2)
+  assert.equal(item.trace.stats.impacted, 1)
+  assert.equal(item.trace.edges.length, 5)
+  const parentEdge = item.trace.edges.find((edge) => edge.from === 'REQ-PAY-001' && edge.to === 'REQ-PAY-004')
+  assert.equal(parentEdge.type, 'parent_of')
+})
+
+test('trace keeps a dangling target as a missing node', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-trace-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    const file = join(dir, 'requirements/refund.sdoc')
+    writeFileSync(
+      file,
+      `${readFileSync(file, 'utf8')}\n[RELATION]\nType: allocated_to\nValue: MOD-NOPE\n`,
+    )
+    const payload = requirements(dir)
+    const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-001')
+    const missing = item.trace.nodes.find((node) => node.id === 'MOD-NOPE')
+    assert.ok(missing, 'dangling target should still appear in the trace')
+    assert.equal(missing.type, 'missing')
+    assert.equal(missing.title, null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

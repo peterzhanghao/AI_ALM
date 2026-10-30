@@ -82,6 +82,7 @@
 | ALM-07.16 | 原型补充：项目切换与 GitHub 归属 | task | @peterzhanghao | P2 | plugin | done | ALM-07.15（#102，已关闭） | 确认发布 | #104 | #105 | in-sync | 2026-10-31 00:25 |
 | ALM-08.01 | 插件工作台 v2：列表/筛选/聚合/抽屉/详情/GitHub 归属 | task | @peterzhanghao | P1 | plugin | done | ALM-07.16（#104，已关闭） | 确认发布 | #106 | #107 | in-sync | 2026-10-31 01:15 |
 | ALM-08.02 | 评审与版本视图（门禁推导 + git 快照） | task | @peterzhanghao | P1 | plugin | done | ALM-08.01（#106，已关闭） | 确认发布 | #108 | #109 | in-sync | 2026-10-31 01:55 |
+| ALM-08.03 | 追溯图形视图与影响面 | task | @peterzhanghao | P1 | plugin | review | ALM-08.02（#108，已关闭） | 确认发布 | #110 | #111 | in-sync | 2026-10-31 02:25 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。

@@ -6,6 +6,7 @@ import { STATUS_LABELS } from '../alm-core/src/model/asset.mjs'
 import { readProject } from '../alm-core/src/project/project.mjs'
 import { readMapping } from '../alm-core/src/github/mapping.mjs'
 import { requirementLabels } from '../alm-core/src/github/sync-requirements.mjs'
+import { buildGraph, findCycles, walk } from '../alm-core/src/index/closure.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 
 const NEXT = {
@@ -120,6 +121,68 @@ export function reviewFor(item, check) {
       ready: blockers === 0,
     },
     signoff: null,
+  }
+}
+
+const NODE_TYPES = {
+  requirement: 'req',
+  'acceptance-test': 'test',
+  'architecture-decision': 'adr',
+  module: 'module',
+  interface: 'interface',
+  'data-model': 'data',
+  risk: 'risk',
+}
+
+function nodeType(asset) {
+  if (!asset) return 'missing'
+  return NODE_TYPES[asset.type] ?? 'other'
+}
+
+/**
+ * Direct trace graph for one requirement: outgoing links plus incoming links
+ * (e.g. a parent requirement's `parent_of`). Impact counts use the same graph
+ * closure as `alm impact`, so the numbers agree with the CLI.
+ */
+export function traceFor({ asset, graph, byId }) {
+  const outgoing = graph.forward.get(asset.id) ?? []
+  const incoming = graph.reverse.get(asset.id) ?? []
+  const seen = new Map()
+  const add = (id) => {
+    if (seen.has(id)) return
+    const target = byId.get(id)
+    seen.set(id, {
+      id,
+      title: target?.title ?? null,
+      type: nodeType(target),
+      status: target?.status ?? null,
+      current: id === asset.id,
+    })
+  }
+  add(asset.id)
+  for (const edge of outgoing) add(edge.to)
+  for (const edge of incoming) add(edge.from)
+  const edges = [
+    ...outgoing.map((edge) => ({ from: asset.id, to: edge.to, type: edge.type })),
+    ...incoming.map((edge) => ({ from: edge.from, to: asset.id, type: edge.type })),
+  ]
+  const forward = walk(graph, asset.id, 'forward')
+  const backward = walk(graph, asset.id, 'reverse')
+  const cycles = [...findCycles(graph, asset.id, 'forward'), ...findCycles(graph, asset.id, 'reverse')]
+  return {
+    schema: 'alm.trace/v1',
+    nodes: [...seen.values()],
+    edges,
+    cycles,
+    stats: {
+      parent: incoming.filter((edge) => edge.type === 'parent_of').length,
+      children: outgoing.filter((edge) => edge.type === 'parent_of').length,
+      tests: outgoing.filter((edge) => edge.type === 'verified_by').length,
+      dependencies: outgoing.filter((edge) => edge.type === 'depends_on').length,
+      constraints: outgoing.filter((edge) => edge.type === 'constrained_by').length,
+      impacted: backward.length,
+      reachable: forward.length,
+    },
   }
 }
 
@@ -261,6 +324,8 @@ export function requirements(root) {
       }
     : null
 
+  const graph = buildGraph(index.assets)
+  const byId = new Map(index.assets.map((asset) => [asset.id, asset]))
   const versionCache = new Map()
   const items = index.assets
     .filter((asset) => asset.type === 'requirement')
@@ -297,6 +362,7 @@ export function requirements(root) {
       const versions = versionCache.get(item.file) ?? versionHistory(root, item.file)
       versionCache.set(item.file, versions)
       item.versions = versions
+      item.trace = traceFor({ asset, graph, byId })
       return item
     })
 

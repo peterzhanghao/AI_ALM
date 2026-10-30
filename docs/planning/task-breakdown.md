@@ -697,3 +697,22 @@
   - 正例：fixture 需求显示 5/5 角色通过、0 阻塞；点击版本行打开快照，内容含 `REQ-PAY-004`；详情页侧栏同时显示评审与版本历史
   - 反例：删掉 `verified_by` 后测试角色变 `block` 且 blockers=1；非法 sha 返回 400 `invalid-sha`，未知资产返回 404 `asset-not-found`
 - 证据：新增 4 个单测（全量 186/186）；eval 宿主 4 项断言通过、0 pageerror；截图 `docs/assets/design/plugin-{review,snapshot,detail-review}.png`
+
+### ALM-08.03 追溯图形视图与影响面
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-08.02（#108，已关闭）
+- 技能：`alm-mvp-dev`、`cordis-plugin-development`
+- 实施范围：`packages/dsh-plugin-requirements/{query.mjs,client.js,test}`
+- 不在范围：跨项目合成 ID、图形编辑写操作（ALM-08.04）
+- 接口：
+  - `item.trace`（`alm.trace/v1`）：`nodes`（当前 + 直接出边目标 + 直接入边来源，含 type/title/status/current）、`edges`、`cycles`、`stats`（上级/子需求/验收/依赖/约束/受影响资产）
+  - 构图与影响面复用 `buildGraph` / `walk` / `findCycles`，与 `alm impact` 同口径
+- 交付物：
+  - [ ] 抽屉/详情「关系」增加「查看追溯图」入口
+  - [ ] SVG 三层布局（来源/当前/目标）、可点击节点、边标签沿曲线错位
+  - [ ] 点击需求节点切换当前需求；其他资产显示 id/类型/标题；悬空目标显示缺失提示
+  - [ ] 影响面统计与关系环提示
+- 验收：
+  - 正例：`REQ-PAY-004` 显示 6 节点 5 边、`parent_of`、`验收 2`、`受影响资产 1`；点击 `REQ-PAY-001` 节点后抽屉切换成功
+  - 反例：关系指向不存在的 `MOD-NOPE` 时图中出现 `missing` 节点且 title=null
+- 证据：新增 2 个单测（全量 188/188）；eval 宿主 3 项断言通过、0 pageerror；截图 `docs/assets/design/plugin-{trace,trace-nav}.png`
