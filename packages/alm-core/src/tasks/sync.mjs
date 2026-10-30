@@ -100,7 +100,9 @@ export async function syncTasks({
 
   const payload = JSON.parse(readFileSync(path, 'utf8'))
   const tasks = Array.isArray(payload.tasks) ? payload.tasks : []
-  const adapter = createProvider ? createProvider() : providerFor(provider, labels)
+  // Dry-run must work without board credentials: only build a provider when
+  // applying, or when a test injects one.
+  const adapter = createProvider ? createProvider() : apply ? providerFor(provider, labels) : null
   const actions = []
 
   for (const task of tasks) {
@@ -110,7 +112,7 @@ export async function syncTasks({
       continue
     }
 
-    const existing = adapter.find(title)
+    const existing = adapter ? adapter.find(title) : null
     if (existing) {
       task.issue = { provider: adapter.name, number: existing.number, url: existing.url }
       task.status = 'open'
@@ -134,7 +136,7 @@ export async function syncTasks({
   return {
     schema: 'alm.tasks.sync/v1',
     changeId,
-    provider: adapter.name,
+    provider: adapter?.name ?? provider,
     applied: apply,
     actions,
     tasks,

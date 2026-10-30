@@ -3,10 +3,10 @@ name: ai-github-issue-workflow
 description: "AI_ALM 仓库的 GitHub 工作项工作流：Issue 类型与子议题、blocked-by 依赖、发布门禁、正文模板、gh 写入与回读、标签状态、台账同步、进展评论。用户要新建、调整或关闭 GitHub Issue 时使用。"
 whenToUse: "需要拆分或创建 GitHub Issue、调整父子层级或 blocked-by 依赖、修改 status::* 等标签、写 Issue 进展评论、关闭 Issue 或同步问题台账时。"
 metadata:
-  version: "3.0.0"
+  version: "3.1.0"
   owner: "peterzhanghao"
   repo: "peterzhanghao/AI_ALM"
-  updated: "2026-10-23"
+  updated: "2026-10-30"
 ---
 
 # AI_ALM GitHub 工作项工作流
@@ -27,6 +27,7 @@ metadata:
 | 新建、拆分、调整、关闭 Issue | 是 |
 | 修改父项、blocked-by 依赖、标签、状态 | 是 |
 | 写 Issue 进展评论、同步问题台账 | 是 |
+| 从需求生成任务卡并同步到 GitHub/Gitea | 是，见 5.1 与 `references/task-draft-sync.md` |
 | 只讨论或撰写任务文档 | 用本 skill 的模板，但不写远端 |
 | 代码提交、分支、PR、合并 | 否，改用 `ai-github-pr-workflow` |
 
@@ -55,6 +56,7 @@ ALM-00 总控 Issue
 - 一个执行 Task = 一人 + 一个 PR + 一条可独立验收的交付路径。
 - 大卡确需多个 PR 时，`ALM-xx.yy` 降级为跟踪 Issue，子项成为其 sub-issue。
 - 依赖用 `--blocked-by` / `--blocking` 建立有向关系；`relates to` 只做导航。
+- 需求派生任务（不合并需求）：`alm task draft` 默认生成 3 张卡，`TASK-001` 校验覆盖。
 - 跨仓改动另建 Issue，不塞进同一个 Task 或 PR。
 - 拆分或改前置时，同步所有下游、父项清单与台账。
 
@@ -76,6 +78,14 @@ ALM-00 总控 Issue
 6. 回读编号、URL、类型、父项、标签、依赖、状态。
 7. 更新台账的 `GitHub #`、`状态`、`PR`、`同步状态`、`最后回读`。
 8. 需要时按第 8 节补一条进展评论。
+
+### 5.1 需求到任务卡
+
+1. `alm task draft --change <CHG> --from <REQ-ID,...>` 生成 `changes/<CHG>/`。
+2. `alm check`，`TASK-001` 必须 pass。
+3. `node scripts/sync-tasks.mjs --change <CHG>` 预览；经人确认后加 `--apply` 并回读 `issue.number`。
+
+详见 `references/task-draft-sync.md`。
 
 ## 6. 标签与状态
 
@@ -131,8 +141,10 @@ ALM-00 总控 Issue
 - [ ] 父项、依赖、标签、状态与实际一致。
 - [ ] 写入后有回读，台账已更新。
 - [ ] 评论只记录有意义的变化。
+- [ ] `sync-tasks --apply` 前先 dry-run 并说明将创建的 Issue 数。
 
 ## 参考文件
 
 - `references/issue-body-template.md`：Issue 正文模板。
 - `references/gh-issue-commands.md`：认证、查询、创建、更新、评论与回读命令。
+- `references/task-draft-sync.md`：需求→任务卡→看板同步与幂等。

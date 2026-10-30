@@ -40,3 +40,6 @@ jobs:
 
       - name: Skill/CLI consistency
         run: node scripts/check-alm-skill.mjs
+
+      - name: Task draft drill
+        run: node scripts/task-drill.mjs
