@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { indexReport } from '../commands.mjs'
+import { readProject } from '../project/project.mjs'
 
 const CHANGE_ID = /^CHG-[A-Z0-9][A-Z0-9-]{2,}$/
 
@@ -51,6 +52,12 @@ export function draftTasks({ root, changeId, requirementIds, outDir = 'changes',
     throw new TaskDraftError(`unknown change: ${changeId}`, { code: 'unknown-change' })
   }
   const change = JSON.parse(readFileSync(changePath, 'utf8'))
+  let project = null
+  try {
+    project = readProject(root)
+  } catch {
+    project = null
+  }
 
   const index = indexReport(root)
   if (index && index.ok === false) throw new TaskDraftError(index.error, { code: 'index-failed' })
@@ -130,6 +137,7 @@ export function draftTasks({ root, changeId, requirementIds, outDir = 'changes',
   const proposal = [
     `# ${changeId} 变更提案`,
     '',
+    `- 项目：${project?.id ?? '—'}`,
     `- 基线：${change.baselineSha}`,
     `- 分支：${change.branch}`,
     `- 需求：${ids.join('、')}`,
@@ -162,6 +170,7 @@ export function draftTasks({ root, changeId, requirementIds, outDir = 'changes',
     changeId,
     requirements: ids,
     baselineSha: change.baselineSha,
+    project: project?.id ?? null,
     generatedAt: new Date().toISOString(),
     tasks,
   }

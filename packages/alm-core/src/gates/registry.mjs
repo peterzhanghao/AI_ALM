@@ -6,6 +6,11 @@ import * as id001 from './rules/id-001.mjs'
 import * as id002 from './rules/id-002.mjs'
 import * as rel001 from './rules/rel-001.mjs'
 import * as rel002 from './rules/rel-002.mjs'
+import * as rel003 from './rules/rel-003.mjs'
+import * as prj001 from './rules/prj-001.mjs'
+import * as rev001 from './rules/rev-001.mjs'
+import * as brief001 from './rules/brief-001.mjs'
+import * as att001 from './rules/att-001.mjs'
 import * as ren001 from './rules/ren-001.mjs'
 import * as ren002 from './rules/ren-002.mjs'
 import * as sec001 from './rules/sec-001.mjs'
@@ -22,6 +27,11 @@ export const rules = [
   id002,
   rel001,
   rel002,
+  rel003,
+  prj001,
+  rev001,
+  brief001,
+  att001,
   cov001,
   cov002,
   state001,

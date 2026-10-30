@@ -38,5 +38,5 @@ test('check returns the same verdict as the CLI', () => {
   const report = check(SMOKE)
   assert.equal(report.schema, 'alm.check/v1')
   assert.equal(report.result, 'pass')
-  assert.equal(report.rules.packVersion, '1.2.0')
+  assert.equal(report.rules.packVersion, '1.4.0')
 })

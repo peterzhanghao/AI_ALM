@@ -21,7 +21,7 @@
 | 批次 3（P1） | ALM-02.04、ALM-03.02–03.04、ALM-05.02 | 差异/影响、双插件、联合变更 | 验收 1–3；两插件同一 ChangeSet |
 | 批次 4（P1） | ALM-04.01–04.06、ALM-05.04–05.05 | SCM/CI、审批失效、基线、故障恢复、按需 UI CI、Gitea、技能校验与发布技能 | 验收 4–7 |
 | 批次 5（P2） | ALM-06.01–06.02 | 试点演练与文档 | 验收 8 + 验证报告 |
-| 批次 6（P1） | ALM-07.01–07.08 | 需求工作台、任务草案、看板接入、技能与 CI 演练、样例幂等需求、侧边栏入口、详情健壮性、视觉原型 | 空态/详情/下一步可用；`TASK-001` 生效；drill 在 CI 绿 |
+| 批次 6（P1） | ALM-07.01–07.14 | 需求工作台、任务草案、看板接入、技能与 CI 演练、样例幂等需求、侧边栏入口、详情健壮性、视觉原型 | 空态/详情/下一步可用；`TASK-001` 生效；drill 在 CI 绿 |
 
 ## 台账
 
@@ -71,6 +71,12 @@
 | ALM-07.06 | 需求插件侧边栏入口 | task | @peterzhanghao | P2 | plugin | done | ALM-07.01（#73，已关闭） | 确认发布 | #83 | #84 | in-sync | 2026-10-30 19:00 |
 | ALM-07.07 | 需求详情在旧宿主数据下点击后空白 | bug | @peterzhanghao | P1 | plugin | done | ALM-07.06（#83，已关闭） | 确认发布 | #85 | #86 | in-sync | 2026-10-30 19:25 |
 | ALM-07.08 | 需求工作台视觉原型（Tesla / Apple 风格） | task | @peterzhanghao | P2 | plugin | review | ALM-07.06（#83，已关闭） | 确认发布 | #87 | — | in-sync | 2026-10-30 19:55 |
+| ALM-07.09 | 需求富内容与版本模型（M1） | task | @peterzhanghao | P1 | core | review | ALM-07.05（#81，已关闭） | 确认发布 | #89 | — | in-sync | 2026-10-30 20:15 |
+| ALM-07.10 | 原始材料入库：聊天 Markdown 与本地 OCR 适配 | task | @peterzhanghao | P1 | core | done | ALM-07.09（#89，已关闭） | 确认发布 | #91 | #92 | in-sync | 2026-10-30 21:35 |
+| ALM-07.11 | 多项目归属：需求 / 看板 / 开发 | task | @peterzhanghao | P1 | core | done | ALM-07.10（#91，已关闭） | 确认发布 | #93 | #94 | in-sync | 2026-10-30 21:55 |
+| ALM-07.12 | 项目模型与 CLI（一仓库一项目） | task | @peterzhanghao | P1 | core | done | ALM-07.11（#93，已关闭） | 确认发布 | #95 | #96 | in-sync | 2026-10-30 22:20 |
+| ALM-07.13 | GitHub 归属：需求 Issue、任务子议题与 ProjectV2 | task | @peterzhanghao | P1 | core | done | ALM-07.12（#95，已关闭） | 确认发布 | #97 | #98 | in-sync | 2026-10-30 22:50 |
+| ALM-07.14 | PR 归属与看板状态 | task | @peterzhanghao | P1 | core | done | ALM-07.13（#97，已关闭） | 确认发布 | #99 | #100 | in-sync | 2026-10-30 23:15 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。

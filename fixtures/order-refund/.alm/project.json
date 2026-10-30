@@ -1,0 +1,13 @@
+{
+  "schema": "alm.project/v1",
+  "id": "PAY",
+  "name": "支付平台",
+  "defaultBranch": "main",
+  "requirementRoot": "requirements",
+  "github": {
+    "owner": "peterzhanghao",
+    "repo": "AI_ALM",
+    "project": { "number": 1, "status": { "ready": "Ready" } }
+  },
+  "teams": ["支付团队"]
+}

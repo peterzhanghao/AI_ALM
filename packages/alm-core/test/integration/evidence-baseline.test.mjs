@@ -85,7 +85,7 @@ test('check --out writes a versioned evidence document', async () => {
     assert.equal(evidence.baseSha, head)
     assert.equal(evidence.headSha, head)
     assert.equal(evidence.result, 'pass')
-    assert.equal(evidence.rules.packVersion, '1.2.0')
+    assert.equal(evidence.rules.packVersion, '1.4.0')
     assert.equal(evidence.tool.name, 'alm')
     assert.ok(evidence.checks.length >= 8)
   } finally {

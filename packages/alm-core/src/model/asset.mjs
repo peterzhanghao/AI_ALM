@@ -8,7 +8,32 @@ export const ASSET_TYPES = [
   'risk',
 ]
 
-export const ASSET_STATUSES = ['proposed', 'accepted', 'deprecated', 'superseded']
+export const ASSET_STATUSES = [
+  'proposed',
+  'accepted',
+  'in-progress',
+  'implemented',
+  'verified',
+  'deprecated',
+  'superseded',
+]
+
+/** Display labels. Assets store the stable English enum; UI and reports show Chinese. */
+export const STATUS_LABELS = {
+  proposed: '待评审',
+  accepted: '已采纳',
+  'in-progress': '开发中',
+  implemented: '已实现',
+  verified: '已验收',
+  deprecated: '已废弃',
+  superseded: '已替代',
+}
+
+export const STATUS_ALIASES = Object.fromEntries(Object.entries(STATUS_LABELS).map(([key, label]) => [label, key]))
+
+export const PRIORITIES = ['P0', 'P1', 'P2', 'P3']
+export const CATEGORIES = ['functional', 'non-functional', 'constraint', 'quality']
+export const SOURCE_KINDS = ['chat', 'meeting', 'doc', 'screenshot', 'email']
 
 export const LINK_TYPES = [
   'satisfies',
@@ -17,6 +42,7 @@ export const LINK_TYPES = [
   'constrained_by',
   'verified_by',
   'supersedes',
+  'parent_of',
 ]
 
 const TYPE_PREFIX = {
@@ -73,6 +99,29 @@ export function normalizeAsset(raw, source) {
   if (!ASSET_TYPES.includes(type)) throw new AssetError(`unknown asset type: ${type}`, where)
   if (!ID_PATTERN.test(id)) throw new AssetError(`invalid asset id: ${id}`, where)
   if (!ASSET_STATUSES.includes(status)) throw new AssetError(`unknown status: ${status}`, where)
+  if (raw.project !== undefined && !/^[A-Z][A-Z0-9]{1,7}$/.test(String(raw.project))) {
+    throw new AssetError(`invalid project id: ${String(raw.project)}`, where)
+  }
+
+  if (raw.revision !== undefined) {
+    if (!Number.isInteger(raw.revision) || raw.revision < 1) {
+      throw new AssetError('revision must be a positive integer', where)
+    }
+  }
+  if (raw.priority !== undefined && !PRIORITIES.includes(raw.priority)) {
+    throw new AssetError(`unknown priority: ${String(raw.priority)}`, where)
+  }
+  if (raw.category !== undefined && !CATEGORIES.includes(raw.category)) {
+    throw new AssetError(`unknown category: ${String(raw.category)}`, where)
+  }
+  if (raw.brief !== undefined && (typeof raw.brief !== 'string' || raw.brief.trim() === '')) {
+    throw new AssetError('brief must be a non-empty path', where)
+  }
+  if (raw.sources !== undefined) {
+    if (!Array.isArray(raw.sources) || raw.sources.some((source) => typeof source !== 'string' || !SOURCE_KINDS.includes(source))) {
+      throw new AssetError(`sources must be among ${SOURCE_KINDS.join(', ')}`, where)
+    }
+  }
 
   const rawLinks = raw.links === undefined ? [] : raw.links
   if (!Array.isArray(rawLinks)) throw new AssetError('links must be an array', where)

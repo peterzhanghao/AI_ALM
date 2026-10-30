@@ -526,3 +526,102 @@
   - 正例：非技术用户能在 3 秒内说出“这条做到哪、还缺什么、下一步做什么”；点卡片出抽屉、点开始开发出预览
   - 反例：技术字段默认不可见；取消所有弹层后回到列表，不留副作用
 - 证据：三张截图与 HTML；评审通过后再开实现 PR
+
+### ALM-07.09 需求富内容与版本模型（M1）
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.05（#81，已关闭）
+- 技能：`alm-requirements`、`alm-mvp-dev`
+- 实施范围：`packages/alm-core/{src/model,src/parse,src/gates,src/contracts}`、`fixtures/order-refund`、`dsh-plugin-requirements/{query,render}`
+- 不在范围：编辑器 UI、执行验收、看板同步（M3/M4）
+- 接口：SDoc 新增 `REVISION/PRIORITY/CATEGORY/BRIEF/SOURCE`；`STATUS` 支持中文别名；新增关系 `parent_of`；新增门禁 `REL-003/REV-001/BRIEF-001/ATT-001`；状态扩展为 7 个（界面中文标签）
+- 交付物：
+  - [ ] 解析与模型：富字段、中文状态别名、`parent_of`
+  - [ ] 门禁：层级环、版本递增、brief、附件哈希
+  - [ ] 样例：`REQ-PAY-004` 带 brief、聊天附件与 manifest，`REQ-PAY-001 parent_of REQ-PAY-004`
+  - [ ] 插件 payload 带 `statusLabel/revision/priority/brief/sources/attachments`
+- 验收：
+  - 正例：`alm check --root fixtures/order-refund` 退出 0；`ATT-001`/`BRIEF-001`/`REL-003` pass；`REV-001` 无 base 时 skip
+  - 反例：篡改附件哈希 → `ATT-001` fail；内容改动未升 `REVISION` → `REV-001` fail；父子成环 → `REL-003` fail
+- 证据：新增 7 个单测，全量 159/159；`alm contract verify` ok
+
+### ALM-07.10 原始材料入库：聊天 Markdown 与本地 OCR 适配
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.09（#89，已关闭）
+- 技能：`alm-requirements`、`alm-mvp-dev`
+- 实施范围：`packages/alm-core/src/intake/{chat,ocr}.mjs`、单测
+- 不在范围：入库向导 UI、AI 字段抽取（M3 后续）
+- 接口：`parseChatMarkdown` / `normalizeChatMarkdown`（行号引用）；`runOcr` / `normalizeOcrResult`（`alm.ocr/v1`，行置信度 + `#L` 引用），运行时自动发现 `dsh-ocr-local` 与 `~/.dsh-ocr` 引擎
+- 交付物：
+  - [ ] 聊天 Markdown 四种格式解析，保留 `line` 用于引用
+  - [ ] OCR 适配器：JSON 解析、字段归一、`ref: image#L3`、失败诊断
+  - [ ] 引擎选择与验证：`dsh-ocr-local` 0.5.1（PP-OCRv5 + ONNX，离线）
+- 验收：
+  - 正例：`parseChatMarkdown` 解析 10:12/header/bracket/无时间四种形态；`runOcr` 归一化行与引用；全量 165/165
+  - 反例：缺图/缺脚本/OCR 非零退出给出明确错误，不返回空文本
+- 证据：`ocr_test`（真实引擎 5 秒识别 28 行，doctor 全绿）、单测 6 个
+
+### ALM-07.11 多项目归属：需求 / 看板 / 开发
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.10（#91，已关闭）
+- 技能：`alm-requirements`、`ai-github-issue-workflow`、`alm-mvp-dev`
+- 实施范围：项目模型（`.alm/project.json` + 用户级 registry）、插件项目切换、`sync-tasks` 的 repo/board 解析、变更与 PR 归属
+- 不在范围：跨仓库迁移工具、组织级 ProjectV2 汇总（后续）
+- 接口：`alm project init/show/verify`；需求的 `PROJECT`（可省略，默认取仓库）；跨项目引用用 `PAY:REQ-…` 复合 ID；`sync-tasks` 从项目配置推导 GitHub repo + 看板
+- 交付物：
+  - [ ] 项目模型与 registry：`id / name / root / github.repo / project.number / labels`
+  - [ ] 工作台项目切换器与「全部项目」聚合视图；新建需求默认归属当前项目
+  - [ ] GitHub：需求 Issue（可选）+ 任务 Issue 归属同一 repo 与 ProjectV2 看板
+  - [ ] 开发归属：change/分支/PR/上下文包带项目 ID，看板 Status 随 PR 流转
+- 验收：
+  - 正例：两个项目各自的需求列表互不串；任务建单落在对应 repo 与看板；PR 自动关联需求 Issue
+  - 反例：项目 ID 冲突 / repo 与 `.alm/project.json` 不一致 / 需求引用了未注册项目 → 门禁失败
+- 证据：项目切换与建单归属的原型/接口设计
+
+### ALM-07.12 项目模型与 CLI（一仓库一项目）
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.11（#93，已关闭）
+- 技能：`alm-mvp-dev`
+- 实施范围：`alm-core/src/project/project.mjs`、`alm project` 命令、SDoc `PROJECT`、门禁 `PRJ-001`、样例项目文件
+- 不在范围：GitHub 需求 Issue/看板（ALM-07.13）、插件项目切换 UI
+- 接口：`.alm/project.json`（id/name/github.repo/project.number）；`alm project init/show/verify/list`；需求 `PROJECT` 字段；`PRJ-001`
+- 交付物：
+  - [ ] 项目文件读写与校验（ID 规则、repo 与 `git remote` 一致、需求根存在）
+  - [ ] DSH registry（`~/.dsh/alm/projects.json`，`DSH_ALM_REGISTRY` 可覆盖）与重复 ID 检测
+  - [ ] 需求 `PROJECT` 解析与不一致门禁
+- 验收：
+  - 正例：`project init/show/verify` 通过；registry 列出两个项目；样例 `PRJ-001` pass
+  - 反例：remote 与 `github.repo` 不一致、重复项目 ID、需求项目不一致 → 失败
+- 证据：新增 6 个单测，全量 171/171
+
+### ALM-07.13 GitHub 归属：需求 Issue、任务子议题与 ProjectV2
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.12（#95，已关闭）
+- 技能：`ai-github-issue-workflow`、`alm-mvp-dev`
+- 实施范围：`alm-core/src/github/{provider,mapping,sync-requirements}.mjs`、`src/tasks/sync.mjs`、`scripts/sync-tasks.mjs`
+- 不在范围：PR 模板与看板 Status 自动流转（ALM-07.14）
+- 接口：需求先建 Issue（`[REQ-ID] 标题`，label `type::requirement` + `project::<id>` + `priority::P*`）→ `gh project item-add` 进项目看板 → 任务 Issue 以需求 Issue 为 parent；映射写 `.alm/github.json`
+- 交付物：
+  - [ ] 需求 Issue 自动创建/按标题 adopt，dry-run 只输出正文
+  - [ ] 项目配置驱动 repo 与 ProjectV2（`.alm/project.json`）
+  - [ ] 任务 Issue 带 parent，回写 `.alm/github.json` 与 `tasks.json`
+  - [ ] 重复执行幂等
+- 验收：
+  - 正例：先需求后任务；`addToProject` 调用；第二次全部 skip；dry-run 不落任何文件
+  - 反例：无项目配置时 apply 拒绝；需求标题相同则 adopt 不重复
+- 证据：5 个单测，全量 176/176
+
+### ALM-07.14 PR 归属与看板状态
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-07.13（#97，已关闭）
+- 技能：`ai-github-pr-workflow`、`alm-mvp-dev`
+- 实施范围：`tasks/draft.mjs`、`github/{provider,sync-requirements}.mjs`、`tasks/sync.mjs`、PR 模板
+- 不在范围：DSH 插件项目切换器（ALM-07.15）
+- 接口：任务草案带 `project`；需求/任务 Issue 创建后按项目配置 `github.project.status.ready` 设置看板 Status；PR 模板增加 Project/Requirement/Change/Board 段
+- 交付物：
+  - [ ] `changes/<CHG>/tasks.json` 与 proposal 记录项目 ID
+  - [ ] 建单后 `gh project item-edit` 将 Status 置为 Ready（失败不阻断建单）
+  - [ ] PR 模板要求填写项目、需求 Issue、变更号、看板状态
+- 验收：
+  - 正例：apply 后需求与 3 张任务各一次 `setStatus Ready`；tasks.json 含 `project: PAY`
+  - 反例：看板状态失败只记录不丢单；缺项目配置仍拒绝 apply
+- 证据：单测更新，全量 176/176
