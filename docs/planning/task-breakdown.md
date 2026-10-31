@@ -1012,3 +1012,20 @@
   - 正例：粘贴截图后 2s 内出现 OCR 文本并进入原话；提交回答 <2s 显示「已记录…正在更新候选」，随后候选更新；点击保存未就绪时顶部出现「还不能保存」+ 原因；全部问题与优先级就绪时可保存。
   - 反例：普通文本粘贴不触发 OCR；OCR 失败有可理解提示；后台分析失败时回答仍保留并提示可重试；确认按钮不出现「无任何反馈」。
 - 证据：`pnpm test` 394/394；Playwright `tmp/eval-intent-fix.mjs`（ocrElapsed≈2s、answerElapsed≈72ms、saveErrorVisible=true）；截图 `docs/assets/design/intent-{input,paste,review,answer,confirm,confirm-result}.png`
+
+### ALM-09.15 需求关闭归档
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.14（#140，已关闭）
+- 技能：`alm-mvp-dev`、`frontend-design`、`cordis-plugin-development`、`ai-github-pr-workflow`
+- 实施范围：`packages/alm-core/src/{requirements/archive.mjs,model/asset.mjs,contracts/asset.schema.json,gates/rules/state-001.mjs,evidence/decision.mjs}`；`packages/dsh-plugin-requirements/{index.js,client.js}`；archive 单测/HTTP 测试；截图
+- 不在范围：删除需求文件、物理清理关联任务/Issue/ProjectV2、批量归档、恢复归档（后续可另开卡）
+- 设计：
+  - 新增终态 `archived`（中文「已归档」）：`proposed/accepted/in-progress/implemented/verified` 可转入，`archived` 不再转出；同步 `ASSET_STATUSES`、资产 schema 与 `STATE-001`。
+  - `archive.mjs` 提供 `planArchive` / `applyArchive`：写 `STATUS: archived` 与 `REVISION+1`，CAS `expectedBaseline`（内容哈希 + 关系哈希 + 修订），原因可选（≤500），写 `.alm/audit/requirements` 审计，原子写失败回滚，幂等键重放返回原结果。
+  - 证据判定对 `archived` 提前返回 `state='archived'`、label「已归档」、无 gap、nextStep「已归档，无需操作」。
+  - 插件新增 `POST /api/alm/requirements/archive`（默认 preview，`apply:true` 才写）。
+  - 列表：状态筛选新增「已归档」，普通视图排除 archived；行操作与详情提供「关闭归档」；确认弹层展示状态/修订/文件/影响、原因输入、成功后展示审计；归档行详情只读，隐藏开始开发/AI 评审/变更试演/运行验收/门禁。
+- 验收：
+  - 正例：preview 不写文件；apply 后状态 archived、修订 +1、审计落盘；同幂等键重放 `idempotent=true`；列表普通视图少一条、已归档筛选出现且计数一致；归档详情无开发/评审动作。
+  - 反例：已归档再次归档 409 `already-archived`；非活跃状态 409 `invalid-status`；基线过期 409 `stale-preview` 且文件不变；原因超长/控制字符被拒。
+- 证据：`node --test packages/alm-core/test/unit/archive.test.mjs` 4/4；`pnpm test` 399/399；插件 HTTP 18/18；Playwright 归档流程通过；截图 `docs/assets/design/plugin-archive-{preview,result,list,archived}.png`

@@ -502,6 +502,67 @@ test('POST /api/alm/requirements/acceptance previews and archives evidence', asy
   }
 })
 
+test('POST /api/alm/requirements/archive closes a requirement without developing it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-archive-http-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['add', '-A'], { cwd: dir })
+    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init'], { cwd: dir })
+    await withWriteServer(dir, async (base) => {
+      const preview = await fetch(`${base}/api/alm/requirements/archive?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001' }),
+      })
+      const plan = await preview.json()
+      assert.equal(preview.status, 200)
+      assert.equal(plan.applied, false)
+      assert.equal(plan.status.to, 'archived')
+
+      const apply = await fetch(`${base}/api/alm/requirements/archive?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requirementId: 'REQ-PAY-001',
+          apply: true,
+          expectedBaseline: plan.baseline,
+          actor: 'human:local',
+          reason: '本期不开发',
+          idempotencyKey: 'http-close-1',
+        }),
+      })
+      const result = await apply.json()
+      assert.equal(apply.status, 200)
+      assert.equal(result.status.to, 'archived')
+      assert.ok(result.auditFile)
+
+      const replay = await fetch(`${base}/api/alm/requirements/archive?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requirementId: 'REQ-PAY-001',
+          apply: true,
+          expectedBaseline: plan.baseline,
+          actor: 'human:local',
+          idempotencyKey: 'http-close-1',
+        }),
+      })
+      assert.equal(replay.status, 200)
+      assert.equal((await replay.json()).idempotent, true)
+
+      const list = await fetch(`${base}/api/alm/requirements?root=${encodeURIComponent(dir)}`)
+      const payload = await list.json()
+      const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-001')
+      assert.equal(item.status, 'archived')
+      assert.equal(item.decision.state, 'archived')
+      assert.equal(item.decision.nextStep.action, 'none')
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('GET /api/alm/requirements/diff compares a commit against the worktree', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'alm-diff-http-'))
   try {
