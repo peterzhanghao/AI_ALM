@@ -7,6 +7,8 @@ import { readProject } from '../alm-core/src/project/project.mjs'
 import { readMapping } from '../alm-core/src/github/mapping.mjs'
 import { requirementLabels } from '../alm-core/src/github/sync-requirements.mjs'
 import { buildGraph, findCycles, walk } from '../alm-core/src/index/closure.mjs'
+import { acceptanceSummary } from '../alm-core/src/acceptance/acceptance.mjs'
+import { gitHead } from '../alm-core/src/approvals/approval.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 
 const NEXT = {
@@ -326,6 +328,12 @@ export function requirements(root) {
 
   const graph = buildGraph(index.assets)
   const byId = new Map(index.assets.map((asset) => [asset.id, asset]))
+  let headSha = null
+  try {
+    headSha = gitHead(root)
+  } catch {
+    headSha = null
+  }
   const versionCache = new Map()
   const items = index.assets
     .filter((asset) => asset.type === 'requirement')
@@ -363,6 +371,7 @@ export function requirements(root) {
       versionCache.set(item.file, versions)
       item.versions = versions
       item.trace = traceFor({ asset, graph, byId })
+      item.acceptance = acceptanceSummary(root, asset.id, headSha)
       return item
     })
 

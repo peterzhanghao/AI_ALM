@@ -777,3 +777,24 @@
   - 正例：预览显示 `[REQ-DEMO-004]` + 3 个任务标题且不写 `.alm/github.json`；fake provider apply 创建 4 个 Issue、4 次看板/状态，第二次全部 skip；HTTP preview 返回 200
   - 反例：未关联工作区 409；无任务草稿 404；不点「创建」不会触网
 - 证据：全量 206/206；Playwright 全流程 15/15（含 GitHub 预览）、0 pageerror；真实创建未在 eval 执行（避免污染仓库），apply 路径由 fake provider 单测覆盖；截图 `docs/assets/design/plugin-github-preview.png`
+
+### ALM-09.03 需求级验收证据契约
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.02（#116，已关闭）
+- 技能：`alm-mvp-dev`、`cordis-plugin-development`
+- 实施范围：`packages/alm-core/src/acceptance/acceptance.mjs`、`packages/dsh-plugin-requirements/{query.mjs,index.js,client.js,test}`
+- 不在范围：需求级人工签收（ALM-09.05）、任意命令执行、远程执行器
+- 接口：
+  - `.alm/acceptance/<REQ>.json`（`alm.acceptance.config/v1`）：`commands[{id, command[], timeoutMs?}]`，白名单 `node/npm/pnpm`，无 shell
+  - `.alm/acceptance/<REQ>/<sha>.json`（`alm.acceptance/v1`）：整体结果 + 逐条退出码/耗时/输出尾部
+  - `POST /api/alm/requirements/acceptance`：plan 默认不执行不写，`apply:true` 执行并归档
+  - payload `item.acceptance` 摘要：registered/commandCount/latest(result,current)
+- 交付物：
+  - [ ] `acceptance.mjs`：配置校验、plan、run、证据读写、摘要
+  - [ ] 端点 + query payload + lifecycle/HTTP/query 测试
+  - [ ] 抽屉/详情「验收执行」区块与运行弹层（逐条 exit code、输出、证据路径）
+  - [ ] 与「运行门禁检查」（`alm ci run`）文案区分
+- 验收：
+  - 正例：plan 不写证据；apply 后 `pass` 证据落 `<sha>.json`，摘要 `current=true`；eval 运行 2 条 node 命令均 exit 0
+  - 反例：非白名单二进制 `binary-not-allowed`；未登记 `no-config` 404；非 git 根 `not-a-git-repo`
+- 证据：全量 212/212；Playwright 全流程 17/17（含验收执行）、0 pageerror；截图 `docs/assets/design/plugin-acceptance.png`

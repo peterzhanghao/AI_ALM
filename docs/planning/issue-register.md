@@ -88,6 +88,7 @@
 | ALM-08.04 | 写操作：开始开发 / 运行门禁验收 / 新建需求 | task | @peterzhanghao | P1 | plugin | done | ALM-08.03（#110，已关闭） | 确认发布 | #112 | #113 | in-sync | 2026-10-31 03:25 |
 | ALM-09.01 | 工作区项目空间 + 新建按钮修复 + UI 全流程回归 | task | @peterzhanghao | P1 | plugin | done | ALM-08.04（#112，已关闭） | 确认发布 | #114 | #115 | in-sync | 2026-10-31 08:15 |
 | ALM-09.02 | GitHub Issue 自动创建进插件 | task | @peterzhanghao | P1 | plugin | done | ALM-09.01（#114，已关闭） | 确认发布 | #116 | #117 | in-sync | 2026-10-31 08:55 |
+| ALM-09.03 | 需求级验收证据契约 | task | @peterzhanghao | P1 | plugin | review | ALM-09.02（#116，已关闭） | 确认发布 | #118 | — | local-newer | 2026-10-31 09:25 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。

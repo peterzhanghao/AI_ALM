@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -441,6 +442,60 @@ test('POST /api/alm/requirements/github previews issue plan without network', as
       })
       assert.equal(missing.status, 404)
       assert.equal((await missing.json()).error.code, 'no-draft')
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('POST /api/alm/requirements/acceptance previews and archives evidence', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-acceptance-http-'))
+  try {
+    writeFileSync(join(dir, 'README.md'), '# demo\n')
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['add', '-A'], { cwd: dir })
+    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init'], { cwd: dir })
+    mkdirSync(join(dir, '.alm', 'acceptance'), { recursive: true })
+    writeFileSync(
+      join(dir, '.alm', 'acceptance', 'REQ-X-001.json'),
+      JSON.stringify({
+        schema: 'alm.acceptance.config/v1',
+        requirement: 'REQ-X-001',
+        commands: [{ id: 'smoke', command: ['node', '-e', 'process.exit(0)'] }],
+      }),
+    )
+
+    await withWriteServer(dir, async (base) => {
+      const preview = await fetch(`${base}/api/alm/requirements/acceptance?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-X-001' }),
+      })
+      const plan = await preview.json()
+      assert.equal(preview.status, 200)
+      assert.equal(plan.schema, 'alm.acceptance.plan/v1')
+      assert.equal(plan.applied, false)
+      assert.equal(plan.commands[0].id, 'smoke')
+      assert.ok(!existsSync(join(dir, '.alm', 'acceptance', 'REQ-X-001')))
+
+      const run = await fetch(`${base}/api/alm/requirements/acceptance?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-X-001', apply: true }),
+      })
+      const result = await run.json()
+      assert.equal(run.status, 200)
+      assert.equal(result.result, 'pass')
+      assert.equal(result.applied, true)
+      assert.ok(existsSync(result.evidencePath))
+
+      const missing = await fetch(`${base}/api/alm/requirements/acceptance?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-NOPE-001' }),
+      })
+      assert.equal(missing.status, 404)
+      assert.equal((await missing.json()).error.code, 'no-config')
     })
   } finally {
     rmSync(dir, { recursive: true, force: true })

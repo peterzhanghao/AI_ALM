@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -216,6 +217,50 @@ test('trace keeps a dangling target as a missing node', () => {
     assert.ok(missing, 'dangling target should still appear in the trace')
     assert.equal(missing.type, 'missing')
     assert.equal(missing.title, null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('requirements payload exposes acceptance registration and latest evidence', () => {
+  const clean = requirements(fixture).requirements.find((entry) => entry.id === 'REQ-PAY-001')
+  assert.equal(clean.acceptance.schema, 'alm.acceptance.summary/v1')
+  assert.equal(clean.acceptance.registered, false)
+  assert.equal(clean.acceptance.latest, null)
+
+  const dir = mkdtempSync(join(tmpdir(), 'alm-acceptance-query-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['add', '-A'], { cwd: dir })
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: dir })
+    mkdirSync(join(dir, '.alm/acceptance'), { recursive: true })
+    writeFileSync(
+      join(dir, '.alm/acceptance/REQ-PAY-001.json'),
+      JSON.stringify({
+        schema: 'alm.acceptance.config/v1',
+        requirement: 'REQ-PAY-001',
+        commands: [{ id: 'smoke', command: ['node', '-e', 'process.exit(0)'] }],
+      }),
+    )
+    const head = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    mkdirSync(join(dir, '.alm/acceptance/REQ-PAY-001'), { recursive: true })
+    writeFileSync(
+      join(dir, '.alm/acceptance/REQ-PAY-001', `${head}.json`),
+      JSON.stringify({
+        schema: 'alm.acceptance/v1',
+        requirement: 'REQ-PAY-001',
+        headSha: head,
+        result: 'pass',
+        finishedAt: '2026-10-31T00:00:00.000Z',
+        commands: [{ id: 'smoke', exitCode: 0 }],
+      }),
+    )
+    const item = requirements(dir).requirements.find((entry) => entry.id === 'REQ-PAY-001')
+    assert.equal(item.acceptance.registered, true)
+    assert.equal(item.acceptance.commandCount, 1)
+    assert.equal(item.acceptance.latest.result, 'pass')
+    assert.equal(item.acceptance.latest.current, true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
