@@ -587,3 +587,78 @@ test('POST /api/alm/requirements/review and signoff persist a human review', asy
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('POST /api/alm/requirements/intake parses chat and runs local OCR adapter', async () => {
+  await withWriteServer(fixture, async (base) => {
+    const chat = await fetch(`${base}/api/alm/requirements/intake?root=${encodeURIComponent(fixture)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'chat', markdown: '10:12 张三：退款要幂等\n10:13 李四：并发也只退一次' }),
+    })
+    const chatPayload = await chat.json()
+    assert.equal(chat.status, 200)
+    assert.equal(chatPayload.schema, 'alm.intake.chat/v1')
+    assert.equal(chatPayload.messages.length, 2)
+    assert.equal(chatPayload.messages[0].ref, 'chat.md#L1')
+
+    const dir = mkdtempSync(join(tmpdir(), 'alm-ocr-http-'))
+    const script = join(dir, 'fake-ocr.py')
+    writeFileSync(script, `console.log(JSON.stringify({ engine: 'ppocrv5', lines: [{ text: '本地 OCR 文本', confidence: 0.9 }], blocks: [] }))`)
+    const previousPython = process.env.DSH_OCR_PYTHON
+    const previousScript = process.env.DSH_OCR_SCRIPT
+    process.env.DSH_OCR_PYTHON = process.execPath
+    process.env.DSH_OCR_SCRIPT = script
+    try {
+      const ocr = await fetch(`${base}/api/alm/requirements/intake?root=${encodeURIComponent(fixture)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'ocr', filename: 'shot.png', imageBase64: Buffer.from('fake-image').toString('base64') }),
+      })
+      const ocrPayload = await ocr.json()
+      assert.equal(ocr.status, 200)
+      assert.equal(ocrPayload.schema, 'alm.ocr/v1')
+      assert.equal(ocrPayload.lines[0].ref, 'shot.png#L1')
+      assert.match(ocrPayload.text, /本地 OCR/)
+    } finally {
+      if (previousPython === undefined) delete process.env.DSH_OCR_PYTHON
+      else process.env.DSH_OCR_PYTHON = previousPython
+      if (previousScript === undefined) delete process.env.DSH_OCR_SCRIPT
+      else process.env.DSH_OCR_SCRIPT = previousScript
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+test('POST /api/alm/requirements/create persists attachments and manifest', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-create-attach-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    await withWriteServer(dir, async (base) => {
+      const response = await fetch(`${base}/api/alm/requirements/create?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          title: '带原始材料的需求',
+          brief: '来自聊天与截图',
+          attachments: [
+            { name: 'chat.md', kind: 'chat', text: '10:12 张三：退款要幂等' },
+            { name: 'shot.png', kind: 'screenshot', dataBase64: Buffer.from('fake-png').toString('base64') },
+          ],
+          apply: true,
+        }),
+      })
+      const payload = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(payload.applied, true)
+      assert.equal(payload.attachments.length, 2)
+      assert.ok(existsSync(join(dir, 'requirements/attachments/REQ-PAY-005/manifest.json')))
+      assert.ok(existsSync(join(dir, 'requirements/attachments/REQ-PAY-005/chat.md')))
+      const listed = await (await fetch(`${base}/api/alm/requirements?root=${encodeURIComponent(dir)}`)).json()
+      const item = listed.requirements.find((entry) => entry.id === 'REQ-PAY-005')
+      assert.equal(item.attachments, 2)
+      assert.deepEqual(item.attachmentFiles.map((file) => file.name).sort(), ['chat.md', 'shot.png'])
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

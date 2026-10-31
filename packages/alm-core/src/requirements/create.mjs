@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { checkReport, indexReport } from '../commands.mjs'
 import { readProject } from '../project/project.mjs'
@@ -71,7 +72,7 @@ function briefMarkdown({ id, title, brief, goal }) {
  * The requirement is created as `proposed`; gates will keep reporting COV-001
  * until acceptance assets are added, which is the normal draft state.
  */
-export function planRequirement({ root, title, brief = '', goal = '', priority = 'P1', owner, project, id, apply = false }) {
+export function planRequirement({ root, title, brief = '', goal = '', priority = 'P1', owner, project, id, attachments = [], apply = false }) {
   const repo = resolve(root)
   const cleanTitle = String(title ?? '').trim()
   if (cleanTitle === '') throw new RequirementCreateError('title is required', { code: 'title-required' })
@@ -107,19 +108,63 @@ export function planRequirement({ root, title, brief = '', goal = '', priority =
     briefFile,
     content: sdocContent({ id: requirementId, title: cleanTitle, owner: ownerId, project: projectId, priority, briefFile }),
     briefContent: briefMarkdown({ id: requirementId, title: cleanTitle, brief, goal }),
+    attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
+    attachmentNames: Array.isArray(attachments) ? attachments.map((entry) => String(entry?.name ?? '')).filter(Boolean) : [],
     applied: false,
   }
 }
 
-/** Write a planned requirement (sdoc + brief). The check result is reported, not enforced. */
+const ATTACHMENT_NAME = /^[A-Za-z0-9._-]{1,120}$/
+
+function writeAttachments({ repo, requirementId, attachments }) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return []
+  const dir = join(repo, 'requirements', 'attachments', requirementId)
+  mkdirSync(dir, { recursive: true })
+  const files = []
+  for (const entry of attachments) {
+    const name = String(entry?.name ?? '').trim()
+    if (!ATTACHMENT_NAME.test(name)) {
+      throw new RequirementCreateError(`invalid attachment name: ${name}`, { code: 'invalid-attachment' })
+    }
+    let bytes
+    if (entry.dataBase64) bytes = Buffer.from(String(entry.dataBase64), 'base64')
+    else if (typeof entry.text === 'string') bytes = Buffer.from(entry.text, 'utf8')
+    else throw new RequirementCreateError(`attachment ${name} needs dataBase64 or text`, { code: 'invalid-attachment' })
+    writeFileSync(join(dir, name), bytes)
+    files.push({
+      path: name,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      kind: entry.kind ?? 'attachment',
+      capturedAt: new Date().toISOString(),
+      addedBy: entry.addedBy ?? 'human:local',
+    })
+  }
+  files.sort((left, right) => left.path.localeCompare(right.path))
+  writeFileSync(join(dir, 'manifest.json'), `${JSON.stringify({ requirement: requirementId, files }, null, 2)}
+`, 'utf8')
+  return files
+}
+
+/** Write a planned requirement (sdoc + brief + attachments). The check result is reported, not enforced. */
 export function createRequirement({ root, ...input }) {
   const repo = resolve(root)
   const plan = planRequirement({ root: repo, ...input })
   if (input.apply !== true) return plan
 
   mkdirSync(join(repo, 'requirements', 'briefs'), { recursive: true })
-  writeFileSync(join(repo, plan.file), plan.content, 'utf8')
-  writeFileSync(join(repo, plan.briefFile), plan.briefContent, 'utf8')
+  const sdocFile = join(repo, plan.file)
+  const briefFile = join(repo, plan.briefFile)
+  let attachmentFiles = []
+  try {
+    writeFileSync(sdocFile, plan.content, 'utf8')
+    writeFileSync(briefFile, plan.briefContent, 'utf8')
+    attachmentFiles = writeAttachments({ repo, requirementId: plan.requirementId, attachments: input.attachments })
+  } catch (error) {
+    rmSync(sdocFile, { force: true })
+    rmSync(briefFile, { force: true })
+    rmSync(join(repo, 'requirements', 'attachments', plan.requirementId), { recursive: true, force: true })
+    throw error
+  }
 
   const check = checkReport(repo)
   const gaps = (check.checks ?? [])
@@ -131,5 +176,6 @@ export function createRequirement({ root, ...input }) {
     ...plan,
     applied: true,
     check: { result: check.result ?? 'fail', gaps: gaps.length },
+    attachments: attachmentFiles,
   }
 }

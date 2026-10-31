@@ -73,3 +73,40 @@ test('createRequirement validates project, priority and id', () => {
     (error) => error.code === 'title-required',
   )
 })
+
+test('createRequirement writes attachments and manifest with sha256', () => {
+  const root = makeRepo()
+  const result = createRequirement({
+    root,
+    title: '带附件的需求',
+    brief: '背景来自聊天与截图',
+    attachments: [
+      { name: 'chat.md', kind: 'chat', text: '10:12 张三：退款要幂等' },
+      { name: 'shot.png', kind: 'screenshot', dataBase64: Buffer.from('fake-png').toString('base64') },
+    ],
+    apply: true,
+  })
+  assert.equal(result.attachments.length, 2)
+  assert.ok(existsSync(join(root, 'requirements/attachments/REQ-PAY-005/chat.md')))
+  assert.ok(existsSync(join(root, 'requirements/attachments/REQ-PAY-005/shot.png')))
+  const manifest = JSON.parse(readFileSync(join(root, 'requirements/attachments/REQ-PAY-005/manifest.json'), 'utf8'))
+  assert.equal(manifest.files.length, 2)
+  assert.ok(manifest.files.every((file) => /^[0-9a-f]{64}$/.test(file.sha256)))
+  const index = indexReport(root)
+  assert.ok(index.assets.some((asset) => asset.id === 'REQ-PAY-005'))
+})
+
+test('createRequirement rejects unsafe attachment names', () => {
+  const root = makeRepo()
+  assert.throws(
+    () =>
+      createRequirement({
+        root,
+        title: '坏附件',
+        attachments: [{ name: '../escape.md', kind: 'chat', text: 'x' }],
+        apply: true,
+      }),
+    (error) => error.code === 'invalid-attachment',
+  )
+  assert.ok(!existsSync(join(root, 'requirements/req-pay-005.sdoc')))
+})
