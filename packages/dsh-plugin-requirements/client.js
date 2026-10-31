@@ -712,7 +712,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, compact }) {
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, compact }) {
       const relations = relationsOf(item, allItems)
       return h(
         'div',
@@ -752,6 +752,33 @@ window.__ModuleLoader__.load({
             : h('p', { style: { margin: 0, color: T.warn, fontSize: '12.5px' } }, '没有 verified_by，COV-001 会失败。'),
         ),
 
+        h(
+          Section,
+          {
+            title: '验收执行',
+            action: h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onAcceptance(item) }, '运行需求验收 ›'),
+          },
+          item.acceptance?.registered
+            ? h(
+                'div',
+                null,
+                h('div', { style: row }, h('span', { style: rowLabel }, '登记命令'), h('span', { style: { color: T.text } }, `${item.acceptance.commandCount} 条`)),
+                h(
+                  'div',
+                  { style: row },
+                  h('span', { style: rowLabel }, '最近证据'),
+                  item.acceptance.latest
+                    ? h(
+                        'span',
+                        { style: { color: item.acceptance.latest.result === 'pass' ? T.ok : T.err } },
+                        `${item.acceptance.latest.result} · ${item.acceptance.latest.headSha.slice(0, 8)}${item.acceptance.latest.current ? ' · 当前提交' : ' · 历史提交'}`,
+                      )
+                    : h('span', { style: muted }, '尚未运行'),
+                ),
+              )
+            : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令（.alm/acceptance/<REQ>.json，白名单 node / npm / pnpm）。'),
+        ),
+
         h(Section, { title: '关系', action: h(TraceLink, { onClick: () => onTrace(item) }) },
           relations.length
             ? h('div', null, relations.map(([label, ids]) => h('div', { key: label, style: row }, h('span', { style: rowLabel }, label), h('span', { style: { color: T.text } }, ids.join('、')))))
@@ -774,14 +801,14 @@ window.__ModuleLoader__.load({
 
         h('div', { style: { display: 'flex', gap: '10px', marginTop: '22px', flexWrap: 'wrap' } },
           h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
-          h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁验收'),
+          h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
           h('button', { style: button, onClick: () => onDetail(item) }, '查看详情'),
           onClose ? h('button', { style: button, onClick: onClose }, '关闭') : null,
         ),
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -811,12 +838,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -891,6 +918,21 @@ window.__ModuleLoader__.load({
               ),
               h(Section, { title: 'GitHub / 看板' }, h(GithubBlock, { item, projectMeta })),
               h(Section, { title: '评审' }, h(ReviewBlock, { review: item.review })),
+              h(
+                Section,
+                {
+                  title: '验收执行',
+                  action: h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onAcceptance(item) }, '运行 ›'),
+                },
+                item.acceptance?.registered
+                  ? h('p', { style: { margin: 0, fontSize: '12.5px', color: T.text2 } },
+                      `${item.acceptance.commandCount} 条命令`,
+                      item.acceptance.latest
+                        ? ` · 最近 ${item.acceptance.latest.result}${item.acceptance.latest.current ? '（当前提交）' : '（历史提交）'}`
+                        : ' · 尚未运行',
+                    )
+                  : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令。'),
+              ),
               h(Section, { title: '版本历史' }, h(VersionList, { item, onSnapshot, compact: true })),
               h(Section, { title: '技术' },
                 h('p', { style: { margin: 0, ...muted } }, `${item.file}${item.line ? `:${item.line}` : ''}`),
@@ -901,7 +943,8 @@ window.__ModuleLoader__.load({
           ),
           h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', flexWrap: 'wrap' } },
             h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
-            h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁验收'),
+            h('button', { style: button, onClick: () => onAcceptance(item) }, '运行需求验收'),
+            h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
             h('button', { style: button, onClick: onClose }, '关闭'),
           ),
         ),
@@ -1471,7 +1514,7 @@ window.__ModuleLoader__.load({
       return h(
         ModalShell,
         {
-          title: `运行门禁验收 · ${item.id}`,
+          title: `运行门禁检查 · ${item.id}`,
           lead: '执行 `alm ci run`（固定白名单命令，不接受任意命令）；证据写入 .alm/ci/<sha>/。',
           onClose,
           footer: [
@@ -1495,6 +1538,116 @@ window.__ModuleLoader__.load({
                 ],
               }),
               h('p', { style: { margin: '10px 0 0', ...muted } }, '重复运行同一提交 + 同一规则包时返回 unchanged，只保留一份证据。'),
+            )
+          : null,
+      )
+    }
+
+    function AcceptanceModal({ item, root, onClose, onDone }) {
+      const [state, setState] = useState({ loading: true, plan: null, result: null, error: null, running: false })
+      const load = useCallback(() => {
+        setState({ loading: true, plan: null, result: null, error: null, running: false })
+        writeJson('acceptance', { requirementId: item.id }, root)
+          .then((plan) => setState({ loading: false, plan, result: null, error: null, running: false }))
+          .catch((error) => setState({ loading: false, plan: null, result: null, error: error.message, running: false }))
+      }, [item.id, root])
+      useEffect(() => {
+        load()
+      }, [load])
+
+      const run = () => {
+        setState((current) => ({ ...current, running: true, error: null }))
+        writeJson('acceptance', { requirementId: item.id, apply: true }, root)
+          .then((result) => {
+            setState({ loading: false, plan: null, result, error: null, running: false })
+            onDone?.()
+          })
+          .catch((error) => setState((current) => ({ ...current, running: false, error: error.message })))
+      }
+
+      const plan = state.plan
+      const result = state.result
+      const evidence = result?.evidence
+      return h(
+        ModalShell,
+        {
+          title: `运行需求验收 · ${item.id}`,
+          lead: '只执行 .alm/acceptance/<REQ>.json 登记的命令（白名单 node / npm / pnpm，无 shell）；证据写 .alm/acceptance/<REQ>/<sha>.json。',
+          onClose,
+          width: '820px',
+          footer: [
+            h('button', { key: 'close', style: result ? primary : button, onClick: onClose }, '关闭'),
+            plan && !result
+              ? h('button', { key: 'run', style: primary, onClick: run, disabled: state.running }, state.running ? '运行中…' : '运行验收')
+              : null,
+          ],
+        },
+        state.loading ? h('p', { style: muted }, '正在读取验收配置…') : null,
+        state.error
+          ? h(
+              'div',
+              null,
+              h('p', { style: { margin: 0, color: T.err, fontSize: '13px' } }, state.error),
+              h('p', { style: { margin: '8px 0 0', ...muted } }, '可在工作区创建 .alm/acceptance/<需求ID>.json 登记命令，例如 {"commands":[{"id":"smoke","command":["node","-e","process.exit(0)"]}]}。'),
+            )
+          : null,
+        plan
+          ? h(
+              'div',
+              null,
+              h(PlanRows, {
+                rows: [
+                  ['需求', plan.requirement],
+                  ['提交', plan.headSha.slice(0, 12)],
+                  ['命令数', `${plan.commands.length}`],
+                  ['证据', plan.evidencePath],
+                ],
+              }),
+              h(
+                'div',
+                { style: { marginTop: '10px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '8px 12px' } },
+                plan.commands.map((command) =>
+                  h('div', { key: command.id, style: { ...row, borderBottom: 'none', padding: '4px 0', alignItems: 'baseline' } },
+                    h('span', { style: { color: T.text3, fontSize: '11.5px', width: '90px', flex: 'none' } }, command.id),
+                    h('code', { style: { color: T.text, fontSize: '12px', wordBreak: 'break-all' } }, command.command.join(' ')),
+                  ),
+                ),
+              ),
+            )
+          : null,
+        evidence
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['结果', evidence.result],
+                  ['提交', evidence.headSha.slice(0, 12)],
+                  ['证据', result.evidencePath],
+                ],
+              }),
+              h(
+                'div',
+                { style: { marginTop: '10px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '8px 12px' } },
+                evidence.commands.map((command) =>
+                  h(
+                    'div',
+                    { key: command.id, style: { borderBottom: `1px solid ${T.line}`, padding: '6px 0', fontSize: '12px', color: T.text2 } },
+                    h('div', { style: { display: 'flex', gap: '10px', alignItems: 'baseline' } },
+                      h('span', { style: { color: T.text3, width: '90px', flex: 'none' } }, command.id),
+                      h('span', { style: { color: command.exitCode === 0 ? T.ok : T.err, fontWeight: 600 } }, `exit ${command.exitCode ?? 'timeout'}`),
+                      h('span', { style: { color: T.text3 } }, `${command.durationMs} ms`),
+                    ),
+                    command.stdout || command.stderr
+                      ? h(
+                          'pre',
+                          { style: { margin: '6px 0 0 100px', padding: '8px', maxHeight: '140px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '8px', fontSize: '11px', whiteSpace: 'pre-wrap' } },
+                          `${command.stdout ?? ''}${command.stderr ?? ''}`.slice(0, 2000),
+                        )
+                      : null,
+                  ),
+                ),
+              ),
             )
           : null,
       )
@@ -1700,6 +1853,7 @@ window.__ModuleLoader__.load({
       const [traceItem, setTraceItem] = useState(null)
       const [startItem, setStartItem] = useState(null)
       const [acceptItem, setAcceptItem] = useState(null)
+      const [acceptanceItem, setAcceptanceItem] = useState(null)
       const [createOpen, setCreateOpen] = useState(false)
       const [associateTarget, setAssociateTarget] = useState(null)
       const [showRoot, setShowRoot] = useState(false)
@@ -1969,6 +2123,7 @@ window.__ModuleLoader__.load({
               onTrace: (entry) => setTraceItem(entry),
               onStart: (entry) => setStartItem(entry),
               onAccept: (entry) => setAcceptItem(entry),
+              onAcceptance: (entry) => setAcceptanceItem(entry),
             })
           : null,
         detailOpen && selected
@@ -1982,6 +2137,7 @@ window.__ModuleLoader__.load({
               onTrace: (entry) => setTraceItem(entry),
               onStart: (entry) => setStartItem(entry),
               onAccept: (entry) => setAcceptItem(entry),
+              onAcceptance: (entry) => setAcceptanceItem(entry),
             })
           : null,
         snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
@@ -1999,6 +2155,14 @@ window.__ModuleLoader__.load({
               item: acceptItem,
               root: acceptItem.root ?? data?.root ?? root,
               onClose: () => setAcceptItem(null),
+            })
+          : null,
+        acceptanceItem
+          ? h(AcceptanceModal, {
+              item: acceptanceItem,
+              root: acceptanceItem.root ?? data?.root ?? root,
+              onClose: () => setAcceptanceItem(null),
+              onDone: () => reload(),
             })
           : null,
         associateTarget

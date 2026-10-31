@@ -30,8 +30,11 @@
 
 ### ALM-09.03 需求级验收证据契约（item 2）
 
-- 新增 `.alm/acceptance/<REQ>/<sha>.json`（`alm.acceptance/v1`）：白名单命令、退出码、耗时、SHA、输出摘要；服务端执行/记录，UI 展示证据与签收。
-- 与 `alm ci run` 的门禁证据区分：验收针对需求登记的检查命令。
+- 配置：`.alm/acceptance/<REQ>.json`（`alm.acceptance.config/v1`），命令为数组 `{id, command: ["node","..."], timeoutMs?}`；二进制白名单 `node/npm/pnpm`，**无 shell**，最多 10 条、单条 ≤10 分钟。
+- 证据：`.alm/acceptance/<REQ>/<headSha>.json`（`alm.acceptance/v1`），含每条命令的退出码、耗时、stdout/stderr 尾部（各 ≤20KB）、整体结果与时间戳；同一提交重复运行覆盖为最新。
+- 服务端：`runAcceptance`（plan 默认不执行/不写；apply 才执行并归档）+ `POST /api/alm/requirements/acceptance`；查询 payload 带 `acceptance` 摘要（是否登记/命令数/最近证据/是否当前提交）。
+- UI：抽屉与详情「验收执行」显示登记与最近证据；「运行需求验收」弹层先预览命令，再运行并展示逐条 exit code/耗时/输出；与「运行门禁检查」（`alm ci run`）区分。
+- 验收：单测覆盖 plan 零写入、pass/fail 证据、白名单拒绝、缺配置；HTTP 预览/执行；eval 全流程运行真实 `node` 命令并落证据。
 
 ### ALM-09.04 版本 diff 对比（item 5）
 
@@ -52,4 +55,4 @@
 
 ## 3. 本轮交付
 
-ALM-09.02：GitHub Issue 自动创建进入插件——开始开发生成变更后可预览/创建需求 Issue + 任务子议题 + ProjectV2 状态，映射写 `.alm/github.json`。完成后进入 ALM-09.03 验收证据契约。
+ALM-09.03：需求级验收证据契约——`.alm/acceptance/<REQ>.json` 登记白名单命令，执行后归档 `.alm/acceptance/<REQ>/<sha>.json`；抽屉/详情「验收执行」可预览并运行，证据含逐条退出码/耗时/输出。完成后进入 ALM-09.04 版本 diff。
