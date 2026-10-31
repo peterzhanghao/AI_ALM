@@ -125,3 +125,12 @@ ALM-09.10：新建需求改为 AI 驱动——输入口语/聊天/截图，AI �
 - 确认保存按钮不再因为未就绪而静默禁用：点击后显示「还不能保存」、错误码与逐条原因，并滚动到顶部错误区；问题处理完、优先级明确后按原确认契约保存。
 - 修复同时纳入意图澄清核心、插件路由、HTTP/核心单测与验收报告；与已合并的需求列表重构做了 `client.js` 合并，列表页/意图弹层同时可用。
 - 验收：`pnpm test` 394/394；Playwright 实测粘贴 OCR 约 2s、回答提交 72–79ms、未就绪保存反馈可见；截图 `docs/assets/design/intent-*.png`。
+
+### ALM-09.15 需求关闭归档
+
+- 需求新增终态 `archived`（已归档）：不需要开发的需求可从 proposed/accepted/in-progress/implemented/verified 直接归档；`STATE-001` 允许转入，归档后不再转出。
+- 后端 `archive.mjs` 提供预演/提交：写 `STATUS: archived` + `REVISION+1`，CAS 基线（内容哈希 + 关系哈希 + 修订）、可选原因（≤500）、`alm.audit/v1` 审计、原子写与失败回滚、幂等键重放；错误区分 `already-archived` / `invalid-status` / `stale-preview`。
+- 证据判定对归档需求提前返回「已归档，无需操作」，不继续报门禁/评审/验收缺口；历史证据与 GitHub 归属保留。
+- 插件新增 `POST /api/alm/requirements/archive`，默认只预演；列表增加「已归档」筛选并默认排除归档项，行与详情提供「关闭归档」，确认弹层展示状态/修订/文件/影响与原因，成功后展示审计并退出活跃视图。
+- 归档详情只读：隐藏开始开发、AI 评审、变更试演、运行验收、门禁检查；仍可查看背景、关系、历史与证据。
+- 验收：archive 单测 4/4、全量 `pnpm test` 399/399、插件 HTTP 18/18、Playwright 归档流程通过；截图 `plugin-archive-preview.png`、`plugin-archive-result.png`、`plugin-archive-list.png`、`plugin-archive-archived.png`。

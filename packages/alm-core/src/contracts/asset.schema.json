@@ -22,7 +22,7 @@
       ]
     },
     "title": { "type": "string", "minLength": 1 },
-    "status": { "enum": ["proposed", "accepted", "in-progress", "implemented", "verified", "deprecated", "superseded"] },
+    "status": { "enum": ["proposed", "accepted", "in-progress", "implemented", "verified", "deprecated", "superseded", "archived"] },
     "owner": { "type": "string", "minLength": 1 },
     "links": {
       "type": "array",

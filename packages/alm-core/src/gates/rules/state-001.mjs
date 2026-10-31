@@ -6,13 +6,14 @@ export const id = 'STATE-001'
 export const level = 'block'
 
 const ALLOWED = {
-  proposed: ['accepted', 'deprecated', 'superseded'],
-  accepted: ['in-progress', 'deprecated', 'superseded'],
-  'in-progress': ['implemented', 'accepted', 'deprecated'],
-  implemented: ['verified', 'in-progress', 'deprecated'],
-  verified: ['in-progress', 'deprecated'],
+  proposed: ['accepted', 'deprecated', 'superseded', 'archived'],
+  accepted: ['in-progress', 'deprecated', 'superseded', 'archived'],
+  'in-progress': ['implemented', 'accepted', 'deprecated', 'archived'],
+  implemented: ['verified', 'in-progress', 'deprecated', 'archived'],
+  verified: ['in-progress', 'deprecated', 'archived'],
   deprecated: [],
   superseded: [],
+  archived: [],
 }
 
 export function check({ assets, baseAssets }) {
