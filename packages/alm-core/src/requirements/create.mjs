@@ -76,8 +76,18 @@ export function planRequirement({ root, title, brief = '', goal = '', priority =
   const repo = resolve(root)
   const cleanTitle = String(title ?? '').trim()
   if (cleanTitle === '') throw new RequirementCreateError('title is required', { code: 'title-required' })
+  // User material and AI output are untrusted: a newline in a single-line sdoc
+  // field could inject a field or a [RELATION] block into the file.
+  if (/[\u0000-\u001F\u007F]/.test(cleanTitle)) {
+    throw new RequirementCreateError('title must not contain control characters or newlines', { code: 'invalid-title' })
+  }
   if (cleanTitle.length > 200) throw new RequirementCreateError('title is too long (max 200)', { code: 'title-too-long' })
   if (!PRIORITIES.has(priority)) throw new RequirementCreateError(`invalid priority: ${priority}`, { code: 'invalid-priority' })
+  const cleanOwner = owner === undefined || owner === null ? '' : String(owner).trim()
+  if (/[\u0000-\u001F\u007F]/.test(cleanOwner)) {
+    throw new RequirementCreateError('owner must not contain control characters or newlines', { code: 'invalid-owner' })
+  }
+  if (cleanOwner.length > 120) throw new RequirementCreateError('owner is too long (max 120)', { code: 'owner-too-long' })
 
   const projectFile = readProject(repo)
   const projectId = project ?? projectFile?.id
@@ -96,7 +106,7 @@ export function planRequirement({ root, title, brief = '', goal = '', priority =
     throw new RequirementCreateError(`requirement already exists: ${requirementId}`, { code: 'already-exists', status: 409 })
   }
 
-  const ownerId = String(owner ?? '').trim() || projectFile?.teams?.[0] || 'team-pay'
+  const ownerId = cleanOwner || projectFile?.teams?.[0] || 'team-pay'
   return {
     schema: 'alm.requirement.plan/v1',
     requirementId,

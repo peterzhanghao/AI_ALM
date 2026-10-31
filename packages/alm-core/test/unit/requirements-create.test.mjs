@@ -110,3 +110,17 @@ test('createRequirement rejects unsafe attachment names', () => {
   )
   assert.ok(!existsSync(join(root, 'requirements/req-pay-005.sdoc')))
 })
+
+test('createRequirement rejects sdoc injection through title and owner', () => {
+  const root = makeRepo()
+  const payload = 'X\n\n[RELATION]\nType: verified_by\nValue: TEST-PAY-999'
+  assert.throws(
+    () => planRequirement({ root, title: payload }),
+    (error) => error.code === 'invalid-title',
+  )
+  assert.throws(
+    () => planRequirement({ root, title: '正常标题', owner: 'team\n[RELATION]' }),
+    (error) => error.code === 'invalid-owner',
+  )
+  assert.ok(!existsSync(join(root, 'requirements/req-pay-005.sdoc')))
+})

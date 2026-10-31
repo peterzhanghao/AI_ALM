@@ -59,6 +59,12 @@ export { TYPE_PREFIX }
 
 export const ID_PATTERN = /^(REQ|ADR|MOD|IF|DM|TEST|RISK)-[A-Z0-9]+(-[A-Z0-9]+)*$/
 
+/**
+ * Optional human-facing business id (e.g. JIRA-1234). It is only a label: the
+ * stable internal key is still `id`, and relations keep targeting `id`.
+ */
+export const BUSINESS_ID_PATTERN = /^[A-Za-z0-9._/-]{1,64}$/
+
 export class AssetError extends Error {
   constructor(message, { rule = 'FMT-002', file, line = 1 } = {}) {
     super(message)
@@ -101,6 +107,11 @@ export function normalizeAsset(raw, source) {
   if (!ASSET_STATUSES.includes(status)) throw new AssetError(`unknown status: ${status}`, where)
   if (raw.project !== undefined && !/^[A-Z][A-Z0-9]{1,7}$/.test(String(raw.project))) {
     throw new AssetError(`invalid project id: ${String(raw.project)}`, where)
+  }
+  if (raw.businessId !== undefined) {
+    if (typeof raw.businessId !== 'string' || !BUSINESS_ID_PATTERN.test(raw.businessId)) {
+      throw new AssetError(`invalid businessId: ${String(raw.businessId)}`, where)
+    }
   }
 
   if (raw.revision !== undefined) {
