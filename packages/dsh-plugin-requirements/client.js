@@ -1510,34 +1510,36 @@ window.__ModuleLoader__.load({
 
     function StartModal({ item, root, projectMeta, onClose, onGithubApplied }) {
       const [state, setState] = useState({ loading: true, error: null, plan: null, result: null, applying: false })
+      const [isolate, setIsolate] = useState(false)
       const [github, setGithub] = useState({ loading: false, plan: null, result: null, error: null })
       const load = useCallback(() => {
         setState({ loading: true, error: null, plan: null, result: null, applying: false })
-        writeJson('start', { requirementId: item.id }, root)
+        writeJson('start', { requirementId: item.id, isolate }, root)
           .then((plan) => setState({ loading: false, error: null, plan, result: null, applying: false }))
           .catch((error) => setState({ loading: false, error: error.message, plan: null, result: null, applying: false }))
-      }, [item.id, root])
+      }, [item.id, root, isolate])
       useEffect(() => {
         load()
       }, [load])
 
       const apply = () => {
         setState((current) => ({ ...current, applying: true, error: null }))
-        writeJson('start', { requirementId: item.id, apply: true }, root)
+        writeJson('start', { requirementId: item.id, apply: true, isolate }, root)
           .then((result) => setState((current) => ({ ...current, applying: false, result })))
           .catch((error) => setState((current) => ({ ...current, applying: false, error: error.message })))
       }
 
+      const githubRoot = () => state.result?.worktree?.path ?? root
       const previewGithubIssues = (changeId) => {
         setGithub({ loading: true, plan: null, result: null, error: null })
-        writeJson('github', { changeId, apply: false }, root)
+        writeJson('github', { changeId, apply: false }, githubRoot())
           .then((plan) => setGithub({ loading: false, plan, result: null, error: null }))
           .catch((error) => setGithub({ loading: false, plan: null, result: null, error: error.message }))
       }
 
       const applyGithubIssues = (changeId) => {
         setGithub((current) => ({ ...current, loading: true, error: null }))
-        writeJson('github', { changeId, apply: true }, root)
+        writeJson('github', { changeId, apply: true }, githubRoot())
           .then((result) => {
             setGithub({ loading: false, plan: null, result, error: null })
             onGithubApplied?.()
@@ -1564,6 +1566,12 @@ window.__ModuleLoader__.load({
                 : null,
           ],
         },
+        h(
+          'label',
+          { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '12.5px', color: T.text2 } },
+          h('input', { type: 'checkbox', checked: isolate, onChange: (event) => setIsolate(event.target.checked) }),
+          '创建隔离 worktree（不改动主工作区；默认只登记变更）',
+        ),
         state.loading ? h('p', { style: muted }, '正在预演变更…') : null,
         state.error ? h('p', { style: { color: T.err, fontSize: '13px' } }, state.error) : null,
         plan
@@ -1578,6 +1586,8 @@ window.__ModuleLoader__.load({
                   ['基线', plan.baselineSha.slice(0, 8)],
                   ['任务卡', `${plan.taskCount} 张`],
                   ['需求', plan.requirementIds.join('、')],
+                  ['隔离 worktree', plan.isolate ? '是' : '否（只登记）'],
+                  ...(plan.worktreePath ? [['worktree', plan.worktreePath]] : []),
                 ],
               }),
               h('div', { style: { marginTop: '12px', fontSize: '12px', color: T.text3 } }, '将写入：'),
@@ -1598,6 +1608,7 @@ window.__ModuleLoader__.load({
                   ['变更', result.changeId],
                   ['任务卡', `${result.draft.tasks.length} 张`],
                   ['文件', result.draft.files.join('、')],
+                  ...(result.worktree ? [['隔离 worktree', result.worktree.path], ['分支', result.worktree.branch]] : []),
                 ],
               }),
               h(

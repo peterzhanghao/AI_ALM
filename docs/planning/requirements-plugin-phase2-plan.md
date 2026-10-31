@@ -53,7 +53,10 @@
 
 ### ALM-09.06 开始开发切分支/隔离 worktree（item 1）
 
-- 在现有变更登记（不切分支）之上增加可选的隔离 worktree：`git worktree add` 到 `.alm/worktrees/<CHG>`，不移动主工作区；失败回滚 worktree 与变更记录。
+- `openChange({isolate})`：默认只登记变更/任务卡（不动工作区）；`isolate:true` 时在仓库同级 `.alm-worktrees/<repo>-<chg>` 执行 `git worktree add -b <branch> <path> <baseline>`，变更记录与任务卡写在工作区内，主工作区保持干净。
+- 失败清理：worktree 创建后任何写盘/任务草稿失败都会 `git worktree remove --force` 并删分支；路径/分支已存在直接 409。
+- UI：开始开发弹层增加「创建隔离 worktree」勾选，重新预览显示路径；结果展示 worktree 路径/分支。
+- 验收：worktree 分支正确、变更/任务卡只出现在 worktree、主工作区无 CHG 文件；默认（不勾选）行为不变。
 - 默认仍走「只登记」，需显式选择隔离工作区。
 
 ### ALM-09.07 新建向导接入 OCR/聊天入库（item 3）
@@ -62,4 +65,4 @@
 
 ## 3. 本轮交付
 
-ALM-09.05：评审执行器与人工签收——`.alm/reviews/<REQ>.json` 保存五角色报告，签收绑定内容哈希、内容变化自动失效；评审弹层可预览/保存报告，签收弹层校验 human actor、无阻塞、内容未变。完成后进入 ALM-09.06 隔离 worktree。
+ALM-09.06：隔离 worktree——开始开发可选创建同级 git worktree + 分支，变更/任务卡写在工作区内，主工作区保持干净；失败回滚。完成后进入最后一卡 ALM-09.07 新建向导接入 OCR/聊天入库。
