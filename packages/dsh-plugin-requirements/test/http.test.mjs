@@ -301,7 +301,7 @@ test('GET /api/alm/requirements/version serves a committed snapshot and rejects 
   }
 })
 
-async function withWriteServer(root, run) {
+async function withWriteServer(root, run, extra = {}) {
   const routes = new Map()
   const ctx = {
     effect(callback) {
@@ -315,7 +315,7 @@ async function withWriteServer(root, run) {
     },
     tools: { register: () => () => {} },
   }
-  new RequirementsService(ctx, { root })
+  new RequirementsService(ctx, { root, ...extra })
   const server = createServer((req, res) => {
     const handler = routes.get(new URL(req.url, 'http://127.0.0.1').pathname)
     if (!handler) {
@@ -658,6 +658,76 @@ test('POST /api/alm/requirements/create persists attachments and manifest', asyn
       assert.equal(item.attachments, 2)
       assert.deepEqual(item.attachmentFiles.map((file) => file.name).sort(), ['chat.md', 'shot.png'])
     })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('POST /api/alm/requirements/ai-review generates, loads and adopts AI suggestions', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-ai-review-http-'))
+  const fakeAiStream = async function* () {
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield {
+      type: 'text-delta',
+      index: 0,
+      text: JSON.stringify({
+        verdict: 'warn',
+        summary: '目标清楚，但验收场景不足。',
+        findings: [{ title: '验收不足', severity: 'warn', detail: '缺少并发场景说明。', ref: 'COV-001' }],
+        suggestions: [
+          { id: 'S1', title: '补充并发验收', category: '验收', detail: '增加并发重复请求用例。', suggestedText: '并发两次同键请求只产生一张退款单。' },
+          { id: 'S2', title: '补充边界', category: '范围', detail: '说明失败与重试。', suggestedText: '失败时保留幂等键。' },
+        ],
+        plan: [{ step: '补验收', detail: '新增 TEST 资产。' }],
+        proposedBrief: '## 背景\n\n补齐并发与失败边界。',
+      }),
+    }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    await withWriteServer(
+      dir,
+      async (base) => {
+        const generated = await fetch(`${base}/api/alm/requirements/ai-review?root=${encodeURIComponent(dir)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ requirementId: 'REQ-PAY-001' }),
+        })
+        const report = await generated.json()
+        assert.equal(generated.status, 200)
+        assert.equal(report.schema, 'alm.ai-review/v1')
+        assert.equal(report.provider, 'fake')
+        assert.equal(report.suggestions.length, 2)
+        assert.ok(existsSync(join(dir, '.alm/reviews/REQ-PAY-001.ai.json')))
+
+        const loaded = await fetch(`${base}/api/alm/requirements/ai-review?root=${encodeURIComponent(dir)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ requirementId: 'REQ-PAY-001', load: true }),
+        })
+        assert.equal((await loaded.json()).summary, '目标清楚，但验收场景不足。')
+
+        const adopted = await fetch(`${base}/api/alm/requirements/ai-review?root=${encodeURIComponent(dir)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true, selectedSuggestionIds: ['S1'], includeBrief: true }),
+        })
+        const adoptedPayload = await adopted.json()
+        assert.equal(adopted.status, 200)
+        assert.deepEqual(adoptedPayload.adopted.suggestionIds, ['S1'])
+        const brief = readFileSync(join(dir, 'requirements/briefs/REQ-PAY-001.md'), 'utf8')
+        assert.match(brief, /AI 评审建议（已采纳/)
+        assert.match(brief, /补充并发验收/)
+        assert.doesNotMatch(brief, /补充边界/)
+
+        const listed = await (await fetch(`${base}/api/alm/requirements?root=${encodeURIComponent(dir)}`)).json()
+        const item = listed.requirements.find((entry) => entry.id === 'REQ-PAY-001')
+        assert.equal(item.aiReview.stored, true)
+        assert.equal(item.aiReview.adopted.suggestionIds[0], 'S1')
+      },
+      { aiStream: fakeAiStream, aiProvider: 'fake', aiModel: 'fake-review' },
+    )
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
