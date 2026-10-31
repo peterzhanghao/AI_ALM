@@ -533,3 +533,57 @@ test('GET /api/alm/requirements/diff compares a commit against the worktree', as
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('POST /api/alm/requirements/review and signoff persist a human review', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-review-http-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    await withWriteServer(dir, async (base) => {
+      const preview = await fetch(`${base}/api/alm/requirements/review?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001' }),
+      })
+      const plan = await preview.json()
+      assert.equal(preview.status, 200)
+      assert.equal(plan.schema, 'alm.review/v1')
+      assert.equal(plan.source, 'executor')
+      assert.equal(plan.applied, false)
+      assert.ok(!existsSync(join(dir, '.alm', 'reviews', 'REQ-PAY-001.json')))
+
+      const applied = await fetch(`${base}/api/alm/requirements/review?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true }),
+      })
+      assert.equal((await applied.json()).applied, true)
+      assert.ok(existsSync(join(dir, '.alm', 'reviews', 'REQ-PAY-001.json')))
+
+      const badActor = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', actor: 'agent:bot' }),
+      })
+      assert.equal(badActor.status, 400)
+      assert.equal((await badActor.json()).error.code, 'invalid-actor')
+
+      const signed = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', actor: 'human:tester', apply: true }),
+      })
+      const signoff = await signed.json()
+      assert.equal(signed.status, 200)
+      assert.equal(signoff.applied, true)
+      assert.equal(signoff.signoff.actor, 'human:tester')
+
+      const payload = await (await fetch(`${base}/api/alm/requirements?root=${encodeURIComponent(dir)}`)).json()
+      const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-001')
+      assert.equal(item.review.stored, true)
+      assert.equal(item.review.signoffValid, true)
+      assert.equal(item.review.signoff.actor, 'human:tester')
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
