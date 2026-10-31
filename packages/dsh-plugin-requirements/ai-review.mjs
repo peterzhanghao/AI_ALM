@@ -158,6 +158,10 @@ function extractJson(text) {
   throw new AiReviewError(`AI 输出 JSON 无法解析（尾部：${raw.slice(-160)}）`, { code: 'ai-parse-failed' })
 }
 
+export function parseAiJson(text) {
+  return extractJson(text)
+}
+
 function normalizeReview(payload) {
   const verdict = ['pass', 'warn', 'block'].includes(payload.verdict) ? payload.verdict : 'warn'
   const findings = (Array.isArray(payload.findings) ? payload.findings : []).slice(0, 8).map((finding, index) => ({

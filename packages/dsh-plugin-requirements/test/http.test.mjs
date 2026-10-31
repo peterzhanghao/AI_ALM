@@ -732,3 +732,44 @@ test('POST /api/alm/requirements/ai-review generates, loads and adopts AI sugges
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('POST /api/alm/requirements/draft turns intent into title, brief and priority', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-draft-http-'))
+  const fakeStream = async function* () {
+    yield {
+      type: 'text-delta',
+      index: 0,
+      text: JSON.stringify({
+        title: '退款幂等与并发控制',
+        brief: '## 背景\n\n退款重复提交。\n\n## 目标\n\n只退一次。\n\n## 范围外\n\n（待确认）\n\n## 关键决策\n\n幂等键。\n\n## 验收线索\n\n并发只产生一张单。',
+        priority: 'P0',
+        owner: '张浩',
+        rationale: '资金一致性优先。',
+      }),
+    }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    await withWriteServer(
+      dir,
+      async (base) => {
+        const response = await fetch(`${base}/api/alm/requirements/draft?root=${encodeURIComponent(dir)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ intent: '退款老是重复退，财务对账麻烦，要保证只退一次', projectName: '支付平台' }),
+        })
+        const payload = await response.json()
+        assert.equal(response.status, 200)
+        assert.equal(payload.schema, 'alm.ai-draft/v1')
+        assert.equal(payload.title, '退款幂等与并发控制')
+        assert.equal(payload.priority, 'P0')
+        assert.equal(payload.owner, '张浩')
+        assert.match(payload.brief, /## 验收线索/)
+      },
+      { aiStream: fakeStream, aiProvider: 'fake', aiModel: 'fake-draft' },
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

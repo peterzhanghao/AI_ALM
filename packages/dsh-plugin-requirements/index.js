@@ -15,6 +15,7 @@ import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 import { runReview, signReview } from '../alm-core/src/review/executor.mjs'
 import { extractChat, extractOcr } from './intake.mjs'
 import { AiReviewError, adoptAiReview, readAiReview, readRequirementBrief, runAiReview, writeAiReview } from './ai-review.mjs'
+import { runAiDraft } from './ai-draft.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -153,6 +154,7 @@ export default class RequirementsService {
       ['/api/alm/requirements/signoff', 'signoff'],
       ['/api/alm/requirements/intake', 'intake'],
       ['/api/alm/requirements/ai-review', 'ai-review'],
+      ['/api/alm/requirements/draft', 'draft'],
     ]) {
       webServer.register({
         kind: 'exact',
@@ -329,15 +331,20 @@ export default class RequirementsService {
     throw new AiReviewError('未配置可用的默认模型，请先在 DSH 中选择模型', { code: 'ai-model-unavailable', status: 503 })
   }
 
-  async generateAiReview(root, context, body) {
-    const selection = await this.resolveAiSelection(body)
-    const stream =
+  aiStreamFor() {
+    return (
       this.aiStream ??
       ((options) => {
         const llm = this.ctx?.get?.('llm')
         if (!llm) throw new AiReviewError('AI 模型不可用（缺少 llm 服务）', { code: 'ai-unavailable', status: 503 })
         return llm.stream(options)
       })
+    )
+  }
+
+  async generateAiReview(root, context, body) {
+    const selection = await this.resolveAiSelection(body)
+    const stream = this.aiStreamFor()
     const report = await runAiReview({
       stream,
       provider: selection.provider,
@@ -393,6 +400,17 @@ export default class RequirementsService {
           body.apply === true
             ? await applyGithub({ root, changeId: body.changeId })
             : await previewGithub({ root, changeId: body.changeId })
+      } else if (action === 'draft') {
+        const selection = await this.resolveAiSelection(body)
+        payload = await runAiDraft({
+          stream: this.aiStreamFor(),
+          provider: selection.provider,
+          model: selection.model,
+          intent: body.intent,
+          extractedText: body.extractedText,
+          projectName: body.projectName,
+          source: body.source,
+        })
       } else if (action === 'ai-review') {
         const context = this.reviewContext(root, body.requirementId)
         if (body.load === true) {

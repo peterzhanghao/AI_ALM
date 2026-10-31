@@ -2102,7 +2102,9 @@ window.__ModuleLoader__.load({
     }
 
     function CreateModal({ root, project, projectName, onClose, onCreated }) {
-      const [form, setForm] = useState({ title: '', brief: '', priority: 'P1', owner: '' })
+      const [form, setForm] = useState({ title: '', brief: '', priority: 'P1', owner: '张浩' })
+      const [intent, setIntent] = useState('')
+      const [aiDraft, setAiDraft] = useState({ loading: false, error: null, draft: null })
       const [source, setSource] = useState('text')
       const [attachment, setAttachment] = useState(null)
       const [chatMarkdown, setChatMarkdown] = useState('')
@@ -2128,10 +2130,34 @@ window.__ModuleLoader__.load({
           })
           .catch((error) => setState((current) => ({ ...current, loading: false, error: error.message })))
       }
+      const generateDraft = (overrideIntent) => {
+        const text = String(overrideIntent ?? intent ?? '').trim()
+        if (text === '') return
+        setAiDraft({ loading: true, error: null, draft: null })
+        writeJson('draft', { intent: text, source, extractedText: parsed?.text ?? '', projectName }, root)
+          .then((draft) => {
+            setAiDraft({ loading: false, error: null, draft })
+            setForm((current) => ({
+              ...current,
+              title: draft.title ?? current.title,
+              brief: draft.brief ?? current.brief,
+              priority: draft.priority ?? current.priority,
+              owner: draft.owner || '张浩',
+            }))
+          })
+          .catch((error) => setAiDraft({ loading: false, error: error.message, draft: null }))
+      }
       const runIntake = (body) => {
         setIntake({ loading: true, error: null, data: null })
         writeJson('intake', body, root)
-          .then((data) => setIntake({ loading: false, error: null, data }))
+          .then((data) => {
+            setIntake({ loading: false, error: null, data })
+            const text = data.text ?? ''
+            if (text) {
+              setIntent(text)
+              generateDraft(text)
+            }
+          })
           .catch((error) => setIntake({ loading: false, error: error.message, data: null }))
       }
       const onFile = (event) => {
@@ -2153,7 +2179,7 @@ window.__ModuleLoader__.load({
       const parsed = intake.data
       const result = state.result
       const tabs = [
-        ['text', '文本'],
+        ['text', '口语 / 文本'],
         ['ocr', '截图 OCR'],
         ['chat', '聊天记录'],
       ]
@@ -2225,7 +2251,7 @@ window.__ModuleLoader__.load({
         ModalShell,
         {
           title: '新建需求',
-          lead: `归属项目 ${projectName ?? project ?? '—'}；支持文本 / 截图 OCR / 聊天记录作为原始材料，先预览再创建。`,
+          lead: `归属项目 ${projectName ?? project ?? '—'}；输入口语 / 聊天 / 截图，AI 自动生成标题、背景与优先级；责任人默认张浩，预览确认后创建。`,
           onClose,
           width: '820px',
           footer: [
@@ -2263,7 +2289,34 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } },
-          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '标题', h('input', { ...field('title'), style: input, placeholder: '例如：退款状态对账' })),
+          h(
+            'div',
+            { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', background: T.layer } },
+            h('label', { style: { display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: T.text2 } },
+              '需求意图（直接用口语描述，或先在截图/聊天标签解析）',
+              h('textarea', {
+                value: intent,
+                onChange: (event) => setIntent(event.target.value),
+                placeholder: '例如：退款这里老是重复退，财务对账很麻烦，要保证同一笔订单只退一次，并发也不能重复扣款。',
+                style: { ...input, minHeight: '76px', resize: 'vertical', fontFamily: 'inherit', width: '100%' },
+              }),
+            ),
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px', flexWrap: 'wrap' } },
+              h('button', { style: primary, onClick: () => generateDraft(), disabled: aiDraft.loading || intent.trim() === '' }, aiDraft.loading ? 'AI 正在生成…' : 'AI 生成需求草稿'),
+              h('span', { style: { ...muted } }, 'AI 生成标题、背景、优先级；责任人默认张浩，可修改。'),
+            ),
+            aiDraft.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在调用 DSH 默认模型整理需求，约 5–30 秒…') : null,
+            aiDraft.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12px' } }, aiDraft.error) : null,
+            aiDraft.draft
+              ? h('div', { style: { marginTop: '6px', fontSize: '12px', color: T.ok } },
+                  `AI 已生成：${aiDraft.draft.title} · 优先级 ${aiDraft.draft.priority} · 责任人 ${aiDraft.draft.owner}`,
+                  aiDraft.draft.rationale ? h('span', { style: { display: 'block', marginTop: '2px', ...muted } }, aiDraft.draft.rationale) : null,
+                )
+              : null,
+          ),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '标题', h('input', { ...field('title'), style: input, placeholder: 'AI 会生成，也可手改' })),
           h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '背景 / 目标', h('textarea', { ...field('brief'), style: { ...input, minHeight: '88px', resize: 'vertical', fontFamily: 'inherit' }, placeholder: '原始诉求、目标与范围外' })),
           sourcePanel,
           attachment
@@ -2276,7 +2329,7 @@ window.__ModuleLoader__.load({
             'div',
             { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
             h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '优先级', h('select', { ...field('priority'), style: input }, ['P0', 'P1', 'P2'].map((value) => h('option', { key: value, value }, value)))),
-            h('label', { style: { flex: 1, display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '负责人', h('input', { ...field('owner'), style: input, placeholder: '默认取项目 teams[0]' })),
+            h('label', { style: { flex: 1, display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '责任人', h('input', { ...field('owner'), style: input, placeholder: '默认张浩' })),
           ),
         ),
         state.loading ? h('p', { style: { margin: '12px 0 0', ...muted } }, '处理中…') : null,
