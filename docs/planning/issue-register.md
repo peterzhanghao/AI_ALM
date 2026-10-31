@@ -91,7 +91,7 @@
 | ALM-09.03 | 需求级验收证据契约 | task | @peterzhanghao | P1 | plugin | done | ALM-09.02（#116，已关闭） | 确认发布 | #118 | #119 | in-sync | 2026-10-31 09:35 |
 | ALM-09.04 | 版本 diff 对比 | task | @peterzhanghao | P1 | plugin | done | ALM-09.03（#118，已关闭） | 确认发布 | #120 | #121 | in-sync | 2026-10-31 10:10 |
 | ALM-09.05 | 评审执行器 + 人工签收 | task | @peterzhanghao | P1 | plugin | done | ALM-09.04（#120，已关闭） | 确认发布 | #122 | #123 | in-sync | 2026-10-31 10:50 |
-| ALM-09.06 | 开始开发切分支/隔离 worktree | task | @peterzhanghao | P1 | plugin | review | ALM-09.05（#122，已关闭） | 确认发布 | #124 | #125 | in-sync | 2026-10-31 11:20 |
+| ALM-09.06 | 开始开发切分支/隔离 worktree | task | @peterzhanghao | P1 | plugin | done | ALM-09.05（#122，已关闭） | 确认发布 | #124 | #125 | in-sync | 2026-10-31 11:25 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
@@ -120,6 +120,7 @@
 > 验收证据（ALM-09.03）：`.alm/acceptance/<REQ>.json` 白名单命令 + `.alm/acceptance/<REQ>/<sha>.json` 证据，plan 零写入、apply 执行归档；`pnpm test` 212/212、Playwright 17/17；已合并 PR `#119` → `23ff81d`，Issue `#118` 关闭。下一卡 ALM-09.04 版本 diff。
 > 版本 diff（ALM-09.04）：解析两版 sdoc 输出字段 before/after 与关系增删，版本行「对比当前」只读弹层；`pnpm test` 216/216、Playwright 19/19；已合并 PR `#121` → `bed2ac8`，Issue `#120` 关闭。下一卡 ALM-09.05 AI 评审 + 签收。
 > 评审签收（ALM-09.05）：五角色报告保存 `.alm/reviews/<REQ>.json`，签收绑定内容哈希、内容变化自动失效；`pnpm test` 221/221、Playwright 21/21；已合并 PR `#123` → `9425e84`，Issue `#122` 关闭。下一卡 ALM-09.06 隔离 worktree。
+> 隔离 worktree（ALM-09.06）：开始开发可选同级 worktree + 分支，变更/任务卡写在工作区、主工作区干净，失败回滚；`pnpm test` 223/223、Playwright 23/23；已合并 PR `#125` → `b54d029`，Issue `#124` 关闭。下一卡 ALM-09.07 OCR/聊天入库（最后一卡）。
 > 批次 5 已收口：`ALM-06.01`（PR `#61`）、`ALM-06.02`（PR `#62`）、`#57`（ALM-06）与 `#1`（ALM-00）全部关闭并置 `status::done`。最终证据见 [验证报告](verification-report.md)：119 测试、3 演练 / 21 步、UI 28/28（本地 + 宿主）。`#60`（ALM-03.07 分隔符乱码）经复查为终端解码误报，已关闭且未改代码。
 > 2026-10-24 05:44 用户指示继续收尾：新增 `ALM-04.05`（Playwright UI 验证的按需 GitHub Actions）与 `ALM-04.06`（Gitea SCM 适配器），`确认结论=确认发布`；两者都在批次 4 的 SCM/CI 主题内。
 > 两张卡已收口：`ALM-04.05`（PR `#66`）按需 UI workflow 真实触发一次绿 / 一次红并留 artifact；`ALM-04.06`（PR `#67`）Gitea 客户端 + 8 个 mock 测试，全量测试 127。为让 `workflow_dispatch` 生效，`main` 从 `b94381f` 快进到 `95578b7`（`main` 是 `develop` 严格祖先，fast-forward，无强推）；后续 `main` 可继续与 `develop` 快进同步。
