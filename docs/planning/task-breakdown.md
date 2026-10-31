@@ -930,3 +930,25 @@
   - 正例：真实 deepseek-flash 将口语生成标题/背景/P0/张浩，并创建 REQ-DEMO-006。
   - 反例：空意图 400；无模型 503；空输出 502；AI 缺 title/priority 时兜底。
 - 证据：`pnpm test` 241/241；截图 `plugin-ai-draft.png`、`plugin-ai-draft-created.png`
+
+### ALM-09.11 需求证据台：证据判定、变更试演与决策 UI
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.10（#132，已关闭）
+- 技能：`cordis-plugin-development`、`alm-mvp-dev`、`ai-github-pr-workflow`
+- 实施范围：`packages/alm-core/{src/evidence,src/model/content-hash.mjs,src/acceptance,src/review,src/rehearsal,src/requirements/{create,update}.mjs,src/parse/sdoc.mjs,src/model/asset.mjs}`；`packages/dsh-plugin-requirements/{query,index,ai-draft,client,render}.mjs`；`docs/analysis/requirements-evidence-desk-instruction-review.md`
+- 不在范围：五个 AI 角色/评分、全量 UID re-key、自动合并重复记录、自动推送/发布、业务价值验证账本、决定账本
+- 接口：
+  - `alm.evidence.decision/v1`：`{state,label,tone,risk,policy,gaps[],topGap,nextStep,signoff{eligible,reasons[]},coverage}`，判定优先级 blocked > needs-clarification > failed > stale > review > coverage > acceptance-missing > acceptance-not-run > ready/verified
+  - 验收证据 `alm.acceptance/v2`：`requirementHash/testRevision/environment/source/context`，汇总 `complete/current/missing/staleReason`；v1 只读兼容
+  - `POST /api/alm/requirements/rehearsal`：默认 preview 零写入；apply 需 `expectedBaseline` + `actor`，陈旧预览 409 `stale-preview`，幂等 `idempotencyKey`
+  - 签收：后端重算判定，缺证据 409；`signoffs[]` 追加保留历史
+- 交付物：
+  - [ ] `src/evidence/decision.mjs` 纯判定层 + 风险策略；`src/model/content-hash.mjs` 内容哈希
+  - [ ] 验收 v2 溯源（需求修订/实现提交/测试修订/环境/来源），旧证据保留并标过期
+  - [ ] `src/rehearsal/rehearsal.mjs` + `src/requirements/update.mjs`：影响闭包、CAS、审计、幂等、落盘失败回滚
+  - [ ] 插件 `query/index/ai-draft/client/render`：异常独立区块、决策条置顶、验收溯源、试演弹层、AI 候选协议（priority/owner 恒 null）
+  - [ ] 评估文档与独立验收报告
+- 验收：
+  - 正例：无验收证据签收 409 `acceptance-missing`；0/5 覆盖签收 409 `coverage-incomplete`；改动需求后旧验收 `current:false` 且签收需复核；试演预览零写入、apply 后 revision+1 并让旧证据失效。
+  - 反例：重复业务 ID 两条记录保留且不合并；悬空关系可见不删除；标题含换行拒绝写入；陈旧预览 409；落盘失败保留草稿；未知枚举/超大导入/脚本载荷被拒或隔离。
+- 证据：`pnpm test` 301/301；`tmp/verify-evidence-desk.mjs` 26/26；Playwright 独立页 27/27；独立判定抽查 13/13；截图 `tmp/verify-ui/requirements-full.png`；报告 `tmp/verification-evidence-desk.md`
