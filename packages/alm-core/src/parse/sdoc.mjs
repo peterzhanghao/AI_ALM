@@ -2,7 +2,7 @@ import { AssetError, STATUS_ALIASES, normalizeAsset } from '../model/asset.mjs'
 
 const NODE_RE = /^\[([A-Z][A-Z0-9_-]*)\]\s*$/
 const FIELD_RE = /^([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$/
-const FIELD_KEYS = new Set(['UID', 'TITLE', 'STATUS', 'OWNER', 'REVISION', 'PRIORITY', 'CATEGORY', 'BRIEF', 'SOURCE', 'PROJECT'])
+const FIELD_KEYS = new Set(['UID', 'TITLE', 'STATUS', 'OWNER', 'REVISION', 'PRIORITY', 'CATEGORY', 'BRIEF', 'SOURCE', 'PROJECT', 'BUSINESS_ID'])
 
 /** Infer the asset type from the StrictDoc UID prefix. */
 function typeOf(uid) {
@@ -115,6 +115,7 @@ export function parseSdocAsset(text, file) {
           ...(requirement.fields.CATEGORY ? { category: requirement.fields.CATEGORY } : {}),
           ...(requirement.fields.BRIEF ? { brief: requirement.fields.BRIEF } : {}),
           ...(requirement.fields.PROJECT ? { project: requirement.fields.PROJECT } : {}),
+          ...(requirement.fields.BUSINESS_ID ? { businessId: requirement.fields.BUSINESS_ID } : {}),
           ...(requirement.fields.SOURCE
             ? { sources: requirement.fields.SOURCE.split(',').map((entry) => entry.trim()).filter(Boolean) }
             : {}),

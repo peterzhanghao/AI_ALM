@@ -1,7 +1,12 @@
-import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { gitHead } from '../approvals/approval.mjs'
+import { acceptanceSummary } from '../acceptance/acceptance.mjs'
+import { indexReport } from '../commands.mjs'
+import { requirementContentHash, sha256 } from '../model/content-hash.mjs'
+import { decideEvidence } from '../evidence/decision.mjs'
+
+export { requirementContentHash } from '../model/content-hash.mjs'
 
 export const REVIEW_DIR = '.alm/reviews'
 export const REVIEW_SCHEMA = 'alm.review/v1'
@@ -32,6 +37,13 @@ export function reviewPath(root, requirementId) {
 function findingHits(finding, item) {
   if (!finding) return false
   return finding.assetId === item.id || finding.file === item.file
+}
+
+/** Missing perspectives: a skipped role means the review never covered it. */
+function roleCoverage(report) {
+  const roles = Array.isArray(report?.roles) ? report.roles : []
+  const missing = roles.filter((role) => role?.verdict === 'skip').map((role) => role.id)
+  return { completed: roles.length - missing.length, total: roles.length, missing }
 }
 
 /** Gate-backed multi-role review: no second source of truth, no AI call. */
@@ -73,35 +85,10 @@ export function reviewFromGates(item, check) {
       total: roles.length,
       blockers,
       ready: blockers === 0,
+      coverage: roleCoverage({ roles }),
     },
     signoff: null,
   }
-}
-
-function sortedExtra(extra = {}) {
-  return Object.fromEntries(Object.entries(extra).sort(([left], [right]) => left.localeCompare(right)))
-}
-
-/**
- * Content hash of the requirement as reviewed: canonical fields + relations
- * + brief file bytes. Any content change makes an existing sign-off stale.
- */
-export function requirementContentHash({ root, asset }) {
-  const briefPath = asset?.extra?.brief ? join(resolve(root), asset.extra.brief) : null
-  const brief = briefPath && existsSync(briefPath) ? readFileSync(briefPath, 'utf8') : ''
-  const canonical = JSON.stringify({
-    id: asset.id,
-    type: asset.type,
-    title: asset.title,
-    status: asset.status,
-    owner: asset.owner,
-    extra: sortedExtra(asset.extra),
-    links: [...(asset.links ?? [])]
-      .map((link) => ({ type: link.type, target: link.target }))
-      .sort((left, right) => `${left.type}|${left.target}`.localeCompare(`${right.type}|${right.target}`)),
-    brief,
-  })
-  return createHash('sha256').update(canonical).digest('hex')
 }
 
 export function readReviewReport(root, requirementId) {
@@ -122,21 +109,37 @@ export function writeReviewReport(root, report) {
   return file
 }
 
+/** Stored report in the same shape decideEvidence expects from reviewView. */
+function storedReviewShape(stored, currentHash) {
+  const signoff = stored.signoff ? { ...stored.signoff, valid: stored.signoff.contentHash === currentHash } : null
+  return {
+    ...stored,
+    stored: true,
+    contentHash: currentHash,
+    signoff,
+    signoffValid: Boolean(signoff?.valid),
+    evidenceBound: Boolean(signoff?.evidenceHash),
+    coverage: stored.summary?.coverage ?? roleCoverage(stored),
+  }
+}
+
 /** Fresh review view: persisted report when present, gate-derived otherwise. */
 export function reviewView({ root, asset, item, check }) {
   const currentHash = requirementContentHash({ root, asset })
   const stored = readReviewReport(root, asset.id)
   if (!stored) {
-    return { ...reviewFromGates(item, check), source: 'gates', stored: false, contentHash: currentHash, signoffValid: false }
+    const fresh = reviewFromGates(item, check)
+    return {
+      ...fresh,
+      source: 'gates',
+      stored: false,
+      contentHash: currentHash,
+      signoffValid: false,
+      evidenceBound: false,
+      coverage: fresh.summary.coverage,
+    }
   }
-  const signoff = stored.signoff ?? null
-  return {
-    ...stored,
-    stored: true,
-    contentHash: currentHash,
-    signoff: signoff ? { ...signoff, valid: signoff.contentHash === currentHash } : null,
-    signoffValid: Boolean(signoff && signoff.contentHash === currentHash),
-  }
+  return storedReviewShape(stored, currentHash)
 }
 
 /** Generate a persisted report from the current gates (fresh executor run). */
@@ -151,15 +154,41 @@ export function runReview({ root, asset, item, check, apply = false }) {
     signoff: null,
   }
   if (!apply) return { ...report, applied: false }
-  const file = writeReviewReport(root, report)
-  return { ...report, file, applied: true }
+  // Re-running the review invalidates the current sign-off but must never erase
+  // the audit history of earlier human decisions.
+  const existing = readReviewReport(root, asset.id)
+  const history = Array.isArray(existing?.signoffs)
+    ? existing.signoffs
+    : existing?.signoff
+      ? [existing.signoff]
+      : []
+  const persisted = history.length > 0 ? { ...report, signoffs: history } : report
+  const file = writeReviewReport(root, persisted)
+  return { ...persisted, file, applied: true }
+}
+
+/** Backend sign-off gate: map the decision state to the documented 409 code. */
+function signoffErrorCode(decision) {
+  if (decision.state === 'unchecked') {
+    const code = decision.topGap?.code
+    if (code === 'coverage-incomplete' || code === 'acceptance-missing' || code === 'acceptance-not-run') return code
+    return 'coverage-incomplete'
+  }
+  if (decision.state === 'blocked') return 'blocked'
+  if (decision.state === 'needs-clarification') return 'needs-clarification'
+  if (decision.state === 'failed') return 'acceptance-failed'
+  if (decision.state === 'stale') return 'acceptance-stale'
+  return 'not-ready'
 }
 
 /**
- * Human sign-off: only allowed on a stored report whose content hash still
- * matches the working tree and which has no blockers. Dry-run returns the plan.
+ * Human sign-off: only allowed when the persisted review is current and the
+ * full evidence decision (blockers, ambiguity, acceptance provenance, coverage,
+ * not-yet-signed) allows it. The decision is re-computed here on the backend;
+ * client-side button state is never trusted. History is appended, never
+ * overwritten, so old sign-offs stay auditable.
  */
-export function signReview({ root, asset, actor, apply = false }) {
+export function signReview({ root, asset, actor, apply = false, acceptance = null, anomalies = [] }) {
   if (!HUMAN_ACTOR.test(String(actor ?? ''))) {
     throw new ReviewError('actor must be human:<login>', { code: 'invalid-actor' })
   }
@@ -169,26 +198,60 @@ export function signReview({ root, asset, actor, apply = false }) {
   if (stored.contentHash !== currentHash) {
     throw new ReviewError('评审报告已过期（内容已变化），请重新运行评审', { code: 'review-stale', status: 409 })
   }
-  if ((stored.summary?.blockers ?? 0) > 0) {
-    throw new ReviewError('存在阻塞项，不能签收', { code: 'has-blockers', status: 409 })
+
+  const repo = resolve(root)
+  const headSha = gitHead(repo) ?? null
+  let acceptanceInput = acceptance
+  if (!acceptanceInput) {
+    const indexed = indexReport(repo)
+    const assets = indexed.assets ?? []
+    acceptanceInput = acceptanceSummary(repo, asset.id, headSha, { asset, assets })
   }
+  const reviewShape = storedReviewShape(stored, currentHash)
+  const decision = decideEvidence({ asset, review: reviewShape, acceptance: acceptanceInput, anomalies })
+
   const plan = {
     schema: 'alm.signoff.plan/v1',
     requirement: asset.id,
     actor,
     contentHash: currentHash,
-    alreadySigned: Boolean(stored.signoff && stored.signoff.contentHash === currentHash),
+    alreadySigned: Boolean(reviewShape.signoff?.valid),
+    signoff: decision.signoff,
+    policy: decision.policy,
+    coverage: decision.coverage,
+    decision,
     applied: false,
+  }
+  // An already-valid sign-off is idempotent: nothing to write, nothing to fix.
+  if (decision.state === 'verified') return plan
+  if (!decision.signoff.allowed) {
+    throw new ReviewError(decision.topGap?.message ?? '证据不完整，不能签收', {
+      code: signoffErrorCode(decision),
+      status: 409,
+    })
   }
   if (!apply) return plan
 
+  const latest = acceptanceInput?.latest ?? null
+  const requirementHash = latest?.requirementHash ?? null
+  const testRevision = latest?.testRevision ?? null
+  const boundHead = headSha ?? latest?.headSha ?? null
   const signoff = {
     actor,
     decision: 'approve',
     at: new Date().toISOString(),
-    headSha: stored.headSha ?? null,
+    headSha: boundHead,
     contentHash: currentHash,
+    requirementHash,
+    testRevision,
+    evidenceHash: sha256(`${requirementHash}${testRevision}${boundHead}`),
   }
-  writeReviewReport(root, { ...stored, signoff })
+  const history = Array.isArray(stored.signoffs)
+    ? [...stored.signoffs]
+    : stored.signoff
+      ? [stored.signoff]
+      : []
+  history.push(signoff)
+  writeReviewReport(repo, { ...stored, signoffs: history, signoff })
   return { ...plan, applied: true, signoff }
 }
