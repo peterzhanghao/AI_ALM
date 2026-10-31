@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
@@ -195,6 +196,7 @@ export default class RequirementsService {
       ['/api/alm/requirements/intake', 'intake'],
       ['/api/alm/requirements/ai-review', 'ai-review'],
       ['/api/alm/requirements/draft', 'draft'],
+      ['/api/alm/requirements/reveal', 'reveal'],
       ['/api/alm/requirements/archive', 'archive'],
     ]) {
       webServer.register({
@@ -550,7 +552,19 @@ export default class RequirementsService {
       const body = await readJsonBody(req, limit)
       const root = this.rootFor(req)
       let payload
-      if (action === 'start') {
+      if (action === 'reveal') {
+        // Open the repository folder in the OS file manager. This is a real
+        // action: the client only reports success when the host spawned it.
+        const target = body?.root ? resolve(String(body.root)) : root
+        if (!existsSync(target) || !statSync(target).isDirectory()) {
+          respond(400, { ok: false, error: { code: 'invalid-root', message: '目录不存在或不是文件夹：' + target } })
+          return
+        }
+        const command = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open'
+        const child = spawn(command, [target], { detached: true, stdio: 'ignore' })
+        child.unref()
+        payload = { ok: true, root: target, command }
+      } else if (action === 'start') {
         payload = openChange({
           root,
           requirementIds: [body.requirementId],
