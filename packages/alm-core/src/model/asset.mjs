@@ -16,6 +16,7 @@ export const ASSET_STATUSES = [
   'verified',
   'deprecated',
   'superseded',
+  'archived',
 ]
 
 /** Display labels. Assets store the stable English enum; UI and reports show Chinese. */
@@ -27,6 +28,7 @@ export const STATUS_LABELS = {
   verified: '已验收',
   deprecated: '已废弃',
   superseded: '已替代',
+  archived: '已归档',
 }
 
 export const STATUS_ALIASES = Object.fromEntries(Object.entries(STATUS_LABELS).map(([key, label]) => [label, key]))

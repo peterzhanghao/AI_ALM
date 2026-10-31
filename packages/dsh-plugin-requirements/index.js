@@ -8,6 +8,7 @@ import { associateProject, readProject } from '../alm-core/src/project/project.m
 import { listWorkspaces } from './workspaces.mjs'
 import { openChange } from '../alm-core/src/changes/open.mjs'
 import { createRequirement } from '../alm-core/src/requirements/create.mjs'
+import { applyArchive, planArchive } from '../alm-core/src/requirements/archive.mjs'
 import { runCi } from '../alm-core/src/ci/ci.mjs'
 import { runAcceptance } from '../alm-core/src/acceptance/acceptance.mjs'
 import { applyRehearsal, previewRehearsal } from '../alm-core/src/rehearsal/rehearsal.mjs'
@@ -196,6 +197,7 @@ export default class RequirementsService {
       ['/api/alm/requirements/ai-review', 'ai-review'],
       ['/api/alm/requirements/draft', 'draft'],
       ['/api/alm/requirements/reveal', 'reveal'],
+      ['/api/alm/requirements/archive', 'archive'],
     ]) {
       webServer.register({
         kind: 'exact',
@@ -657,6 +659,19 @@ export default class RequirementsService {
           check: context.check,
           apply: body.apply === true,
         })
+      } else if (action === 'archive') {
+        const context = this.reviewContext(root, body.requirementId)
+        payload =
+          body.apply === true
+            ? applyArchive({
+                root,
+                asset: context.asset,
+                expectedBaseline: body.expectedBaseline,
+                actor: body.actor,
+                reason: body.reason,
+                idempotencyKey: body.idempotencyKey,
+              })
+            : planArchive({ root, asset: context.asset, reason: body.reason })
       } else if (action === 'signoff') {
         const context = this.reviewContext(root, body.requirementId)
         // Data anomalies (duplicate labels / dangling references) also gate a

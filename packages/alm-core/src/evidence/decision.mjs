@@ -24,6 +24,7 @@ const LABELS = {
   stale: '证据过期',
   'ready-for-human': '可进入人工确认',
   verified: '已签收',
+  archived: '已归档',
 }
 
 const TONES = {
@@ -34,6 +35,7 @@ const TONES = {
   stale: 'warn',
   'ready-for-human': 'success',
   verified: 'success',
+  archived: 'neutral',
 }
 
 /** P0/P1 => high (all roles), P2 => normal, everything else => low. */
@@ -146,6 +148,7 @@ function staleGap(latest) {
 }
 
 function nextStepFor(state, topGap) {
+  if (state === 'archived') return { label: '已归档，无需操作', action: 'none' }
   if (state === 'blocked') return { label: '修复阻塞项', action: 'fix-blockers' }
   if (state === 'needs-clarification') return { label: '处理数据异常', action: 'fix-anomaly' }
   if (state === 'failed') return { label: '修复后重新执行验收', action: 'run-acceptance' }
@@ -188,6 +191,24 @@ export function decideEvidence({ asset, review = null, acceptance = null, anomal
   const blockers = Number(review?.summary?.blockers ?? 0)
   const relatedAnomalies = anomalyFor(asset, anomalies)
   const latest = acceptance?.latest ?? null
+
+  // A closed requirement is deliberately out of the delivery funnel. Its old
+  // evidence may be incomplete; reporting that as a gap would keep asking for
+  // work the user explicitly declined.
+  if (asset?.status === 'archived') {
+    return {
+      schema: EVIDENCE_SCHEMA,
+      state: 'archived',
+      label: LABELS.archived,
+      tone: TONES.archived,
+      topGap: null,
+      gaps: [],
+      nextStep: nextStepFor('archived', null),
+      signoff: { allowed: false, reasons: [] },
+      policy,
+      coverage,
+    }
+  }
 
   let state
   let gaps = []

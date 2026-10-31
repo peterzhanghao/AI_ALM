@@ -36,6 +36,7 @@ window.__ModuleLoader__.load({
       verified: { label: '已验证', color: T.ok, bg: 'rgba(53,196,122,.14)' },
       deprecated: { label: '已废弃', color: T.text3, bg: 'rgba(107,116,128,.12)' },
       superseded: { label: '被替代', color: T.text3, bg: 'rgba(107,116,128,.12)' },
+      archived: { label: '已归档', color: T.text3, bg: 'rgba(107,116,128,.12)' },
     }
 
     const FILTERS = [
@@ -45,6 +46,7 @@ window.__ModuleLoader__.load({
       ['in-progress', '开发中'],
       ['implemented', '已实现'],
       ['verified', '已验证'],
+      ['archived', '已归档'],
     ]
 
     const REL_LABELS = {
@@ -81,6 +83,7 @@ window.__ModuleLoader__.load({
       stale: '证据过期',
       'ready-for-human': '可进入人工确认',
       verified: '已签收',
+      archived: '已归档',
     }
 
     const ANOMALY_LABELS = {
@@ -1011,9 +1014,9 @@ window.__ModuleLoader__.load({
      * needs to be. All data comes from the query payload.
      * ------------------------------------------------------------------- */
 
-    const LIST_COLUMNS = 'minmax(260px, 1fr) 116px 100px 88px 196px 112px'
-    const LIST_COLUMNS_NARROW = 'minmax(220px, 1fr) 112px 92px 186px 112px'
-    const LIST_COLUMNS_MOBILE = 'minmax(0, 1fr) 88px'
+    const LIST_COLUMNS = 'minmax(260px, 1fr) 116px 100px 88px 196px 132px'
+    const LIST_COLUMNS_NARROW = 'minmax(220px, 1fr) 112px 92px 186px 132px'
+    const LIST_COLUMNS_MOBILE = 'minmax(0, 1fr) 108px'
 
     function listColumns(narrow, mobile) {
       if (mobile) return LIST_COLUMNS_MOBILE
@@ -1093,6 +1096,7 @@ window.__ModuleLoader__.load({
     function rowAction(item, { onOpen, onAiReview, onAcceptance }) {
       const decision = item?.decision
       if (!decision) return { label: '打开', icon: 'eye', run: () => onOpen(item) }
+      if (decision.state === 'archived') return { label: '查看', icon: 'eye', run: () => onOpen(item) }
       const code = decision.topGap?.code ?? ''
       if (decision.state === 'blocked' || decision.state === 'needs-clarification') {
         return { label: '处理', icon: 'alert', run: () => onOpen(item) }
@@ -1147,6 +1151,37 @@ window.__ModuleLoader__.load({
         h(ActionIcon, { name: action.icon, size: 13 }),
         action.label,
       )
+      const archiveButton =
+        item.status === 'archived'
+          ? null
+          : h(
+              'button',
+              {
+                type: 'button',
+                onClick: (event) => {
+                  event.stopPropagation()
+                  actionHandlers.onArchive(item)
+                },
+                title: '不开发，关闭归档',
+                'aria-label': `关闭归档：${item.title}`,
+                'data-archive': item.occurrenceKey ?? item.id,
+                style: {
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '28px',
+                  height: '28px',
+                  padding: 0,
+                  border: `1px solid ${T.line2}`,
+                  borderRadius: '7px',
+                  background: 'transparent',
+                  color: T.text3,
+                  cursor: 'pointer',
+                  flex: 'none',
+                },
+              },
+              h(ActionIcon, { name: 'archive', size: 13 }),
+            )
       return h(
         'div',
         {
@@ -1277,6 +1312,7 @@ window.__ModuleLoader__.load({
                 { style: { width: '7px', height: '7px', borderRadius: '50%', background: checkToneColor(check.tone), flex: 'none' } },
               ),
               actionButton,
+              archiveButton,
             )
           : h(
               'div',
@@ -1295,13 +1331,13 @@ window.__ModuleLoader__.load({
                   )
                 : null,
             ),
-        mobile ? null : h('div', { role: 'cell', style: listCell({ justifyContent: 'flex-end' }) }, actionButton),
+        mobile ? null : h('div', { role: 'cell', style: listCell({ justifyContent: 'flex-end', gap: '6px' }) }, actionButton, archiveButton),
       )
     }
 
-    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, onAiReview, onAcceptance, duplicateCounts, emptyNode, stickyTop = 0 }) {
+    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, onAiReview, onAcceptance, onArchive, duplicateCounts, emptyNode, stickyTop = 0 }) {
       const columns = listColumns(narrow, mobile)
-      const actionHandlers = { onOpen, onAiReview, onAcceptance }
+      const actionHandlers = { onOpen, onAiReview, onAcceptance, onArchive }
       const headerCell = (label, extra) =>
         h(
           'div',
@@ -1838,6 +1874,7 @@ window.__ModuleLoader__.load({
       folder: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z',
       link: 'M10 13a5 5 0 007 0l2-2a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-2 2a5 5 0 007 7l1-1',
       alert: 'M12 3l9 16H3zM12 9v5M12 17h.01',
+      archive: 'M4 7h16M6 7v12a1 1 0 001 1h10a1 1 0 001-1V7M9 7V4h6v3M12 11v5M9.5 13.5L12 16l2.5-2.5',
     }
 
     function ActionIcon({ name, size = 14 }) {
@@ -1885,8 +1922,9 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal, compact }) {
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal, onArchive, compact }) {
       const relations = relationsOf(item, allItems)
+      const archived = item.status === 'archived'
       const priorityColor = item.priority === 'P0' ? T.err : item.priority === 'P1' ? T.warn : T.text2
       const review = item.review
       const decision = item.decision ?? null
@@ -1970,29 +2008,37 @@ window.__ModuleLoader__.load({
                 action: h(
                   'div',
                   { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-                  h(ActionButton, { label: item.aiReview?.adopted ? '重新评审' : 'AI 评审', icon: 'sparkles', variant: 'primary', onClick: () => onAiReview(item) }),
-                  h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+                  archived
+                    ? h('span', { style: { ...muted } }, '已归档，不再需要评审')
+                    : [
+                        h(ActionButton, { key: 'ai', label: item.aiReview?.adopted ? '重新评审' : 'AI 评审', icon: 'sparkles', variant: 'primary', onClick: () => onAiReview(item) }),
+                        h(ActionButton, { key: 'rehearse', label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+                      ],
                 ),
               },
-              h(ReviewBlock, { review, showRoles: false }),
-              h(
-                'div',
-                { style: { marginTop: '8px', fontSize: '12px', lineHeight: 1.7 } },
-                item.aiReview?.stored
-                  ? h('span', { style: { color: item.aiReview.verdict === 'block' ? T.err : item.aiReview.verdict === 'pass' ? T.ok : T.warn } }, `AI 评审：${item.aiReview.verdict} · ${item.aiReview.suggestions} 条建议${item.aiReview.adopted ? ' · 已采纳' : ''}`)
-                  : h('span', { style: muted }, 'AI 尚未参与评审，可生成评审与重构方案。'),
-                h(
-                  'div',
-                  { style: { ...muted, marginTop: '2px' } },
-                  item.review?.signoff?.actor?.startsWith?.('ai:')
-                    ? '采纳 AI 评审即视为评审通过，无需人工签收；验收证据仍需独立门禁。'
-                    : '采纳 AI 评审即视为评审通过，无需人工签收。',
-                ),
-              ),
+              archived
+                ? h('p', { style: { margin: 0, ...muted } }, '已归档；历史评审与验收证据保留，仅作记录。')
+                : [
+                    h(ReviewBlock, { key: 'review', review, showRoles: false }),
+                    h(
+                      'div',
+                      { key: 'ai', style: { marginTop: '8px', fontSize: '12px', lineHeight: 1.7 } },
+                      item.aiReview?.stored
+                        ? h('span', { style: { color: item.aiReview.verdict === 'block' ? T.err : item.aiReview.verdict === 'pass' ? T.ok : T.warn } }, `AI 评审：${item.aiReview.verdict} · ${item.aiReview.suggestions} 条建议${item.aiReview.adopted ? ' · 已采纳' : ''}`)
+                        : h('span', { style: muted }, 'AI 尚未参与评审，可生成评审与重构方案。'),
+                      h(
+                        'div',
+                        { style: { ...muted, marginTop: '2px' } },
+                        item.review?.signoff?.actor?.startsWith?.('ai:')
+                          ? '采纳 AI 评审即视为评审通过，无需人工签收；验收证据仍需独立门禁。'
+                          : '采纳 AI 评审即视为评审通过，无需人工签收。',
+                      ),
+                    ),
+                  ],
             ),
             h(
               SubBlock,
-              { title: '验收执行', action: h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }) },
+              { title: '验收执行', action: archived ? null : h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }) },
               item.acceptance?.registered
                 ? h(
                     'div',
@@ -2057,9 +2103,18 @@ window.__ModuleLoader__.load({
                 borderTop: `1px solid ${T.line}`,
               },
             },
-            h(ActionButton, { label: '开始开发', icon: 'play', variant: 'primary', onClick: () => onStart(item) }),
-            h(ActionButton, { label: '运行门禁检查', icon: 'check', variant: 'secondary', onClick: () => onAccept(item) }),
-            h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+            archived
+              ? null
+              : h(ActionButton, { label: '开始开发', icon: 'play', variant: 'primary', onClick: () => onStart(item) }),
+            archived
+              ? null
+              : h(ActionButton, { label: '运行门禁检查', icon: 'check', variant: 'secondary', onClick: () => onAccept(item) }),
+            archived
+              ? null
+              : h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+            archived
+              ? null
+              : h(ActionButton, { label: '关闭归档', icon: 'archive', variant: 'ghost', onClick: () => onArchive(item) }),
             h(ActionButton, { label: '查看详情', icon: 'eye', variant: 'ghost', onClick: () => onDetail(item) }),
             onClose ? h(ActionButton, { label: '关闭', icon: 'close', variant: 'ghost', onClick: onClose }) : null,
           ),
@@ -2067,7 +2122,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal, onArchive }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -2098,12 +2153,13 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal, onArchive, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal, onArchive }) {
+      const archived = item.status === 'archived'
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -2188,19 +2244,27 @@ window.__ModuleLoader__.load({
                   action: h(
                     'div',
                     { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-                    h(ActionButton, { label: 'AI 评审', icon: 'sparkles', variant: 'primary', onClick: () => onAiReview(item) }),
-                    h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+                    archived
+                      ? h('span', { style: { ...muted } }, '已归档')
+                      : [
+                          h(ActionButton, { key: 'ai', label: 'AI 评审', icon: 'sparkles', variant: 'primary', onClick: () => onAiReview(item) }),
+                          h(ActionButton, { key: 'rehearse', label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+                        ],
                   ),
                 },
-                h(ReviewBlock, { review: item.review, showRoles: false }),
-                h('p', { style: { margin: '6px 0 0', ...muted } }, '采纳 AI 评审即视为评审通过，无需人工签收。'),
+                archived
+                  ? h('p', { style: { margin: 0, ...muted } }, '已归档；历史评审与验收证据保留，仅作记录。')
+                  : [
+                      h(ReviewBlock, { key: 'review', review: item.review, showRoles: false }),
+                      h('p', { key: 'hint', style: { margin: '6px 0 0', ...muted } }, '采纳 AI 评审即视为评审通过，无需人工签收。'),
+                    ],
               ),
               h(Section, { title: '角色覆盖' }, h(RoleBars, { review: item.review, decision })),
               h(
                 Section,
                 {
                   title: '验收执行',
-                  action: h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }),
+                  action: archived ? null : h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }),
                 },
                 item.acceptance?.registered
                   ? h('p', { style: { margin: 0, fontSize: '12.5px', color: T.text2 } },
@@ -2221,10 +2285,11 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', flexWrap: 'wrap' } },
-            h(ActionButton, { label: '开始开发', icon: 'play', variant: 'primary', onClick: () => onStart(item) }),
-            h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }),
-            h(ActionButton, { label: '运行门禁检查', icon: 'check', variant: 'secondary', onClick: () => onAccept(item) }),
-            h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+            archived ? null : h(ActionButton, { label: '开始开发', icon: 'play', variant: 'primary', onClick: () => onStart(item) }),
+            archived ? null : h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }),
+            archived ? null : h(ActionButton, { label: '运行门禁检查', icon: 'check', variant: 'secondary', onClick: () => onAccept(item) }),
+            archived ? null : h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+            archived ? null : h(ActionButton, { label: '关闭归档', icon: 'archive', variant: 'ghost', onClick: () => onArchive(item) }),
             h(ActionButton, { label: '关闭', icon: 'close', variant: 'ghost', onClick: onClose }),
           ),
         ),
@@ -3356,6 +3421,122 @@ window.__ModuleLoader__.load({
                 ? h('p', { style: { margin: '8px 0 0', ...muted } }, `扫描关系 ${previewData.impact.coverage.relations ?? 0} · 已探索 ${previewData.impact.coverage.explored ?? 0} · 深度上限 ${previewData.impact.coverage.maxDepth ?? 4}${previewData.impact.coverage.truncated ? ' · 已截断' : ''}`)
                 : null,
               h('p', { style: { margin: '8px 0 0', ...muted } }, '影响是提示，不是阻塞；确认提交前请人工判断。'),
+            )
+          : null,
+      )
+    }
+
+    /**
+     * Close-and-archive confirmation. The preview decides whether the status
+     * transition is legal; apply re-checks the same baseline (CAS) before one
+     * audited write. Archived rows stay readable, they just leave the funnel.
+     */
+    function ArchiveModal({ item, root, onClose, onDone }) {
+      const [reason, setReason] = useState('')
+      const [idempotencyKey] = useState(() => `ui-archive-${item.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+      const [state, setState] = useState({ loading: true, preview: null, result: null, error: null, stale: false })
+      const load = useCallback(() => {
+        setState({ loading: true, preview: null, result: null, error: null, stale: false })
+        writeJson('archive', { requirementId: item.id }, root)
+          .then((preview) => setState({ loading: false, preview, result: null, error: null, stale: false }))
+          .catch((error) => setState({ loading: false, preview: null, result: null, error: error.message, stale: false }))
+      }, [item.id, root])
+      useEffect(() => {
+        load()
+      }, [load])
+      const submit = () => {
+        const preview = state.preview
+        if (!preview || state.loading) return
+        setState((current) => ({ ...current, loading: true, result: null, error: null, stale: false }))
+        writeJson(
+          'archive',
+          {
+            requirementId: item.id,
+            apply: true,
+            expectedBaseline: preview.baseline,
+            actor: 'human:local',
+            reason,
+            idempotencyKey,
+          },
+          root,
+        )
+          .then((result) => {
+            setState({ loading: false, preview: null, result, error: null, stale: false })
+          })
+          .catch((error) => {
+            if (error.code !== 'stale-preview') {
+              setState((current) => ({ ...current, loading: false, error: error.message }))
+              return
+            }
+            setState((current) => ({ ...current, loading: false, error: null, stale: true }))
+            writeJson('archive', { requirementId: item.id }, root)
+              .then((next) => setState((current) => ({ ...current, loading: false, preview: next, error: null, stale: true })))
+              .catch((nextError) => setState((current) => ({ ...current, loading: false, error: nextError.message, stale: true })))
+          })
+      }
+      const preview = state.preview
+      const result = state.result
+      const close = () => {
+        if (result) onDone?.()
+        else onClose()
+      }
+      return h(
+        ModalShell,
+        {
+          title: `关闭归档 · ${item.id}`,
+          lead: '不开发的需求保留记录并退出交付流程：状态改为 archived、修订号 +1，写入审计。归档后仍可查看，但不再显示开始开发等交付动作。',
+          onClose,
+          width: '620px',
+          footer: [
+            h('button', { key: 'close', style: result ? primary : button, onClick: close }, result ? '关闭' : '取消'),
+            result
+              ? null
+              : h('button', { key: 'submit', style: primary, onClick: submit, disabled: state.loading || !preview }, state.loading ? '归档中…' : '确认关闭归档'),
+          ],
+        },
+        state.loading ? h('p', { style: { margin: '10px 0 0', ...muted } }, '正在检查状态与基线…') : null,
+        state.error ? h('p', { role: 'alert', style: { margin: '10px 0 0', color: T.err, fontSize: '12.5px', lineHeight: 1.8 } }, state.error) : null,
+        state.stale ? h('p', { style: { margin: '10px 0 0', color: T.warn, fontSize: '12.5px' } }, '需求刚刚发生变化，已重新计算，请再次确认。') : null,
+        preview
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['需求', `${item.title} · ${item.id}`],
+                  ['状态', `${preview.status.from} → ${preview.status.to}（已归档）`],
+                  ['修订', `v${preview.baseline?.revision ?? item.revision ?? 1} → v${preview.revision}`],
+                  ['文件', preview.file ?? '—'],
+                  ['影响', '评审、验收证据与 GitHub 归属保留，但不再作为活跃需求'],
+                ],
+              }),
+              h(
+                'label',
+                { style: { display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '12px', fontSize: '12px', color: T.text2 } },
+                h('span', null, '关闭原因（可选）'),
+                h('textarea', {
+                  value: reason,
+                  onChange: (event) => setReason(event.target.value),
+                  placeholder: '例如：业务调整，本期不开发；或已被其他方案覆盖。',
+                  maxLength: 500,
+                  style: { ...input, width: '100%', minHeight: '76px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 },
+                }),
+              ),
+            )
+          : null,
+        result
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['状态', '已归档'],
+                  ['修订', result.revision ? `v${result.revision}` : '—'],
+                  ['文件', result.file ?? '—'],
+                  ['审计', result.auditFile ?? '—'],
+                ],
+              }),
+              h('p', { style: { margin: '8px 0 0', color: T.ok, fontSize: '12.5px' } }, '已关闭归档；该需求不再出现在活跃筛选中。'),
             )
           : null,
       )
@@ -6421,6 +6602,7 @@ window.__ModuleLoader__.load({
       const [acceptanceItem, setAcceptanceItem] = useState(null)
       const [aiReviewItem, setAiReviewItem] = useState(null)
       const [rehearsalItem, setRehearsalItem] = useState(null)
+      const [archiveItem, setArchiveItem] = useState(null)
       const [createOpen, setCreateOpen] = useState(false)
       const [createdNotice, setCreatedNotice] = useState(null)
       const [associateTarget, setAssociateTarget] = useState(null)
@@ -6586,20 +6768,25 @@ window.__ModuleLoader__.load({
       // two records and must be selectable independently.
       const keyOf = (item) => item?.occurrenceKey ?? item?.id
       const needle = keyword.trim().toLowerCase()
+      // Archived records stay readable but are out of the active funnel: the
+      // default/全部 view lists active requirements and the dedicated 已归档 tab
+      // is the only place they surface.
+      const activeItems = scopedItems.filter((item) => item.status !== 'archived')
+      const scopeItems = filter === 'archived' ? scopedItems : activeItems
       const keywordMatched = needle
-        ? scopedItems.filter(
+        ? scopeItems.filter(
             (item) =>
               item.title.toLowerCase().includes(needle) ||
               item.id.toLowerCase().includes(needle) ||
               (item.businessId ?? '').toLowerCase().includes(needle) ||
               (item.owner ?? '').toLowerCase().includes(needle),
           )
-        : scopedItems
+        : scopeItems
       const counts = {}
       for (const item of keywordMatched) counts[item.status] = (counts[item.status] ?? 0) + 1
       const searched = keywordMatched.filter((item) => filter === 'all' || item.status === filter)
       const visible = anomalyOnly ? searched.filter((item) => (item.anomalies?.length ?? 0) > 0) : searched
-      const itemCount = scopedItems.length
+      const itemCount = activeItems.length
       const filtered = filter !== 'all' || keyword !== '' || anomalyOnly
       const clearFilters = () => {
         setFilter('all')
@@ -6889,7 +7076,7 @@ window.__ModuleLoader__.load({
           h('p', { style: { margin: '0 0 16px', color: T.err, fontSize: '12.5px', lineHeight: 1.7 } }, readableError(error)),
           h(ActionButton, { label: '重试', icon: 'refresh', variant: 'secondary', onClick: reload }),
         )
-      } else if (itemCount === 0) {
+      } else if (scopedItems.length === 0) {
         body = h(EmptyState, { root: data?.root ?? root, onCreate: createRequirement, onOpenPanel: openPanel })
       } else {
         body = h(RequirementTable, {
@@ -6903,6 +7090,7 @@ window.__ModuleLoader__.load({
           onAiReview: (entry) => setAiReviewItem(entry),
           onAcceptance: (entry) => setAcceptanceItem(entry),
           onOpen: (entry) => setSelectedId(keyOf(entry)),
+          onArchive: (entry) => setArchiveItem(entry),
           emptyNode: h(NoResults, { filter, keyword, anomalyOnly, onClear: clearFilters }),
         })
       }
@@ -6993,6 +7181,7 @@ window.__ModuleLoader__.load({
               onAcceptance: (entry) => setAcceptanceItem(entry),
               onAiReview: (entry) => setAiReviewItem(entry),
               onRehearsal: (entry) => setRehearsalItem(entry),
+              onArchive: (entry) => setArchiveItem(entry),
             })
           : null,
         detailOpen && selected
@@ -7010,6 +7199,7 @@ window.__ModuleLoader__.load({
               onAcceptance: (entry) => setAcceptanceItem(entry),
               onAiReview: (entry) => setAiReviewItem(entry),
               onRehearsal: (entry) => setRehearsalItem(entry),
+              onArchive: (entry) => setArchiveItem(entry),
             })
           : null,
         snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
@@ -7044,6 +7234,18 @@ window.__ModuleLoader__.load({
               root: rehearsalItem.root ?? data?.root ?? root,
               onClose: () => setRehearsalItem(null),
               onDone: () => reload(),
+            })
+          : null,
+        archiveItem
+          ? h(ArchiveModal, {
+              item: archiveItem,
+              root: archiveItem.root ?? data?.root ?? root,
+              onClose: () => setArchiveItem(null),
+              onDone: () => {
+                setArchiveItem(null)
+                setSelectedId(null)
+                reload()
+              },
             })
           : null,
         acceptanceItem
