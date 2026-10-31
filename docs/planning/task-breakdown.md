@@ -910,3 +910,23 @@
   - 正例：1440 视口侧栏 865px；`开始开发` 按钮初始即位于视口内（y≈966）；真实 deepseek-flash 生成评审并采纳，brief 出现「AI 评审建议（已采纳）」。
   - 反例：模型缺失/调用失败返回 503/502 且不写文件；截断 JSON 自动修复；无建议时采纳报错。
 - 证据：`pnpm test` 236/236；截图 `plugin-drawer-60.png`、`plugin-ai-review.png`、`plugin-ai-review-adopted.png`
+
+### ALM-09.10 AI 驱动新建需求
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.09（#130，已关闭）
+- 技能：`cordis-plugin-development`、`alm-mvp-dev`
+- 实施范围：`packages/dsh-plugin-requirements/{ai-draft.mjs,client.js,index.js,test}`
+- 不在范围：自动创建（仍需预览确认）、AI 自动补验收资产、多人责任分配
+- 接口：
+  - `POST /api/alm/requirements/draft`：`{intent, source?, extractedText?, projectName?}` → `alm.ai-draft/v1`（title/brief/priority/owner/rationale）
+  - 默认模型解析复用 `resolveAiSelection`，流式收集复用 `aiStreamFor`；JSON 截断自动修复
+  - 优先级白名单 P0/P1/P2；责任人默认张浩
+- 交付物：
+  - [ ] `ai-draft.mjs`：提示词、流式调用、草稿归一化与兜底
+  - [ ] 端点 + lifecycle/HTTP 测试
+  - [ ] CreateModal「需求意图 + AI 生成需求草稿」：OCR/聊天解析后自动生成，文本来源手动触发
+  - [ ] 默认责任人张浩、优先级可编辑、预览确认后创建
+- 验收：
+  - 正例：真实 deepseek-flash 将口语生成标题/背景/P0/张浩，并创建 REQ-DEMO-006。
+  - 反例：空意图 400；无模型 503；空输出 502；AI 缺 title/priority 时兜底。
+- 证据：`pnpm test` 241/241；截图 `plugin-ai-draft.png`、`plugin-ai-draft-created.png`

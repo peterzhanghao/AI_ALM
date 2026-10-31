@@ -95,6 +95,7 @@
 | ALM-09.07 | 新建向导接入 OCR/聊天入库 | task | @peterzhanghao | P1 | plugin | done | ALM-09.06（#124，已关闭） | 确认发布 | #126 | #127 | in-sync | 2026-10-31 12:10 |
 | ALM-09.08 | 需求详情侧栏可读性 | task | @peterzhanghao | P1 | plugin | done | ALM-09.07（#126，已关闭） | 确认发布 | #128 | #129 | in-sync | 2026-10-31 17:45 |
 | ALM-09.09 | 侧栏 60% 宽 + 底部操作固定 + AI 评审 | task | @peterzhanghao | P1 | plugin | done | ALM-09.08（#128，已关闭） | 确认发布 | #130 | #131 | in-sync | 2026-10-31 18:05 |
+| ALM-09.10 | AI 驱动新建需求 | task | @peterzhanghao | P1 | plugin | review | ALM-09.09（#130，已关闭） | 确认发布 | #132 | — | local-newer | 2026-10-31 18:20 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。

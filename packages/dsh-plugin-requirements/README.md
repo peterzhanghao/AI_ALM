@@ -12,7 +12,7 @@
 | 项目空间 | 项目列表 = DSH 工作区（剔除默认工作区），每个工作区可关联 GitHub 仓库（`.alm/project.json`） |
 | 变更 / 验收 | 开始开发可登记变更或创建隔离 worktree；需求级验收命令与证据见 `.alm/acceptance/` |
 | 评审 / 版本 | `.alm/reviews/<REQ>.json` 门禁报告 + 人工签收；`.alm/reviews/<REQ>.ai.json` AI 评审（评审意见/建议/方案可采纳到 brief）；版本快照/字段 diff |
-| 入库 | 新建向导支持文本 / 截图本地 OCR / 聊天记录，附件归档到 `requirements/attachments/` |
+| 入库 | 新建向导支持口语 / 截图本地 OCR / 聊天记录；AI 自动生成标题、背景、优先级（责任人默认张浩），附件归档到 `requirements/attachments/` |
 
 ## 打开页面
 
