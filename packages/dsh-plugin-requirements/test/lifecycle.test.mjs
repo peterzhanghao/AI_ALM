@@ -41,6 +41,7 @@ test('requirements plugin disposes its routes and tool on unload', () => {
     '/api/alm/requirements/intake',
     '/api/alm/requirements/intent',
     '/api/alm/requirements/rehearsal',
+    '/api/alm/requirements/reveal',
     '/api/alm/requirements/review',
     '/api/alm/requirements/signoff',
     '/api/alm/requirements/start',

@@ -130,6 +130,19 @@ window.__ModuleLoader__.load({
       return { label: '提示', color: T.text3, bg: 'rgba(107,116,128,.12)' }
     }
 
+    // Raw engine errors stay in the data, but the list page must explain them
+    // in the UI language the user reads.
+    function readableError(message) {
+      const text = String(message ?? '').trim()
+      if (!text) return '未知错误，请重试。'
+      const notFound = text.match(/root not found:\s*(.+)$/i)
+      if (notFound) return '找不到工作区目录：' + notFound[1] + '（可在「更多 → 指定根目录」重新选择）'
+      if (/not a git repository/i.test(text)) return '该目录不是 git 仓库，无法读取需求版本。'
+      if (/EACCES|EPERM/i.test(text)) return '没有权限读取该目录。'
+      if (/ENOENT/i.test(text)) return '目录或文件不存在：' + text
+      return text
+    }
+
     function shortHash(value, size = 12) {
       return value ? String(value).slice(0, size) : '—'
     }
@@ -924,7 +937,8 @@ window.__ModuleLoader__.load({
     function useRequirements({ root, projectId }) {
       const [state, setState] = useState({ loading: true, error: null, data: null })
       const load = useCallback(() => {
-        setState({ loading: true, error: null, data: null })
+        // Refresh keeps the current rows; only a scope change clears them.
+        setState((prev) => ({ ...prev, loading: true, error: null }))
         const query =
           projectId === ALL_PROJECTS
             ? '?project=ALL'
@@ -939,7 +953,7 @@ window.__ModuleLoader__.load({
             }
             setState({ loading: false, error: null, data: body })
           })
-          .catch((error) => setState({ loading: false, error: error.message, data: null }))
+          .catch((error) => setState((prev) => ({ loading: false, error: error.message, data: prev.data ?? null })))
       }, [root, projectId])
       useEffect(() => {
         load()
@@ -1131,7 +1145,7 @@ window.__ModuleLoader__.load({
           },
         },
         h(ActionIcon, { name: action.icon, size: 13 }),
-        mobile ? null : action.label,
+        action.label,
       )
       return h(
         'div',
@@ -1144,8 +1158,8 @@ window.__ModuleLoader__.load({
             columnGap: '14px',
             alignItems: 'center',
             boxSizing: 'border-box',
-            minHeight: mobile ? '64px' : '70px',
-            padding: mobile ? '10px 14px' : '9px 16px',
+            minHeight: mobile ? '62px' : '68px',
+            padding: mobile ? '9px 14px' : '8px 16px',
             borderTop: `1px solid ${T.line}`,
             background: selected ? T.layer2 : 'transparent',
             boxShadow: selected ? `inset 2px 0 0 ${T.brand}` : 'none',
@@ -1216,6 +1230,14 @@ window.__ModuleLoader__.load({
             h('span', { style: { color: T.text3, fontSize: '11px' } }, `v${item.revision ?? 1}`),
             showProject && item.projectName ? h('span', { style: { color: T.text3, fontSize: '11px' } }, item.projectName) : null,
             mobile && decision ? h(Pill, { status: item.status, label: item.statusLabel }) : null,
+            mobile
+              ? h(
+                  'span',
+                  { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', color: check.tone === 'neutral' ? T.text2 : checkToneColor(check.tone), fontSize: '11.5px', fontWeight: 500 } },
+                  h('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: checkToneColor(check.tone), flex: 'none' } }),
+                  check.label,
+                )
+              : null,
           ),
           anomaly
             ? h(
@@ -1268,7 +1290,7 @@ window.__ModuleLoader__.load({
               check.detail
                 ? h(
                     'span',
-                    { title: check.detail, style: { maxWidth: '100%', color: T.text3, fontSize: '11.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                    { title: check.detail, style: { maxWidth: '100%', color: T.text3, fontSize: '11px', lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
                     check.detail,
                   )
                 : null,
@@ -1411,7 +1433,7 @@ window.__ModuleLoader__.load({
         'section',
         {
           'aria-label': '数据异常提示',
-          style: { margin: '0 0 14px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.err}`, borderRadius: '10px', background: 'rgba(255,139,139,.055)', padding: '10px 12px' },
+          style: { margin: '0 0 8px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.err}`, borderRadius: '10px', background: 'rgba(255,139,139,.055)', padding: '7px 12px' },
         },
         h(
           'div',
@@ -1419,14 +1441,12 @@ window.__ModuleLoader__.load({
           h(ActionIcon, { name: 'alert', size: 15 }),
           h(
             'div',
-            { style: { minWidth: 0, flex: 1 } },
-            h(
-              'span',
-              { style: { color: T.text, fontSize: '12.5px', fontWeight: 500 } },
-              `发现 ${list.length} 组数据异常，涉及 ${records.size} 条记录`,
-            ),
-            breakdown ? h('span', { style: { marginLeft: '9px', color: T.text2, fontSize: '11.5px' } }, breakdown) : null,
-            h('span', { style: { display: 'block', marginTop: '3px', color: T.text2, fontSize: '11.5px' } }, '保留全部记录，不自动合并；打开记录人工核对。'),
+            {
+              style: { minWidth: 0, flex: 1, display: 'flex', alignItems: 'baseline', gap: '8px', overflow: 'hidden', whiteSpace: 'nowrap' },
+              title: '保留全部记录，不自动合并；打开记录人工核对。',
+            },
+            h('span', { style: { color: T.text, fontSize: '12.5px', fontWeight: 500, flex: 'none' } }, `发现 ${list.length} 组数据异常，涉及 ${records.size} 条记录`),
+            breakdown ? h('span', { style: { color: T.text2, fontSize: '11.5px', overflow: 'hidden', textOverflow: 'ellipsis' } }, breakdown) : null,
           ),
           h(
             'button',
@@ -1498,7 +1518,10 @@ window.__ModuleLoader__.load({
       const gaps = data.gaps ?? []
       const executionFailed = failedProjects.length > 0 || data.summary?.failed > 0
       const gateFailed = data.result && data.result !== 'pass'
-      if (!executionFailed && !gateFailed && gaps.length === 0) return null
+      // A failed check explained purely by data anomalies is reported by the
+      // anomaly notice; saying "0 gate gaps" here would be noise.
+      // Nothing actionable: a bare "fail" without gaps is not worth a banner.
+      if (!executionFailed && gaps.length === 0) return null
       const tone = executionFailed ? T.err : T.warn
       const title = executionFailed
         ? `检查执行失败：${failedProjects.length || data.summary?.failed || 0} 个工作区无法读取`
@@ -1510,7 +1533,7 @@ window.__ModuleLoader__.load({
         'section',
         {
           'aria-label': '检查结果提示',
-          style: { margin: '0 0 14px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${tone}`, borderRadius: '10px', background: T.layer, padding: '10px 12px' },
+          style: { margin: '0 0 8px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${tone}`, borderRadius: '10px', background: T.layer, padding: '7px 12px' },
         },
         h(
           'div',
@@ -1518,9 +1541,9 @@ window.__ModuleLoader__.load({
           h('span', { style: { width: '7px', height: '7px', borderRadius: '50%', background: tone, flex: 'none' } }),
           h(
             'div',
-            { style: { minWidth: 0, flex: 1 } },
-            h('span', { style: { color: T.text, fontSize: '12.5px', fontWeight: 500 } }, title),
-            h('span', { style: { display: 'block', marginTop: '2px', color: T.text2, fontSize: '11.5px' } }, detail),
+            { style: { minWidth: 0, flex: 1, display: 'flex', alignItems: 'baseline', gap: '8px', overflow: 'hidden', whiteSpace: 'nowrap' }, title: detail },
+            h('span', { style: { color: T.text, fontSize: '12.5px', fontWeight: 500, flex: 'none' } }, title),
+            h('span', { style: { color: T.text2, fontSize: '11.5px', overflow: 'hidden', textOverflow: 'ellipsis' } }, executionFailed ? '读取失败后重试，不代表需求未通过' : '展开查看规则与修复建议'),
           ),
           executionFailed || gaps.length > 0
             ? h(
@@ -3353,8 +3376,12 @@ window.__ModuleLoader__.load({
     const INTENT_MATCH_LABELS = { covered: '已覆盖', related: '相关', conflict: '冲突', uncertain: '不确定' }
     const INTENT_UNKNOWN_LABELS = { clarify: '澄清', investigate: '转调查', exclude: '排除', pending: '待处理' }
     const INTENT_FIELDS = ['title', 'problem', 'goal', 'inScope', 'outOfScope', 'acceptance']
-    const INTENT_SOURCE_TABS = [['text', '文字'], ['ocr', '图片 OCR'], ['chat', '聊天记录']]
+    // 图片不再是单独的一路输入：它和文字一起组成一条图文意图，粘贴时只进
+    // 附件托盘，等用户点「分析意图」后才识别，识别文本只作为分析材料。
+    const INTENT_SOURCE_TABS = [['text', '文字'], ['chat', '聊天记录']]
     const INTENT_STAGES = ['读取项目上下文', '检索相关需求', '生成判断']
+    const INTENT_MAX_IMAGES = 4
+    const INTENT_IMAGE_MAX_BYTES = 8 * 1024 * 1024
     const INTENT_STATE_LABELS = {
       editing: '正在编辑',
       analyzing: '分析中',
@@ -3476,6 +3503,11 @@ window.__ModuleLoader__.load({
       const [attachment, setAttachment] = useState(null)
       const [chatMarkdown, setChatMarkdown] = useState('')
       const [intake, setIntake] = useState({ loading: false, error: null, data: null })
+      // 图文 composer：图片先停在待识别状态，OCR 推迟到用户点「分析意图」。
+      const [images, setImages] = useState([])
+      const [analyzePhase, setAnalyzePhase] = useState(null)
+      const [expandedImageId, setExpandedImageId] = useState(null)
+      const [dragging, setDragging] = useState(false)
       const [ownerChoice, setOwnerChoice] = useState('')
       const [priorityChoice, setPriorityChoice] = useState('')
       const [session, setSession] = useState(null)
@@ -3678,10 +3710,13 @@ window.__ModuleLoader__.load({
         setRouteChoices(nextRoutes)
         setSessionView(view)
       }
-      const runAnalyze = (options = {}) => {
-        const text = String(options.textOverride ?? rawText).trim()
-        if (text === '') {
-          setError({ code: 'input-required', message: '请先用原话写下你想改变什么' })
+      // 用户只在点「分析意图」时才触发识别：先把待识别图片逐张 OCR，再把
+      // 原话 + 识别材料一起送去意图分析。识别结果缓存在图片上，重新分析不重复识别。
+      const runAnalyze = async (options = {}) => {
+        const analysisOptions = options && typeof options === 'object' && !options.nativeEvent ? options : {}
+        const typedText = String(analysisOptions.textOverride ?? rawText).trim()
+        if (typedText === '' && images.length === 0) {
+          setError({ code: 'input-required', message: '请先用原话写下你想改变什么，或粘贴至少一张图片' })
           return
         }
         invalidateIdem()
@@ -3694,15 +3729,64 @@ window.__ModuleLoader__.load({
         abortRef.current = controller
         setScreen('analyzing')
         setBusy(true)
-        const investigationIds = (options.investigationIds ?? []).filter((id) => typeof id === 'string' && id !== '').slice(0, 5)
+        setAnalyzePhase({ phase: images.length > 0 ? 'ocr' : 'analyze', index: 0, total: images.length })
+        let prepared = []
+        try {
+          prepared = await prepareOcrImages(images, {
+            signal: controller.signal,
+            isCurrent: () => isCurrent(token),
+            onProgress: (index, total) => setAnalyzePhase({ phase: 'ocr', index, total }),
+          })
+        } catch (caught) {
+          if (!isCurrent(token) || caught?.name === 'AbortError') return
+          setBusy(false)
+          setScreen('input')
+          setError({ code: caught?.code ?? 'ocr-failed', message: caught?.message ?? '图片识别失败' })
+          return
+        }
+        if (!isCurrent(token) || controller.signal.aborted) return
+        const imageMaterial = prepared
+          .map((image, index) => {
+            const lines = image.data?.lines
+            if (!Array.isArray(lines) || lines.length === 0) return ''
+            return `图片 ${index + 1}（${image.name}）识别文本：\n${lines.map((line) => `${line.ref} ${line.text}`).join('\n')}`
+          })
+          .filter(Boolean)
+          .join('\n\n')
+        const recognizedText = prepared
+          .map((image) => String(image.data?.text ?? '').trim())
+          .filter(Boolean)
+          .map((text, index, list) => (list.length > 1 ? `【图片 ${index + 1}】\n${text}` : text))
+          .join('\n\n')
+        const text = typedText === '' ? recognizedText : typedText
+        if (text === '') {
+          setBusy(false)
+          setScreen('input')
+          setError({ code: 'empty-input', message: '图片里没有识别到文字；请补充原话后再分析' })
+          return
+        }
+        setAnalyzePhase({ phase: 'analyze', index: prepared.length, total: prepared.length })
+        const chatText = intake.data?.schema === 'alm.intake.chat/v1' ? String(intake.data.text ?? '') : ''
+        const collectedAttachment =
+          prepared.length > 0
+            ? {
+                name: prepared.map((image) => image.name).join('、').slice(0, 200),
+                kind: 'screenshot',
+                size: prepared.reduce((total, image) => total + (Number(image.size) || 0), 0),
+              }
+            : attachment
+              ? { name: attachment.name, kind: attachment.kind }
+              : undefined
+        const investigationIds = (analysisOptions.investigationIds ?? []).filter((id) => typeof id === 'string' && id !== '').slice(0, 5)
         const body = {
           action: 'analyze',
           projectId: projectId ?? project ?? undefined,
           input: {
             text,
-            source,
-            extractedText: intake.data?.text ?? '',
-            attachment: attachment ? { name: attachment.name, kind: attachment.kind } : undefined,
+            // 纯图片输入时，原话来自 OCR，来源标成 ocr；图文混合仍按文字/聊天记录。
+            source: typedText === '' && prepared.length > 0 ? 'ocr' : source,
+            extractedText: [chatText, imageMaterial].filter(Boolean).join('\n\n'),
+            attachment: collectedAttachment,
           },
           explicit: { owner: ownerChoice.trim() || null, priority: priorityChoice || null },
         }
@@ -3736,7 +3820,7 @@ window.__ModuleLoader__.load({
               return
             }
             setError(info)
-            setScreen(view || (options.investigationIds ?? []).length > 0 ? 'review' : 'input')
+            setScreen(view || investigationIds.length > 0 ? 'review' : 'input')
           })
       }
       const cancelAnalyze = () => {
@@ -3748,23 +3832,36 @@ window.__ModuleLoader__.load({
         }
         setBusy(false)
         setScreen('input')
+        setAnalyzePhase(null)
+        setImages((current) => current.map((image) => (image.status === 'recognizing' ? { ...image, status: 'pending' } : image)))
         setNotice('已取消分析；旧结果不会写入界面。')
       }
       const startManual = () => {
         const text = rawText.trim()
         if (text === '') {
-          setError({ code: 'input-required', message: '请先用原话写下你想改变什么，再手动填写候选' })
+          setError({
+            code: 'input-required',
+            message: images.length > 0 ? '手动填写候选需要先写下原话；图片会在「分析意图」时识别。' : '请先用原话写下你想改变什么，再手动填写候选',
+          })
           return
         }
         requestRef.current += 1
         invalidateIdem()
         setError(null)
         setNotice('手动填写：没有调用模型。未保存前不会创建任何东西；要保存仍需先拿到服务端会话（可稍后点“重新分析”）。')
+        const recognizedMaterial = images
+          .map((image) => {
+            const lines = image.data?.lines
+            if (!Array.isArray(lines) || lines.length === 0) return ''
+            return `图片（${image.name}）识别文本：\n${lines.map((line) => `${line.ref} ${line.text}`).join('\n')}`
+          })
+          .filter(Boolean)
+          .join('\n\n')
         const stub = intentManualSession({
           text,
           source,
-          extractedText: intake.data?.text ?? '',
-          attachment: attachment ? { name: attachment.name, kind: attachment.kind } : null,
+          extractedText: [intake.data?.text ?? '', recognizedMaterial].filter(Boolean).join('\n\n'),
+          attachment: images.length > 0 ? { name: images.map((image) => image.name).join('、').slice(0, 200), kind: 'screenshot' } : attachment ? { name: attachment.name, kind: attachment.kind } : null,
           projectId: projectId ?? project,
           projectName,
         })
@@ -4472,68 +4569,278 @@ window.__ModuleLoader__.load({
             if (mountedRef.current) setIntake({ loading: false, error: caught.message, data: null })
           })
       }
-      const ingestImage = (file) => {
-        if (!file) return
-        setSource('ocr')
-        setAttachment({ name: String(file.name || 'screenshot.png').replace(/[^A-Za-z0-9._-]/g, '_'), kind: 'screenshot' })
-        const reader = new FileReader()
-        reader.onload = () => {
-          const base64 = String(reader.result ?? '').split(',')[1] ?? ''
-          if (!base64) {
-            setIntake({ loading: false, error: '读取图片失败', data: null })
-            return
-          }
-          setAttachment({ name: String(file.name || 'screenshot.png').replace(/[^A-Za-z0-9._-]/g, '_'), kind: 'screenshot', dataBase64: base64 })
-          runIntake({ mode: 'ocr', filename: file.name || 'screenshot.png', imageBase64: base64 })
+      const readImageFile = (file) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result ?? ''))
+          reader.onerror = () => reject(new Error('读取图片失败'))
+          reader.readAsDataURL(file)
+        })
+      const uniqueImageName = (name, existing) => {
+        const base = String(name || 'screenshot.png').replace(/[^A-Za-z0-9._-]/g, '_') || 'screenshot.png'
+        const dot = base.lastIndexOf('.')
+        const stem = dot > 0 ? base.slice(0, dot) : base
+        const ext = dot > 0 ? base.slice(dot) : ''
+        let candidate = base
+        let index = 2
+        while (existing.some((image) => image.name === candidate)) {
+          candidate = `${stem}-${index}${ext}`
+          index += 1
         }
-        reader.onerror = () => setIntake({ loading: false, error: '读取图片失败', data: null })
-        reader.readAsDataURL(file)
+        return candidate
+      }
+      // 粘贴/选择/拖入只把图片放进待识别托盘，不触发 OCR，也不改写原话。
+      const addImages = async (files) => {
+        const list = Array.from(files ?? []).filter((file) => file && String(file.type).startsWith('image/'))
+        if (list.length === 0) {
+          setNotice('只支持图片文件（PNG / JPEG / WebP）。')
+          return
+        }
+        const accepted = []
+        const rejected = []
+        for (const file of list) {
+          if (file.size > INTENT_IMAGE_MAX_BYTES) {
+            rejected.push(`${file.name || '图片'} 超过 8MB`)
+            continue
+          }
+          try {
+            const dataUrl = await readImageFile(file)
+            const base64 = dataUrl.split(',')[1] ?? ''
+            if (!base64) {
+              rejected.push(`${file.name || '图片'} 读取失败`)
+              continue
+            }
+            accepted.push({ name: file.name || 'screenshot.png', size: Number(file.size) || 0, dataUrl, base64 })
+          } catch {
+            rejected.push(`${file.name || '图片'} 读取失败`)
+          }
+        }
+        if (!mountedRef.current) return
+        const capacity = Math.max(0, INTENT_MAX_IMAGES - images.length)
+        const toAdd = accepted.slice(0, capacity)
+        const overflow = accepted.length - toAdd.length
+        if (toAdd.length > 0) {
+          const stamp = Date.now().toString(36)
+          setImages((current) => {
+            const next = [...current]
+            toAdd.forEach((item, index) => {
+              if (next.length >= INTENT_MAX_IMAGES) return
+              next.push({
+                id: `img-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+                name: uniqueImageName(item.name, next),
+                size: item.size,
+                kind: 'screenshot',
+                previewUrl: item.dataUrl,
+                dataBase64: item.base64,
+                status: 'pending',
+                data: null,
+                error: null,
+              })
+            })
+            return next
+          })
+        }
+        const parts = []
+        if (toAdd.length > 0) parts.push(`已加入 ${toAdd.length} 张图片；点「分析意图」后才会识别文字，原话不会被改写。`)
+        if (overflow > 0) parts.push(`最多 ${INTENT_MAX_IMAGES} 张图片，超出的未加入。`)
+        if (rejected.length > 0) parts.push(rejected.slice(0, 2).join('；'))
+        if (parts.length === 0) parts.push('图片没有加入。')
+        setNotice(parts.join(' '))
+      }
+      const removeImage = (id) => {
+        setImages((current) => current.filter((image) => image.id !== id))
+        setExpandedImageId((current) => (current === id ? null : current))
       }
       const onFile = (event) => {
-        const file = event.target.files?.[0]
-        if (!file) return
-        ingestImage(file)
+        const files = Array.from(event.target.files ?? [])
+        event.target.value = ''
+        if (files.length > 0) addImages(files)
       }
-      const onPasteImage = (event) => {
+      const onPaste = (event) => {
         const items = Array.from(event.clipboardData?.items ?? [])
-        const imageItem = items.find((entry) => entry.kind === 'file' && String(entry.type).startsWith('image/'))
-        if (!imageItem) return
-        const file = imageItem.getAsFile()
-        if (!file) return
+        const files = items
+          .filter((item) => item.kind === 'file' && String(item.type).startsWith('image/'))
+          .map((item) => item.getAsFile())
+          .filter(Boolean)
+        if (files.length === 0) return
         event.preventDefault()
-        setNotice('已从剪贴板读取图片，正在本地 OCR；识别结果会写入原话。')
-        ingestImage(file)
+        addImages(files)
+      }
+      const onDragOver = (event) => {
+        if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return
+        event.preventDefault()
+        setDragging(true)
+      }
+      const onDragLeave = (event) => {
+        if (event.currentTarget && event.relatedTarget && event.currentTarget.contains(event.relatedTarget)) return
+        setDragging(false)
+      }
+      const onDrop = (event) => {
+        if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault()
+        setDragging(false)
+        const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => String(file.type).startsWith('image/'))
+        if (files.length === 0) {
+          setNotice('只支持图片文件（PNG / JPEG / WebP）。')
+          return
+        }
+        addImages(files)
+      }
+      const patchImage = (id, patch) => {
+        setImages((current) => current.map((image) => (image.id === id ? { ...image, ...patch } : image)))
+      }
+      const imageLines = (image) => (Array.isArray(image?.data?.lines) ? image.data.lines : [])
+      // 逐张识别，只处理还没有识别结果的图片；取消时保留已完成的结果。
+      const prepareOcrImages = async (list, { signal, isCurrent, onProgress } = {}) => {
+        const prepared = []
+        for (let index = 0; index < list.length; index += 1) {
+          const image = list[index]
+          if (image.data?.schema === 'alm.ocr/v1') {
+            prepared.push(image)
+            continue
+          }
+          if (typeof onProgress === 'function') onProgress(index, list.length)
+          patchImage(image.id, { status: 'recognizing', error: null })
+          let data
+          try {
+            data = await writeJson('intake', { mode: 'ocr', filename: image.name, imageBase64: image.dataBase64 }, root, { signal })
+          } catch (caught) {
+            if (caught?.name === 'AbortError') throw caught
+            patchImage(image.id, { status: 'failed', error: caught?.message ?? '识别失败' })
+            const failure = new Error(`图片「${image.name}」识别失败：${caught?.message ?? '未知错误'}`)
+            failure.code = caught?.code ?? 'ocr-failed'
+            throw failure
+          }
+          if (typeof isCurrent === 'function' && !isCurrent()) return prepared
+          patchImage(image.id, { status: 'recognized', data, error: null })
+          prepared.push({ ...image, status: 'recognized', data })
+        }
+        return prepared
+      }
+      const imageStatusLabel = (image) => {
+        if (image.status === 'recognizing') return '正在识别…'
+        if (image.status === 'failed') return '识别失败，可重试'
+        const lines = imageLines(image)
+        if (image.data?.schema === 'alm.ocr/v1' || image.status === 'recognized') return `已识别 ${lines.length} 行`
+        return '待分析时识别'
+      }
+      const renderImageTray = () => {
+        if (images.length === 0) return null
+        const expanded = images.find((image) => image.id === expandedImageId) ?? null
+        return h(
+          'div',
+          { style: { marginTop: '2px' } },
+          h(
+            'div',
+            { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } },
+            images.map((image, index) => {
+              const statusColor =
+                image.status === 'failed' ? T.err : image.status === 'recognizing' ? T.brand : image.data?.schema === 'alm.ocr/v1' ? T.ok : T.text3
+              const canPreview = image.data?.schema === 'alm.ocr/v1'
+              return h(
+                'div',
+                {
+                  key: image.id,
+                  style: {
+                    position: 'relative',
+                    width: '118px',
+                    border: `1px solid ${expandedImageId === image.id ? T.brand : T.line}`,
+                    borderRadius: '10px',
+                    background: T.base,
+                    overflow: 'hidden',
+                  },
+                },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    title: canPreview ? '查看识别文本' : '识别会在点「分析意图」后进行',
+                    'aria-label': `图片 ${index + 1} ${image.name}`,
+                    onClick: () => {
+                      if (!canPreview) return
+                      setExpandedImageId((current) => (current === image.id ? null : image.id))
+                    },
+                    style: { display: 'block', width: '100%', padding: 0, border: 0, background: 'transparent', cursor: canPreview ? 'pointer' : 'default' },
+                  },
+                  h('img', { src: image.previewUrl, alt: image.name, style: { display: 'block', width: '100%', height: '62px', objectFit: 'cover' } }),
+                ),
+                h(
+                  'div',
+                  { style: { padding: '4px 22px 4px 6px' } },
+                  h('div', { title: image.name, style: { fontSize: '10.5px', color: T.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, image.name),
+                  h('div', { style: { fontSize: '10.5px', color: statusColor, whiteSpace: 'nowrap' } }, imageStatusLabel(image)),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => removeImage(image.id),
+                    title: '移除这张图片',
+                    'aria-label': `移除图片 ${image.name}`,
+                    style: {
+                      position: 'absolute',
+                      top: '3px',
+                      right: '3px',
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      border: 'none',
+                      background: 'rgba(4,6,9,.72)',
+                      color: '#fff',
+                      fontSize: '12px',
+                      lineHeight: '16px',
+                      cursor: 'pointer',
+                      padding: 0,
+                    },
+                  },
+                  '×',
+                ),
+              )
+            }),
+          ),
+          expanded
+            ? h(
+                'div',
+                { style: { marginTop: '8px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.base, padding: '10px 12px' } },
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+                  h('b', { style: { fontSize: '12px', color: T.text } }, `识别文本 · ${expanded.name}`),
+                  h('span', { style: muted }, `${imageLines(expanded).length} 行${expanded.data?.lowConfidence ? ` · ${expanded.data.lowConfidence} 行低置信度` : ''}`),
+                  h(
+                    'button',
+                    { type: 'button', style: { ...button, marginLeft: 'auto', padding: '2px 8px', fontSize: '11px' }, onClick: () => setExpandedImageId(null) },
+                    '收起',
+                  ),
+                ),
+                h(
+                  'pre',
+                  {
+                    style: {
+                      margin: '8px 0 0',
+                      padding: '8px',
+                      maxHeight: '160px',
+                      overflow: 'auto',
+                      background: T.layer,
+                      border: `1px solid ${T.line}`,
+                      borderRadius: '8px',
+                      fontSize: '11.5px',
+                      whiteSpace: 'pre-wrap',
+                    },
+                  },
+                  imageLines(expanded).map((line) => `${line.ref}  ${line.text}  (${Math.round((Number(line.confidence) || 0) * 100)}%)`).join('\n'),
+                ),
+                h('p', { style: { margin: '6px 0 0', ...muted } }, '这些文字只作为分析材料，不会改写上面的原话。'),
+              )
+            : null,
+        )
       }
       const useRecognizedText = (text) => {
         if (!text) return
         setRawText((current) => (current.trim() === '' ? text : `${current.trim()}\n${text}`))
       }
       const renderSourcePanel = () => {
-        if (source === 'text') return null
+        if (source !== 'chat') return null
         const parsed = intake.data
-        if (source === 'ocr') {
-          return h(
-            'div',
-            { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', marginTop: '8px' } },
-            h('input', { type: 'file', accept: 'image/*', onChange: onFile, 'aria-label': '选择截图做本地 OCR', style: { fontSize: '12px', color: T.text2 } }),
-            attachment ? h('p', { style: { margin: '6px 0 0', ...muted } }, `已选择：${attachment.name}`) : null,
-            intake.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在本地 OCR（离线 PP-OCRv5）…') : null,
-            intake.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12.5px' } }, intake.error) : null,
-            parsed?.schema === 'alm.ocr/v1'
-              ? h(
-                  'div',
-                  null,
-                  h('p', { style: { margin: '8px 0 4px', fontSize: '12px', color: T.text2 } }, `识别 ${parsed.lines.length} 行 · ${parsed.lowConfidence} 行低置信度`),
-                  h(
-                    'pre',
-                    { style: { margin: 0, padding: '8px', maxHeight: '150px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '8px', fontSize: '11.5px', whiteSpace: 'pre-wrap' } },
-                    parsed.lines.map((line) => `${line.ref}  ${line.text}  (${Math.round(line.confidence * 100)}%)`).join('\n'),
-                  ),
-                  h('button', { type: 'button', style: { ...button, marginTop: '8px' }, onClick: () => useRecognizedText(parsed.text) }, '把识别文本加入原话'),
-                )
-              : null,
-          )
-        }
         return h(
           'div',
           { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', marginTop: '8px' } },
@@ -4597,21 +4904,70 @@ window.__ModuleLoader__.load({
             'div',
             { style: { marginTop: '14px' } },
             h(
-              'label',
-              { style: { display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: T.text2 } },
-              '用你自己的话写下想改变什么（必填）',
-              h('textarea', {
-                value: rawText,
-                autoFocus: true,
-                onPaste: onPasteImage,
-                onChange: (event) => {
-                  setRawText(event.target.value)
-                  setError(null)
+              'div',
+              { style: { marginTop: '2px' } },
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' } },
+                h('span', { style: { fontSize: '12px', color: T.text2 } }, '用你自己的话写下想改变什么（必填）'),
+                h('span', { style: { fontSize: '11px', color: T.text3 } }, '文字和图片一起写，点「分析意图」后才处理'),
+              ),
+              h(
+                'div',
+                {
+                  onDragOver,
+                  onDragLeave,
+                  onDrop,
+                  style: {
+                    border: `1px solid ${dragging ? T.brand : T.line}`,
+                    borderRadius: '12px',
+                    background: T.layer,
+                    padding: '8px 10px 6px',
+                    transition: 'border-color .15s ease',
+                  },
                 },
-                placeholder: '例如：退款这里老是重复退，财务对账很麻烦；要保证同一笔订单只退一次，并发也不能重复扣款。',
-                style: { ...input, minWidth: 0, width: '100%', minHeight: '96px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' },
-              }),
-              h('span', { style: { fontSize: '11.5px', color: T.text3 } }, '可以直接粘贴截图（Ctrl/⌘+V），会自动本地 OCR 并写入原话。'),
+                renderImageTray(),
+                h('textarea', {
+                  value: rawText,
+                  autoFocus: true,
+                  'aria-label': '用你自己的话写下想改变什么',
+                  onPaste,
+                  onChange: (event) => {
+                    setRawText(event.target.value)
+                    setError(null)
+                  },
+                  placeholder: '例如：退款这里老是重复退，财务对账很麻烦；要保证同一笔订单只退一次，并发也不能重复扣款。',
+                  style: {
+                    ...input,
+                    minWidth: 0,
+                    width: '100%',
+                    minHeight: '96px',
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                    lineHeight: 1.8,
+                    boxSizing: 'border-box',
+                    border: 0,
+                    background: 'transparent',
+                    padding: '4px 2px',
+                  },
+                }),
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '4px' } },
+                  h(
+                    'label',
+                    { style: { ...button, display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' } },
+                    '＋ 添加图片',
+                    h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', multiple: true, onChange: onFile, style: { display: 'none' } }),
+                  ),
+                  h(
+                    'span',
+                    { style: { fontSize: '11.5px', color: T.text3, lineHeight: 1.7 } },
+                    '可直接粘贴截图（Ctrl/⌘+V）或拖入图片；识别放到点「分析意图」之后，原话不会被改写。',
+                  ),
+                  images.length > 0 ? h('span', { style: { marginLeft: 'auto', fontSize: '11px', color: T.text3 } }, `图片 ${images.length}/${INTENT_MAX_IMAGES}`) : null,
+                ),
+              ),
             ),
             h(
               'div',
@@ -4670,8 +5026,29 @@ window.__ModuleLoader__.load({
           notice ? h('p', { style: { margin: '10px 0 0', color: T.text2, fontSize: '12px', lineHeight: 1.7 } }, notice) : null,
           error ? renderError(error) : null,
         )
-      const renderAnalyzing = () =>
-        h(
+      const renderAnalyzing = () => {
+        const recognizing = analyzePhase?.phase === 'ocr'
+        const total = analyzePhase?.total ?? images.length
+        const index = total > 0 ? Math.min(analyzePhase?.index ?? 0, total - 1) : 0
+        const imageRows = images.map((image) => {
+          const lines = imageLines(image)
+          const status =
+            image.status === 'recognizing'
+              ? '正在本地识别文字…'
+              : image.status === 'failed'
+                ? `识别失败：${image.error ?? '未知错误'}`
+                : image.data?.schema === 'alm.ocr/v1' || image.status === 'recognized'
+                  ? `已识别 ${lines.length} 行`
+                  : '等待识别'
+          const tone = image.status === 'failed' ? 'error' : image.status === 'recognizing' ? 'warn' : image.data?.schema === 'alm.ocr/v1' || image.status === 'recognized' ? 'success' : 'neutral'
+          return h(
+            'li',
+            { key: image.id, style: { display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', padding: '3px 0', borderBottom: `1px solid ${T.line}` } },
+            h('span', { style: { fontSize: '12.5px', color: T.text } }, image.name),
+            tonePill(tone, status),
+          )
+        })
+        return h(
           'div',
           { style: { marginTop: '10px' } },
           h(
@@ -4680,17 +5057,43 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
-              tonePill('neutral', '分析中'),
+              tonePill(recognizing ? 'warn' : 'neutral', recognizing ? '识别图片文字' : '分析中'),
               h('span', { style: muted }, '只显示真实阶段，不伪造进度百分比'),
             ),
+            images.length > 0
+              ? h(
+                  'div',
+                  { style: { marginTop: '10px' } },
+                  h(
+                    'p',
+                    { style: { margin: '0 0 4px', fontSize: '12px', color: T.text2 } },
+                    recognizing
+                      ? `先识别图片里的文字（第 ${index + 1}/${total} 张，本地 OCR，图片不上传）；识别完再提交意图分析。`
+                      : `图片文字已识别（${images.length} 张）；这些文字只作为分析材料，不会改写你的原话。`,
+                  ),
+                  h('ul', { style: { margin: 0, padding: 0, listStyle: 'none' } }, imageRows),
+                )
+              : null,
             h(
-              'ul',
+              'ol',
               { style: { margin: '10px 0 0', paddingLeft: '20px', fontSize: '12.5px', lineHeight: 2, color: T.text2 } },
-              INTENT_STAGES.map((label) => h('li', { key: label }, label)),
+              INTENT_STAGES.map((label, position) =>
+                h(
+                  'li',
+                  {
+                    key: label,
+                    style: {
+                      color: recognizing ? T.text3 : position === 0 && String(analyzePhase?.phase ?? '') === 'analyze' ? T.text : T.text2,
+                    },
+                  },
+                  label,
+                ),
+              ),
             ),
-            h('p', { style: { margin: '10px 0 0', ...muted } }, '这次请求会依次做这三件事；没有伪造的进度百分比。取消后旧结果不会写入界面。'),
+            h('p', { style: { margin: '10px 0 0', ...muted } }, '取消后旧结果不会写入界面；已完成识别的图片在重试时不会重复识别。'),
           ),
         )
+      }
       const renderQuestion = () => {
         const question = session?.nextQuestion
         if (!question) return null
@@ -5825,7 +6228,11 @@ window.__ModuleLoader__.load({
           return [
             h('span', { key: 'note', style: { marginRight: 'auto', fontSize: '11.5px', color: T.text3, alignSelf: 'center' } }, '先澄清，不会创建需求。'),
             h('button', { key: 'manual', type: 'button', style: button, onClick: startManual }, '手动填写候选'),
-            h('button', { key: 'analyze', type: 'button', style: primary, disabled: rawText.trim() === '' || busy, onClick: runAnalyze }, busy ? '分析中…' : '分析意图'),
+            h(
+              'button',
+              { key: 'analyze', type: 'button', style: primary, disabled: (rawText.trim() === '' && images.length === 0) || busy, onClick: () => runAnalyze() },
+              busy ? '分析中…' : '分析意图',
+            ),
           ]
         }
         if (screen === 'analyzing') {
@@ -5835,7 +6242,7 @@ window.__ModuleLoader__.load({
           return [
             h('button', { key: 'later', type: 'button', style: button, onClick: postpone }, '暂不处理'),
             h('button', { key: 'back', type: 'button', style: button, onClick: () => setScreen('input') }, '返回原话'),
-            h('button', { key: 'again', type: 'button', style: button, disabled: busy, onClick: runAnalyze }, busy ? '分析中…' : '重新分析'),
+            h('button', { key: 'again', type: 'button', style: button, disabled: busy, onClick: () => runAnalyze() }, busy ? '分析中…' : '重新分析'),
             h(
               'button',
               { key: 'confirm', type: 'button', style: primary, disabled: busy, onClick: enterConfirm },
@@ -5975,19 +6382,23 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function EmptyState({ root, onOpenPanel }) {
+    function EmptyState({ root, onCreate, onOpenPanel }) {
       return h(
         'div',
-        { style: { ...card, cursor: 'default' } },
-        h('h3', { style: { margin: '0 0 8px', fontSize: '15px' } }, '从这一步开始'),
+        { style: { ...card, cursor: 'default', padding: '34px 30px', textAlign: 'center' } },
+        h('h3', { style: { margin: '0 0 7px', fontSize: '15px' } }, '还没有需求'),
         h(
-          'ol',
-          { style: { margin: 0, paddingLeft: '20px', fontSize: '13px', lineHeight: 1.9 } },
-          h('li', null, '看示例：点「恢复默认」加载 fixtures/order-refund，认识 7 类资产与追踪关系。'),
-          h('li', null, '写第一条：让 Agent 按 alm-requirements 技能起草需求，再用 alm check 验证。'),
-          h('li', null, '进入变更流程：', onOpenPanel ? h('button', { style: { ...button, marginLeft: '6px' }, onClick: onOpenPanel }, '打开工作台') : null),
+          'p',
+          { style: { margin: '0 auto 18px', maxWidth: '440px', color: T.text2, fontSize: '12.5px', lineHeight: 1.7 } },
+          '工作区已读取成功，但这里还没有需求记录。你可以先写一条待评审草稿，或打开工作台查看门禁与资产。',
         ),
-        root ? h('p', { style: muted }, `当前根：${root}`) : null,
+        h(
+          'div',
+          { style: { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' } },
+          onCreate ? h(ActionButton, { label: '新建需求', icon: 'plus', variant: 'primary', onClick: onCreate }) : null,
+          onOpenPanel ? h(ActionButton, { label: '打开工作台', icon: 'eye', variant: 'secondary', onClick: onOpenPanel }) : null,
+        ),
+        root ? h('p', { style: { margin: '16px 0 0', ...muted } }, `当前根：${root}`) : null,
       )
     }
 
@@ -6018,6 +6429,8 @@ window.__ModuleLoader__.load({
       const [anomalyOpen, setAnomalyOpen] = useState(false)
       const [checkOpen, setCheckOpen] = useState(false)
       const [menuOpen, setMenuOpen] = useState(false)
+      const menuRef = useRef(null)
+      const [folderNotice, setFolderNotice] = useState(null)
       const [narrow, setNarrow] = useState(typeof window !== 'undefined' ? window.innerWidth < 1120 : false)
       const [mobile, setMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 760 : false)
       const [toolbarNode, setToolbarNode] = useState(null)
@@ -6127,6 +6540,25 @@ window.__ModuleLoader__.load({
           )
       }
 
+      useEffect(() => {
+        if (!menuOpen) return undefined
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            setMenuOpen(false)
+          }
+        }
+        const onPointerDown = (event) => {
+          if (menuRef.current && !menuRef.current.contains(event.target)) setMenuOpen(false)
+        }
+        document.addEventListener('keydown', onKeyDown, true)
+        document.addEventListener('mousedown', onPointerDown, true)
+        return () => {
+          document.removeEventListener('keydown', onKeyDown, true)
+          document.removeEventListener('mousedown', onPointerDown, true)
+        }
+      }, [menuOpen])
+
       const projectMetaFor = useCallback(
         (item) => {
           if (!item) return null
@@ -6153,20 +6585,19 @@ window.__ModuleLoader__.load({
       // Selection is by occurrenceKey, not by UID: duplicate UIDs are kept as
       // two records and must be selectable independently.
       const keyOf = (item) => item?.occurrenceKey ?? item?.id
-      const counts = {}
-      for (const item of scopedItems) counts[item.status] = (counts[item.status] ?? 0) + 1
-      const searched = scopedItems
-        .filter((item) => filter === 'all' || item.status === filter)
-        .filter((item) => {
-          if (!keyword) return true
-          const needle = keyword.toLowerCase()
-          return (
-            item.title.toLowerCase().includes(needle) ||
-            item.id.toLowerCase().includes(needle) ||
-            (item.businessId ?? '').toLowerCase().includes(needle) ||
-            (item.owner ?? '').toLowerCase().includes(needle)
+      const needle = keyword.trim().toLowerCase()
+      const keywordMatched = needle
+        ? scopedItems.filter(
+            (item) =>
+              item.title.toLowerCase().includes(needle) ||
+              item.id.toLowerCase().includes(needle) ||
+              (item.businessId ?? '').toLowerCase().includes(needle) ||
+              (item.owner ?? '').toLowerCase().includes(needle),
           )
-        })
+        : scopedItems
+      const counts = {}
+      for (const item of keywordMatched) counts[item.status] = (counts[item.status] ?? 0) + 1
+      const searched = keywordMatched.filter((item) => filter === 'all' || item.status === filter)
       const visible = anomalyOnly ? searched.filter((item) => (item.anomalies?.length ?? 0) > 0) : searched
       const itemCount = scopedItems.length
       const filtered = filter !== 'all' || keyword !== '' || anomalyOnly
@@ -6221,6 +6652,22 @@ window.__ModuleLoader__.load({
         setCreateOpen(true)
       }
 
+      // "Open repository folder" must really open it; when the host cannot,
+      // say so instead of pretending.
+      const openFolder = () => {
+        const targetRoot = data?.root ?? root
+        if (!targetRoot) {
+          setFolderNotice({ ok: false, message: '还没有可打开的仓库根目录。' })
+          return
+        }
+        writeJson('reveal', { root: targetRoot }, targetRoot)
+          .then((payload) => {
+            if (payload?.ok === false) throw new Error(payload?.error?.message ?? '打开目录失败')
+            setFolderNotice({ ok: true, message: '已在系统文件管理器中打开：' + (payload?.root ?? targetRoot) })
+          })
+          .catch((error) => setFolderNotice({ ok: false, message: '无法打开目录：' + error.message + '（路径：' + targetRoot + '）' }))
+      }
+
       const menuItem = (label, icon, onClick, extra) =>
         h(
           'button',
@@ -6259,22 +6706,15 @@ window.__ModuleLoader__.load({
 
       const header = h(
         'div',
-        { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap', paddingTop: '26px' } },
+        { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap', paddingTop: '26px' } },
         h(
           'div',
-          { style: { minWidth: 0 } },
-          h(
-            'div',
-            { style: { display: 'flex', alignItems: 'baseline', gap: '10px' } },
-            h('h1', { style: { margin: 0, fontSize: '26px', lineHeight: 1.2, fontWeight: 600, letterSpacing: '-.02em' } }, '需求'),
-            h('span', { style: { color: T.text3, fontSize: '13px', fontVariantNumeric: 'tabular-nums' } }, countLabel),
-          ),
-          h(
-            'div',
-            { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '9px', flexWrap: 'wrap' } },
-            h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject }),
-            h('span', { style: { color: T.text3, fontSize: '11.5px' } }, scopeText),
-          ),
+          { style: { display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flexWrap: 'wrap' } },
+          h('h1', { style: { margin: 0, fontSize: '26px', lineHeight: 1.2, fontWeight: 600, letterSpacing: '-.02em' } }, '需求'),
+          h('span', { style: { color: T.text3, fontSize: '13px', fontVariantNumeric: 'tabular-nums' } }, countLabel),
+          h('span', { 'aria-hidden': 'true', style: { width: '1px', height: '18px', background: T.line } }),
+          h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject }),
+          h('span', { style: { color: T.text3, fontSize: '11.5px' } }, scopeText),
         ),
         h(
           'div',
@@ -6334,7 +6774,7 @@ window.__ModuleLoader__.load({
                 },
               },
               label,
-              h('span', { style: { marginLeft: '6px', color: active ? T.text2 : T.text3, fontSize: '11px', fontVariantNumeric: 'tabular-nums' } }, id === 'all' ? itemCount : counts[id] ?? 0),
+              h('span', { style: { marginLeft: '6px', color: active ? T.text2 : T.text3, fontSize: '11px', fontVariantNumeric: 'tabular-nums' } }, id === 'all' ? keywordMatched.length : counts[id] ?? 0),
             )
           }),
         ),
@@ -6369,8 +6809,8 @@ window.__ModuleLoader__.load({
         h(ActionButton, { label: loading ? '刷新中…' : '刷新', icon: 'refresh', variant: 'ghost', disabled: loading, onClick: reload, title: '重新读取需求资产' }),
         h(
           'div',
-          { style: { position: 'relative' } },
-          h(ActionButton, { label: '更多', icon: 'more', variant: 'ghost', onClick: () => setMenuOpen((value) => !value), title: '更多工具' }),
+          { style: { position: 'relative' }, ref: menuRef },
+          h(ActionButton, { label: '更多', icon: 'more', variant: 'ghost', onClick: () => setMenuOpen((value) => !value), title: '更多工具', 'aria-haspopup': 'menu', 'aria-expanded': menuOpen }),
           menuOpen
             ? h(
                 'div',
@@ -6392,6 +6832,7 @@ window.__ModuleLoader__.load({
                 singleWorkspace && currentProject
                   ? menuItem(linked ? '更新工作区关联' : '关联 GitHub 仓库', 'link', () => setAssociateTarget(currentProject))
                   : null,
+                menuItem('打开仓库目录', 'folder', openFolder),
                 menuItem('指定根目录', 'folder', () => setShowRoot(true)),
                 openPanel ? menuItem('在工作台打开', 'eye', openPanel) : null,
               )
@@ -6433,19 +6874,23 @@ window.__ModuleLoader__.load({
             )
           : null
 
+      // Duplicate UIDs are two records; the count comes from the real data.
+      const duplicateCounts = {}
+      for (const item of scopedItems) duplicateCounts[item.id] = (duplicateCounts[item.id] ?? 0) + 1
+
       let body
-      if (loading) {
+      if (loading && !data) {
         body = h(SkeletonTable, { narrow, mobile })
-      } else if (error) {
+      } else if (error && !data) {
         body = h(
           'div',
           { style: { border: `1px solid ${T.line}`, borderRadius: '12px', background: T.layer, padding: '28px' } },
           h('p', { style: { margin: '0 0 6px', color: T.text, fontSize: '14px', fontWeight: 600 } }, '读取需求失败'),
-          h('p', { style: { margin: '0 0 16px', color: T.err, fontSize: '12.5px', lineHeight: 1.7 } }, error),
+          h('p', { style: { margin: '0 0 16px', color: T.err, fontSize: '12.5px', lineHeight: 1.7 } }, readableError(error)),
           h(ActionButton, { label: '重试', icon: 'refresh', variant: 'secondary', onClick: reload }),
         )
       } else if (itemCount === 0) {
-        body = h(EmptyState, { root: data?.root ?? root, onOpenPanel: openPanel })
+        body = h(EmptyState, { root: data?.root ?? root, onCreate: createRequirement, onOpenPanel: openPanel })
       } else {
         body = h(RequirementTable, {
           items: visible,
@@ -6454,6 +6899,9 @@ window.__ModuleLoader__.load({
           showProject: data?.scope === 'all',
           stickyTop: toolbarHeight,
           selectedKey: selectedId,
+          duplicateCounts,
+          onAiReview: (entry) => setAiReviewItem(entry),
+          onAcceptance: (entry) => setAcceptanceItem(entry),
           onOpen: (entry) => setSelectedId(keyOf(entry)),
           emptyNode: h(NoResults, { filter, keyword, anomalyOnly, onClear: clearFilters }),
         })
@@ -6462,6 +6910,48 @@ window.__ModuleLoader__.load({
       const notices = h(
         'div',
         null,
+        folderNotice
+          ? h(
+              'div',
+              {
+                role: 'status',
+                style: {
+                  ...card,
+                  cursor: 'default',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  borderColor: folderNotice.ok ? T.line2 : T.err,
+                  background: folderNotice.ok ? T.layer2 : EVIDENCE_TONE.warn.bg,
+                },
+              },
+              h('span', { style: { fontSize: '12.5px', color: T.text2 } }, folderNotice.message),
+              h('button', { type: 'button', style: button, onClick: () => setFolderNotice(null) }, '知道了'),
+            )
+          : null,
+        error && data
+          ? h(
+              'div',
+              {
+                role: 'status',
+                style: {
+                  ...card,
+                  cursor: 'default',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  borderColor: T.err,
+                  background: EVIDENCE_TONE.warn.bg,
+                },
+              },
+              h('span', { style: { fontSize: '12.5px', color: T.text2 } }, '刷新失败：' + readableError(error)),
+              h('button', { type: 'button', style: button, onClick: reload }, '重试'),
+            )
+          : null,
         h(AnomalyNotice, {
           anomalies: data?.anomalies,
           summary: data?.anomalySummary,
@@ -6480,7 +6970,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: panel },
+        { style: panel, 'data-list-scroll': 'true' },
         header,
         showRoot ? h(RootPicker, { rootInput, setRootInput, onApply: () => applyRoot(rootInput), onReset: () => { setRootInput(''); applyRoot('') } }) : null,
         toolbar,
