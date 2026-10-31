@@ -246,7 +246,104 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
-        h('p', { style: { margin: '8px 0 0', ...muted } }, '结论来自现有门禁规则；人工签收将在 ALM-08.04 写接口接入。'),
+        review.stored
+          ? h('p', { style: { margin: '8px 0 0', ...muted } }, `报告已保存（${review.source}${review.generatedAt ? ` · ${review.generatedAt.slice(0, 19).replace('T', ' ')}` : ''}）`)
+          : h('p', { style: { margin: '8px 0 0', ...muted } }, '实时门禁推导结果；运行评审可保存报告。'),
+        review.signoff
+          ? h(
+              'p',
+              { style: { margin: '4px 0 0', fontSize: '12px', color: review.signoff.valid ? T.ok : T.err } },
+              `人工签收：${review.signoff.actor} · ${review.signoff.valid ? '有效' : '已失效（内容已变化，需重新评审签收）'}`,
+            )
+          : h('p', { style: { margin: '4px 0 0', ...muted } }, '尚未人工签收。'),
+      )
+    }
+
+    function ReviewModal({ item, root, onClose, onDone }) {
+      const [state, setState] = useState({ loading: true, plan: null, result: null, error: null, saving: false })
+      const load = useCallback(() => {
+        setState({ loading: true, plan: null, result: null, error: null, saving: false })
+        writeJson('review', { requirementId: item.id }, root)
+          .then((plan) => setState({ loading: false, plan, result: null, error: null, saving: false }))
+          .catch((error) => setState({ loading: false, plan: null, result: null, error: error.message, saving: false }))
+      }, [item.id, root])
+      useEffect(() => {
+        load()
+      }, [load])
+      const save = () => {
+        setState((current) => ({ ...current, saving: true, error: null }))
+        writeJson('review', { requirementId: item.id, apply: true }, root)
+          .then((result) => {
+            setState({ loading: false, plan: null, result, error: null, saving: false })
+            onDone?.()
+          })
+          .catch((error) => setState((current) => ({ ...current, saving: false, error: error.message })))
+      }
+      const review = state.result ?? state.plan
+      return h(
+        ModalShell,
+        {
+          title: `运行评审 · ${item.id}`,
+          lead: '执行五角色门禁评审并生成报告（.alm/reviews/<REQ>.json）；预览不写文件，保存后才持久化。',
+          onClose,
+          width: '760px',
+          footer: [
+            h('button', { key: 'close', style: state.result ? primary : button, onClick: onClose }, '关闭'),
+            state.plan && !state.result
+              ? h('button', { key: 'save', style: primary, onClick: save, disabled: state.saving }, state.saving ? '保存中…' : '保存评审报告')
+              : null,
+          ],
+        },
+        state.loading ? h('p', { style: muted }, '正在执行评审…') : null,
+        state.error ? h('p', { style: { margin: 0, color: T.err, fontSize: '13px' } }, state.error) : null,
+        review ? h('div', null, h(ReviewBlock, { review: { ...review, stored: Boolean(state.result) } })) : null,
+      )
+    }
+
+    function SignoffModal({ item, root, onClose, onDone }) {
+      const [actor, setActor] = useState('human:peterzhanghao')
+      const [state, setState] = useState({ loading: false, result: null, error: null })
+      const submit = () => {
+        setState({ loading: true, result: null, error: null })
+        writeJson('signoff', { requirementId: item.id, actor, apply: true }, root)
+          .then((result) => {
+            setState({ loading: false, result, error: null })
+            onDone?.()
+          })
+          .catch((error) => setState({ loading: false, result: null, error: error.message }))
+      }
+      return h(
+        ModalShell,
+        {
+          title: `人工签收 · ${item.id}`,
+          lead: '签收绑定当前版本内容哈希；内容变化后自动失效，需重新评审并签收。',
+          onClose,
+          width: '620px',
+          footer: [
+            h('button', { key: 'close', style: state.result ? primary : button, onClick: onClose }, '关闭'),
+            state.result ? null : h('button', { key: 'sign', style: primary, onClick: submit, disabled: state.loading }, state.loading ? '签收中…' : '确认签收'),
+          ],
+        },
+        h(
+          'label',
+          { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2, marginTop: '12px' } },
+          '签收人（human:<login>）',
+          h('input', { style: input, value: actor, onChange: (event) => setActor(event.target.value) }),
+        ),
+        state.error ? h('p', { style: { margin: '10px 0 0', color: T.err, fontSize: '12.5px' } }, state.error) : null,
+        state.result
+          ? h(
+              'div',
+              { style: { marginTop: '12px' } },
+              h(PlanRows, {
+                rows: [
+                  ['签收人', state.result.signoff.actor],
+                  ['内容哈希', state.result.signoff.contentHash.slice(0, 16)],
+                  ['状态', state.result.alreadySigned ? '已签收（同一内容）' : '签收成功'],
+                ],
+              }),
+            )
+          : null,
       )
     }
 
@@ -784,7 +881,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, compact }) {
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, compact }) {
       const relations = relationsOf(item, allItems)
       return h(
         'div',
@@ -816,7 +913,7 @@ window.__ModuleLoader__.load({
         item.sources?.length ? h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } }, item.sources.map((source) => h(Chip, { key: source }, `来源 · ${source}`))) : null,
         h(Attachments, { item }),
 
-        h(Section, { title: '评审' }, h(ReviewBlock, { review: item.review })),
+        h(Section, { title: '评审', action: h('div', { style: { display: 'flex', gap: '10px' } }, h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onReview(item) }, '运行评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onSignoff(item) }, '人工签收')) }, h(ReviewBlock, { review: item.review })),
 
         h(Section, { title: '验收覆盖' },
           (item.verifiedBy ?? []).length
@@ -880,7 +977,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -910,12 +1007,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -989,7 +1086,7 @@ window.__ModuleLoader__.load({
                 h('p', { style: { margin: '4px 0 0', ...muted } }, projectMeta?.repo ?? item.github?.repo ?? '—'),
               ),
               h(Section, { title: 'GitHub / 看板' }, h(GithubBlock, { item, projectMeta })),
-              h(Section, { title: '评审' }, h(ReviewBlock, { review: item.review })),
+              h(Section, { title: '评审', action: h('div', { style: { display: 'flex', gap: '8px' } }, h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onReview(item) }, '运行评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onSignoff(item) }, '签收')) }, h(ReviewBlock, { review: item.review })),
               h(
                 Section,
                 {
@@ -1927,6 +2024,8 @@ window.__ModuleLoader__.load({
       const [startItem, setStartItem] = useState(null)
       const [acceptItem, setAcceptItem] = useState(null)
       const [acceptanceItem, setAcceptanceItem] = useState(null)
+      const [reviewItem, setReviewItem] = useState(null)
+      const [signoffItem, setSignoffItem] = useState(null)
       const [createOpen, setCreateOpen] = useState(false)
       const [associateTarget, setAssociateTarget] = useState(null)
       const [showRoot, setShowRoot] = useState(false)
@@ -2213,6 +2312,8 @@ window.__ModuleLoader__.load({
               onStart: (entry) => setStartItem(entry),
               onAccept: (entry) => setAcceptItem(entry),
               onAcceptance: (entry) => setAcceptanceItem(entry),
+              onReview: (entry) => setReviewItem(entry),
+              onSignoff: (entry) => setSignoffItem(entry),
             })
           : null,
         detailOpen && selected
@@ -2228,6 +2329,8 @@ window.__ModuleLoader__.load({
               onStart: (entry) => setStartItem(entry),
               onAccept: (entry) => setAcceptItem(entry),
               onAcceptance: (entry) => setAcceptanceItem(entry),
+              onReview: (entry) => setReviewItem(entry),
+              onSignoff: (entry) => setSignoffItem(entry),
             })
           : null,
         snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
@@ -2246,6 +2349,22 @@ window.__ModuleLoader__.load({
               item: acceptItem,
               root: acceptItem.root ?? data?.root ?? root,
               onClose: () => setAcceptItem(null),
+            })
+          : null,
+        reviewItem
+          ? h(ReviewModal, {
+              item: reviewItem,
+              root: reviewItem.root ?? data?.root ?? root,
+              onClose: () => setReviewItem(null),
+              onDone: () => reload(),
+            })
+          : null,
+        signoffItem
+          ? h(SignoffModal, {
+              item: signoffItem,
+              root: signoffItem.root ?? data?.root ?? root,
+              onClose: () => setSignoffItem(null),
+              onDone: () => reload(),
             })
           : null,
         acceptanceItem

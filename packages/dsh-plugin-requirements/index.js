@@ -11,7 +11,8 @@ import { runCi } from '../alm-core/src/ci/ci.mjs'
 import { runAcceptance } from '../alm-core/src/acceptance/acceptance.mjs'
 import { applyGithub, previewGithub } from './github-sync.mjs'
 import { diffRequirementVersions } from './version-diff.mjs'
-import { indexReport } from '../alm-core/src/commands.mjs'
+import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
+import { runReview, signReview } from '../alm-core/src/review/executor.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -143,6 +144,8 @@ export default class RequirementsService {
       ['/api/alm/requirements/create', 'create'],
       ['/api/alm/requirements/github', 'github'],
       ['/api/alm/requirements/acceptance', 'acceptance'],
+      ['/api/alm/requirements/review', 'review'],
+      ['/api/alm/requirements/signoff', 'signoff'],
     ]) {
       webServer.register({
         kind: 'exact',
@@ -293,6 +296,17 @@ export default class RequirementsService {
     }
   }
 
+  reviewContext(root, requirementId) {
+    if (!requirementId) throw Object.assign(new Error('requirementId is required'), { status: 400, code: 'requirement-required' })
+    const index = indexReport(root)
+    if (index.ok === false) throw Object.assign(new Error(index.error ?? 'index failed'), { status: 400, code: 'index-failed' })
+    const asset = index.assets.find((entry) => entry.id === requirementId && entry.type === 'requirement')
+    if (!asset) throw Object.assign(new Error(`requirement not found: ${requirementId}`), { status: 404, code: 'requirement-not-found' })
+    const check = checkReport(root)
+    if (check.ok === false) throw Object.assign(new Error(check.error ?? 'check failed'), { status: 400, code: 'check-failed' })
+    return { asset, item: { id: asset.id, file: asset.source.path }, check }
+  }
+
   async handleWrite(req, res, action) {
     const respond = (status, payload) => {
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -333,6 +347,18 @@ export default class RequirementsService {
             : await previewGithub({ root, changeId: body.changeId })
       } else if (action === 'acceptance') {
         payload = runAcceptance({ root, requirementId: body.requirementId, apply: body.apply === true })
+      } else if (action === 'review') {
+        const context = this.reviewContext(root, body.requirementId)
+        payload = runReview({
+          root,
+          asset: context.asset,
+          item: context.item,
+          check: context.check,
+          apply: body.apply === true,
+        })
+      } else if (action === 'signoff') {
+        const context = this.reviewContext(root, body.requirementId)
+        payload = signReview({ root, asset: context.asset, actor: body.actor, apply: body.apply === true })
       } else {
         respond(404, { ok: false, error: { code: 'unknown-action', message: String(action) } })
         return

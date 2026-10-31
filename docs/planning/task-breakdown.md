@@ -816,3 +816,23 @@
   - 正例：两版提交 TITLE/STATUS/PRIORITY 变化可检出；`to=worktree` 默认；关系增删正确
   - 反例：`not-a-ref` → `invalid-ref`；未知资产 → 404 `asset-not-found`
 - 证据：全量 216/216；Playwright 全流程 19/19、0 pageerror；截图 `docs/assets/design/plugin-diff.png`
+
+### ALM-09.05 评审执行器 + 人工签收
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.04（#120，已关闭）
+- 技能：`alm-mvp-dev`、`cordis-plugin-development`
+- 实施范围：`packages/alm-core/src/review/executor.mjs`、`packages/dsh-plugin-requirements/{query.mjs,index.js,client.js,test}`
+- 不在范围：真实 LLM 评审调用（执行器基于现有门禁）、签收回滚/审批流
+- 接口：
+  - `.alm/reviews/<REQ>.json`（`alm.review/v1`）：requirement/headSha/generatedAt/contentHash/roles/summary/signoff
+  - `POST /api/alm/requirements/review`：preview 不写、`apply:true` 保存报告
+  - `POST /api/alm/requirements/signoff`：actor `human:<login>`、需已保存报告、无阻塞、内容哈希一致
+  - payload `item.review.stored / signoff / signoffValid`
+- 交付物：
+  - [ ] `review/executor.mjs`：评审映射、内容哈希、报告读写、`runReview`、`signReview`、`reviewView`
+  - [ ] query 改用统一评审视图；端点 + lifecycle/HTTP/query 测试
+  - [ ] UI：评审区块显示报告来源/签收状态；「运行评审」预览后保存；「人工签收」确认弹层
+- 验收：
+  - 正例：保存报告后签收成功，`signoffValid=true`；内容哈希进入签收记录
+  - 反例：`agent:*` 拒绝；无报告 409；有阻塞 409；内容变化后 `signoffValid=false` 且签收 `review-stale`
+- 证据：全量 221/221；Playwright 全流程 21/21、0 pageerror；截图 `docs/assets/design/plugin-review-signoff.png`

@@ -90,6 +90,7 @@
 | ALM-09.02 | GitHub Issue 自动创建进插件 | task | @peterzhanghao | P1 | plugin | done | ALM-09.01（#114，已关闭） | 确认发布 | #116 | #117 | in-sync | 2026-10-31 08:55 |
 | ALM-09.03 | 需求级验收证据契约 | task | @peterzhanghao | P1 | plugin | done | ALM-09.02（#116，已关闭） | 确认发布 | #118 | #119 | in-sync | 2026-10-31 09:35 |
 | ALM-09.04 | 版本 diff 对比 | task | @peterzhanghao | P1 | plugin | done | ALM-09.03（#118，已关闭） | 确认发布 | #120 | #121 | in-sync | 2026-10-31 10:10 |
+| ALM-09.05 | 评审执行器 + 人工签收 | task | @peterzhanghao | P1 | plugin | review | ALM-09.04（#120，已关闭） | 确认发布 | #122 | #123 | in-sync | 2026-10-31 10:45 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。

@@ -8,6 +8,7 @@ import { readMapping } from '../alm-core/src/github/mapping.mjs'
 import { requirementLabels } from '../alm-core/src/github/sync-requirements.mjs'
 import { buildGraph, findCycles, walk } from '../alm-core/src/index/closure.mjs'
 import { acceptanceSummary } from '../alm-core/src/acceptance/acceptance.mjs'
+import { reviewView } from '../alm-core/src/review/executor.mjs'
 import { gitHead } from '../alm-core/src/approvals/approval.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 
@@ -62,67 +63,6 @@ function githubFor({ mapping, project, asset }) {
     labels: requirementLabels(project, asset),
     board: boardNumber ? { number: boardNumber, status: project?.github?.project?.status?.ready ?? null } : null,
     tasks,
-  }
-}
-
-/**
- * Review roles map onto existing gate rules: no second source of truth, and a
- * role is only "covered" when at least one of its rules actually ran.
- */
-const REVIEW_ROLES = [
-  { id: 'business', label: '业务', rules: ['BRIEF-001'] },
-  { id: 'architecture', label: '架构', rules: ['REL-001', 'REL-002', 'REL-003', 'PRJ-001', 'REV-001'] },
-  { id: 'testing', label: '测试', rules: ['COV-001', 'COV-002'] },
-  { id: 'security', label: '安全', rules: ['SEC-001'] },
-  { id: 'delivery', label: '交付', rules: ['ATT-001', 'TASK-001'] },
-]
-
-function findingHits(finding, item) {
-  if (!finding) return false
-  return finding.assetId === item.id || finding.file === item.file
-}
-
-/** Gate-backed multi-role review. Human sign-off is a separate, explicit step. */
-export function reviewFor(item, check) {
-  const checks = new Map((check.checks ?? []).map((entry) => [entry.id, entry]))
-  const roles = REVIEW_ROLES.map((role) => {
-    const findings = []
-    const levels = []
-    for (const ruleId of role.rules) {
-      const rule = checks.get(ruleId)
-      if (!rule) continue
-      levels.push(rule.level)
-      for (const finding of rule.findings ?? []) {
-        if (!findingHits(finding, item)) continue
-        findings.push({
-          rule: ruleId,
-          severity: rule.level === 'warn' ? 'warn' : 'block',
-          message: finding.message,
-          file: finding.file ?? null,
-          line: finding.line ?? null,
-        })
-      }
-    }
-    const active = levels.filter((level) => level !== 'skip' && level !== 'off')
-    let verdict
-    if (active.length === 0) verdict = 'skip'
-    else if (findings.some((finding) => finding.severity === 'block')) verdict = 'block'
-    else if (findings.length > 0) verdict = 'warn'
-    else verdict = 'pass'
-    return { id: role.id, label: role.label, verdict, rules: role.rules, findings }
-  })
-  const blockers = roles.filter((role) => role.verdict === 'block').length
-  return {
-    schema: 'alm.review/v1',
-    source: 'gates',
-    roles,
-    summary: {
-      completed: roles.filter((role) => role.verdict !== 'skip').length,
-      total: roles.length,
-      blockers,
-      ready: blockers === 0,
-    },
-    signoff: null,
   }
 }
 
@@ -366,7 +306,7 @@ export function requirements(root) {
       }
       item.nextAction = nextActionFor(item, gaps)
       item.nextActionLabel = nextActionLabel(item.nextAction)
-      item.review = reviewFor(item, check)
+      item.review = reviewView({ root, asset, item, check })
       const versions = versionCache.get(item.file) ?? versionHistory(root, item.file)
       versionCache.set(item.file, versions)
       item.versions = versions

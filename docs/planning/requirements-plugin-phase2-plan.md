@@ -45,7 +45,11 @@
 
 ### ALM-09.05 AI 评审执行器 + 人工签收（item 4）
 
-- `.alm/reviews/<REQ>.json`（`alm.review/v1`）保存五角色结论与 findings；执行器基于门禁 + 结构化检查生成报告；人工签收记录绑定版本哈希，内容变化自动失效。
+- `alm-core/src/review/executor.mjs`：五角色评审从 `reviewFromGates` 生成，运行后写 `.alm/reviews/<REQ>.json`（`alm.review/v1`，含 requirement/headSha/generatedAt/contentHash/roles/summary/signoff）。
+- 内容哈希 = 需求字段 + 关系 + brief 文件字节的 sha256；签收记录 `{actor:"human:<login>", decision:"approve", at, headSha, contentHash}`，内容变化后 `signoffValid=false` 并拒绝再次签收（`review-stale`）。
+- 端点：`POST /api/alm/requirements/review`（preview 不写、apply 保存报告）、`POST /api/alm/requirements/signoff`（校验 human actor、报告存在、无阻塞、内容未变）。
+- UI：评审区块显示报告是否已保存/来源、签收人及有效性；「运行评审」弹层预览后保存报告，「人工签收」输入 `human:<login>` 确认。
+- 验收：无报告/坏 actor/有阻塞/内容变化分别拒绝；保存后签收有效；query payload `review.stored/signoffValid`；eval 完成运行评审 + 签收。
 
 ### ALM-09.06 开始开发切分支/隔离 worktree（item 1）
 
@@ -58,4 +62,4 @@
 
 ## 3. 本轮交付
 
-ALM-09.04：版本 diff 对比——`diffRequirementVersions` 读取任意 git 版本/工作区的 sdoc，输出字段 before/after、关系增删与 summary；版本行「对比当前」打开只读 diff 弹层。完成后进入 ALM-09.05 AI 评审执行器 + 人工签收。
+ALM-09.05：评审执行器与人工签收——`.alm/reviews/<REQ>.json` 保存五角色报告，签收绑定内容哈希、内容变化自动失效；评审弹层可预览/保存报告，签收弹层校验 human actor、无阻塞、内容未变。完成后进入 ALM-09.06 隔离 worktree。
