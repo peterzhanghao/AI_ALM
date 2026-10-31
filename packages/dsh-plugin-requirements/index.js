@@ -326,6 +326,8 @@ export default class RequirementsService {
           requirementIds: [body.requirementId],
           changeId: body.changeId,
           apply: body.apply === true,
+          isolate: body.isolate === true,
+          worktreeRoot: body.worktreeRoot,
         })
       } else if (action === 'accept') {
         payload = runCi({ root, base: body.base })

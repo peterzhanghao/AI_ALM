@@ -69,3 +69,41 @@ test('openChange rejects a duplicate change id and an unknown requirement', () =
     (error) => error.code === 'unknown-requirement' && error.status === 404,
   )
 })
+
+test('openChange isolate creates a sibling worktree and leaves the main worktree clean', () => {
+  const root = makeRepo()
+  const plan = planChange({ root, requirementIds: ['REQ-PAY-004'], isolate: true })
+  assert.equal(plan.isolate, true)
+  assert.ok(plan.worktreePath)
+  assert.ok(!existsSync(plan.worktreePath), 'planning must not create the worktree')
+
+  const result = openChange({ root, requirementIds: ['REQ-PAY-004'], apply: true, isolate: true })
+  const worktree = result.worktree.path
+  try {
+    assert.ok(existsSync(worktree))
+    assert.equal(git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(), 'alm/chg-pay-001')
+    assert.ok(existsSync(join(worktree, '.alm/changes/CHG-PAY-001.json')))
+    assert.ok(existsSync(join(worktree, 'changes/CHG-PAY-001/tasks.json')))
+    assert.ok(!existsSync(join(root, '.alm/changes/CHG-PAY-001.json')))
+    assert.deepEqual(git(root, ['status', '--porcelain']).trim(), '')
+    assert.ok(!existsSync(join(root, 'changes/CHG-PAY-001')))
+  } finally {
+    execFileSync('git', ['-C', root, 'worktree', 'remove', '--force', worktree], { stdio: 'ignore' })
+    execFileSync('git', ['-C', root, 'branch', '-D', 'alm/chg-pay-001'], { stdio: 'ignore' })
+  }
+})
+
+test('openChange isolate rejects an existing worktree path', () => {
+  const root = makeRepo()
+  const plan = planChange({ root, requirementIds: ['REQ-PAY-004'], isolate: true })
+  openChange({ root, requirementIds: ['REQ-PAY-004'], changeId: plan.changeId, apply: true, isolate: true })
+  try {
+    assert.throws(
+      () => planChange({ root, requirementIds: ['REQ-PAY-004'], changeId: plan.changeId, isolate: true }),
+      (error) => error.code === 'worktree-exists' && error.status === 409,
+    )
+  } finally {
+    execFileSync('git', ['-C', root, 'worktree', 'remove', '--force', plan.worktreePath], { stdio: 'ignore' })
+    execFileSync('git', ['-C', root, 'branch', '-D', plan.branch], { stdio: 'ignore' })
+  }
+})

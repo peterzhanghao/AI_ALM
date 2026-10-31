@@ -836,3 +836,22 @@
   - 正例：保存报告后签收成功，`signoffValid=true`；内容哈希进入签收记录
   - 反例：`agent:*` 拒绝；无报告 409；有阻塞 409；内容变化后 `signoffValid=false` 且签收 `review-stale`
 - 证据：全量 221/221；Playwright 全流程 21/21、0 pageerror；截图 `docs/assets/design/plugin-review-signoff.png`
+
+### ALM-09.06 开始开发切分支/隔离 worktree
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.05（#122，已关闭）
+- 技能：`alm-mvp-dev`
+- 实施范围：`packages/alm-core/src/changes/open.mjs`、`packages/dsh-plugin-requirements/{index.js,client.js,test}`
+- 不在范围：自动合并/删除 worktree、远端分支推送
+- 接口：
+  - `planChange({isolate})` / `openChange({isolate, worktreeRoot})`：默认只登记；isolate 时 `git worktree add -b <branch> <path> <baseline>`，路径默认 `dirname(repo)/.alm-worktrees/<repo>-<chg>`（`ALM_WORKTREE_ROOT` 可覆盖）
+  - `POST /api/alm/requirements/start` body 增加 `isolate`，返回 `worktree{path,branch}`
+- 交付物：
+  - [ ] `openChange` 隔离分支：同级 worktree、变更/任务卡写入 worktree、失败 `worktree remove --force` + 删分支
+  - [ ] 路径/分支已存在 409；默认非隔离行为不变
+  - [ ] StartModal「创建隔离 worktree」勾选、预览路径、结果展示路径/分支
+  - [ ] 单测：worktree 分支/文件隔离、主工作区无 CHG、重复路径 409
+- 验收：
+  - 正例：`isolate:true` 生成 worktree + 分支，`changes/CHG-*` 只在 worktree，主工作区无该变更
+  - 反例：worktree 路径已存在 409；非 git 根拒绝
+- 证据：全量 223/223；Playwright 全流程 23/23、0 pageerror；截图 `docs/assets/design/plugin-worktree.png`
