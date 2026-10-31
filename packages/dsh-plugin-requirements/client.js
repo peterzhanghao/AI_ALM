@@ -8,6 +8,10 @@ window.__ModuleLoader__.load({
     const ROOT_KEY = 'alm.requirements.root'
     const PROJECT_KEY = 'alm.requirements.project'
     const ALL_PROJECTS = 'ALL'
+    const REDUCE_MOTION =
+      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        : false
 
     const T = {
       text: 'var(--dsw-alias-label-primary, #f2f4f7)',
@@ -130,7 +134,17 @@ window.__ModuleLoader__.load({
       return value ? String(value).slice(0, size) : '—'
     }
 
-    const panel = { padding: '24px', maxWidth: '1080px', color: T.text }
+    const panel = {
+      padding: '0 30px 40px',
+      width: '100%',
+      margin: 0,
+      color: T.text,
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+      boxSizing: 'border-box',
+      height: '100vh',
+      overflowY: 'auto',
+      overflowX: 'hidden',
+    }
     const muted = { color: T.text2, fontSize: '12px' }
     const button = {
       border: `1px solid ${T.line}`,
@@ -977,120 +991,460 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function RequirementCard({ item, showProject, onOpen }) {
-      const meta = []
-      if (item.owner) meta.push(item.owner)
-      if (item.priority) meta.push(item.priority)
-      if (item.attachments) meta.push(`${item.attachments} 个附件`)
-      if (item.verifiedBy?.length) meta.push(`验收已关联 ${item.verifiedBy.length} 项`)
-      if (item.sources?.length) meta.push(item.sources.join(' / '))
-      if (item.github?.board?.status) meta.push(`看板 ${item.github.board.status}`)
-      const decision = item.decision ?? null
-      const decisionNext = decision?.nextStep?.label ?? null
-      const occurrenceKey = item.occurrenceKey ?? item.id
+    /* ---------------------------------------------------------------------
+     * Requirement list: one compact surface for scanning. Business status and
+     * evidence/check state are separate columns; a row is never taller than it
+     * needs to be. All data comes from the query payload.
+     * ------------------------------------------------------------------- */
 
+    const LIST_COLUMNS = 'minmax(280px, 1fr) 108px 104px 96px 132px 76px'
+    const LIST_COLUMNS_NARROW = 'minmax(220px, 1fr) 104px 132px 76px'
+    const LIST_COLUMNS_MOBILE = 'minmax(0, 1fr) 68px'
+
+    function listColumns(narrow, mobile) {
+      if (mobile) return LIST_COLUMNS_MOBILE
+      return narrow ? LIST_COLUMNS_NARROW : LIST_COLUMNS
+    }
+
+    function listCell(extra) {
+      return { minWidth: 0, display: 'flex', alignItems: 'center', ...extra }
+    }
+
+    function acceptanceLabel(item) {
+      const count = item.verifiedBy?.length ?? 0
+      return count > 0 ? `${count} 项` : '—'
+    }
+
+    function anomalyLine(item) {
+      const first = item.anomalies?.[0]
+      if (!first) return null
+      const label = ANOMALY_LABELS[first.kind] ?? first.kind
+      return item.anomalies.length > 1 ? `${label}等 ${item.anomalies.length} 项数据异常` : `${label} · 需澄清`
+    }
+
+    function RequirementRow({ item, narrow, mobile, showProject, selected = false, onOpen }) {
+      const key = item.occurrenceKey ?? item.id
+      const decision = item.decision ?? null
+      const anomaly = anomalyLine(item)
+      const open = () => onOpen(item)
+      const subline = [
+        h(
+          'code',
+          { key: 'id', style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '11.5px', color: T.text2 } },
+          item.id,
+        ),
+        h('span', { key: 'rev', style: { color: T.text3, fontSize: '11px' } }, `v${item.revision ?? 1}`),
+        showProject && item.projectName
+          ? h('span', { key: 'project', style: { color: T.text3, fontSize: '11px' } }, item.projectName)
+          : null,
+      ]
       return h(
-        'article',
+        'div',
         {
-          style: card,
-          role: 'button',
-          tabIndex: 0,
-          'data-req': occurrenceKey,
-          onClick: () => onOpen(item),
-          onKeyDown: (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              onOpen(item)
-            }
+          role: 'row',
+          'data-req': key,
+          style: {
+            display: 'grid',
+            gridTemplateColumns: listColumns(narrow, mobile),
+            columnGap: '14px',
+            alignItems: 'center',
+            boxSizing: 'border-box',
+            minHeight: mobile ? '64px' : '68px',
+            padding: mobile ? '10px 14px' : '9px 16px',
+            borderTop: `1px solid ${T.line}`,
+            background: selected ? T.layer2 : 'transparent',
+            transition: REDUCE_MOTION ? 'none' : 'background-color 140ms ease',
           },
+          'aria-selected': selected,
           onMouseEnter: (event) => {
-            event.currentTarget.style.borderColor = T.line2
-            event.currentTarget.style.background = T.layer2
+            if (!selected) event.currentTarget.style.background = T.layer2
           },
           onMouseLeave: (event) => {
-            event.currentTarget.style.borderColor = T.line
-            event.currentTarget.style.background = T.layer
+            event.currentTarget.style.background = selected ? T.layer2 : 'transparent'
           },
+          onClick: open,
         },
         h(
           'div',
-          { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' } },
+          { role: 'cell', style: { minWidth: 0 } },
           h(
-            'div',
-            { style: { minWidth: 0 } },
-            h(
-              'div',
-              { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' } },
-              h(Pill, { status: item.status }),
-              h('span', { style: { color: T.text3, fontSize: '11.5px' } }, item.id),
-              h(
-                'span',
-                {
-                  style: {
-                    color: T.text3,
-                    fontSize: '11px',
-                    border: `1px solid ${T.line}`,
-                    borderRadius: '5px',
-                    padding: '0 5px',
-                  },
-                },
-                `v${item.revision ?? 1}`,
-              ),
-              showProject && item.project
-                ? h(
-                    'span',
-                    {
-                      style: {
-                        fontSize: '10.5px',
-                        letterSpacing: '.04em',
-                        color: T.brand,
-                        border: '1px solid rgba(110,160,255,.4)',
-                        borderRadius: '5px',
-                        padding: '0 5px',
-                      },
-                    },
-                    item.project,
-                  )
-                : null,
-              item.github
-                ? h(
-                    'span',
-                    {
-                      style: { color: T.text3, border: `1px solid ${T.line}`, borderRadius: '5px', padding: '0 5px', fontSize: '10.5px' },
-                      title: `GitHub Issue #${item.github.issue}`,
-                    },
-                    `#${item.github.issue}`,
-                  )
-                : null,
-            ),
-            h('h3', { style: { margin: 0, fontSize: '15.5px', fontWeight: 600, lineHeight: 1.5, letterSpacing: '-.01em' } }, item.title),
-            h('p', { style: { margin: '7px 0 0', ...muted } }, meta.join(' · ')),
-            decision
-              ? h(
-                  'div',
-                  { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '8px' } },
-                  h(DecisionPill, { decision }),
-                  decision.topGap ? h('span', { style: { fontSize: '12px', color: T.text2, minWidth: 0 } }, decision.topGap.message) : null,
-                  decisionNext ? h('span', { style: { fontSize: '11.5px', color: T.text3 } }, `下一步 · ${decisionNext}`) : null,
-                )
-              : null,
-          ),
-          h(
-            'span',
+            'button',
             {
+              type: 'button',
+              onClick: (event) => {
+                event.stopPropagation()
+                open()
+              },
+              title: `打开需求：${item.title}`,
               style: {
-                flex: 'none',
-                fontSize: '12px',
-                color: T.text2,
-                border: `1px solid ${T.line}`,
-                borderRadius: '8px',
-                padding: '5px 11px',
-                marginTop: '2px',
+                display: 'block',
+                maxWidth: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                border: 0,
+                padding: 0,
+                background: 'transparent',
+                color: T.text,
+                font: 'inherit',
+                fontSize: '14px',
+                fontWeight: 600,
+                letterSpacing: '-.005em',
+                textAlign: 'left',
+                cursor: 'pointer',
+                outlineColor: T.brand,
               },
             },
-            '查看',
+            item.title,
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, marginTop: '3px', flexWrap: 'wrap' } },
+            subline,
+            mobile
+              ? h(Pill, { status: item.status, label: item.statusLabel })
+              : null,
+            mobile && decision ? h(DecisionPill, { decision }) : null,
+            anomaly
+              ? h('span', { style: { color: T.err, fontSize: '11px', whiteSpace: 'nowrap' } }, anomaly)
+              : null,
           ),
         ),
+        mobile ? null : h('div', { role: 'cell', style: listCell() }, h(Pill, { status: item.status, label: item.statusLabel })),
+        narrow || mobile
+          ? null
+          : h(
+              'div',
+              { role: 'cell', style: listCell({ color: item.owner ? T.text2 : T.text3, fontSize: '12.5px' }) },
+              item.owner || '未分配',
+            ),
+        narrow || mobile
+          ? null
+          : h(
+              'div',
+              {
+                role: 'cell',
+                style: listCell({ color: (item.verifiedBy?.length ?? 0) > 0 ? T.text2 : T.text3, fontSize: '12.5px' }),
+                title: (item.verifiedBy ?? []).join('、') || '尚未关联验收',
+              },
+              acceptanceLabel(item),
+            ),
+        mobile
+          ? null
+          : h(
+          'div',
+          { role: 'cell', style: listCell({ gap: '4px', flexDirection: 'column', alignItems: 'flex-start' }) },
+          decision
+            ? h('span', { title: decision.topGap?.message }, h(DecisionPill, { decision }))
+            : h('span', { style: { color: T.text3, fontSize: '11.5px' } }, '未检查'),
+        ),
+        h(
+          'div',
+          { role: 'cell', style: listCell({ justifyContent: 'flex-end' }) },
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: (event) => {
+                event.stopPropagation()
+                open()
+              },
+              'aria-label': `查看 ${item.title}`,
+              title: '打开详情',
+              style: {
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+                height: '28px',
+                padding: '0 9px',
+                border: `1px solid ${T.line}`,
+                borderRadius: '7px',
+                background: 'transparent',
+                color: T.text2,
+                fontSize: '11.5px',
+                cursor: 'pointer',
+              },
+            },
+            h(ActionIcon, { name: 'eye', size: 13 }),
+            '详情',
+          ),
+        ),
+      )
+    }
+
+    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, emptyNode, stickyTop = 0 }) {
+      const columns = listColumns(narrow, mobile)
+      const headerCell = (label, extra) =>
+        h(
+          'div',
+          { role: 'columnheader', style: { minWidth: 0, fontSize: '11px', color: T.text3, fontWeight: 500, letterSpacing: '.02em', ...extra } },
+          label,
+        )
+      return h(
+        'div',
+        {
+          role: 'table',
+          'aria-label': '需求列表',
+          style: { border: `1px solid ${T.line}`, borderRadius: '12px', background: T.layer, overflow: 'visible' },
+        },
+        h(
+          'div',
+          {
+            role: 'row',
+            style: {
+              display: 'grid',
+              gridTemplateColumns: columns,
+              columnGap: '14px',
+              alignItems: 'center',
+              padding: mobile ? '9px 14px' : '9px 16px',
+              background: T.base,
+              borderBottom: `1px solid ${T.line}`,
+              borderTopLeftRadius: '12px',
+              borderTopRightRadius: '12px',
+              position: 'sticky',
+              top: `${stickyTop}px`,
+              zIndex: 15,
+            },
+          },
+          headerCell('需求'),
+          mobile ? null : headerCell('业务状态'),
+          narrow || mobile ? null : headerCell('负责人'),
+          narrow || mobile ? null : headerCell('验收关联'),
+          mobile ? null : headerCell('检查结果'),
+          headerCell('操作', { textAlign: 'right' }),
+        ),
+        items.length > 0
+          ? items.map((item) =>
+              h(RequirementRow, {
+                key: item.occurrenceKey ?? item.id,
+                item,
+                narrow,
+                mobile,
+                showProject,
+                selected: selectedKey === (item.occurrenceKey ?? item.id),
+                onOpen,
+              }),
+            )
+          : emptyNode ?? null,
+      )
+    }
+
+    function SkeletonTable({ narrow, mobile }) {
+      const columns = listColumns(narrow, mobile)
+      const row = (index) =>
+        h(
+          'div',
+          {
+            key: index,
+            style: { display: 'grid', gridTemplateColumns: columns, columnGap: '14px', alignItems: 'center', minHeight: '68px', padding: '9px 16px', borderTop: `1px solid ${T.line}` },
+          },
+          h(
+            'div',
+            null,
+            h('div', { style: { width: `${48 + ((index * 17) % 30)}%`, height: '12px', borderRadius: '5px', background: T.layer2 } }),
+            h('div', { style: { width: '110px', height: '9px', borderRadius: '4px', background: T.layer2, marginTop: '8px' } }),
+          ),
+          narrow || mobile ? null : h('div', { style: { width: '58px', height: '18px', borderRadius: '999px', background: T.layer2 } }),
+          narrow || mobile ? null : h('div', { style: { width: '46px', height: '10px', borderRadius: '4px', background: T.layer2 } }),
+          narrow || mobile ? null : h('div', { style: { width: '34px', height: '10px', borderRadius: '4px', background: T.layer2 } }),
+          h('div', { style: { width: '72px', height: '18px', borderRadius: '999px', background: T.layer2 } }),
+          h('div', { style: { justifySelf: 'end', width: '46px', height: '22px', borderRadius: '6px', background: T.layer2 } }),
+        )
+      return h(
+        'div',
+        { 'aria-busy': 'true', 'aria-label': '正在读取需求', style: { border: `1px solid ${T.line}`, borderRadius: '12px', background: T.layer, overflow: 'hidden' } },
+        h('div', { style: { height: '35px', borderBottom: `1px solid ${T.line}`, background: T.base } }),
+        [0, 1, 2, 3, 4, 5, 6, 7].map(row),
+      )
+    }
+
+    function NoResults({ filter, keyword, anomalyOnly, onClear }) {
+      return h(
+        'div',
+        { style: { textAlign: 'center', padding: '54px 24px' } },
+        h('p', { style: { margin: 0, color: T.text, fontSize: '14px', fontWeight: 600 } }, '没有符合条件的需求'),
+        h(
+          'p',
+          { style: { margin: '7px 0 18px', color: T.text2, fontSize: '12.5px' } },
+          [filter !== 'all' ? `状态：${(FILTERS.find(([id]) => id === filter) ?? [])[1] ?? filter}` : null, keyword ? `搜索：${keyword}` : null, anomalyOnly ? '只看异常' : null]
+            .filter(Boolean)
+            .join(' · ') || '当前筛选下没有记录。',
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            onClick: onClear,
+            style: { border: `1px solid ${T.line2}`, background: T.layer2, color: T.text, borderRadius: '8px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' },
+          },
+          '清除筛选',
+        ),
+      )
+    }
+
+    function AnomalyNotice({ anomalies, summary, expanded, anomalyOnly, onToggleExpanded, onToggleOnly, onOpen }) {
+      const list = anomalies ?? []
+      if (list.length === 0) return null
+      const records = new Set()
+      for (const anomaly of list) {
+        for (const occurrence of anomaly.occurrences ?? []) {
+          records.add(occurrence.occurrenceKey ?? occurrence.assetId ?? occurrence.id ?? occurrence.file ?? JSON.stringify(occurrence))
+        }
+      }
+      const counts = summary ?? {}
+      const breakdown = [
+        counts.duplicateId ? `需求 ID 重复 ${counts.duplicateId} 组` : null,
+        counts.duplicateBusinessId ? `业务编号重复 ${counts.duplicateBusinessId} 组` : null,
+        counts.dangling ? `悬空关系 ${counts.dangling} 组` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      return h(
+        'section',
+        {
+          'aria-label': '数据异常提示',
+          style: { margin: '0 0 14px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.err}`, borderRadius: '10px', background: 'rgba(255,139,139,.055)', padding: '10px 12px' },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } },
+          h(ActionIcon, { name: 'alert', size: 15 }),
+          h(
+            'div',
+            { style: { minWidth: 0, flex: 1 } },
+            h(
+              'span',
+              { style: { color: T.text, fontSize: '12.5px', fontWeight: 500 } },
+              `发现 ${list.length} 组数据异常，涉及 ${records.size} 条记录`,
+            ),
+            breakdown ? h('span', { style: { marginLeft: '9px', color: T.text2, fontSize: '11.5px' } }, breakdown) : null,
+            h('span', { style: { display: 'block', marginTop: '3px', color: T.text2, fontSize: '11.5px' } }, '保留全部记录，不自动合并；打开记录人工核对。'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: onToggleOnly,
+              'aria-pressed': anomalyOnly,
+              style: {
+                border: `1px solid ${anomalyOnly ? 'rgba(255,139,139,.45)' : T.line}`,
+                background: anomalyOnly ? 'rgba(255,139,139,.12)' : 'transparent',
+                color: anomalyOnly ? T.err : T.text2,
+                borderRadius: '7px',
+                padding: '5px 10px',
+                fontSize: '11.5px',
+                cursor: 'pointer',
+              },
+            },
+            anomalyOnly ? '显示全部' : '只看异常',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: onToggleExpanded,
+              'aria-expanded': expanded,
+              style: { border: `1px solid ${T.line}`, background: 'transparent', color: T.text2, borderRadius: '7px', padding: '5px 10px', fontSize: '11.5px', cursor: 'pointer' },
+            },
+            expanded ? '收起原因' : '查看原因',
+          ),
+        ),
+        expanded
+          ? h(
+              'div',
+              { style: { marginTop: '10px', borderTop: `1px solid ${T.line}`, paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' } },
+              list.map((anomaly, index) =>
+                h(
+                  'div',
+                  { key: `${anomaly.kind}-${index}`, style: { fontSize: '12px', color: T.text2, lineHeight: 1.7 } },
+                  h('span', { style: { color: T.err, marginRight: '7px', fontSize: '11px' } }, ANOMALY_LABELS[anomaly.kind] ?? anomaly.kind),
+                  anomaly.message,
+                  (anomaly.occurrences ?? []).length
+                    ? h(
+                        'div',
+                        { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '3px' } },
+                        anomaly.occurrences.map((occurrence, occurrenceIndex) =>
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              key: `${occurrence.occurrenceKey ?? occurrenceIndex}-${occurrenceIndex}`,
+                              onClick: () => onOpen?.(occurrence),
+                              style: { border: 0, padding: 0, background: 'transparent', color: T.brand, fontSize: '11.5px', cursor: 'pointer' },
+                            },
+                            `${occurrence.assetId ?? occurrence.id ?? occurrence.occurrenceKey ?? '—'}${occurrence.title ? ` · ${occurrence.title}` : ''}`,
+                          ),
+                        ),
+                      )
+                    : null,
+                ),
+              ),
+            )
+          : null,
+      )
+    }
+
+    function CheckNotice({ data, expanded, onToggleExpanded }) {
+      if (!data) return null
+      const failedProjects = (data.projects ?? []).filter((project) => project.error)
+      const gaps = data.gaps ?? []
+      const executionFailed = failedProjects.length > 0 || data.summary?.failed > 0
+      const gateFailed = data.result && data.result !== 'pass'
+      if (!executionFailed && !gateFailed && gaps.length === 0) return null
+      const tone = executionFailed ? T.err : T.warn
+      const title = executionFailed
+        ? `检查执行失败：${failedProjects.length || data.summary?.failed || 0} 个工作区无法读取`
+        : `检查未通过：${gaps.length} 个门禁缺口`
+      const detail = executionFailed
+        ? '这是读取或执行失败，不是需求未通过；修复后重新检查。'
+        : '需求文件已读取，门禁规则未全部通过；展开查看规则与修复建议。'
+      return h(
+        'section',
+        {
+          'aria-label': '检查结果提示',
+          style: { margin: '0 0 14px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${tone}`, borderRadius: '10px', background: T.layer, padding: '10px 12px' },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } },
+          h('span', { style: { width: '7px', height: '7px', borderRadius: '50%', background: tone, flex: 'none' } }),
+          h(
+            'div',
+            { style: { minWidth: 0, flex: 1 } },
+            h('span', { style: { color: T.text, fontSize: '12.5px', fontWeight: 500 } }, title),
+            h('span', { style: { display: 'block', marginTop: '2px', color: T.text2, fontSize: '11.5px' } }, detail),
+          ),
+          executionFailed || gaps.length > 0
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: onToggleExpanded,
+                  'aria-expanded': expanded,
+                  style: { border: `1px solid ${T.line}`, background: 'transparent', color: T.text2, borderRadius: '7px', padding: '5px 10px', fontSize: '11.5px', cursor: 'pointer' },
+                },
+                expanded ? '收起' : '查看原因',
+              )
+            : null,
+        ),
+        expanded
+          ? h(
+              'div',
+              { style: { marginTop: '9px', borderTop: `1px solid ${T.line}`, paddingTop: '4px' } },
+              failedProjects.map((project) =>
+                h(
+                  'div',
+                  { key: project.project, style: { padding: '5px 0', fontSize: '12px', color: T.text2 } },
+                  h('b', { style: { color: T.text } }, project.projectName ?? project.project),
+                  `：${project.error}`,
+                ),
+              ),
+              gaps.length
+                ? h('div', { style: { border: `1px solid ${T.line}`, borderRadius: '9px', padding: '2px 10px', marginTop: '4px' } }, gaps.map((gap, index) => h(GapDetail, { key: `${gap.project ?? ''}-${gap.rule ?? gap.code}-${index}`, gap, index })))
+                : null,
+            )
+          : null,
       )
     }
 
@@ -1346,6 +1700,14 @@ window.__ModuleLoader__.load({
       flask: 'M9 3h6M10 3v5l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3',
       eye: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z M12 9a3 3 0 100 6 3 3 0 000-6z',
       close: 'M6 6l12 12M18 6L6 18',
+      search: 'M11 4a7 7 0 105.2 11.7L21 21M11 4a7 7 0 00-7 7',
+      refresh: 'M20 11a8 8 0 10-2.3 5.7M20 5v6h-6',
+      more: 'M5 12h.01M12 12h.01M19 12h.01',
+      plus: 'M12 5v14M5 12h14',
+      chevron: 'M9 6l6 6-6 6',
+      folder: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z',
+      link: 'M10 13a5 5 0 007 0l2-2a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-2 2a5 5 0 007 7l1-1',
+      alert: 'M12 3l9 16H3zM12 9v5M12 17h.01',
     }
 
     function ActionIcon({ name, size = 14 }) {
@@ -1376,7 +1738,7 @@ window.__ModuleLoader__.load({
             alignItems: 'center',
             justifyContent: 'center',
             gap: '6px',
-            padding: '6px 12px',
+            padding: '7px 12px',
             borderRadius: '8px',
             border: '1px solid',
             fontSize: '12px',
@@ -3299,7 +3661,35 @@ window.__ModuleLoader__.load({
       const [createOpen, setCreateOpen] = useState(false)
       const [associateTarget, setAssociateTarget] = useState(null)
       const [showRoot, setShowRoot] = useState(false)
+      const [anomalyOnly, setAnomalyOnly] = useState(false)
+      const [anomalyOpen, setAnomalyOpen] = useState(false)
+      const [checkOpen, setCheckOpen] = useState(false)
+      const [menuOpen, setMenuOpen] = useState(false)
+      const [narrow, setNarrow] = useState(typeof window !== 'undefined' ? window.innerWidth < 1120 : false)
+      const [mobile, setMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 760 : false)
+      const [toolbarNode, setToolbarNode] = useState(null)
+      const [toolbarHeight, setToolbarHeight] = useState(48)
       const { loading, error, data, reload } = useRequirements({ root, projectId })
+
+      useEffect(() => {
+        if (!toolbarNode) return undefined
+        const measure = () => setToolbarHeight(toolbarNode.offsetHeight)
+        measure()
+        if (typeof ResizeObserver === 'undefined') return undefined
+        const observer = new ResizeObserver(measure)
+        observer.observe(toolbarNode)
+        return () => observer.disconnect()
+      }, [toolbarNode])
+
+      useEffect(() => {
+        if (typeof window === 'undefined') return undefined
+        const onResize = () => {
+          setNarrow(window.innerWidth < 1120)
+          setMobile(window.innerWidth < 760)
+        }
+        window.addEventListener('resize', onResize)
+        return () => window.removeEventListener('resize', onResize)
+      }, [])
 
       const loadProjects = useCallback(() => {
         return fetch('/api/alm/projects')
@@ -3334,6 +3724,9 @@ window.__ModuleLoader__.load({
       const applyProject = (id) => {
         setSelectedId(null)
         setDetailOpen(false)
+        setFilter('all')
+        setKeyword('')
+        setAnomalyOnly(false)
         if (id === ALL_PROJECTS) {
           setProjectId(ALL_PROJECTS)
           if (typeof localStorage !== 'undefined') localStorage.setItem(PROJECT_KEY, ALL_PROJECTS)
@@ -3403,13 +3796,13 @@ window.__ModuleLoader__.load({
       )
 
       const items = data?.requirements ?? []
+      const scopedItems = items
       // Selection is by occurrenceKey, not by UID: duplicate UIDs are kept as
       // two records and must be selectable independently.
       const keyOf = (item) => item?.occurrenceKey ?? item?.id
-      const scopedItems = items
       const counts = {}
       for (const item of scopedItems) counts[item.status] = (counts[item.status] ?? 0) + 1
-      const visible = scopedItems
+      const searched = scopedItems
         .filter((item) => filter === 'all' || item.status === filter)
         .filter((item) => {
           if (!keyword) return true
@@ -3417,9 +3810,18 @@ window.__ModuleLoader__.load({
           return (
             item.title.toLowerCase().includes(needle) ||
             item.id.toLowerCase().includes(needle) ||
+            (item.businessId ?? '').toLowerCase().includes(needle) ||
             (item.owner ?? '').toLowerCase().includes(needle)
           )
         })
+      const visible = anomalyOnly ? searched.filter((item) => (item.anomalies?.length ?? 0) > 0) : searched
+      const itemCount = scopedItems.length
+      const filtered = filter !== 'all' || keyword !== '' || anomalyOnly
+      const clearFilters = () => {
+        setFilter('all')
+        setKeyword('')
+        setAnomalyOnly(false)
+      }
 
       const selected = items.find((item) => keyOf(item) === selectedId) ?? null
       const currentProject = projects.find((entry) => entry.id === projectId || entry.workspaceId === projectId) ?? null
@@ -3434,143 +3836,249 @@ window.__ModuleLoader__.load({
         const match = items.find((item) => item.id === id)
         setSelectedId(match ? keyOf(match) : id)
       }
-      const projectLabel =
+      const singleWorkspace = projectId !== ALL_PROJECTS
+      const linked = Boolean(currentProject?.linked)
+      const scopeText =
         projectId === ALL_PROJECTS
-          ? '全部项目'
-          : currentProject?.title ?? data?.projectName ?? null
-      const summary = data
-        ? `${projectLabel ? `${projectLabel} · ` : ''}${data.summary.requirements} 条需求 · ${counts.proposed ?? 0} 条待评审 · ${counts['in-progress'] ?? 0} 条开发中 · check ${data.result}${data.scope === 'all' ? ` · ${data.summary.projects} 个项目` : ''}${data.anomalySummary?.count ? ` · ${data.anomalySummary.count} 个数据异常` : ''}`
-        : '加载中…'
+          ? data
+            ? `${data.summary.projects} 个工作区`
+            : '全部工作区'
+          : linked
+            ? '已关联仓库'
+            : '未关联仓库'
+      const countLabel = loading ? '读取中' : data ? `${itemCount} 条` : '—'
+
+      const createRequirement = () => {
+        if (!singleWorkspace) return
+        if (currentProject && !currentProject.linked) {
+          setAssociateTarget(currentProject)
+          return
+        }
+        setCreateOpen(true)
+      }
+
+      const menuItem = (label, icon, onClick, extra) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            role: 'menuitem',
+            onClick: () => {
+              setMenuOpen(false)
+              onClick()
+            },
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              border: 0,
+              background: 'transparent',
+              color: T.text,
+              padding: '8px 10px',
+              borderRadius: '7px',
+              fontSize: '12px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              ...extra,
+            },
+            onMouseEnter: (event) => {
+              event.currentTarget.style.background = T.layer2
+            },
+            onMouseLeave: (event) => {
+              event.currentTarget.style.background = 'transparent'
+            },
+          },
+          h(ActionIcon, { name: icon, size: 14 }),
+          label,
+        )
 
       const header = h(
         'div',
-        { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' } },
+        { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap', paddingTop: '26px' } },
         h(
           'div',
-          null,
-          h('h2', { style: { margin: 0, fontSize: '20px', fontWeight: 600, letterSpacing: '-.01em' } }, '需求'),
-          h('p', { style: { margin: '6px 0 0', ...muted } }, summary),
+          { style: { minWidth: 0 } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'baseline', gap: '10px' } },
+            h('h1', { style: { margin: 0, fontSize: '26px', lineHeight: 1.2, fontWeight: 600, letterSpacing: '-.02em' } }, '需求'),
+            h('span', { style: { color: T.text3, fontSize: '13px', fontVariantNumeric: 'tabular-nums' } }, countLabel),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '9px', flexWrap: 'wrap' } },
+            h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject }),
+            h('span', { style: { color: T.text3, fontSize: '11.5px' } }, scopeText),
+          ),
         ),
         h(
           'div',
-          { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
-          h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject }),
-          currentProject && projectId !== ALL_PROJECTS
-            ? h('button', { style: button, onClick: () => setAssociateTarget(currentProject), title: '关联/更新该工作区的 GitHub 仓库与 ProjectV2' }, currentProject.linked ? '更新关联' : '关联仓库')
-            : null,
-          h('button', {
-            style: primary,
-            onClick: () => {
-              if (currentProject && !currentProject.linked) {
-                setAssociateTarget(currentProject)
-                return
-              }
-              setCreateOpen(true)
-            },
-            title: currentProject && !currentProject.linked ? '先关联该工作区的 GitHub 仓库' : '新建需求',
-          }, '＋ 新建'),
-          h('button', { style: button, onClick: reload, title: '重新读取资产' }, '刷新'),
-          h('button', { style: { ...button, borderColor: 'transparent', background: 'transparent', color: T.text2 }, onClick: () => setShowRoot((value) => !value) }, showRoot ? '收起根目录' : '仓库根'),
+          { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          h(ActionButton, {
+            label: '新建需求',
+            icon: 'plus',
+            variant: 'primary',
+            disabled: !singleWorkspace,
+            onClick: createRequirement,
+            title: singleWorkspace ? '新建需求' : '切换到单个工作区后可新建需求',
+          }),
         ),
       )
 
       const toolbar = h(
         'div',
-        { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', margin: '18px 0 14px', flexWrap: 'wrap' } },
+        {
+          ref: setToolbarNode,
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            margin: '0 0 12px',
+            padding: '12px 0 8px',
+            borderBottom: `1px solid ${T.line}`,
+            flexWrap: 'wrap',
+            position: 'sticky',
+            top: 0,
+            zIndex: 20,
+            background: T.base,
+          },
+        },
         h(
           'div',
-          { style: { display: 'inline-flex', gap: '2px', padding: '3px', background: T.base, border: `1px solid ${T.line}`, borderRadius: '10px', flexWrap: 'wrap' } },
-          FILTERS.map(([id, label]) =>
-            h(
+          { role: 'tablist', 'aria-label': '按业务状态筛选', style: { display: 'flex', alignItems: 'stretch', gap: '2px', flexWrap: 'wrap' } },
+          FILTERS.map(([id, label]) => {
+            const active = filter === id
+            return h(
               'button',
               {
                 key: id,
+                type: 'button',
+                role: 'tab',
+                'aria-selected': active,
                 onClick: () => setFilter(id),
                 style: {
                   border: 0,
-                  background: filter === id ? T.layer2 : 'transparent',
-                  color: filter === id ? T.text : T.text2,
-                  borderRadius: '7px',
-                  padding: '5px 10px',
-                  fontSize: '12px',
+                  borderBottom: `2px solid ${active ? T.text : 'transparent'}`,
+                  background: 'transparent',
+                  color: active ? T.text : T.text2,
+                  padding: '7px 9px 8px',
+                  fontSize: '12.5px',
+                  fontWeight: active ? 500 : 400,
                   cursor: 'pointer',
+                  whiteSpace: 'nowrap',
                 },
               },
               label,
-              h('span', { style: { marginLeft: '5px', color: T.text3, fontVariantNumeric: 'tabular-nums' } }, id === 'all' ? scopedItems.length : counts[id] ?? 0),
-            ),
-          ),
+              h('span', { style: { marginLeft: '6px', color: active ? T.text2 : T.text3, fontSize: '11px', fontVariantNumeric: 'tabular-nums' } }, id === 'all' ? itemCount : counts[id] ?? 0),
+            )
+          }),
         ),
+        h('div', { style: { flex: 1, minWidth: '12px' } }),
+        filtered
+          ? h('span', { style: { color: T.text3, fontSize: '11.5px', fontVariantNumeric: 'tabular-nums' } }, `${visible.length} 条结果`)
+          : null,
         h(
           'label',
-          { style: { display: 'flex', alignItems: 'center', gap: '6px', border: `1px solid ${T.line}`, borderRadius: '9px', background: T.base, padding: '5px 10px', minWidth: '220px' } },
-          h('span', { style: { color: T.text3, fontSize: '12px', whiteSpace: 'nowrap', flex: 'none' } }, '搜索'),
+          { style: { display: 'flex', alignItems: 'center', gap: '7px', height: '36px', width: '250px', maxWidth: '100%', border: `1px solid ${T.line}`, borderRadius: '8px', background: T.base, padding: '0 10px' } },
+          h(ActionIcon, { name: 'search', size: 14 }),
           h('input', {
             value: keyword,
             onChange: (event) => setKeyword(event.target.value),
-            placeholder: '标题 / ID / 负责人',
-            'aria-label': '搜索需求',
+            placeholder: '搜索标题、需求 ID 或负责人',
+            'aria-label': '搜索标题、需求 ID 或负责人',
             style: { border: 0, outline: 0, background: 'transparent', color: T.text, fontSize: '12px', width: '100%' },
           }),
+          keyword
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => setKeyword(''),
+                  'aria-label': '清除搜索',
+                  style: { border: 0, background: 'transparent', color: T.text3, cursor: 'pointer', padding: 0, display: 'inline-flex' },
+                },
+                h(ActionIcon, { name: 'close', size: 12 }),
+              )
+            : null,
+        ),
+        h(ActionButton, { label: loading ? '刷新中…' : '刷新', icon: 'refresh', variant: 'ghost', disabled: loading, onClick: reload, title: '重新读取需求资产' }),
+        h(
+          'div',
+          { style: { position: 'relative' } },
+          h(ActionButton, { label: '更多', icon: 'more', variant: 'ghost', onClick: () => setMenuOpen((value) => !value), title: '更多工具' }),
+          menuOpen
+            ? h(
+                'div',
+                {
+                  role: 'menu',
+                  style: {
+                    position: 'absolute',
+                    right: 0,
+                    top: 'calc(100% + 6px)',
+                    zIndex: 40,
+                    minWidth: '190px',
+                    background: T.layer,
+                    border: `1px solid ${T.line2}`,
+                    borderRadius: '10px',
+                    padding: '5px',
+                    boxShadow: '0 12px 32px rgba(0,0,0,.35)',
+                  },
+                },
+                singleWorkspace && currentProject
+                  ? menuItem(linked ? '更新工作区关联' : '关联 GitHub 仓库', 'link', () => setAssociateTarget(currentProject))
+                  : null,
+                menuItem('指定根目录', 'folder', () => setShowRoot(true)),
+                openPanel ? menuItem('在工作台打开', 'eye', openPanel) : null,
+              )
+            : null,
         ),
       )
 
       let body
       if (loading) {
-        body = h('p', { style: muted }, '正在读取资产…')
+        body = h(SkeletonTable, { narrow, mobile })
       } else if (error) {
         body = h(
           'div',
-          { style: { ...card, cursor: 'default' } },
-          h('p', { style: { margin: '0 0 10px', color: T.err, fontSize: '13px' } }, error),
-          h('button', { style: button, onClick: reload }, '重试'),
+          { style: { border: `1px solid ${T.line}`, borderRadius: '12px', background: T.layer, padding: '28px' } },
+          h('p', { style: { margin: '0 0 6px', color: T.text, fontSize: '14px', fontWeight: 600 } }, '读取需求失败'),
+          h('p', { style: { margin: '0 0 16px', color: T.err, fontSize: '12.5px', lineHeight: 1.7 } }, error),
+          h(ActionButton, { label: '重试', icon: 'refresh', variant: 'secondary', onClick: reload }),
         )
-      } else if (items.length === 0) {
+      } else if (itemCount === 0) {
         body = h(EmptyState, { root: data?.root ?? root, onOpenPanel: openPanel })
       } else {
-        body = h(
-          'div',
-          null,
-          data.scope === 'all'
-            ? (data.projects ?? []).map((project) => {
-                const projectItems = visible.filter((item) => item.project === project.project)
-                if (projectItems.length === 0) return null
-                return h(
-                  'section',
-                  { key: project.project, style: { marginBottom: '22px' } },
-                  h(
-                    'div',
-                    { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px', color: T.text2, fontSize: '12px', flexWrap: 'wrap' } },
-                    h('span', { style: { fontSize: '10.5px', letterSpacing: '.04em', color: T.brand, border: `1px solid ${T.line2}`, borderRadius: '5px', padding: '0 6px' } }, project.project),
-                    h('b', { style: { color: T.text, fontSize: '13px', fontWeight: 600 } }, project.projectName ?? project.project),
-                    h('span', { style: { color: T.text3 } }, `${project.root ?? ''} · ${projectItems.length} 条`),
-                    project.error ? h('span', { style: { color: T.err } }, `读取失败：${project.error}`) : null,
-                  ),
-                  projectItems.map((item) => h(RequirementCard, { key: keyOf(item), item, showProject: false, onOpen: (entry) => setSelectedId(keyOf(entry)) })),
-                )
-              })
-            : visible.map((item) => h(RequirementCard, { key: keyOf(item), item, showProject: false, onOpen: (entry) => setSelectedId(keyOf(entry)) })),
-          visible.length === 0
-            ? h('div', { style: { ...card, cursor: 'default', textAlign: 'center', color: T.text2, padding: '36px' } }, '没有符合筛选条件的需求')
-            : null,
-        )
+        body = h(RequirementTable, {
+          items: visible,
+          narrow,
+          mobile,
+          showProject: data?.scope === 'all',
+          stickyTop: toolbarHeight,
+          selectedKey: selectedId,
+          onOpen: (entry) => setSelectedId(keyOf(entry)),
+          emptyNode: h(NoResults, { filter, keyword, anomalyOnly, onClear: clearFilters }),
+        })
       }
 
-      const gapsBlock =
-        data && data.gaps?.length
-          ? h(
-              'div',
-              { style: { marginTop: '24px' } },
-              h('h3', { style: { margin: '0 0 6px', fontSize: '13px', fontWeight: 600, color: T.text2 } }, `门禁 check 缺口（${data.gaps.length}）`),
-              h(
-                'div',
-                { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '2px 12px' } },
-                data.gaps.map((gap, index) => h(GapDetail, { key: `${gap.rule}-${index}`, gap, index })),
-              ),
-            )
-          : data
-            ? h('p', { style: { marginTop: '20px', ...muted } }, '没有追踪缺口。')
-            : null
+      const notices = h(
+        'div',
+        null,
+        h(AnomalyNotice, {
+          anomalies: data?.anomalies,
+          summary: data?.anomalySummary,
+          expanded: anomalyOpen,
+          anomalyOnly,
+          onToggleExpanded: () => setAnomalyOpen((value) => !value),
+          onToggleOnly: () => setAnomalyOnly((value) => !value),
+          onOpen: openOccurrence,
+        }),
+        h(CheckNotice, {
+          data,
+          expanded: checkOpen,
+          onToggleExpanded: () => setCheckOpen((value) => !value),
+        }),
+      )
 
       return h(
         'div',
@@ -3578,9 +4086,8 @@ window.__ModuleLoader__.load({
         header,
         showRoot ? h(RootPicker, { rootInput, setRootInput, onApply: () => applyRoot(rootInput), onReset: () => { setRootInput(''); applyRoot('') } }) : null,
         toolbar,
+        notices,
         body,
-        h(AnomalyBlock, { anomalies: data?.anomalies, summary: data?.anomalySummary, onOpen: openOccurrence }),
-        gapsBlock,
         selected
           ? h(Drawer, {
               item: selected,
@@ -3713,12 +4220,6 @@ window.__ModuleLoader__.load({
               },
             })
           : null,
-        h(
-          'div',
-          { style: { display: 'flex', gap: '8px', marginTop: '20px' } },
-          h('button', { style: button, onClick: reload }, '刷新'),
-          openPanel ? h('button', { style: button, onClick: openPanel }, 'Open as main panel') : null,
-        ),
       )
     }
 
