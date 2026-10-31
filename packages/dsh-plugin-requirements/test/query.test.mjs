@@ -10,15 +10,31 @@ import { nextActionFor, requirements, requirementsAll, resolveRequirementsRoot, 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 const fixture = join(repoRoot, 'fixtures/order-refund')
 
-test('nextActionFor follows acceptance, relation and status order', () => {
-  const base = { id: 'REQ-X', file: 'requirements/x.sdoc', status: 'proposed', verifiedBy: ['TEST-X'] }
-  assert.equal(nextActionFor({ ...base, verifiedBy: [] }, []), 'missing-acceptance')
-  assert.equal(nextActionFor(base, [{ assetId: null, file: 'requirements/x.sdoc', rule: 'REL-001' }]), 'dangling-relation')
-  assert.equal(nextActionFor(base, []), 'ready-to-change')
-  assert.equal(nextActionFor({ ...base, status: 'accepted' }, []), 'ready-to-change')
-  assert.equal(nextActionFor({ ...base, status: 'in-progress' }, []), 'in-progress')
-  assert.equal(nextActionFor({ ...base, status: 'implemented' }, []), 'verify')
-  assert.equal(nextActionFor({ ...base, status: 'verified' }, []), 'done')
+test('nextActionFor maps the evidence decision state to one action', () => {
+  assert.equal(nextActionFor({ decision: { state: 'blocked' } }, []), 'fix-blockers')
+  assert.equal(nextActionFor({ decision: { state: 'needs-clarification' } }, []), 'fix-anomaly')
+  assert.equal(nextActionFor({ decision: { state: 'stale' } }, []), 'rerun-evidence')
+  assert.equal(nextActionFor({ decision: { state: 'failed' } }, []), 'run-acceptance')
+  assert.equal(nextActionFor({ decision: { state: 'ready-for-human' } }, []), 'signoff')
+  assert.equal(nextActionFor({ decision: { state: 'verified' } }, []), 'done')
+  assert.equal(
+    nextActionFor({ decision: { state: 'unchecked', topGap: { code: 'review-not-run' } } }, []),
+    'run-review',
+  )
+  assert.equal(
+    nextActionFor({ decision: { state: 'unchecked', topGap: { code: 'coverage-incomplete' } } }, []),
+    'run-review',
+  )
+  assert.equal(
+    nextActionFor({ decision: { state: 'unchecked', topGap: { code: 'acceptance-not-run' } } }, []),
+    'run-acceptance',
+  )
+  assert.equal(
+    nextActionFor({ decision: { state: 'unchecked', topGap: { code: 'acceptance-missing' } } }, []),
+    'run-acceptance',
+  )
+  // A missing decision still yields a review action instead of throwing.
+  assert.equal(nextActionFor({}, []), 'run-review')
 })
 
 test('resolveRequirementsRoot accepts a relative fixture path and rejects traversal', () => {
@@ -40,8 +56,19 @@ test('requirements payload carries file, links and the next action', () => {
   assert.ok(item.line >= 1)
   assert.deepEqual(item.verifiedBy, ['TEST-PAY-001'])
   assert.ok(item.links.some((link) => link.type === 'verified_by' && link.target === 'TEST-PAY-001'))
-  assert.equal(item.nextAction, 'ready-to-change')
-  assert.equal(item.nextActionLabel, '发起变更')
+  // No stored review yet, so the decision asks for a review before a change.
+  assert.equal(item.nextAction, 'run-review')
+  assert.equal(item.nextActionLabel, '运行评审')
+  assert.equal(item.occurrenceKey, `REQ-PAY-001@${item.file}:${item.line}`)
+  assert.equal(item.businessId, null)
+  assert.equal(item.decision.state, 'unchecked')
+  assert.match(item.decision.topGap.code, /review/)
+  assert.equal(item.decision.tone, 'neutral')
+  assert.deepEqual(item.anomalies, [])
+  assert.equal(item.review.coverage.total, 5)
+  assert.deepEqual(item.review.coverage.missing, [])
+  assert.equal(payload.anomalySummary.count, 0)
+  assert.deepEqual(payload.anomalies, [])
 })
 
 test('requirements payload carries project, brief text and attachment detail', () => {
@@ -133,6 +160,8 @@ test('review derives role verdicts from the real gate report', () => {
   assert.equal(item.review.summary.blockers, 0)
   assert.ok(item.review.roles.every((role) => ['pass', 'skip'].includes(role.verdict)))
   assert.equal(item.review.signoff, null)
+  assert.deepEqual(item.review.coverage, { completed: 5, total: 5, missing: [] })
+  assert.equal(item.review.evidenceBound, false)
 })
 
 test('review blocks the testing role when acceptance is missing', () => {
@@ -224,7 +253,7 @@ test('trace keeps a dangling target as a missing node', () => {
 
 test('requirements payload exposes acceptance registration and latest evidence', () => {
   const clean = requirements(fixture).requirements.find((entry) => entry.id === 'REQ-PAY-001')
-  assert.equal(clean.acceptance.schema, 'alm.acceptance.summary/v1')
+  assert.equal(clean.acceptance.schema, 'alm.acceptance.summary/v2')
   assert.equal(clean.acceptance.registered, false)
   assert.equal(clean.acceptance.latest, null)
 
@@ -260,7 +289,13 @@ test('requirements payload exposes acceptance registration and latest evidence',
     assert.equal(item.acceptance.registered, true)
     assert.equal(item.acceptance.commandCount, 1)
     assert.equal(item.acceptance.latest.result, 'pass')
-    assert.equal(item.acceptance.latest.current, true)
+    // Legacy v1 evidence stays readable but is not complete/current evidence.
+    assert.equal(item.acceptance.latest.complete, false)
+    assert.equal(item.acceptance.latest.current, false)
+    assert.equal(item.acceptance.latest.staleReason, 'incomplete')
+    assert.ok(item.acceptance.latest.missing.includes('requirementHash'))
+    assert.equal(item.decision.state, 'stale')
+    assert.equal(item.nextAction, 'rerun-evidence')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

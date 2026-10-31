@@ -60,6 +60,76 @@ window.__ModuleLoader__.load({
       skip: { label: '未覆盖', color: T.text3, bg: 'rgba(107,116,128,.12)' },
     }
 
+    // Evidence tones only pick a color; the decision label is always rendered as
+    // text next to it so a color-blind or monochrome theme cannot hide the state.
+    const EVIDENCE_TONE = {
+      neutral: { color: T.text2, bg: 'rgba(154,163,174,.14)' },
+      error: { color: T.err, bg: 'rgba(255,139,139,.14)' },
+      warn: { color: T.warn, bg: 'rgba(231,176,75,.14)' },
+      success: { color: T.ok, bg: 'rgba(53,196,122,.14)' },
+    }
+
+    const DECISION_LABELS = {
+      unchecked: '未检查',
+      'needs-clarification': '需澄清',
+      blocked: '阻塞',
+      failed: '执行失败',
+      stale: '证据过期',
+      'ready-for-human': '可进入人工确认',
+      verified: '已签收',
+    }
+
+    const ANOMALY_LABELS = {
+      'duplicate-id': '需求 ID 重复',
+      'duplicate-business-id': '业务 ID 重复',
+      'dangling-relation': '悬空关系',
+    }
+
+    const REHEARSAL_FIELDS = [
+      ['title', '标题'],
+      ['priority', '优先级'],
+      ['brief', '背景'],
+    ]
+
+    function decisionTone(decision) {
+      return EVIDENCE_TONE[decision?.tone] ?? EVIDENCE_TONE.neutral
+    }
+
+    function decisionLabel(decision) {
+      if (!decision) return null
+      return decision.label ?? DECISION_LABELS[decision.state] ?? decision.state ?? '未知'
+    }
+
+    function decisionPillStyle(decision) {
+      const tone = decisionTone(decision)
+      return {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        fontSize: '11.5px',
+        padding: '2px 9px',
+        borderRadius: '999px',
+        color: tone.color,
+        background: tone.bg,
+        whiteSpace: 'nowrap',
+      }
+    }
+
+    /** Green tick is only allowed when the backend says human signoff is possible/done. */
+    function stateIsGreen(decision) {
+      return decision?.state === 'ready-for-human' || decision?.state === 'verified'
+    }
+
+    function gapSeverityMeta(severity) {
+      if (severity === 'block') return { label: '阻塞', color: T.err, bg: 'rgba(255,139,139,.14)' }
+      if (severity === 'warn') return { label: '建议', color: T.warn, bg: 'rgba(231,176,75,.14)' }
+      return { label: '提示', color: T.text3, bg: 'rgba(107,116,128,.12)' }
+    }
+
+    function shortHash(value, size = 12) {
+      return value ? String(value).slice(0, size) : '—'
+    }
+
     const panel = { padding: '24px', maxWidth: '1080px', color: T.text }
     const muted = { color: T.text2, fontSize: '12px' }
     const button = {
@@ -169,7 +239,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function ReviewBlock({ review }) {
+    function ReviewBlock({ review, showRoles = true }) {
       if (!review) return h('p', { style: { margin: 0, ...muted } }, '暂无评审数据。')
       const summary = review.summary
       return h(
@@ -179,36 +249,40 @@ window.__ModuleLoader__.load({
           'p',
           { style: { margin: '0 0 8px', fontSize: '12.5px', color: summary.blockers > 0 ? T.err : T.text2 } },
           `${summary.completed}/${summary.total} 角色完成 · ${summary.blockers} 个阻塞`,
-          summary.ready ? h('span', { style: { color: T.ok } }, ' · 无阻塞，可进入人工签收') : h('span', null, ' · 先修复阻塞项'),
+          review.coverage?.missing?.length
+            ? h('span', { style: { color: T.text3 } }, ` · 未覆盖：${review.coverage.missing.join('、')}`)
+            : null,
         ),
-        h(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: '5px' } },
-          review.roles.map((role) => {
-            const meta = VERDICT[role.verdict] ?? VERDICT.skip
-            return h(
+        showRoles
+          ? h(
               'div',
-              {
-                key: role.id,
-                style: {
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '10px',
-                  border: `1px solid ${T.line}`,
-                  borderLeft: `3px solid ${meta.color}`,
-                  borderRadius: '8px',
-                  background: T.layer2,
-                  padding: '6px 10px',
-                  fontSize: '12.5px',
-                  color: T.text2,
-                },
-              },
-              h('span', null, role.label),
-                h(VerdictBadge, { verdict: role.verdict }),
-              )
-            }),
-          ),
+              { style: { display: 'flex', flexDirection: 'column', gap: '5px' } },
+              review.roles.map((role) => {
+                const meta = VERDICT[role.verdict] ?? VERDICT.skip
+                return h(
+                  'div',
+                  {
+                    key: role.id,
+                    style: {
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '10px',
+                      border: `1px solid ${T.line}`,
+                      borderLeft: `3px solid ${meta.color}`,
+                      borderRadius: '8px',
+                      background: T.layer2,
+                      padding: '6px 10px',
+                      fontSize: '12.5px',
+                      color: T.text2,
+                    },
+                  },
+                  h('span', null, role.label),
+                  h(VerdictBadge, { verdict: role.verdict }),
+                )
+              }),
+            )
+          : null,
         review.roles.some((role) => role.findings.length)
           ? h(
               'div',
@@ -262,6 +336,299 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function DecisionPill({ decision }) {
+      return h(
+        'span',
+        { style: decisionPillStyle(decision) },
+        h('span', { style: { width: '5px', height: '5px', borderRadius: '50%', background: 'currentColor', flex: 'none' } }),
+        decisionLabel(decision),
+      )
+    }
+
+    /**
+     * Decision summary shown above the requirement background. Tone only colors
+     * the bar; label, gap message, fix hint and next step are always text.
+     */
+    function DecisionBar({ decision }) {
+      if (!decision) {
+        return h(
+          'section',
+          {
+            style: {
+              marginTop: '14px',
+              border: `1px dashed ${T.line2}`,
+              borderRadius: '12px',
+              padding: '12px 14px',
+              color: T.text2,
+              fontSize: '12.5px',
+              lineHeight: 1.8,
+            },
+          },
+          '决策：接口尚未返回 decision；按未知处理，不显示通过。',
+        )
+      }
+      const tone = decisionTone(decision)
+      const topGap = decision.topGap
+      const policy = decision.policy
+      const coverage = decision.coverage
+      return h(
+        'section',
+        {
+          'data-decision-state': decision.state,
+          style: {
+            marginTop: '14px',
+            border: `1px solid ${T.line}`,
+            borderLeft: `3px solid ${tone.color}`,
+            borderRadius: '12px',
+            background: T.layer,
+            padding: '12px 16px',
+          },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' } },
+          h(DecisionPill, { decision }),
+          h(
+            'span',
+            { style: { fontSize: '11.5px', color: T.text3 } },
+            `风险 ${policy?.risk ?? '—'} · 角色 ${coverage?.rolesCompleted ?? 0}/${coverage?.rolesRequired ?? 0}`,
+          ),
+          decision.nextStep
+            ? h(
+                'span',
+                { style: { marginLeft: 'auto', fontSize: '12px', color: T.text2, border: `1px solid ${T.line}`, borderRadius: '999px', padding: '2px 9px' } },
+                `下一步 · ${decision.nextStep.label}`,
+              )
+            : null,
+        ),
+        topGap
+          ? h(
+              'div',
+              { style: { marginTop: '8px', fontSize: '12.5px', lineHeight: 1.75, color: T.text2 } },
+              h('span', { style: { color: tone.color, fontWeight: 600 } }, `缺口 ${topGap.code ?? ''}：`),
+              topGap.message,
+              topGap.fix
+                ? h('div', { style: { marginTop: '2px', color: T.text3, fontSize: '12px' } }, `修复提示：${topGap.fix}`)
+                : null,
+            )
+          : h('p', { style: { margin: '8px 0 0', ...muted } }, '没有未解决的证据缺口。'),
+        decision.signoff?.reasons?.length && !decision.signoff.allowed
+          ? h(
+              'p',
+              { style: { margin: '6px 0 0', color: T.text3, fontSize: '11.5px', lineHeight: 1.8 } },
+              `签收条件未满足：${decision.signoff.reasons.map((reason) => reason.message).join('；')}`,
+            )
+          : null,
+      )
+    }
+
+    function RoleBars({ review, decision }) {
+      if (!review?.roles?.length) {
+        return h('p', { style: { margin: 0, ...muted } }, '尚未运行评审，没有角色覆盖数据。')
+      }
+      const coverage = decision?.coverage
+      return h(
+        'div',
+        null,
+        h(
+          'p',
+          { style: { margin: '0 0 8px', ...muted } },
+          `角色覆盖 ${coverage?.rolesCompleted ?? review.summary?.completed ?? 0}/${coverage?.rolesRequired ?? review.summary?.total ?? 0}`,
+          coverage?.missingRoles?.length ? ` · 缺失：${coverage.missingRoles.join('、')}` : '',
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: '5px' } },
+          review.roles.map((role) => {
+            const meta = VERDICT[role.verdict] ?? VERDICT.skip
+            return h(
+              'div',
+              {
+                key: role.id,
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  border: `1px solid ${T.line}`,
+                  borderLeft: `3px solid ${meta.color}`,
+                  borderRadius: '8px',
+                  background: T.layer2,
+                  padding: '6px 10px',
+                  fontSize: '12.5px',
+                  color: T.text2,
+                },
+              },
+              h('span', null, role.label),
+              h(VerdictBadge, { verdict: role.verdict }),
+            )
+          }),
+        ),
+      )
+    }
+
+    /** Expandable gap row: rule, file:line, reason and fix suggestion. */
+    function GapDetail({ gap, index }) {
+      const severity = gapSeverityMeta(gap.severity ?? (gap.rule ? 'block' : 'info'))
+      const rule = gap.rule ?? gap.code ?? 'GAP'
+      const fileLine = gap.file ? `${gap.file}${gap.line ? `:${gap.line}` : ''}` : null
+      return h(
+        'details',
+        { style: { borderTop: index === 0 ? 'none' : `1px solid ${T.line}` } },
+        h(
+          'summary',
+          { style: { cursor: 'pointer', padding: '7px 0', fontSize: '12.5px', color: T.text2, lineHeight: 1.6 } },
+          h(
+            'span',
+            { style: { display: 'inline-block', marginRight: '7px', fontSize: '10.5px', padding: '1px 6px', borderRadius: '5px', color: severity.color, background: severity.bg } },
+            severity.label,
+          ),
+          h('code', { style: { color: T.text, marginRight: '7px' } }, rule),
+          fileLine ? h('span', { style: { color: T.text3, marginRight: '7px' } }, fileLine) : null,
+          gap.message,
+        ),
+        h(
+          'div',
+          { style: { padding: '0 0 9px 12px', fontSize: '12px', lineHeight: 1.85, color: T.text2 } },
+          h('div', null, h('span', { style: { color: T.text3 } }, '原因：'), gap.message),
+          h('div', null, h('span', { style: { color: T.text3 } }, '修复建议：'), gap.fix ?? '按规则修复后重新运行检查。'),
+          h('div', null, h('span', { style: { color: T.text3 } }, '来源：'), gap.rule ? '门禁 check' : '证据判定'),
+          gap.project ? h('div', null, h('span', { style: { color: T.text3 } }, '项目：'), gap.project) : null,
+        ),
+      )
+    }
+
+    function GapsList({ decision }) {
+      const gaps = decision?.gaps ?? []
+      if (!decision) {
+        return h('p', { style: { margin: 0, ...muted } }, '决策数据尚未返回；暂按原始评审与验收数据展示。')
+      }
+      if (gaps.length === 0) return h('p', { style: { margin: 0, ...muted } }, '没有未解决的证据缺口。')
+      return h(
+        'div',
+        { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '2px 12px' } },
+        gaps.map((gap, index) => h(GapDetail, { key: `${gap.code ?? 'gap'}-${index}`, gap, index })),
+      )
+    }
+
+    /** Acceptance provenance rows; incomplete evidence never reads as a pass. */
+    function AcceptanceProvenance({ latest }) {
+      if (!latest) return null
+      const environment = latest.environment
+        ? [latest.environment.platform, latest.environment.arch, latest.environment.node ? `node ${latest.environment.node}` : null, latest.environment.runner]
+            .filter(Boolean)
+            .join(' · ')
+        : '—'
+      const rows = [
+        ['需求修订', shortHash(latest.requirementHash)],
+        ['实现提交', shortHash(latest.headSha, 12)],
+        ['测试修订', shortHash(latest.testRevision)],
+        ['环境', environment],
+        ['时间', latest.finishedAt ? String(latest.finishedAt).slice(0, 19).replace('T', ' ') : '—'],
+        ['来源', latest.source ?? '—'],
+      ]
+      return h(
+        'div',
+        { style: { marginTop: '8px' } },
+        latest.complete === false
+          ? h(
+              'p',
+              { style: { margin: '0 0 6px', color: T.warn, fontSize: '12px' } },
+              `来源或版本不完整${latest.missing?.length ? `（缺少：${latest.missing.join('、')}）` : ''}`,
+            )
+          : null,
+        h(
+          'div',
+          { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '2px 12px' } },
+          rows.map(([label, value], index) =>
+            h(
+              'div',
+              { key: label, style: { ...row, fontSize: '12px', borderBottom: index === rows.length - 1 ? 'none' : `1px solid ${T.line}` } },
+              h('span', { style: rowLabel }, label),
+              h('span', { style: { color: T.text, fontSize: '12px', wordBreak: 'break-all', minWidth: 0 } }, value),
+            ),
+          ),
+        ),
+      )
+    }
+
+    function AnomalyBlock({ anomalies, summary, onOpen }) {
+      const list = anomalies ?? []
+      if (list.length === 0) return null
+      const counts = summary ?? {}
+      const summaryLabel = [
+        counts.duplicateId ? `ID 重复 ${counts.duplicateId}` : null,
+        counts.duplicateBusinessId ? `业务 ID 重复 ${counts.duplicateBusinessId}` : null,
+        counts.dangling ? `悬空关系 ${counts.dangling}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      return h(
+        'section',
+        { style: { marginTop: '28px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.err}`, borderRadius: '12px', background: T.layer, padding: '14px 16px' } },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' } },
+          h('h3', { style: { margin: 0, fontSize: '13.5px', fontWeight: 600, color: T.text } }, `数据异常（${list.length}）`),
+          summaryLabel ? h('span', { style: muted }, summaryLabel) : null,
+        ),
+        h(
+          'p',
+          { style: { margin: '6px 0 10px', fontSize: '12.5px', color: T.text2, lineHeight: 1.8 } },
+          '这些记录不会自动修复：保留两条记录、不自动合并；点击条目打开对应需求后人工核对。',
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+          list.map((anomaly, index) =>
+            h(
+              'div',
+              { key: `${anomaly.kind}-${index}`, style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '9px 11px' } },
+              h(
+                'div',
+                { style: { display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap', fontSize: '12.5px', color: T.text2 } },
+                h('span', { style: { color: T.err, fontSize: '11px', border: `1px solid ${T.line2}`, borderRadius: '5px', padding: '0 6px' } }, ANOMALY_LABELS[anomaly.kind] ?? anomaly.kind),
+                anomaly.message,
+              ),
+              anomaly.occurrences?.length
+                ? h(
+                    'div',
+                    { style: { display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '6px' } },
+                    anomaly.occurrences.map((occurrence, occurrenceIndex) =>
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          key: `${occurrence.occurrenceKey ?? occurrenceIndex}-${occurrenceIndex}`,
+                          title: '打开对应需求',
+                          onClick: () => onOpen?.(occurrence),
+                          style: { display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap', textAlign: 'left', border: 0, background: 'transparent', color: T.text2, padding: '2px 0', fontSize: '12px', cursor: 'pointer' },
+                        },
+                        h('code', { style: { color: T.brand } }, occurrence.assetId ?? occurrence.id ?? occurrence.occurrenceKey ?? '—'),
+                        occurrence.title ? h('span', null, occurrence.title) : null,
+                        h(
+                          'span',
+                          { style: { color: T.text3 } },
+                          `${occurrence.file ?? anomaly.file ?? '—'}${(occurrence.line ?? anomaly.line) ? `:${occurrence.line ?? anomaly.line}` : ''}`,
+                        ),
+                      ),
+                    ),
+                  )
+                : h(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: () => onOpen?.({ assetId: anomaly.requirementIds?.[0], file: anomaly.file, line: anomaly.line }),
+                      style: { marginTop: '4px', border: 0, background: 'transparent', color: T.brand, padding: 0, fontSize: '12px', cursor: 'pointer' },
+                    },
+                    `${anomaly.ref ?? anomaly.file ?? '—'}${anomaly.line ? `:${anomaly.line}` : ''} · 打开需求`,
+                  ),
+            ),
+          ),
+        ),
+      )
+    }
+
     function ReviewModal({ item, root, onClose, onDone }) {
       const [state, setState] = useState({ loading: true, plan: null, result: null, error: null, saving: false })
       const load = useCallback(() => {
@@ -306,7 +673,10 @@ window.__ModuleLoader__.load({
     function SignoffModal({ item, root, onClose, onDone }) {
       const [actor, setActor] = useState('human:peterzhanghao')
       const [state, setState] = useState({ loading: false, result: null, error: null })
+      const decision = item.decision ?? null
+      const signoffReasons = decision?.signoff?.reasons ?? []
       const submit = () => {
+        if (state.loading) return
         setState({ loading: true, result: null, error: null })
         writeJson('signoff', { requirementId: item.id, actor, apply: true }, root)
           .then((result) => {
@@ -324,9 +694,28 @@ window.__ModuleLoader__.load({
           width: '620px',
           footer: [
             h('button', { key: 'close', style: state.result ? primary : button, onClick: onClose }, '关闭'),
-            state.result ? null : h('button', { key: 'sign', style: primary, onClick: submit, disabled: state.loading }, state.loading ? '签收中…' : '确认签收'),
+            state.result ? null : h('button', { key: 'sign', style: primary, onClick: submit }, state.loading ? '签收中…' : '确认签收'),
           ],
         },
+        h(
+          'div',
+          { style: { marginTop: '12px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '10px 12px', fontSize: '12px', lineHeight: 1.8, color: T.text2 } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+            decision ? h(DecisionPill, { decision }) : h('span', { style: muted }, '决策数据尚未返回'),
+            decision?.topGap ? h('span', null, decision.topGap.message) : null,
+          ),
+          signoffReasons.length
+            ? h(
+                'ul',
+                { style: { margin: '6px 0 0', paddingLeft: '20px' } },
+                signoffReasons.map((reason, index) =>
+                  h('li', { key: `${reason.code ?? 'reason'}-${index}` }, h('code', { style: { color: T.text, marginRight: '6px' } }, reason.code ?? 'reason'), reason.message),
+                ),
+              )
+            : h('div', { style: { marginTop: '4px', color: T.text3 } }, '后端会按当前证据判定是否允许签收；前端不做假校验，提交后以后端错误为准。'),
+        ),
         h(
           'label',
           { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2, marginTop: '12px' } },
@@ -592,11 +981,13 @@ window.__ModuleLoader__.load({
       const meta = []
       if (item.owner) meta.push(item.owner)
       if (item.priority) meta.push(item.priority)
-      meta.push(`验收 ${item.verifiedBy?.length ?? 0} 项`)
       if (item.attachments) meta.push(`${item.attachments} 个附件`)
+      if (item.verifiedBy?.length) meta.push(`验收已关联 ${item.verifiedBy.length} 项`)
       if (item.sources?.length) meta.push(item.sources.join(' / '))
       if (item.github?.board?.status) meta.push(`看板 ${item.github.board.status}`)
-      if (item.review?.summary?.blockers > 0) meta.push(`${item.review.summary.blockers} 个评审阻塞`)
+      const decision = item.decision ?? null
+      const decisionNext = decision?.nextStep?.label ?? null
+      const occurrenceKey = item.occurrenceKey ?? item.id
 
       return h(
         'article',
@@ -604,7 +995,7 @@ window.__ModuleLoader__.load({
           style: card,
           role: 'button',
           tabIndex: 0,
-          'data-req': item.id,
+          'data-req': occurrenceKey,
           onClick: () => onOpen(item),
           onKeyDown: (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -674,6 +1065,15 @@ window.__ModuleLoader__.load({
             ),
             h('h3', { style: { margin: 0, fontSize: '15.5px', fontWeight: 600, lineHeight: 1.5, letterSpacing: '-.01em' } }, item.title),
             h('p', { style: { margin: '7px 0 0', ...muted } }, meta.join(' · ')),
+            decision
+              ? h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '8px' } },
+                  h(DecisionPill, { decision }),
+                  decision.topGap ? h('span', { style: { fontSize: '12px', color: T.text2, minWidth: 0 } }, decision.topGap.message) : null,
+                  decisionNext ? h('span', { style: { fontSize: '11.5px', color: T.text3 } }, `下一步 · ${decisionNext}`) : null,
+                )
+              : null,
           ),
           h(
             'span',
@@ -939,13 +1339,16 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, compact }) {
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, onRehearsal, compact }) {
       const relations = relationsOf(item, allItems)
       const priorityColor = item.priority === 'P0' ? T.err : item.priority === 'P1' ? T.warn : T.text2
       const review = item.review
-      const reviewHint = review?.summary
-        ? h('span', { style: { color: review.summary.blockers > 0 ? T.err : T.ok, fontSize: '11.5px' } }, `${review.summary.completed}/${review.summary.total} 角色 · ${review.summary.blockers} 阻塞`)
-        : null
+      const decision = item.decision ?? null
+      const reviewHint = decision
+        ? h('span', { style: { color: decisionTone(decision).color, fontSize: '11.5px' } }, decisionLabel(decision))
+        : review?.summary
+          ? h('span', { style: { color: review.summary.blockers > 0 ? T.err : T.text2, fontSize: '11.5px' } }, `${review.summary.completed}/${review.summary.total} 角色 · ${review.summary.blockers} 阻塞`)
+          : null
       const actionLink = (label, handler) =>
         h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: handler }, label)
       return h(
@@ -983,6 +1386,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { padding: compact ? '4px 22px 28px' : '4px 26px 34px' } },
+          h(DecisionBar, { decision }),
           h(
             GroupCard,
             { title: '需求背景', accent: T.brand, hint: item.brief ? h('span', { style: { ...muted } }, item.brief) : null },
@@ -997,12 +1401,38 @@ window.__ModuleLoader__.load({
             { title: '质量与验收', accent: T.ok, hint: reviewHint },
             h(
               SubBlock,
+              { title: '证据缺口', first: true },
+              h(GapsList, { decision }),
+            ),
+            h(
+              SubBlock,
+              { title: `验收覆盖（${item.verifiedBy?.length ?? 0}）` },
+              (item.verifiedBy ?? []).length
+                ? h(
+                    'div',
+                    { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+                    item.verifiedBy.map((id) => {
+                      const green = stateIsGreen(decision)
+                      return h(MetaChip, { key: id, color: green ? T.ok : T.text2 }, green ? `✓ ${id}` : `已关联 ${id}`)
+                    }),
+                  )
+                : h('p', { style: { margin: 0, color: T.warn, fontSize: '12.5px' } }, '没有 verified_by，COV-001 会失败。'),
+            ),
+            h(SubBlock, { title: '角色覆盖' }, h(RoleBars, { review, decision })),
+            h(
+              SubBlock,
               {
                 title: '评审',
-                first: true,
-                action: h('div', { style: { display: 'flex', gap: '10px' } }, actionLink('AI 评审', () => onAiReview(item)), actionLink('运行评审', () => onReview(item)), actionLink('人工签收', () => onSignoff(item))),
+                action: h(
+                  'div',
+                  { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
+                  actionLink('AI 评审', () => onAiReview(item)),
+                  actionLink('运行评审', () => onReview(item)),
+                  actionLink('人工签收', () => onSignoff(item)),
+                  actionLink('变更试演', () => onRehearsal(item)),
+                ),
               },
-              h(ReviewBlock, { review: item.review }),
+              h(ReviewBlock, { review, showRoles: false }),
               h(
                 'div',
                 { style: { marginTop: '8px', fontSize: '12px' } },
@@ -1010,13 +1440,6 @@ window.__ModuleLoader__.load({
                   ? h('span', { style: { color: item.aiReview.verdict === 'block' ? T.err : item.aiReview.verdict === 'pass' ? T.ok : T.warn } }, `AI 评审：${item.aiReview.verdict} · ${item.aiReview.suggestions} 条建议${item.aiReview.adopted ? ' · 已采纳' : ''}`)
                   : h('span', { style: muted }, 'AI 尚未参与评审，可生成评审与重构方案。'),
               ),
-            ),
-            h(
-              SubBlock,
-              { title: `验收覆盖（${item.verifiedBy?.length ?? 0}）` },
-              (item.verifiedBy ?? []).length
-                ? h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, item.verifiedBy.map((id) => h(MetaChip, { key: id, color: T.ok }, `✓ ${id}`)))
-                : h('p', { style: { margin: 0, color: T.warn, fontSize: '12.5px' } }, '没有 verified_by，COV-001 会失败。'),
             ),
             h(
               SubBlock,
@@ -1034,12 +1457,13 @@ window.__ModuleLoader__.load({
                         ? h(
                             'span',
                             { style: { color: item.acceptance.latest.result === 'pass' ? T.ok : T.err } },
-                            `${item.acceptance.latest.result} · ${item.acceptance.latest.headSha.slice(0, 8)}${item.acceptance.latest.current ? ' · 当前提交' : ' · 历史提交'}`,
+                            `${item.acceptance.latest.result} · ${shortHash(item.acceptance.latest.headSha, 8)}${item.acceptance.latest.current ? ' · 当前提交' : ' · 历史提交'}${item.acceptance.latest.complete === false ? ' · 来源不完整' : ''}`,
                           )
                         : h('span', { style: muted }, '尚未运行'),
                     ),
                   )
                 : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令（.alm/acceptance/<REQ>.json，白名单 node / npm / pnpm）。'),
+              h(AcceptanceProvenance, { latest: item.acceptance?.latest }),
             ),
           ),
           h(
@@ -1086,6 +1510,7 @@ window.__ModuleLoader__.load({
             },
             h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
             h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
+            h('button', { style: button, onClick: () => onRehearsal(item) }, '变更试演'),
             h('button', { style: button, onClick: () => onDetail(item) }, '查看详情'),
             onClose ? h('button', { style: button, onClick: onClose }, '关闭') : null,
           ),
@@ -1093,7 +1518,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, onRehearsal }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -1124,12 +1549,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, onRehearsal, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, onRehearsal }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -1138,6 +1563,8 @@ window.__ModuleLoader__.load({
         return () => document.removeEventListener('keydown', onKey)
       }, [onClose])
       const relations = relationsOf(item, allItems)
+      const decision = item.decision ?? null
+      const verifiedGreen = stateIsGreen(decision)
       return h(
         'div',
         { style: { position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(4,6,9,.62)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', padding: '24px' }, onClick: onClose },
@@ -1171,6 +1598,7 @@ window.__ModuleLoader__.load({
           ),
           h('h2', { style: { margin: '12px 0 4px', fontSize: '24px', lineHeight: 1.35, letterSpacing: '-.01em' } }, item.title),
           h('p', { style: { margin: 0, ...muted } }, [item.owner, item.priority, `${item.projectName ?? item.project ?? '未归属项目'}${item.project ? `（${item.project}）` : ''}`].filter(Boolean).join(' · ')),
+          h(DecisionBar, { decision }),
           h(
             'div',
             { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: '30px', marginTop: '20px' } },
@@ -1184,9 +1612,10 @@ window.__ModuleLoader__.load({
                 item.sources?.length ? h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } }, item.sources.map((source) => h(Chip, { key: source }, `来源 · ${source}`))) : null,
                 h(Attachments, { item }),
               ),
-              h(Section, { title: `验收标准（${item.verifiedBy?.length ?? 0}）` },
+              h(Section, { title: '证据缺口' }, h(GapsList, { decision })),
+              h(Section, { title: `验收覆盖（${item.verifiedBy?.length ?? 0}）` },
                 (item.verifiedBy ?? []).length
-                  ? h('div', null, item.verifiedBy.map((id) => h('div', { key: id, style: { ...row, color: T.text } }, h('span', { style: { color: T.ok } }, '✓'), id)))
+                  ? h('div', null, item.verifiedBy.map((id) => h('div', { key: id, style: { ...row, color: T.text } }, h('span', { style: { color: verifiedGreen ? T.ok : T.text3 } }, verifiedGreen ? '✓' : '·'), `已关联 ${id}`)))
                   : h('p', { style: { margin: 0, color: T.warn, fontSize: '12.5px' } }, '没有 verified_by，COV-001 会失败。'),
               ),
               h(Section, { title: '关系', action: h(TraceLink, { onClick: () => onTrace(item) }) },
@@ -1203,7 +1632,8 @@ window.__ModuleLoader__.load({
                 h('p', { style: { margin: '4px 0 0', ...muted } }, projectMeta?.repo ?? item.github?.repo ?? '—'),
               ),
               h(Section, { title: 'GitHub / 看板' }, h(GithubBlock, { item, projectMeta })),
-              h(Section, { title: '评审', action: h('div', { style: { display: 'flex', gap: '8px' } }, h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onAiReview(item) }, 'AI 评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onReview(item) }, '运行评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onSignoff(item) }, '签收')) }, h(ReviewBlock, { review: item.review })),
+              h(Section, { title: '评审', action: h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onAiReview(item) }, 'AI 评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onReview(item) }, '运行评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onSignoff(item) }, '签收'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onRehearsal(item) }, '变更试演')) }, h(ReviewBlock, { review: item.review, showRoles: false })),
+              h(Section, { title: '角色覆盖' }, h(RoleBars, { review: item.review, decision })),
               h(
                 Section,
                 {
@@ -1214,10 +1644,11 @@ window.__ModuleLoader__.load({
                   ? h('p', { style: { margin: 0, fontSize: '12.5px', color: T.text2 } },
                       `${item.acceptance.commandCount} 条命令`,
                       item.acceptance.latest
-                        ? ` · 最近 ${item.acceptance.latest.result}${item.acceptance.latest.current ? '（当前提交）' : '（历史提交）'}`
+                        ? ` · 最近 ${item.acceptance.latest.result}${item.acceptance.latest.current ? '（当前提交）' : '（历史提交）'}${item.acceptance.latest.complete === false ? ' · 来源不完整' : ''}`
                         : ' · 尚未运行',
                     )
                   : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令。'),
+                h(AcceptanceProvenance, { latest: item.acceptance?.latest }),
               ),
               h(Section, { title: '版本历史' }, h(VersionList, { item, onSnapshot, onDiff, compact: true })),
               h(Section, { title: '技术' },
@@ -1231,6 +1662,7 @@ window.__ModuleLoader__.load({
             h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
             h('button', { style: button, onClick: () => onAcceptance(item) }, '运行需求验收'),
             h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
+            h('button', { style: button, onClick: () => onRehearsal(item) }, '变更试演'),
             h('button', { style: button, onClick: onClose }, '关闭'),
           ),
         ),
@@ -1551,7 +1983,12 @@ window.__ModuleLoader__.load({
       }).then(async (response) => {
         const payload = await response.json().catch(() => null)
         if (!response.ok || payload?.ok === false) {
-          throw new Error(payload?.error?.message ?? `HTTP ${response.status}`)
+          const error = new Error(payload?.error?.message ?? `HTTP ${response.status}`)
+          // Keep the backend error code so callers can react to contract errors
+          // (e.g. stale-preview) instead of guessing from the message text.
+          error.code = payload?.error?.code ?? null
+          error.status = response.status
+          throw error
         }
         return payload
       })
@@ -1919,10 +2356,11 @@ window.__ModuleLoader__.load({
               h(PlanRows, {
                 rows: [
                   ['结果', evidence.result],
-                  ['提交', evidence.headSha.slice(0, 12)],
+                  ['提交', shortHash(evidence.headSha, 12)],
                   ['证据', result.evidencePath],
                 ],
               }),
+              h(AcceptanceProvenance, { latest: evidence }),
               h(
                 'div',
                 { style: { marginTop: '10px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '8px 12px' } },
@@ -2101,6 +2539,208 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function RehearsalModal({ item, root, onClose, onDone }) {
+      const [field, setField] = useState('title')
+      const [value, setValue] = useState(item.title ?? '')
+      const [state, setState] = useState({ loading: false, preview: null, result: null, error: null, stale: false })
+      const [idempotencyKey] = useState(() => `ui-rehearsal-${item.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+      const change = () => ({ field, value })
+      const fieldLabel = (key) => (REHEARSAL_FIELDS.find(([id]) => id === key) ?? [key, key])[1]
+      const pickField = (nextField) => {
+        setField(nextField)
+        setValue(nextField === 'title' ? (item.title ?? '') : nextField === 'priority' ? (item.priority ?? 'P1') : (item.briefText ?? ''))
+        setState({ loading: false, preview: null, result: null, error: null, stale: false })
+      }
+      const preview = () => {
+        setState({ loading: true, preview: null, result: null, error: null, stale: false })
+        writeJson('rehearsal', { requirementId: item.id, change: change() }, root)
+          .then((next) => setState({ loading: false, preview: next, result: null, error: null, stale: false }))
+          .catch((error) => setState({ loading: false, preview: null, result: null, error: error.message, stale: false }))
+      }
+      const submit = () => {
+        const current = state.preview
+        if (!current || state.loading) return
+        setState((previous) => ({ ...previous, loading: true, result: null, error: null, stale: false }))
+        writeJson(
+          'rehearsal',
+          { requirementId: item.id, change: change(), apply: true, expectedBaseline: current.baseline, actor: 'human:local', idempotencyKey },
+          root,
+        )
+          .then((result) => {
+            setState({ loading: false, preview: null, result, error: null, stale: false })
+            onDone?.()
+          })
+          .catch((error) => {
+            const stale = error.code === 'stale-preview' || String(error.message ?? '').includes('stale-preview')
+            if (!stale) {
+              setState((previous) => ({ ...previous, loading: false, error: error.message, stale: false }))
+              return
+            }
+            // The baseline moved under us: recompute instead of pretending success.
+            setState((previous) => ({ ...previous, loading: false, error: null, stale: true }))
+            writeJson('rehearsal', { requirementId: item.id, change: change() }, root)
+              .then((next) => setState((previous) => ({ ...previous, loading: false, preview: next, error: null, stale: true })))
+              .catch((nextError) => setState((previous) => ({ ...previous, loading: false, error: nextError.message, stale: true })))
+          })
+      }
+      const previewData = state.preview
+      const result = state.result
+      const nodeLabel = (node) => {
+        if (!node) return '—'
+        if (typeof node === 'string') return node
+        return `${node.id ?? node.title ?? node.assetId ?? '—'}${node.title && node.id ? ` · ${node.title}` : ''}`
+      }
+      const groups = [
+        ['reverify', '需重验'],
+        ['reconfirm', '需重新确认'],
+        ['reference', '仅参考'],
+      ]
+      return h(
+        ModalShell,
+        {
+          title: `变更试演 · ${item.id}`,
+          lead: '试演只预览影响面，不写文件；确认提交会携带当前 baseline（内容哈希 + 关系快照）做 CAS，并写入审计记录。',
+          onClose,
+          width: '860px',
+          footer: [
+            h('button', { key: 'close', style: result ? primary : button, onClick: onClose }, result ? '关闭' : '取消'),
+            result
+              ? null
+              : h('button', { key: 'preview', style: button, onClick: preview }, state.loading ? '处理中…' : '预览变更'),
+            previewData && !result ? h('button', { key: 'submit', style: primary, onClick: submit }, '确认提交') : null,
+          ],
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '14px' } },
+          h('span', { style: { fontSize: '12px', color: T.text2 } }, '字段'),
+          h(
+            'select',
+            { style: input, value: field, onChange: (event) => pickField(event.target.value) },
+            REHEARSAL_FIELDS.map(([id, label]) => h('option', { key: id, value: id }, label)),
+          ),
+        ),
+        h(
+          'label',
+          { style: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '10px', fontSize: '12px', color: T.text2 } },
+          field === 'brief' ? '背景全文（Markdown）' : field === 'priority' ? '优先级' : '标题',
+          field === 'priority'
+            ? h(
+                'select',
+                { style: input, value, onChange: (event) => setValue(event.target.value) },
+                ['P0', 'P1', 'P2', 'P3'].map((priority) => h('option', { key: priority, value: priority }, priority)),
+              )
+            : field === 'brief'
+              ? h('textarea', { style: { ...input, width: '100%', minHeight: '120px', resize: 'vertical', fontFamily: 'inherit' }, value, onChange: (event) => setValue(event.target.value) })
+              : h('input', { style: input, value, onChange: (event) => setValue(event.target.value) }),
+        ),
+        state.stale
+          ? h('p', { style: { margin: '10px 0 0', color: T.warn, fontSize: '12.5px', lineHeight: 1.8 } }, '已被他人修改，已重新计算，请确认。')
+          : null,
+        state.loading ? h('p', { style: { margin: '10px 0 0', ...muted } }, '正在读取影响面…') : null,
+        state.error ? h('p', { style: { margin: '10px 0 0', color: T.err, fontSize: '12.5px' } }, state.error) : null,
+        result
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['状态', result.applied === false ? '未提交' : '已提交'],
+                  ['修订', result.revision ? `v${result.revision}` : '—'],
+                  ['文件', result.file ?? '—'],
+                  ['审计', result.auditFile ?? '—'],
+                ],
+              }),
+              h('p', { style: { margin: '8px 0 0', color: T.warn, fontSize: '12px' } }, '签收与验收证据已失效：需要重新评审、重新签收并重跑验收。'),
+            )
+          : null,
+        previewData
+          ? h(
+              'div',
+              { style: { marginTop: '14px' } },
+              h(PlanRows, {
+                rows: [
+                  ['变更', `${fieldLabel(previewData.change?.field ?? field)} · ${item.id}`],
+                  ['基线内容哈希', shortHash(previewData.baseline?.contentHash)],
+                  ['基线关系快照', shortHash(previewData.baseline?.relationHash)],
+                  ['基线提交', shortHash(previewData.baseline?.headSha, 8)],
+                  ['基线修订', `v${previewData.baseline?.revision ?? item.revision ?? 1}`],
+                ],
+              }),
+              h(
+                'div',
+                { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px', marginTop: '10px' } },
+                h(
+                  'div',
+                  { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '10px 12px' } },
+                  h('div', { style: { fontSize: '11px', color: T.text3, marginBottom: '4px' } }, '变更前'),
+                  h('div', { style: { fontSize: '12.5px', color: T.text2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, previewData.change?.before ?? '（空）'),
+                ),
+                h(
+                  'div',
+                  { style: { border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.brand}`, borderRadius: '10px', padding: '10px 12px' } },
+                  h('div', { style: { fontSize: '11px', color: T.text3, marginBottom: '4px' } }, '变更后'),
+                  h('div', { style: { fontSize: '12.5px', color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, previewData.change?.after ?? '（空）'),
+                ),
+              ),
+              h(
+                'div',
+                { style: { marginTop: '12px' } },
+                h('div', { style: { fontSize: '11px', letterSpacing: '.08em', textTransform: 'uppercase', color: T.text3 } }, '影响分组（提示，不是阻塞）'),
+                groups.map(([key, label]) => {
+                  const nodes = previewData.impact?.groups?.[key] ?? []
+                  return h(
+                    'div',
+                    { key, style: { marginTop: '6px', fontSize: '12px', color: T.text2 } },
+                    h('span', { style: { color: T.text3, marginRight: '6px' } }, `${label} ${nodes.length}`),
+                    nodes.length
+                      ? h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' } }, nodes.map((node, index) => h(MetaChip, { key: `${key}-${index}` }, nodeLabel(node))))
+                      : h('span', { style: muted }, '无'),
+                  )
+                }),
+              ),
+              previewData.impact?.paths?.length
+                ? h(
+                    'details',
+                    { style: { marginTop: '10px', borderTop: `1px solid ${T.line}`, paddingTop: '8px' } },
+                    h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: T.text2 } }, `影响路径（${previewData.impact.paths.length}）`),
+                    h(
+                      'div',
+                      { style: { marginTop: '6px', fontSize: '11.5px', color: T.text2, lineHeight: 1.8 } },
+                      previewData.impact.paths.map((path, index) =>
+                        h(
+                          'div',
+                          { key: index },
+                          `${path.to} · 深度 ${path.depth}`,
+                          path.relations?.length ? h('span', { style: { color: T.text3 } }, ` · ${path.relations.map((relation) => `${relation.from}→${relation.type}→${relation.to}`).join(' / ')}`) : null,
+                        ),
+                      ),
+                    ),
+                  )
+                : null,
+              previewData.impact?.blindSpots?.length
+                ? h(
+                    'div',
+                    { style: { marginTop: '10px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '8px 12px' } },
+                    h('div', { style: { color: T.warn, fontSize: '12px', marginBottom: '3px' } }, '盲区：未登记影响不等于无影响'),
+                    previewData.impact.blindSpots.map((spot, index) =>
+                      h(
+                        'div',
+                        { key: index, style: { fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+                        `${spot.kind === 'no-relations' ? '未登记关系' : spot.kind === 'unresolved-target' ? '目标资产缺失' : '未知关系类型'}：${spot.detail}`,
+                      ),
+                    ),
+                  )
+                : null,
+              previewData.impact?.coverage
+                ? h('p', { style: { margin: '8px 0 0', ...muted } }, `扫描关系 ${previewData.impact.coverage.relations ?? 0} · 已探索 ${previewData.impact.coverage.explored ?? 0} · 深度上限 ${previewData.impact.coverage.maxDepth ?? 4}${previewData.impact.coverage.truncated ? ' · 已截断' : ''}`)
+                : null,
+              h('p', { style: { margin: '8px 0 0', ...muted } }, '影响是提示，不是阻塞；确认提交前请人工判断。'),
+            )
+          : null,
+      )
+    }
+
     function CreateModal({ root, project, projectName, onClose, onCreated }) {
       const [form, setForm] = useState({ title: '', brief: '', priority: 'P1', owner: '张浩' })
       const [intent, setIntent] = useState('')
@@ -2136,16 +2776,37 @@ window.__ModuleLoader__.load({
         setAiDraft({ loading: true, error: null, draft: null })
         writeJson('draft', { intent: text, source, extractedText: parsed?.text ?? '', projectName }, root)
           .then((draft) => {
+            // AI only proposes: never auto-fill priority/owner (or any field)
+            // before the human explicitly adopts the suggestion.
             setAiDraft({ loading: false, error: null, draft })
-            setForm((current) => ({
-              ...current,
-              title: draft.title ?? current.title,
-              brief: draft.brief ?? current.brief,
-              priority: draft.priority ?? current.priority,
-              owner: draft.owner || '张浩',
-            }))
           })
           .catch((error) => setAiDraft({ loading: false, error: error.message, draft: null }))
+      }
+      const adoptSuggestion = (key, suggestedValue) => {
+        const suggested = suggestedValue ?? aiDraft.draft?.[key]
+        if (suggested === undefined || suggested === null || suggested === '') return
+        setForm((current) => ({ ...current, [key]: suggested }))
+      }
+      const suggestionRow = (label, suggested, key, adoptValue) => {
+        if (!suggested) return null
+        const shown = String(suggested).length > 160 ? `${String(suggested).slice(0, 160)}…` : String(suggested)
+        return h(
+          'div',
+          { style: { display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', padding: '3px 0', fontSize: '12px', color: T.text2 } },
+          h('span', { style: { color: T.text3, flex: 'none' } }, label),
+          h('span', { style: { color: T.text, minWidth: 0, wordBreak: 'break-word' } }, shown),
+          h('button', { style: { ...button, padding: '1px 8px', fontSize: '11px', flex: 'none' }, onClick: () => adoptSuggestion(key, adoptValue) }, '采用'),
+        )
+      }
+      const suggestionNote = (label, values) => {
+        const list = (values ?? []).filter(Boolean)
+        if (list.length === 0) return null
+        return h(
+          'div',
+          { style: { padding: '3px 0', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+          h('span', { style: { color: T.text3, marginRight: '6px' } }, label),
+          list.join('；'),
+        )
       }
       const runIntake = (body) => {
         setIntake({ loading: true, error: null, data: null })
@@ -2251,7 +2912,7 @@ window.__ModuleLoader__.load({
         ModalShell,
         {
           title: '新建需求',
-          lead: `归属项目 ${projectName ?? project ?? '—'}；输入口语 / 聊天 / 截图，AI 自动生成标题、背景与优先级；责任人默认张浩，预览确认后创建。`,
+          lead: `归属项目 ${projectName ?? project ?? '—'}；输入口语 / 聊天 / 截图，AI 生成建议草稿（待确认），不会自动填写优先级与负责人；预览确认后创建。`,
           onClose,
           width: '820px',
           footer: [
@@ -2305,18 +2966,36 @@ window.__ModuleLoader__.load({
               'div',
               { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px', flexWrap: 'wrap' } },
               h('button', { style: primary, onClick: () => generateDraft(), disabled: aiDraft.loading || intent.trim() === '' }, aiDraft.loading ? 'AI 正在生成…' : 'AI 生成需求草稿'),
-              h('span', { style: { ...muted } }, 'AI 生成标题、背景、优先级；责任人默认张浩，可修改。'),
+              h('span', { style: { ...muted } }, 'AI 只生成建议草稿（待确认）；优先级与负责人不会被自动填写。'),
             ),
             aiDraft.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在调用 DSH 默认模型整理需求，约 5–30 秒…') : null,
             aiDraft.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12px' } }, aiDraft.error) : null,
             aiDraft.draft
-              ? h('div', { style: { marginTop: '6px', fontSize: '12px', color: T.ok } },
-                  `AI 已生成：${aiDraft.draft.title} · 优先级 ${aiDraft.draft.priority} · 责任人 ${aiDraft.draft.owner}`,
-                  aiDraft.draft.rationale ? h('span', { style: { display: 'block', marginTop: '2px', ...muted } }, aiDraft.draft.rationale) : null,
+              ? h(
+                  'div',
+                  { style: { marginTop: '8px', border: `1px dashed ${T.line2}`, borderRadius: '10px', padding: '10px 12px' } },
+                  h('div', { style: { fontSize: '11px', letterSpacing: '.08em', textTransform: 'uppercase', color: T.text3, marginBottom: '4px' } }, 'AI 建议（待确认）'),
+                  suggestionRow('标题', aiDraft.draft.title, 'title'),
+                  suggestionRow('背景', aiDraft.draft.brief, 'brief'),
+                  suggestionRow(
+                    '建议优先级',
+                    aiDraft.draft.suggestedPriority ?? aiDraft.draft.priority,
+                    'priority',
+                    aiDraft.draft.suggestedPriority ?? aiDraft.draft.priority,
+                  ),
+                  h('p', { style: { margin: '3px 0 0', ...muted, lineHeight: 1.8 } }, '负责人：AI 不提供建议，由人工指定；表单里已有的负责人不会被覆盖。'),
+                  aiDraft.draft.rationale ? h('p', { style: { margin: '6px 0 0', ...muted, lineHeight: 1.8 } }, aiDraft.draft.rationale) : null,
+                  suggestionNote('核心断言', [aiDraft.draft.claim]),
+                  suggestionNote('假设', aiDraft.draft.assumptions),
+                  suggestionNote('待确认问题', [aiDraft.draft.question]),
+                  suggestionNote('反例（不是已发生缺陷）', [aiDraft.draft.counterexample]),
+                  suggestionNote('验收线索', aiDraft.draft.acceptanceDraft),
+                  suggestionNote('未知 / 待确认', aiDraft.draft.unknowns),
+                  h('p', { style: { margin: '6px 0 0', fontSize: '11.5px', color: T.text3 } }, '需逐项手动「采用」；未采用的建议不会写入表单。'),
                 )
               : null,
           ),
-          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '标题', h('input', { ...field('title'), style: input, placeholder: 'AI 会生成，也可手改' })),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '标题', h('input', { ...field('title'), style: input, placeholder: '可手填，或采用 AI 建议' })),
           h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '背景 / 目标', h('textarea', { ...field('brief'), style: { ...input, minHeight: '88px', resize: 'vertical', fontFamily: 'inherit' }, placeholder: '原始诉求、目标与范围外' })),
           sourcePanel,
           attachment
@@ -2488,6 +3167,7 @@ window.__ModuleLoader__.load({
       const [reviewItem, setReviewItem] = useState(null)
       const [aiReviewItem, setAiReviewItem] = useState(null)
       const [signoffItem, setSignoffItem] = useState(null)
+      const [rehearsalItem, setRehearsalItem] = useState(null)
       const [createOpen, setCreateOpen] = useState(false)
       const [associateTarget, setAssociateTarget] = useState(null)
       const [showRoot, setShowRoot] = useState(false)
@@ -2595,6 +3275,9 @@ window.__ModuleLoader__.load({
       )
 
       const items = data?.requirements ?? []
+      // Selection is by occurrenceKey, not by UID: duplicate UIDs are kept as
+      // two records and must be selectable independently.
+      const keyOf = (item) => item?.occurrenceKey ?? item?.id
       const scopedItems = items
       const counts = {}
       for (const item of scopedItems) counts[item.status] = (counts[item.status] ?? 0) + 1
@@ -2610,14 +3293,25 @@ window.__ModuleLoader__.load({
           )
         })
 
-      const selected = items.find((item) => item.id === selectedId) ?? null
+      const selected = items.find((item) => keyOf(item) === selectedId) ?? null
       const currentProject = projects.find((entry) => entry.id === projectId || entry.workspaceId === projectId) ?? null
+      const openOccurrence = (occurrence) => {
+        const match = items.find((item) => {
+          if (occurrence?.occurrenceKey) return keyOf(item) === occurrence.occurrenceKey
+          return item.id === (occurrence?.assetId ?? occurrence?.id ?? occurrence?.requirementIds?.[0])
+        })
+        if (match) setSelectedId(keyOf(match))
+      }
+      const openRequirementById = (id) => {
+        const match = items.find((item) => item.id === id)
+        setSelectedId(match ? keyOf(match) : id)
+      }
       const projectLabel =
         projectId === ALL_PROJECTS
           ? '全部项目'
           : currentProject?.title ?? data?.projectName ?? null
       const summary = data
-        ? `${projectLabel ? `${projectLabel} · ` : ''}${data.summary.requirements} 条需求 · ${counts.proposed ?? 0} 条待评审 · ${counts['in-progress'] ?? 0} 条开发中 · check ${data.result}${data.scope === 'all' ? ` · ${data.summary.projects} 个项目` : ''}`
+        ? `${projectLabel ? `${projectLabel} · ` : ''}${data.summary.requirements} 条需求 · ${counts.proposed ?? 0} 条待评审 · ${counts['in-progress'] ?? 0} 条开发中 · check ${data.result}${data.scope === 'all' ? ` · ${data.summary.projects} 个项目` : ''}${data.anomalySummary?.count ? ` · ${data.anomalySummary.count} 个数据异常` : ''}`
         : '加载中…'
 
       const header = h(
@@ -2724,10 +3418,10 @@ window.__ModuleLoader__.load({
                     h('span', { style: { color: T.text3 } }, `${project.root ?? ''} · ${projectItems.length} 条`),
                     project.error ? h('span', { style: { color: T.err } }, `读取失败：${project.error}`) : null,
                   ),
-                  projectItems.map((item) => h(RequirementCard, { key: item.id, item, showProject: false, onOpen: (entry) => setSelectedId(entry.id) })),
+                  projectItems.map((item) => h(RequirementCard, { key: keyOf(item), item, showProject: false, onOpen: (entry) => setSelectedId(keyOf(entry)) })),
                 )
               })
-            : visible.map((item) => h(RequirementCard, { key: item.id, item, showProject: false, onOpen: (entry) => setSelectedId(entry.id) })),
+            : visible.map((item) => h(RequirementCard, { key: keyOf(item), item, showProject: false, onOpen: (entry) => setSelectedId(keyOf(entry)) })),
           visible.length === 0
             ? h('div', { style: { ...card, cursor: 'default', textAlign: 'center', color: T.text2, padding: '36px' } }, '没有符合筛选条件的需求')
             : null,
@@ -2739,13 +3433,11 @@ window.__ModuleLoader__.load({
           ? h(
               'div',
               { style: { marginTop: '24px' } },
-              h('h3', { style: { margin: '0 0 6px', fontSize: '13px', fontWeight: 600, color: T.text2 } }, `追踪缺口（${data.gaps.length}）`),
+              h('h3', { style: { margin: '0 0 6px', fontSize: '13px', fontWeight: 600, color: T.text2 } }, `门禁 check 缺口（${data.gaps.length}）`),
               h(
-                'ul',
-                { style: { margin: 0, paddingLeft: '18px', fontSize: '12px', color: T.text2, lineHeight: 1.9 } },
-                data.gaps.map((gap, index) =>
-                  h('li', { key: `${gap.rule}-${index}` }, `${gap.project ? `[${gap.project}] ` : ''}${gap.rule} ${gap.file}${gap.line ? `:${gap.line}` : ''} ${gap.message}`),
-                ),
+                'div',
+                { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '2px 12px' } },
+                data.gaps.map((gap, index) => h(GapDetail, { key: `${gap.rule}-${index}`, gap, index })),
               ),
             )
           : data
@@ -2759,6 +3451,7 @@ window.__ModuleLoader__.load({
         showRoot ? h(RootPicker, { rootInput, setRootInput, onApply: () => applyRoot(rootInput), onReset: () => { setRootInput(''); applyRoot('') } }) : null,
         toolbar,
         body,
+        h(AnomalyBlock, { anomalies: data?.anomalies, summary: data?.anomalySummary, onOpen: openOccurrence }),
         gapsBlock,
         selected
           ? h(Drawer, {
@@ -2777,6 +3470,7 @@ window.__ModuleLoader__.load({
               onReview: (entry) => setReviewItem(entry),
               onSignoff: (entry) => setSignoffItem(entry),
               onAiReview: (entry) => setAiReviewItem(entry),
+              onRehearsal: (entry) => setRehearsalItem(entry),
             })
           : null,
         detailOpen && selected
@@ -2795,6 +3489,7 @@ window.__ModuleLoader__.load({
               onReview: (entry) => setReviewItem(entry),
               onSignoff: (entry) => setSignoffItem(entry),
               onAiReview: (entry) => setAiReviewItem(entry),
+              onRehearsal: (entry) => setRehearsalItem(entry),
             })
           : null,
         snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
@@ -2839,6 +3534,14 @@ window.__ModuleLoader__.load({
               onDone: () => reload(),
             })
           : null,
+        rehearsalItem
+          ? h(RehearsalModal, {
+              item: rehearsalItem,
+              root: rehearsalItem.root ?? data?.root ?? root,
+              onClose: () => setRehearsalItem(null),
+              onDone: () => reload(),
+            })
+          : null,
         acceptanceItem
           ? h(AcceptanceModal, {
               item: acceptanceItem,
@@ -2878,7 +3581,7 @@ window.__ModuleLoader__.load({
               onOpenRequirement: (id) => {
                 setTraceItem(null)
                 setDetailOpen(false)
-                setSelectedId(id)
+                openRequirementById(id)
               },
             })
           : null,

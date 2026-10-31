@@ -3,12 +3,13 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import * as query from './query.mjs'
 import { resolveRequirementsRoot } from './query.mjs'
-import { associateProject } from '../alm-core/src/project/project.mjs'
+import { associateProject, readProject } from '../alm-core/src/project/project.mjs'
 import { listWorkspaces } from './workspaces.mjs'
 import { openChange } from '../alm-core/src/changes/open.mjs'
 import { createRequirement } from '../alm-core/src/requirements/create.mjs'
 import { runCi } from '../alm-core/src/ci/ci.mjs'
 import { runAcceptance } from '../alm-core/src/acceptance/acceptance.mjs'
+import { applyRehearsal, previewRehearsal } from '../alm-core/src/rehearsal/rehearsal.mjs'
 import { applyGithub, previewGithub } from './github-sync.mjs'
 import { diffRequirementVersions } from './version-diff.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
@@ -57,6 +58,20 @@ function readJsonBody(req, limit = 64 * 1024) {
     })
     req.on('error', reject)
   })
+}
+
+/**
+ * Map a rehearsal failure onto the HTTP contract: a stale preview/baseline is a
+ * conflict (409), a failed write is a server error (500), everything else the
+ * core layer validates is a bad request (400).
+ */
+function rehearsalErrorStatus(error) {
+  if (Number.isInteger(error?.status)) return error.status
+  const code = String(error?.code ?? '')
+  if (code === 'stale-preview' || code === 'stale-baseline') return 409
+  if (code === 'write-failed' || code === 'audit-failed') return 500
+  if (code === '') return 500
+  return 400
 }
 
 /**
@@ -142,6 +157,14 @@ export default class RequirementsService {
       kind: 'exact',
       path: '/api/alm/requirements/diff',
       handler: (req, res) => this.handleDiff(req, res),
+    })
+
+    // Change rehearsal: preview by default (no writes), apply only with an
+    // explicit baseline CAS and an actor.
+    webServer.register({
+      kind: 'exact',
+      path: '/api/alm/requirements/rehearsal',
+      handler: (req, res) => this.handleRehearsal(req, res),
     })
 
     for (const [path, action] of [
@@ -316,6 +339,91 @@ export default class RequirementsService {
     return { asset, item: { id: asset.id, file: asset.source.path }, check }
   }
 
+  /**
+   * Provenance context for one acceptance run: the resolver records which
+   * requirement snapshot, project and source file the evidence belongs to.
+   * A missing asset keeps the legacy behaviour (context omitted) instead of
+   * blocking a run that only has a registered config.
+   */
+  acceptanceContext(root, requirementId) {
+    if (!requirementId) return undefined
+    const index = indexReport(root)
+    if (index.ok === false) return undefined
+    const asset = index.assets.find((entry) => entry.id === requirementId) ?? null
+    if (!asset) return undefined
+    let projectId = null
+    try {
+      projectId = readProject(root)?.id ?? null
+    } catch {
+      projectId = null
+    }
+    return {
+      asset,
+      assets: index.assets,
+      actor: 'human:local',
+      project: asset.extra?.project ?? projectId ?? null,
+      file: asset.source.path,
+    }
+  }
+
+  rehearsalContext(root, requirementId) {
+    if (!requirementId) throw Object.assign(new Error('requirementId is required'), { status: 400, code: 'requirement-required' })
+    const index = indexReport(root)
+    if (index.ok === false) throw Object.assign(new Error(index.error ?? 'index failed'), { status: 400, code: 'index-failed' })
+    const asset = index.assets.find((entry) => entry.id === requirementId && entry.type === 'requirement')
+    if (!asset) throw Object.assign(new Error(`requirement not found: ${requirementId}`), { status: 404, code: 'requirement-not-found' })
+    return { asset, assets: index.assets }
+  }
+
+  async handleRehearsal(req, res) {
+    const respond = (status, payload) => {
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(payload))
+    }
+    try {
+      if (req.method !== 'POST') {
+        respond(405, { ok: false, error: { code: 'method-not-allowed', message: 'POST required' } })
+        return
+      }
+      const body = await readJsonBody(req)
+      const root = this.rootFor(req)
+      const { asset, assets } = this.rehearsalContext(root, body.requirementId)
+      const change = body.change
+      if (!change || typeof change !== 'object' || typeof change.field !== 'string') {
+        throw Object.assign(new Error('change.field is required'), { status: 400, code: 'invalid-change' })
+      }
+      let payload
+      if (body.apply === true) {
+        if (!body.expectedBaseline || typeof body.expectedBaseline !== 'object') {
+          throw Object.assign(new Error('apply 需要 expectedBaseline（预览返回的 baseline）'), {
+            status: 400,
+            code: 'baseline-required',
+          })
+        }
+        if (typeof body.actor !== 'string' || body.actor.trim() === '') {
+          throw Object.assign(new Error('apply 需要 actor（human:<login>）'), { status: 400, code: 'actor-required' })
+        }
+        payload = applyRehearsal({
+          root,
+          asset,
+          assets,
+          change,
+          expectedBaseline: body.expectedBaseline,
+          actor: body.actor,
+          idempotencyKey: body.idempotencyKey,
+        })
+      } else {
+        payload = previewRehearsal({ root, asset, assets, change })
+      }
+      respond(200, payload)
+    } catch (error) {
+      respond(rehearsalErrorStatus(error), {
+        ok: false,
+        error: { code: error?.code ?? 'rehearsal-failed', message: error?.message ?? String(error) },
+      })
+    }
+  }
+
   async resolveAiSelection(body = {}) {
     const provider = body.provider ?? this.aiProvider ?? process.env.ALM_AI_PROVIDER
     const model = body.model ?? this.aiModel ?? process.env.ALM_AI_MODEL
@@ -436,7 +544,12 @@ export default class RequirementsService {
             ? extractOcr({ imageBase64: body.imageBase64, filename: body.filename })
             : extractChat({ markdown: body.markdown })
       } else if (action === 'acceptance') {
-        payload = runAcceptance({ root, requirementId: body.requirementId, apply: body.apply === true })
+        payload = runAcceptance({
+          root,
+          requirementId: body.requirementId,
+          apply: body.apply === true,
+          context: this.acceptanceContext(root, body.requirementId),
+        })
       } else if (action === 'review') {
         const context = this.reviewContext(root, body.requirementId)
         payload = runReview({
@@ -448,7 +561,11 @@ export default class RequirementsService {
         })
       } else if (action === 'signoff') {
         const context = this.reviewContext(root, body.requirementId)
-        payload = signReview({ root, asset: context.asset, actor: body.actor, apply: body.apply === true })
+        // Data anomalies (duplicate labels / dangling references) also gate a
+        // human sign-off: an ambiguous record must be clarified, not signed.
+        const index = indexReport(root)
+        const anomalies = query.collectAnomalies({ assets: index.ok === false ? [] : index.assets, check: context.check })
+        payload = signReview({ root, asset: context.asset, actor: body.actor, apply: body.apply === true, anomalies })
       } else {
         respond(404, { ok: false, error: { code: 'unknown-action', message: String(action) } })
         return

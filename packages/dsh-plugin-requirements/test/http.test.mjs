@@ -538,6 +538,11 @@ test('POST /api/alm/requirements/review and signoff persist a human review', asy
   const dir = mkdtempSync(join(tmpdir(), 'alm-review-http-'))
   try {
     cpSync(fixture, dir, { recursive: true })
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['add', '-A'], { cwd: dir })
+    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init'], {
+      cwd: dir,
+    })
     await withWriteServer(dir, async (base) => {
       const preview = await fetch(`${base}/api/alm/requirements/review?root=${encodeURIComponent(dir)}`, {
         method: 'POST',
@@ -556,7 +561,8 @@ test('POST /api/alm/requirements/review and signoff persist a human review', asy
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true }),
       })
-      assert.equal((await applied.json()).applied, true)
+      const reviewed = await applied.json()
+      assert.equal(reviewed.applied, true)
       assert.ok(existsSync(join(dir, '.alm', 'reviews', 'REQ-PAY-001.json')))
 
       const badActor = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
@@ -566,6 +572,32 @@ test('POST /api/alm/requirements/review and signoff persist a human review', asy
       })
       assert.equal(badActor.status, 400)
       assert.equal((await badActor.json()).error.code, 'invalid-actor')
+
+      // Backend hard gate: no acceptance evidence, no sign-off.
+      const gate = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', actor: 'human:tester', apply: true }),
+      })
+      assert.equal(gate.status, 409)
+      assert.equal((await gate.json()).error.code, 'acceptance-missing')
+
+      // Register and execute the acceptance command, then sign off for real.
+      mkdirSync(join(dir, '.alm', 'acceptance'), { recursive: true })
+      writeFileSync(
+        join(dir, '.alm', 'acceptance', 'REQ-PAY-001.json'),
+        JSON.stringify({
+          schema: 'alm.acceptance.config/v1',
+          requirement: 'REQ-PAY-001',
+          commands: [{ id: 'smoke', command: ['node', '-e', 'process.exit(0)'] }],
+        }),
+      )
+      const run = await fetch(`${base}/api/alm/requirements/acceptance?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true }),
+      })
+      assert.equal((await run.json()).result, 'pass')
 
       const signed = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
         method: 'POST',
@@ -582,6 +614,8 @@ test('POST /api/alm/requirements/review and signoff persist a human review', asy
       assert.equal(item.review.stored, true)
       assert.equal(item.review.signoffValid, true)
       assert.equal(item.review.signoff.actor, 'human:tester')
+      assert.equal(item.review.evidenceBound, true)
+      assert.equal(item.decision.state, 'verified')
     })
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -733,7 +767,7 @@ test('POST /api/alm/requirements/ai-review generates, loads and adopts AI sugges
   }
 })
 
-test('POST /api/alm/requirements/draft turns intent into title, brief and priority', async () => {
+test('POST /api/alm/requirements/draft returns a candidate draft, never formal priority/owner', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'alm-draft-http-'))
   const fakeStream = async function* () {
     yield {
@@ -742,9 +776,15 @@ test('POST /api/alm/requirements/draft turns intent into title, brief and priori
       text: JSON.stringify({
         title: '退款幂等与并发控制',
         brief: '## 背景\n\n退款重复提交。\n\n## 目标\n\n只退一次。\n\n## 范围外\n\n（待确认）\n\n## 关键决策\n\n幂等键。\n\n## 验收线索\n\n并发只产生一张单。',
-        priority: 'P0',
-        owner: '张浩',
-        rationale: '资金一致性优先。',
+        claim: '重复提交的退款请求只产生一张退款单',
+        suggestedPriority: 'P0',
+        rationale: '涉及资金一致性，建议 P0 待人工确认。',
+        sourceRefs: ['#L1'],
+        assumptions: ['调用方携带幂等键'],
+        question: '重试是否复用同一幂等键？',
+        counterexample: '上游每次重试换新幂等键时仍会重复退款（假设）。',
+        acceptanceDraft: ['并发两次同键请求只产生一张退款单'],
+        unknowns: ['影响范围待确认'],
       }),
     }
     yield { type: 'finish', reason: { kind: 'stop' } }
@@ -757,14 +797,26 @@ test('POST /api/alm/requirements/draft turns intent into title, brief and priori
         const response = await fetch(`${base}/api/alm/requirements/draft?root=${encodeURIComponent(dir)}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ intent: '退款老是重复退，财务对账麻烦，要保证只退一次', projectName: '支付平台' }),
+          body: JSON.stringify({
+            intent: '退款老是重复退，财务对账麻烦，要保证只退一次',
+            extractedText: '张三：退款重复退\n李四：只退一次',
+            projectName: '支付平台',
+          }),
         })
         const payload = await response.json()
         assert.equal(response.status, 200)
         assert.equal(payload.schema, 'alm.ai-draft/v1')
+        assert.equal(payload.candidate, true)
         assert.equal(payload.title, '退款幂等与并发控制')
-        assert.equal(payload.priority, 'P0')
-        assert.equal(payload.owner, '张浩')
+        // AI output is only a candidate: no formal priority/owner is filled.
+        assert.equal(payload.priority, null)
+        assert.equal(payload.owner, null)
+        assert.equal(payload.suggestedPriority, 'P0')
+        assert.deepEqual(
+          payload.sourceRefs.map((ref) => ref.ref),
+          ['#L1'],
+        )
+        assert.equal(payload.question, '重试是否复用同一幂等键？')
         assert.match(payload.brief, /## 验收线索/)
       },
       { aiStream: fakeStream, aiProvider: 'fake', aiModel: 'fake-draft' },

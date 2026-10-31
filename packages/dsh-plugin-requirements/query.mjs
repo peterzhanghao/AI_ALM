@@ -7,18 +7,21 @@ import { readProject } from '../alm-core/src/project/project.mjs'
 import { readMapping } from '../alm-core/src/github/mapping.mjs'
 import { requirementLabels } from '../alm-core/src/github/sync-requirements.mjs'
 import { buildGraph, findCycles, walk } from '../alm-core/src/index/closure.mjs'
+import { buildIndex } from '../alm-core/src/index/index.mjs'
 import { acceptanceSummary } from '../alm-core/src/acceptance/acceptance.mjs'
 import { reviewView } from '../alm-core/src/review/executor.mjs'
+import { decideEvidence } from '../alm-core/src/evidence/decision.mjs'
 import { aiReviewSummary } from './ai-review.mjs'
 import { gitHead } from '../alm-core/src/approvals/approval.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 
 const NEXT = {
-  'missing-acceptance': '补验收',
-  'dangling-relation': '修关系',
-  'ready-to-change': '发起变更',
-  'in-progress': '查看进度',
-  verify: '去验收',
+  'fix-blockers': '修阻塞',
+  'fix-anomaly': '修数据异常',
+  'rerun-evidence': '重跑证据',
+  'run-review': '运行评审',
+  'run-acceptance': '运行验收',
+  signoff: '去签收',
   done: '已完成',
 }
 
@@ -184,20 +187,25 @@ export function nextActionLabel(action) {
 }
 
 /**
- * One deterministic next action per requirement. The UI shows the label and
- * copies a prompt; the action itself still runs through the normal skill and
- * gate path, never through this page.
+ * One deterministic next action per requirement, derived from the evidence
+ * decision (not from status alone). The UI shows the label; the action itself
+ * still runs through the normal skill and gate path, never through this page.
  */
 export function nextActionFor(item, gaps = []) {
-  if (!item || !Array.isArray(item.verifiedBy) || item.verifiedBy.length === 0) return 'missing-acceptance'
-  const related = gaps.some(
-    (gap) => gap.assetId === item.id || (gap.file === item.file && gap.rule === 'REL-001'),
-  )
-  if (related) return 'dangling-relation'
-  if (item.status === 'implemented') return 'verify'
-  if (item.status === 'in-progress') return 'in-progress'
-  if (['verified', 'deprecated', 'superseded'].includes(item.status)) return 'done'
-  return 'ready-to-change'
+  const state = item?.decision?.state ?? null
+  if (state === 'blocked') return 'fix-blockers'
+  if (state === 'needs-clarification') return 'fix-anomaly'
+  if (state === 'stale') return 'rerun-evidence'
+  if (state === 'failed') return 'run-acceptance'
+  if (state === 'ready-for-human') return 'signoff'
+  if (state === 'verified') return 'done'
+  // `unchecked` (or a decision that is not available yet): the first gap says
+  // whether the missing evidence is the review or the acceptance run.
+  const gap = item?.decision?.topGap ?? gaps[0] ?? null
+  const code = String(gap?.code ?? '').toLowerCase()
+  if (/review|role|coverage/.test(code)) return 'run-review'
+  if (/acceptance|command|evidence/.test(code)) return 'run-acceptance'
+  return 'run-review'
 }
 
 /**
@@ -229,9 +237,133 @@ export function resolveRequirementsRoot(requested, fallback) {
   return absolute
 }
 
+/** Stable key per parsed record, so two records with the same UID stay selectable. */
+export function occurrenceKeyFor(asset) {
+  return `${asset.id}@${asset.source.path}:${asset.source.line}`
+}
+
+function occurrenceFor(asset) {
+  return {
+    assetId: asset.id,
+    uid: asset.id,
+    title: asset.title ?? null,
+    businessId: asset.extra?.businessId ?? null,
+    file: asset.source.path,
+    line: asset.source.line,
+    occurrenceKey: occurrenceKeyFor(asset),
+  }
+}
+
+/**
+ * Data anomalies are collected in the query layer and never merged away: two
+ * records with the same UID (or business id) both stay in the payload. The
+ * anomaly is a clarification signal, so it is not mixed into the tracking gaps.
+ */
+export function collectAnomalies({ assets = [], check = null } = {}) {
+  const index = buildIndex(assets)
+  const anomalies = []
+
+  for (const entry of index.duplicates) {
+    anomalies.push({
+      kind: 'duplicate-id',
+      message: `需求 UID ${entry.id} 出现 ${entry.occurrences.length} 次；保留全部记录，不自动合并`,
+      requirementIds: [entry.id],
+      occurrences: entry.occurrences.map(occurrenceFor),
+    })
+  }
+
+  // Same business id (or, when absent, the same UID) may only map to one UID.
+  const businessGroups = new Map()
+  for (const asset of assets.filter((entry) => entry.type === 'requirement')) {
+    const key = asset.extra?.businessId ?? asset.id
+    if (!businessGroups.has(key)) businessGroups.set(key, [])
+    businessGroups.get(key).push(asset)
+  }
+  for (const [key, group] of businessGroups) {
+    const ids = [...new Set(group.map((entry) => entry.id))]
+    if (ids.length < 2) continue
+    anomalies.push({
+      kind: 'duplicate-business-id',
+      message: `业务编号 ${key} 对应 ${ids.length} 个不同需求 UID（${ids.join('、')}）；保留两条记录，不自动合并`,
+      requirementIds: ids,
+      occurrences: group.map(occurrenceFor),
+    })
+  }
+
+  // Dangling relations come from the real REL-001 gate findings; resolve the
+  // original link so the anomaly shows the from/type/target triple.
+  const rel = (check?.checks ?? []).find((entry) => entry.id === 'REL-001')
+  const seenDangling = new Set()
+  for (const finding of rel?.findings ?? []) {
+    const asset =
+      assets.find((entry) => entry.id === finding.assetId && entry.source.path === finding.file) ??
+      index.byId.get(finding.assetId) ??
+      null
+    const dangling =
+      asset?.links?.find((link) => !index.byId.has(link.target) && (link.line ?? asset.source.line) === finding.line) ??
+      asset?.links?.find((link) => !index.byId.has(link.target)) ??
+      null
+    const message = finding.message ?? 'dangling relation'
+    const from = finding.assetId ?? asset?.id ?? null
+    const type = dangling?.type ?? /^dangling\s+(\S+)\s+target/.exec(message)?.[1] ?? null
+    const target = dangling?.target ?? /target\s+(\S+)/.exec(message)?.[1] ?? null
+    const dedupeKey = `${from}|${type}|${target}|${finding.file ?? ''}|${finding.line ?? ''}`
+    if (seenDangling.has(dedupeKey)) continue
+    seenDangling.add(dedupeKey)
+    anomalies.push({
+      kind: 'dangling-relation',
+      message: `悬空关系：${from ?? '?'} --${type ?? '?'}--> ${target ?? '?'}；来源记录保留，不自动删除`,
+      requirementIds: from ? [from] : [],
+      occurrences: asset ? [occurrenceFor(asset)] : [],
+      from,
+      type,
+      target,
+      file: finding.file ?? asset?.source.path ?? null,
+      line: finding.line ?? asset?.source.line ?? null,
+    })
+  }
+
+  return anomalies
+}
+
+export function summarizeAnomalies(anomalies = []) {
+  return {
+    count: anomalies.length,
+    duplicateId: anomalies.filter((entry) => entry.kind === 'duplicate-id').length,
+    duplicateBusinessId: anomalies.filter((entry) => entry.kind === 'duplicate-business-id').length,
+    dangling: anomalies.filter((entry) => entry.kind === 'dangling-relation').length,
+  }
+}
+
+/** Per-requirement anomaly view; `ref` is the record key so duplicate rows stay distinguishable. */
+export function anomaliesForAsset(anomalies, asset) {
+  const key = occurrenceKeyFor(asset)
+  return anomalies
+    .filter((anomaly) => anomaly.requirementIds.includes(asset.id))
+    .map((anomaly) => {
+      const occurrence = anomaly.occurrences?.find((entry) => entry.occurrenceKey === key) ?? null
+      return {
+        kind: anomaly.kind,
+        message: anomaly.message,
+        ref: occurrence?.occurrenceKey ?? key,
+        file: occurrence?.file ?? anomaly.file ?? asset.source.path,
+        line: occurrence?.line ?? anomaly.line ?? asset.source.line,
+      }
+    })
+}
+
+/** `reviewView` owns the coverage once the shared layer provides it; keep a fallback. */
+function reviewWithCoverage(review) {
+  if (review?.coverage) return review
+  const roles = Array.isArray(review?.roles) ? review.roles : []
+  const missing = roles.filter((role) => role.verdict === 'skip').map((role) => role.id)
+  return { ...review, coverage: { completed: roles.length - missing.length, total: roles.length, missing } }
+}
+
 /**
  * Requirements page payload. Gaps come from the real gate checks (COV-001 /
- * COV-002), never from a static mock.
+ * COV-002), never from a static mock. Evidence decision and data anomalies are
+ * separate fields so an anomaly never looks like a pass/fail verdict.
  */
 export function requirements(root) {
   const index = indexReport(root)
@@ -269,6 +401,8 @@ export function requirements(root) {
 
   const graph = buildGraph(index.assets)
   const byId = new Map(index.assets.map((asset) => [asset.id, asset]))
+  const assets = index.assets
+  const anomalies = collectAnomalies({ assets, check })
   let headSha = null
   try {
     headSha = gitHead(root)
@@ -276,7 +410,7 @@ export function requirements(root) {
     headSha = null
   }
   const versionCache = new Map()
-  const items = index.assets
+  const items = assets
     .filter((asset) => asset.type === 'requirement')
     .map((asset) => {
       const verifiedBy = asset.links.filter((link) => link.type === 'verified_by').map((link) => link.target)
@@ -284,6 +418,8 @@ export function requirements(root) {
       const files = attachmentFiles(root, asset.id)
       const item = {
         id: asset.id,
+        businessId: extra.businessId ?? null,
+        occurrenceKey: occurrenceKeyFor(asset),
         title: asset.title,
         status: asset.status,
         statusLabel: STATUS_LABELS[asset.status] ?? asset.status,
@@ -305,14 +441,21 @@ export function requirements(root) {
         links: asset.links.map((link) => ({ type: link.type, target: link.target, line: link.line ?? null })),
         github: githubFor({ mapping, project, asset }),
       }
+      item.review = reviewWithCoverage(reviewView({ root, asset, item, check }))
+      item.anomalies = anomaliesForAsset(anomalies, asset)
+      item.acceptance = acceptanceSummary(root, asset.id, headSha, { asset, assets })
+      item.decision = decideEvidence({
+        asset,
+        review: item.review,
+        acceptance: item.acceptance,
+        anomalies,
+      })
       item.nextAction = nextActionFor(item, gaps)
       item.nextActionLabel = nextActionLabel(item.nextAction)
-      item.review = reviewView({ root, asset, item, check })
       const versions = versionCache.get(item.file) ?? versionHistory(root, item.file)
       versionCache.set(item.file, versions)
       item.versions = versions
       item.trace = traceFor({ asset, graph, byId })
-      item.acceptance = acceptanceSummary(root, asset.id, headSha)
       item.aiReview = aiReviewSummary(root, asset.id)
       return item
     })
@@ -327,7 +470,9 @@ export function requirements(root) {
     result: check.result,
     requirements: items,
     gaps,
-    summary: { requirements: items.length, gaps: gaps.length },
+    anomalies,
+    anomalySummary: summarizeAnomalies(anomalies),
+    summary: { requirements: items.length, gaps: gaps.length, anomalies: anomalies.length },
   }
 }
 
@@ -359,6 +504,13 @@ export function requirementsAll(projects = []) {
   const gaps = loaded.flatMap((entry) =>
     (entry.payload?.gaps ?? []).map((gap) => ({ ...gap, project: entry.project, projectName: entry.projectName })),
   )
+  const anomalies = loaded.flatMap((entry) =>
+    (entry.payload?.anomalies ?? []).map((anomaly) => ({
+      ...anomaly,
+      project: entry.project,
+      projectName: entry.projectName,
+    })),
+  )
   const failed = loaded.filter((entry) => entry.error)
 
   return {
@@ -371,14 +523,23 @@ export function requirementsAll(projects = []) {
     result: failed.length ? 'fail' : 'pass',
     requirements: items,
     gaps,
+    anomalies,
+    anomalySummary: summarizeAnomalies(anomalies),
     projects: loaded.map((entry) => ({
       project: entry.project,
       projectName: entry.projectName,
       root: entry.root,
       result: entry.payload?.result ?? 'fail',
       requirements: entry.payload?.requirements?.length ?? 0,
+      anomalies: entry.payload?.anomalies?.length ?? 0,
       error: entry.error ?? null,
     })),
-    summary: { requirements: items.length, gaps: gaps.length, projects: loaded.length, failed: failed.length },
+    summary: {
+      requirements: items.length,
+      gaps: gaps.length,
+      anomalies: anomalies.length,
+      projects: loaded.length,
+      failed: failed.length,
+    },
   }
 }

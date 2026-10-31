@@ -14,7 +14,12 @@ test('requirements payload lists coverage and no gaps for the sample', () => {
   const idempotent = payload.requirements.find((item) => item.id === 'REQ-PAY-004')
   assert.deepEqual(first.verifiedBy, ['TEST-PAY-001'])
   assert.deepEqual(idempotent.verifiedBy, ['TEST-PAY-004', 'TEST-PAY-005'])
-  assert.equal(first.nextAction, 'ready-to-change')
+  // A linked test is not executed evidence: the sample fixture has no stored
+  // review and no acceptance run yet, so the decision says "not checked" and
+  // the next action is to produce evidence, never "ready to change".
+  assert.equal(first.decision.state, 'unchecked')
+  assert.equal(first.nextAction, 'run-review')
+  assert.equal(first.acceptance.latest, null)
   assert.equal(payload.summary.gaps, 0)
   assert.deepEqual(payload.gaps, [])
 })
