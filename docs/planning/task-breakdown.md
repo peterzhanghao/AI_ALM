@@ -973,3 +973,22 @@
   - 正例：连续采纳同一批建议 heading 恒 1 个，第三次 `changed=false`；0 建议确认通过不改 brief；AI 采纳后 evidence `verified`；三字段试演 preview/apply 均返回 3 项 changes，提交后 revision+1 且旧证据失效；Playwright 按钮带 svg/边框/30.8px 高。
   - 反例：内容变化后 `acceptReview` 409 `review-stale`；有阻塞时 `accepted:false`；空 changes/重复字段被拒；陈旧试演预览 409；无模型/解析失败不写文件。
 - 证据：`pnpm test` 368/368；Playwright `tmp/eval-full-flow-v14.mjs` 13/13；截图 `docs/assets/design/plugin-actions.png`、`plugin-actions-detail.png`、`plugin-ai-review-zero.png`、`plugin-ai-review-adopted.png`、`plugin-rehearsal-preview.png`、`plugin-rehearsal-result.png`
+
+### ALM-09.13 需求列表 macOS 风格重构
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.12（#136，已关闭）
+- 技能：`frontend-design`、`cordis-plugin-development`
+- 实施范围：`packages/dsh-plugin-requirements/client.js`；`docs/assets/design/plugin-list-*.png`
+- 不在范围：后端字段/接口、详情抽屉结构、新建向导弹层、数据库/索引改造
+- 设计：
+  - 页面四区：标题 + 工作区、状态筛选 + 搜索、异常/检查提示、需求列表；移除旧大卡片与底部异常大块。
+  - 列表 6 列：需求（标题 + ID + 版本 + 项目）/ 业务状态 / 负责人 / 验收关联 / 检查结果 / 操作；窄屏 4 列、移动 2 列。
+  - 业务状态与检查结果分列；普通行约 68px，异常记录在副行内联说明；重复 ID 记录按 `occurrenceKey` 完整保留。
+  - 异常提示按后端 `anomalySummary` 的组数展示（「1 组…涉及 2 条记录」），展开 occurrence 链接，可「只看异常 / 显示全部」。
+  - 检查提示区分「检查执行失败」与「检查未通过」；展开显示项目读取错误或门禁 GapDetail。
+  - toolbar 与列表表头 sticky；搜索标题/ID/businessId/负责人；刷新中禁用并显示「刷新中…」；刷新保留筛选。
+  - 空结果「清除筛选」；请求失败显示错误与重试；加载 8 行骨架；`prefers-reduced-motion` 下关闭行过渡。
+- 验收：
+  - 正例：1440×900 首屏完整 8 行、6 列、行高 68px；搜索 `REQ-DUP-001` 得 2 行；待评审叠加仍 2 行；空结果可清除；只看异常 2 行→显示全部 15 行；抽屉打开/关闭保留滚动位置；切换 DEMO 4 行 / ALL 15 行；刷新后筛选保留。
+  - 反例：1024 窄屏 4 列无横向溢出；720 移动端 2 列且状态/检查内联；请求失败显示「读取需求失败」+ 重试后恢复；无需求/无结果不误显示异常。
+- 证据：`pnpm test` 301/301；Playwright `tmp/eval-list-flow.mjs`、`tmp/verify-states.mjs`、`tmp/verify-error.mjs`；截图 `plugin-list-1440.png`、`plugin-list-scrolled.png`、`plugin-list-empty.png`、`plugin-list-anomaly-only.png`、`plugin-list-detail.png`、`plugin-list-narrow.png`、`plugin-list-mobile.png`、`plugin-list-error.png`
