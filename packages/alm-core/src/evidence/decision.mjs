@@ -150,10 +150,11 @@ function nextStepFor(state, topGap) {
   if (state === 'needs-clarification') return { label: '处理数据异常', action: 'fix-anomaly' }
   if (state === 'failed') return { label: '修复后重新执行验收', action: 'run-acceptance' }
   if (state === 'stale') return { label: '重新执行验收', action: 'run-acceptance' }
-  if (state === 'ready-for-human') return { label: '人工签收', action: 'signoff' }
-  if (state === 'verified') return { label: '已签收，无需操作', action: 'signoff' }
+  if (state === 'ready-for-human') return { label: '采纳 AI 评审', action: 'ai-review' }
+  if (state === 'verified') return { label: '已通过，无需操作', action: 'none' }
   const code = topGap?.code
   if (code === 'review-not-run') return { label: '运行并保存评审', action: 'run-review' }
+  if (code === 'review-not-accepted') return { label: '运行 AI 评审并采纳意见', action: 'ai-review' }
   if (code === 'coverage-incomplete') return { label: '补齐评审视角后重新评审', action: 'run-review' }
   if (code === 'acceptance-missing') return { label: '登记验收命令', action: 'run-acceptance' }
   return { label: '执行验收', action: 'run-acceptance' }
@@ -181,7 +182,7 @@ function signoffFor(state, gaps) {
  * Priority is strict: blockers > ambiguity > failed > stale > review > coverage
  * > acceptance registration > acceptance run > signed.
  */
-export function decideEvidence({ asset, review = null, acceptance = null, anomalies = [] } = {}) {
+export function decideEvidence({ asset, review = null, acceptance = null, anomalies = [], legacyHumanSignoff = false } = {}) {
   const policy = requirementPolicy(asset)
   const coverage = coverageOf(policy, review)
   const blockers = Number(review?.summary?.blockers ?? 0)
@@ -256,8 +257,25 @@ export function decideEvidence({ asset, review = null, acceptance = null, anomal
     state = 'verified'
     gaps = []
   } else {
-    state = 'ready-for-human'
-    gaps = []
+    if (legacyHumanSignoff) {
+      // Backward-compatible path for the old signReview API. The product UI no
+      // longer offers a human sign-off button; adopting the AI review records
+      // acceptance directly. This flag keeps the legacy endpoint gate testable.
+      state = 'ready-for-human'
+      gaps = []
+    } else {
+      // No separate human sign-off step: an AI review counts as accepted once
+      // its suggestions are adopted (which records the acceptance sign-off).
+      state = 'unchecked'
+      gaps = [
+        {
+          code: 'review-not-accepted',
+          message: 'AI 评审尚未采纳',
+          fix: '运行 AI 评审并采纳意见；采纳即视为评审通过，无需人工签收',
+          severity: 'warn',
+        },
+      ]
+    }
   }
 
   const topGap = gaps[0] ?? null

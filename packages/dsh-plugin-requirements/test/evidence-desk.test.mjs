@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkReport, indexReport } from '../../alm-core/src/commands.mjs'
 import { runAcceptance } from '../../alm-core/src/acceptance/acceptance.mjs'
-import { runReview, signReview } from '../../alm-core/src/review/executor.mjs'
+import { acceptReview, readReviewReport, runReview } from '../../alm-core/src/review/executor.mjs'
 import { requirements } from '../query.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -242,7 +242,7 @@ test('decision: a failing acceptance run is failed, never a pass', () => {
   }
 })
 
-test('decision: complete passing evidence plus stored review is ready for human sign-off', () => {
+test('decision: complete passing evidence still waits for AI review adoption, then verifies', () => {
   const dir = tempFixture('alm-decision-ready-')
   try {
     gitInit(dir)
@@ -260,15 +260,14 @@ test('decision: complete passing evidence plus stored review is ready for human 
     const ready = itemOf(requirements(dir), 'REQ-PAY-001')
     assert.equal(ready.acceptance.latest.complete, true)
     assert.equal(ready.acceptance.latest.current, true)
-    assert.equal(ready.decision.state, 'ready-for-human')
-    assert.equal(ready.decision.label, '可进入人工确认')
-    assert.equal(ready.decision.tone, 'success')
-    assert.equal(ready.decision.topGap, null)
-    assert.equal(ready.decision.signoff.allowed, true)
-    assert.equal(ready.nextAction, 'signoff')
+    assert.equal(ready.decision.state, 'unchecked')
+    assert.equal(ready.decision.label, '未检查')
+    assert.equal(ready.decision.topGap.code, 'review-not-accepted')
+    assert.equal(ready.nextAction, 'ai-review')
 
-    const signed = signReview({ root: dir, asset: context.asset, actor: 'human:tester', apply: true })
-    assert.equal(signed.applied, true)
+    // Adopting the AI review records acceptance; no separate human sign-off.
+    const accepted = acceptReview({ root: dir, asset: context.asset, report: readReviewReport(dir, 'REQ-PAY-001') })
+    assert.equal(accepted.accepted, true)
     const verified = itemOf(requirements(dir), 'REQ-PAY-001')
     assert.equal(verified.decision.state, 'verified')
     assert.equal(verified.decision.label, '已签收')

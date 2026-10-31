@@ -136,28 +136,39 @@ test('adoptAiReview appends selected suggestions and is idempotent', () => {
   assert.match(brief, /补充异常路径/)
   assert.doesNotMatch(brief, /增加验收场景/)
   assert.match(brief, /### 重构方案/)
-  assert.match(brief, /### AI 建议背景/)
+  // The full proposed brief lives in the AI report; it is never pasted into the
+  // requirement brief, so the brief stays compact and readable.
+  assert.doesNotMatch(brief, /### AI 建议背景/)
+  assert.doesNotMatch(brief, /# REQ-PAY-001 退款/)
 
-  adoptAiReview({ root, asset: ctx.asset, report: adopted, selectedSuggestionIds: ['S2'], includeBrief: false })
+  const second = adoptAiReview({ root, asset: ctx.asset, report: adopted, selectedSuggestionIds: ['S2'], includeBrief: false })
   const twice = readFileSync(join(root, 'requirements/briefs/REQ-PAY-001.md'), 'utf8')
   assert.equal((twice.match(/## AI 评审建议（已采纳/g) ?? []).length, 1)
   assert.match(twice, /增加验收场景/)
+  assert.doesNotMatch(twice, /补充异常路径/, 're-adoption replaces the previous section')
+  assert.equal(second.changed, true)
+
+  const third = adoptAiReview({ root, asset: ctx.asset, report: second, selectedSuggestionIds: ['S2'], includeBrief: false })
+  const thrice = readFileSync(join(root, 'requirements/briefs/REQ-PAY-001.md'), 'utf8')
+  assert.equal(thrice, twice, 'repeating the same adoption is a no-op')
+  assert.equal(third.changed, false)
   assert.equal(aiReviewSummary(root, 'REQ-PAY-001').adopted.includeBrief, false)
   assert.equal(readAiReview(root, 'REQ-PAY-001').requirement, 'REQ-PAY-001')
 })
 
-test('adoptAiReview requires at least one selected suggestion or brief', () => {
+test('adoptAiReview with no selected suggestions accepts the review without touching the brief', () => {
   const root = makeRepo()
   const ctx = context(root)
-  assert.throws(
-    () =>
-      adoptAiReview({
-        root,
-        asset: ctx.asset,
-        report: { ...REVIEW, requirement: ctx.asset.id, verdict: 'warn', summary: '', adopted: null, suggestions: [], plan: [], proposedBrief: '' },
-        selectedSuggestionIds: [],
-        includeBrief: false,
-      }),
-    (error) => error.code === 'no-suggestions',
-  )
+  const file = join(root, 'requirements/briefs/REQ-PAY-001.md')
+  const before = existsSync(file) ? readFileSync(file, 'utf8') : null
+  const accepted = adoptAiReview({
+    root,
+    asset: ctx.asset,
+    report: { ...REVIEW, requirement: ctx.asset.id, verdict: 'warn', summary: '', adopted: null, suggestions: [], plan: [], proposedBrief: '' },
+    selectedSuggestionIds: [],
+  })
+  assert.equal(accepted.adopted.suggestionIds.length, 0)
+  assert.equal(accepted.adopted.noSuggestions, true)
+  assert.equal(accepted.changed, false)
+  assert.equal(existsSync(file) ? readFileSync(file, 'utf8') : null, before)
 })

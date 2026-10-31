@@ -13,7 +13,7 @@ import { applyRehearsal, previewRehearsal } from '../alm-core/src/rehearsal/rehe
 import { applyGithub, previewGithub } from './github-sync.mjs'
 import { diffRequirementVersions } from './version-diff.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
-import { runReview, signReview } from '../alm-core/src/review/executor.mjs'
+import * as reviewExecutor from '../alm-core/src/review/executor.mjs'
 import { extractChat, extractOcr } from './intake.mjs'
 import { AiReviewError, adoptAiReview, readAiReview, readRequirementBrief, runAiReview, writeAiReview } from './ai-review.mjs'
 import { runAiDraft } from './ai-draft.mjs'
@@ -22,6 +22,21 @@ import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const DEFAULT_ROOT = fileURLToPath(new URL('../../fixtures/order-refund', import.meta.url))
+
+const { runReview, signReview } = reviewExecutor
+
+// The live profile keeps a module namespace cached across plugin reloads, so a
+// named export added after the host started cannot be imported directly. Resolve
+// it through a guard: the bundle still activates, while the AI-review adoption
+// path reports a clear module-stale error until the host restarts.
+function acceptReview(args) {
+  if (typeof reviewExecutor.acceptReview !== 'function') {
+    const error = new Error('acceptReview is unavailable until the host restarts (module cache)')
+    error.code = 'module-stale'
+    throw error
+  }
+  return reviewExecutor.acceptReview(args)
+}
 
 const OUTPUT = {
   schema: {
@@ -388,10 +403,15 @@ export default class RequirementsService {
       const body = await readJsonBody(req)
       const root = this.rootFor(req)
       const { asset, assets } = this.rehearsalContext(root, body.requirementId)
-      const change = body.change
-      if (!change || typeof change !== 'object' || typeof change.field !== 'string') {
-        throw Object.assign(new Error('change.field is required'), { status: 400, code: 'invalid-change' })
+      const changes = Array.isArray(body.changes)
+        ? body.changes
+        : body.change && typeof body.change === 'object'
+          ? [body.change]
+          : null
+      if (!changes || changes.length === 0 || changes.some((entry) => !entry || typeof entry.field !== 'string')) {
+        throw Object.assign(new Error('changes[] with field/value is required'), { status: 400, code: 'invalid-change' })
       }
+      const change = { changes }
       let payload
       if (body.apply === true) {
         if (!body.expectedBaseline || typeof body.expectedBaseline !== 'object') {
@@ -528,13 +548,29 @@ export default class RequirementsService {
         } else if (body.apply === true) {
           const stored = readAiReview(root, context.asset.id)
           if (!stored) throw new AiReviewError('尚未生成 AI 评审', { code: 'no-ai-review', status: 404 })
-          payload = adoptAiReview({
+          const adopted = adoptAiReview({
             root,
             asset: context.asset,
             report: stored,
             selectedSuggestionIds: Array.isArray(body.selectedSuggestionIds) ? body.selectedSuggestionIds : [],
-            includeBrief: body.includeBrief !== false,
           })
+          // Adoption changes the brief, so the gate-backed report is rebuilt for
+          // the new content before recording acceptance. Adopting a blocked
+          // report still records the suggestions but never counts as approval.
+          let accepted = null
+          try {
+            const after = this.reviewContext(root, body.requirementId)
+            const report = runReview({ root, asset: after.asset, item: after.item, check: after.check, apply: true })
+            accepted = acceptReview({
+              root,
+              asset: after.asset,
+              report,
+              suggestions: adopted.adopted?.suggestionIds ?? [],
+            })
+          } catch (error) {
+            accepted = { accepted: false, reason: error?.code ?? 'acceptance-failed', message: error?.message ?? String(error) }
+          }
+          payload = { ...adopted, accepted }
         } else {
           payload = await this.generateAiReview(root, context, body)
         }

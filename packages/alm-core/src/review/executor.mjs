@@ -167,6 +167,55 @@ export function runReview({ root, asset, item, check, apply = false }) {
   return { ...persisted, file, applied: true }
 }
 
+/**
+ * AI-adoption acceptance: adopting an AI review means the reviewer accepts the
+ * AI's verdict, so this records the same sign-off a human used to provide.
+ * Gating stays evidence-based (acceptance tests still have to pass), but no
+ * separate human click is required. A blocked AI report is not an approval.
+ */
+export function acceptReview({ root, asset, report, actor = 'ai:adopted', suggestions = [] }) {
+  if (!report) throw new ReviewError('先运行 AI 评审并采纳意见', { code: 'no-review', status: 409 })
+  const repo = resolve(root)
+  const currentHash = requirementContentHash({ root: repo, asset })
+  if (report.contentHash && report.contentHash !== currentHash) {
+    throw new ReviewError('需求内容已变化，请重新运行 AI 评审后再采纳', { code: 'review-stale', status: 409 })
+  }
+  const blockers = Number(report.summary?.blockers ?? 0)
+  if (blockers > 0) {
+    return {
+      schema: 'alm.review.acceptance/v1',
+      requirement: asset.id,
+      accepted: false,
+      reason: 'blocking-findings',
+      message: 'AI 评审仍有阻塞项；先修复并重新评审，采纳不能替代阻塞项修复',
+      blockers,
+    }
+  }
+  const history = Array.isArray(report.signoffs)
+    ? [...report.signoffs]
+    : report.signoff
+      ? [report.signoff]
+      : []
+  const signoff = {
+    actor,
+    decision: 'approve',
+    at: new Date().toISOString(),
+    headSha: report.headSha ?? gitHead(repo) ?? null,
+    contentHash: currentHash,
+    source: 'ai-review',
+    suggestions,
+  }
+  history.push(signoff)
+  writeReviewReport(repo, { ...report, signoffs: history, signoff })
+  return {
+    schema: 'alm.review.acceptance/v1',
+    requirement: asset.id,
+    accepted: true,
+    actor,
+    signoff,
+  }
+}
+
 /** Backend sign-off gate: map the decision state to the documented 409 code. */
 function signoffErrorCode(decision) {
   if (decision.state === 'unchecked') {
@@ -208,7 +257,7 @@ export function signReview({ root, asset, actor, apply = false, acceptance = nul
     acceptanceInput = acceptanceSummary(repo, asset.id, headSha, { asset, assets })
   }
   const reviewShape = storedReviewShape(stored, currentHash)
-  const decision = decideEvidence({ asset, review: reviewShape, acceptance: acceptanceInput, anomalies })
+  const decision = decideEvidence({ asset, review: reviewShape, acceptance: acceptanceInput, anomalies, legacyHumanSignoff: true })
 
   const plan = {
     schema: 'alm.signoff.plan/v1',

@@ -236,44 +236,84 @@ export async function runAiReview({ stream, provider, model, asset, item, check,
   }
 }
 
-const ADOPT_MARKER = '\n\n## AI 评审建议（已采纳'
+const ADOPT_HEADING = '## AI 评审建议（已采纳'
 
-/** Append selected suggestions + plan to the brief; repeated adoption replaces the section. */
-export function adoptAiReview({ root, asset, report, selectedSuggestionIds = [], includeBrief = true }) {
-  const selected = (report.suggestions ?? []).filter((suggestion) =>
-    selectedSuggestionIds.length === 0 ? true : selectedSuggestionIds.includes(suggestion.id),
-  )
-  if (selected.length === 0 && !(includeBrief && report.proposedBrief)) {
-    throw new AiReviewError('没有可采纳的建议', { code: 'no-suggestions' })
+/**
+ * Split a brief into its authored body and the previously adopted AI section.
+ * The section always lives at the tail of the brief, so a single heading match
+ * is enough: everything from that heading on is replaced, never accumulated.
+ */
+function splitAdoptedSection(text) {
+  const index = text.search(/^## AI 评审建议（已采纳/m)
+  if (index < 0) return { base: text.replace(/\s+$/, ''), hadSection: false }
+  // Slice the original text instead of rebuilding it line by line: rebuilding
+  // would rewrite the authored body's line endings on every adoption and make
+  // an otherwise idempotent second adoption look like a change.
+  return { base: text.slice(0, index).replace(/\s+$/, ''), hadSection: true }
+}
+
+/**
+ * Append selected suggestions + plan to the brief. Repeated adoption is
+ * replacement-based: the old AI section is cut off first, so clicking
+ * 采纳 several times never grows the brief.
+ */
+export function adoptAiReview({ root, asset, report, selectedSuggestionIds = [] }) {
+  const wanted = [...new Set((selectedSuggestionIds ?? []).map((id) => String(id)))]
+  const suggestions = Array.isArray(report.suggestions) ? report.suggestions : []
+  const selected = suggestions.filter((suggestion) => wanted.includes(String(suggestion.id)))
+  // Accepting a review without picking suggestions is valid: adoption then
+  // records the acceptance only and leaves the authored brief untouched.
+  if (selected.length === 0) {
+    const adopted = {
+      at: new Date().toISOString(),
+      suggestionIds: [],
+      includeBrief: false,
+      sectionReplaced: false,
+      noSuggestions: true,
+    }
+    const next = { ...report, adopted }
+    writeAiReview(root, next)
+    return { ...next, changed: false }
   }
   const file = briefPath(root, asset)
   const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
-  const markerIndex = existing.indexOf(ADOPT_MARKER)
-  const base = (markerIndex >= 0 ? existing.slice(0, markerIndex) : existing).replace(/\s+$/, '')
+  const { base, hadSection } = splitAdoptedSection(existing)
   const lines = [
     '',
     '',
-    `## AI 评审建议（已采纳 ${new Date().toISOString().slice(0, 10)}）`,
+    `${ADOPT_HEADING} ${new Date().toISOString().slice(0, 10)}）`,
     '',
     `> AI 结论（${report.verdict}）：${report.summary}`,
     '',
     '### 采纳建议',
-    ...selected.map((suggestion) => `- **[${suggestion.category}] ${suggestion.title}**：${suggestion.detail}${suggestion.suggestedText ? `\n  - 建议文本：${suggestion.suggestedText}` : ''}`),
+    ...selected.flatMap((suggestion) => {
+      const entry = [`- **[${suggestion.category}] ${suggestion.title}**：${suggestion.detail}`]
+      if (suggestion.suggestedText) entry.push(`  - 建议文本：${suggestion.suggestedText}`)
+      return entry
+    }),
   ]
   if ((report.plan ?? []).length) {
     lines.push('', '### 重构方案', ...report.plan.map((entry, index) => `${index + 1}. **${entry.step}**：${entry.detail}`))
   }
-  if (includeBrief && report.proposedBrief) {
-    lines.push('', '### AI 建议背景', '', report.proposedBrief)
+  // The full proposed brief stays in .alm/reviews/<REQ>.ai.json. It is not
+  // pasted into the requirement brief: adopting several times used to grow a
+  // second, near-duplicate copy of the whole document. The brief keeps one
+  // compact, replaceable AI section instead.
+  const newline = existing.includes('\r\n') ? '\r\n' : '\n'
+  const section = lines.join('\n').replace(/\n/g, newline)
+  const nextContent = `${base}${section}${newline}`
+  const changed = nextContent !== existing
+  if (changed) {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, nextContent, 'utf8')
   }
-  mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, `${base}${lines.join('\n')}\n`, 'utf8')
   const adopted = {
     at: new Date().toISOString(),
     suggestionIds: selected.map((suggestion) => suggestion.id),
-    includeBrief: includeBrief && Boolean(report.proposedBrief),
+    includeBrief: false,
+    sectionReplaced: hadSection,
   }
   const next = { ...report, adopted }
   writeAiReview(root, next)
-  return next
+  return { ...next, changed }
 }

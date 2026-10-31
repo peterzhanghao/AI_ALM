@@ -11,6 +11,7 @@ import {
   applyRequirementUpdate,
   assertBaseline,
   normalizeChange,
+  normalizeChanges,
   readIdempotentResult,
   requirementBaseline,
 } from '../requirements/update.mjs'
@@ -260,8 +261,11 @@ export function previewRehearsal({ root, asset, assets, change } = {}) {
   if (!asset || typeof asset !== 'object' || typeof asset.id !== 'string' || asset.id === '') {
     throw new RehearsalError('requirement asset is required', { code: 'unknown-requirement', status: 404 })
   }
-  const normalized = normalizeChange(change)
-  if (normalized.field === 'brief' && (typeof asset.extra?.brief !== 'string' || asset.extra.brief.trim() === '')) {
+  const normalizedList = normalizeChanges(change)
+  if (
+    normalizedList.some((entry) => entry.field === 'brief') &&
+    (typeof asset.extra?.brief !== 'string' || asset.extra.brief.trim() === '')
+  ) {
     throw new RehearsalError(`requirement ${asset.id} has no BRIEF field to update`, { code: 'brief-missing' })
   }
 
@@ -273,19 +277,23 @@ export function previewRehearsal({ root, asset, assets, change } = {}) {
     revision: baseline.revision,
   }
   const requirementAfter = { ...requirementBefore, revision: baseline.revision + 1 }
-  if (normalized.field === 'title') requirementAfter.title = normalized.value
-  if (normalized.field === 'priority') requirementAfter.priority = normalized.value
+  for (const entry of normalizedList) {
+    if (entry.field === 'title') requirementAfter.title = entry.value
+    if (entry.field === 'priority') requirementAfter.priority = entry.value
+  }
 
+  const changes = normalizedList.map((entry) => ({
+    field: entry.field,
+    before: currentValueFor({ repo, asset, field: entry.field, before: requirementBefore }),
+    after: entry.value,
+  }))
   const impact = computeImpact({ startId: asset.id, assets: normalizeAssets({ assets, asset }) })
   return {
     schema: REHEARSAL_SCHEMA,
     requirement: asset.id,
     baseline,
-    change: {
-      field: normalized.field,
-      before: currentValueFor({ repo, asset, field: normalized.field, before: requirementBefore }),
-      after: normalized.value,
-    },
+    change: changes.length === 1 ? changes[0] : changes,
+    changes,
     requirementBefore,
     requirementAfter,
     impact,

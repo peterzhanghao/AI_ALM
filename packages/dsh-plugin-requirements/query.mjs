@@ -20,6 +20,7 @@ const NEXT = {
   'fix-anomaly': '修数据异常',
   'rerun-evidence': '重跑证据',
   'run-review': '运行评审',
+  'ai-review': '采纳 AI 评审',
   'run-acceptance': '运行验收',
   signoff: '去签收',
   done: '已完成',
@@ -203,6 +204,7 @@ export function nextActionFor(item, gaps = []) {
   // whether the missing evidence is the review or the acceptance run.
   const gap = item?.decision?.topGap ?? gaps[0] ?? null
   const code = String(gap?.code ?? '').toLowerCase()
+  if (code === 'review-not-accepted') return 'ai-review'
   if (/review|role|coverage/.test(code)) return 'run-review'
   if (/acceptance|command|evidence/.test(code)) return 'run-acceptance'
   return 'run-review'
