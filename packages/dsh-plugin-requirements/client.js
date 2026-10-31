@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useState, useEffect, useCallback } = React
+    const { useState, useEffect, useCallback, useRef } = React
 
     const ROOT_KEY = 'alm.requirements.root'
     const PROJECT_KEY = 'alm.requirements.project'
@@ -997,9 +997,9 @@ window.__ModuleLoader__.load({
      * needs to be. All data comes from the query payload.
      * ------------------------------------------------------------------- */
 
-    const LIST_COLUMNS = 'minmax(280px, 1fr) 108px 104px 96px 132px 76px'
-    const LIST_COLUMNS_NARROW = 'minmax(220px, 1fr) 104px 132px 76px'
-    const LIST_COLUMNS_MOBILE = 'minmax(0, 1fr) 68px'
+    const LIST_COLUMNS = 'minmax(260px, 1fr) 116px 100px 88px 196px 112px'
+    const LIST_COLUMNS_NARROW = 'minmax(220px, 1fr) 112px 92px 186px 112px'
+    const LIST_COLUMNS_MOBILE = 'minmax(0, 1fr) 88px'
 
     function listColumns(narrow, mobile) {
       if (mobile) return LIST_COLUMNS_MOBILE
@@ -1010,34 +1010,129 @@ window.__ModuleLoader__.load({
       return { minWidth: 0, display: 'flex', alignItems: 'center', ...extra }
     }
 
+    /** Acceptance join is a plain count: the list does not fake a drill-down. */
     function acceptanceLabel(item) {
       const count = item.verifiedBy?.length ?? 0
-      return count > 0 ? `${count} 项` : '—'
+      return count > 0 ? `${count} 项` : '未关联'
     }
 
-    function anomalyLine(item) {
-      const first = item.anomalies?.[0]
-      if (!first) return null
-      const label = ANOMALY_LABELS[first.kind] ?? first.kind
-      return item.anomalies.length > 1 ? `${label}等 ${item.anomalies.length} 项数据异常` : `${label} · 需澄清`
+    function duplicateCountFor(item, duplicateCounts) {
+      const count = duplicateCounts?.[item.id]
+      if (!Number.isFinite(count) || count < 2) return 2
+      return count
     }
 
-    function RequirementRow({ item, narrow, mobile, showProject, selected = false, onOpen }) {
+    /**
+     * One short line under the record. Business state and data anomalies are
+     * different dimensions, so an anomaly is stated as data, with record count.
+     */
+    function anomalyLine(item, duplicateCounts) {
+      const list = item.anomalies ?? []
+      if (list.length === 0) return null
+      const kind = list[0].kind
+      if (kind === 'duplicate-id') return `需求 ID 重复 · 涉及 ${duplicateCountFor(item, duplicateCounts)} 条记录`
+      if (kind === 'duplicate-business-id') return `业务编号重复 · 涉及 ${duplicateCountFor(item, duplicateCounts)} 条记录`
+      if (kind === 'dangling-relation') return '悬空关系 · 来源记录保留，待人工核对'
+      const label = ANOMALY_LABELS[kind] ?? kind
+      return list.length > 1 ? `${label}等 ${list.length} 项` : label
+    }
+
+    const CHECK_TONE_COLOR = {
+      error: () => T.err,
+      warn: () => T.warn,
+      success: () => T.ok,
+      neutral: () => T.text3,
+    }
+
+    function checkToneColor(tone) {
+      return (CHECK_TONE_COLOR[tone] ?? CHECK_TONE_COLOR.neutral)()
+    }
+
+    /** Short check summary: the state word plus the one gap that matters. */
+    function checkSummary(item) {
+      const decision = item.decision
+      if (!decision) return { label: '未检查', detail: null, tone: 'neutral' }
+      const code = decision.topGap?.code ?? ''
+      let detail = null
+      if (decision.state === 'blocked') detail = decision.topGap?.message ?? '存在阻塞项'
+      else if (decision.state === 'needs-clarification') detail = '数据异常待澄清'
+      else if (decision.state === 'failed') detail = '验收执行失败'
+      else if (decision.state === 'stale') detail = '证据与当前版本不一致'
+      else if (decision.state === 'unchecked') {
+        detail =
+          code === 'review-not-run'
+            ? '未运行评审'
+            : code === 'review-not-accepted'
+              ? 'AI 评审待采纳'
+              : code === 'coverage-incomplete'
+                ? '评审视角不全'
+                : code === 'acceptance-missing'
+                  ? '未登记验收命令'
+                  : code === 'acceptance-not-run'
+                    ? '验收尚未执行'
+                    : decision.topGap?.message ?? null
+      } else if (decision.state === 'verified') detail = null
+      return { label: decision.label ?? '未检查', detail, tone: decision.tone ?? 'neutral' }
+    }
+
+    /** The one action that is real for this record; no placeholder actions. */
+    function rowAction(item, { onOpen, onAiReview, onAcceptance }) {
+      const decision = item?.decision
+      if (!decision) return { label: '打开', icon: 'eye', run: () => onOpen(item) }
+      const code = decision.topGap?.code ?? ''
+      if (decision.state === 'blocked' || decision.state === 'needs-clarification') {
+        return { label: '处理', icon: 'alert', run: () => onOpen(item) }
+      }
+      if (decision.state === 'failed') return { label: '重跑验收', icon: 'flask', run: () => onAcceptance(item) }
+      if (decision.state === 'stale') return { label: '重新验收', icon: 'flask', run: () => onAcceptance(item) }
+      if (decision.state === 'unchecked') {
+        if (code === 'acceptance-missing') return { label: '登记验收', icon: 'flask', run: () => onAcceptance(item) }
+        if (code === 'acceptance-not-run') return { label: '运行验收', icon: 'flask', run: () => onAcceptance(item) }
+        if (code === 'review-not-run' || code === 'review-not-accepted' || code === 'coverage-incomplete') {
+          return { label: '运行评审', icon: 'sparkles', run: () => onAiReview(item) }
+        }
+        return { label: '打开', icon: 'eye', run: () => onOpen(item) }
+      }
+      if (decision.state === 'verified') return { label: '查看评审', icon: 'eye', run: () => onOpen(item) }
+      return { label: '打开', icon: 'eye', run: () => onOpen(item) }
+    }
+
+    function RequirementRow({ item, narrow, mobile, showProject, selected = false, duplicateCounts, actionHandlers }) {
       const key = item.occurrenceKey ?? item.id
       const decision = item.decision ?? null
-      const anomaly = anomalyLine(item)
-      const open = () => onOpen(item)
-      const subline = [
-        h(
-          'code',
-          { key: 'id', style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '11.5px', color: T.text2 } },
-          item.id,
-        ),
-        h('span', { key: 'rev', style: { color: T.text3, fontSize: '11px' } }, `v${item.revision ?? 1}`),
-        showProject && item.projectName
-          ? h('span', { key: 'project', style: { color: T.text3, fontSize: '11px' } }, item.projectName)
-          : null,
-      ]
+      const anomaly = anomalyLine(item, duplicateCounts)
+      const check = checkSummary(item)
+      const action = rowAction(item, actionHandlers)
+      const [hover, setHover] = useState(false)
+      const open = () => actionHandlers.onOpen(item)
+      const actionButton = h(
+        'button',
+        {
+          type: 'button',
+          onClick: (event) => {
+            event.stopPropagation()
+            action.run()
+          },
+          title: action.label,
+          'aria-label': `${action.label}：${item.title}`,
+          style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            height: '28px',
+            padding: '0 9px',
+            border: `1px solid ${T.line2}`,
+            borderRadius: '7px',
+            background: 'transparent',
+            color: action.icon === 'alert' ? T.err : T.text2,
+            fontSize: '11.5px',
+            whiteSpace: 'nowrap',
+            cursor: 'pointer',
+          },
+        },
+        h(ActionIcon, { name: action.icon, size: 13 }),
+        mobile ? null : action.label,
+      )
       return h(
         'div',
         {
@@ -1049,10 +1144,12 @@ window.__ModuleLoader__.load({
             columnGap: '14px',
             alignItems: 'center',
             boxSizing: 'border-box',
-            minHeight: mobile ? '64px' : '68px',
+            minHeight: mobile ? '64px' : '70px',
             padding: mobile ? '10px 14px' : '9px 16px',
             borderTop: `1px solid ${T.line}`,
             background: selected ? T.layer2 : 'transparent',
+            boxShadow: selected ? `inset 2px 0 0 ${T.brand}` : 'none',
+            cursor: 'pointer',
             transition: REDUCE_MOTION ? 'none' : 'background-color 140ms ease',
           },
           'aria-selected': selected,
@@ -1068,47 +1165,67 @@ window.__ModuleLoader__.load({
           'div',
           { role: 'cell', style: { minWidth: 0 } },
           h(
-            'button',
-            {
-              type: 'button',
-              onClick: (event) => {
-                event.stopPropagation()
-                open()
+            'div',
+            { style: { display: 'flex', alignItems: 'baseline', gap: '8px', minWidth: 0 } },
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: (event) => {
+                  event.stopPropagation()
+                  open()
+                },
+                onMouseEnter: () => setHover(true),
+                onMouseLeave: () => setHover(false),
+                onFocus: () => setHover(true),
+                onBlur: () => setHover(false),
+                title: `打开需求：${item.title}`,
+                style: {
+                  display: 'block',
+                  minWidth: 0,
+                  maxWidth: '100%',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  border: 0,
+                  padding: 0,
+                  background: 'transparent',
+                  color: T.text,
+                  font: 'inherit',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  letterSpacing: '-.005em',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  textDecoration: hover ? 'underline' : 'none',
+                  textUnderlineOffset: '3px',
+                  outlineColor: T.brand,
+                },
               },
-              title: `打开需求：${item.title}`,
-              style: {
-                display: 'block',
-                maxWidth: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                border: 0,
-                padding: 0,
-                background: 'transparent',
-                color: T.text,
-                font: 'inherit',
-                fontSize: '14px',
-                fontWeight: 600,
-                letterSpacing: '-.005em',
-                textAlign: 'left',
-                cursor: 'pointer',
-                outlineColor: T.brand,
-              },
-            },
-            item.title,
+              item.title,
+            ),
           ),
           h(
             'div',
             { style: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, marginTop: '3px', flexWrap: 'wrap' } },
-            subline,
-            mobile
-              ? h(Pill, { status: item.status, label: item.statusLabel })
-              : null,
-            mobile && decision ? h(DecisionPill, { decision }) : null,
-            anomaly
-              ? h('span', { style: { color: T.err, fontSize: '11px', whiteSpace: 'nowrap' } }, anomaly)
-              : null,
+            h(
+              'code',
+              { style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '11.5px', color: T.text2 } },
+              item.id,
+            ),
+            h('span', { style: { color: T.text3, fontSize: '11px' } }, `v${item.revision ?? 1}`),
+            showProject && item.projectName ? h('span', { style: { color: T.text3, fontSize: '11px' } }, item.projectName) : null,
+            mobile && decision ? h(Pill, { status: item.status, label: item.statusLabel }) : null,
           ),
+          anomaly
+            ? h(
+                'div',
+                { style: { marginTop: '3px', color: T.err, fontSize: '11.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                anomaly,
+              )
+            : item.duplicateCount > 1
+              ? null
+              : null,
         ),
         mobile ? null : h('div', { role: 'cell', style: listCell() }, h(Pill, { status: item.status, label: item.statusLabel })),
         narrow || mobile
@@ -1125,56 +1242,44 @@ window.__ModuleLoader__.load({
               {
                 role: 'cell',
                 style: listCell({ color: (item.verifiedBy?.length ?? 0) > 0 ? T.text2 : T.text3, fontSize: '12.5px' }),
-                title: (item.verifiedBy ?? []).join('、') || '尚未关联验收',
+                title: (item.verifiedBy ?? []).join('、') || '尚未关联验收用例',
               },
               acceptanceLabel(item),
             ),
         mobile
-          ? null
+          ? h(
+              'div',
+              { role: 'cell', style: listCell({ justifyContent: 'flex-end', gap: '6px' }) },
+              h(
+                'span',
+                { style: { width: '7px', height: '7px', borderRadius: '50%', background: checkToneColor(check.tone), flex: 'none' } },
+              ),
+              actionButton,
+            )
           : h(
-          'div',
-          { role: 'cell', style: listCell({ gap: '4px', flexDirection: 'column', alignItems: 'flex-start' }) },
-          decision
-            ? h('span', { title: decision.topGap?.message }, h(DecisionPill, { decision }))
-            : h('span', { style: { color: T.text3, fontSize: '11.5px' } }, '未检查'),
-        ),
-        h(
-          'div',
-          { role: 'cell', style: listCell({ justifyContent: 'flex-end' }) },
-          h(
-            'button',
-            {
-              type: 'button',
-              onClick: (event) => {
-                event.stopPropagation()
-                open()
-              },
-              'aria-label': `查看 ${item.title}`,
-              title: '打开详情',
-              style: {
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-                height: '28px',
-                padding: '0 9px',
-                border: `1px solid ${T.line}`,
-                borderRadius: '7px',
-                background: 'transparent',
-                color: T.text2,
-                fontSize: '11.5px',
-                cursor: 'pointer',
-              },
-            },
-            h(ActionIcon, { name: 'eye', size: 13 }),
-            '详情',
-          ),
-        ),
+              'div',
+              { role: 'cell', style: listCell({ flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }) },
+              h(
+                'span',
+                { style: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: check.tone === 'neutral' ? T.text2 : checkToneColor(check.tone), fontWeight: 500 } },
+                h('span', { style: { width: '7px', height: '7px', borderRadius: '50%', background: checkToneColor(check.tone), flex: 'none' } }),
+                check.label,
+              ),
+              check.detail
+                ? h(
+                    'span',
+                    { title: check.detail, style: { maxWidth: '100%', color: T.text3, fontSize: '11.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                    check.detail,
+                  )
+                : null,
+            ),
+        mobile ? null : h('div', { role: 'cell', style: listCell({ justifyContent: 'flex-end' }) }, actionButton),
       )
     }
 
-    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, emptyNode, stickyTop = 0 }) {
+    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, onAiReview, onAcceptance, duplicateCounts, emptyNode, stickyTop = 0 }) {
       const columns = listColumns(narrow, mobile)
+      const actionHandlers = { onOpen, onAiReview, onAcceptance }
       const headerCell = (label, extra) =>
         h(
           'div',
@@ -1222,13 +1327,15 @@ window.__ModuleLoader__.load({
                 narrow,
                 mobile,
                 showProject,
+                duplicateCounts,
+                actionHandlers,
                 selected: selectedKey === (item.occurrenceKey ?? item.id),
-                onOpen,
               }),
             )
           : emptyNode ?? null,
       )
     }
+
 
     function SkeletonTable({ narrow, mobile }) {
       const columns = listColumns(narrow, mobile)
@@ -3231,316 +3338,2563 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function CreateModal({ root, project, projectName, onClose, onCreated }) {
-      const [form, setForm] = useState({ title: '', brief: '', priority: 'P1', owner: '张浩' })
-      const [intent, setIntent] = useState('')
-      const [aiDraft, setAiDraft] = useState({ loading: false, error: null, draft: null })
+    const INTENT_ROUTE_LIST = [
+      ['create', '新建需求草稿', '把这次改动写成一份新的需求草案'],
+      ['change', '变更已有需求', '修改已存在承诺，保留修订历史'],
+      ['reuse', '已被覆盖', '现有承诺已经覆盖，不必新写'],
+      ['investigate', '先调查', '证据不足，先调查再决定'],
+      ['decline', '建议暂缓或不做', '当前不建议做，记下理由'],
+      ['answer', '直接答疑', '只是问题，不改动资产'],
+    ]
+    const INTENT_ROUTE_LABELS = INTENT_ROUTE_LIST.reduce((acc, entry) => {
+      acc[entry[0]] = entry[1]
+      return acc
+    }, {})
+    const INTENT_MATCH_LABELS = { covered: '已覆盖', related: '相关', conflict: '冲突', uncertain: '不确定' }
+    const INTENT_UNKNOWN_LABELS = { clarify: '澄清', investigate: '转调查', exclude: '排除', pending: '待处理' }
+    const INTENT_FIELDS = ['title', 'problem', 'goal', 'inScope', 'outOfScope', 'acceptance']
+    const INTENT_SOURCE_TABS = [['text', '文字'], ['ocr', '图片 OCR'], ['chat', '聊天记录']]
+    const INTENT_STAGES = ['读取项目上下文', '检索相关需求', '生成判断']
+    const INTENT_STATE_LABELS = {
+      editing: '正在编辑',
+      analyzing: '分析中',
+      needs_input: '待你回答',
+      ready_for_confirmation: '可确认',
+      committed: '已保存',
+      cancelled: '已取消',
+      failed: '失败',
+    }
+    const INTENT_VERDICT_LABELS = { answered: '已回答', 'partially-answered': '部分回答', 'not-determined': '未确定' }
+    const INTENT_INVESTIGATION_STAGES = ['读取文件', '生成证据', '核对引用']
+
+    function intentView(payload) {
+      return payload?.session ?? payload?.data?.session ?? null
+    }
+
+    function intentAnalysisStatus(payload) {
+      return payload?.analysisStatus ?? payload?.session?.analysisStatus ?? null
+    }
+
+    function intentInvestigationId(investigation) {
+      return investigation?.investigationId ?? investigation?.id ?? null
+    }
+
+    function intentInvestigationList(payload) {
+      const list = payload?.investigations ?? payload?.session?.investigations ?? []
+      return Array.isArray(list) ? list : []
+    }
+
+    function intentInvestigationTime(investigation) {
+      return intentTime(investigation?.finishedAt ?? investigation?.createdAt ?? investigation?.startedAt ?? null)
+    }
+
+    function intentRefLabel(ref) {
+      if (!ref?.path) return ref?.ref ?? '未知来源'
+      const line = ref.line === undefined || ref.line === null ? '' : `#L${ref.line}${ref.endLine ? `-${ref.endLine}` : ''}`
+      return `${ref.path}${line}`
+    }
+
+    function intentSame(a, b) {
+      return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+    }
+
+    function intentLines(values) {
+      return (values ?? []).join('\n')
+    }
+
+    function intentTime(iso) {
+      if (!iso) return '—'
+      const date = new Date(iso)
+      return Number.isNaN(date.getTime()) ? String(iso) : date.toLocaleString()
+    }
+
+    function intentIdemKey() {
+      return `ui-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+    }
+
+    function intentBriefOf(candidate) {
+      const c = candidate ?? {}
+      const parts = []
+      if (c.problem) parts.push(`## 问题\n${c.problem}`)
+      if (c.goal) parts.push(`## 目标\n${c.goal}`)
+      if ((c.inScope ?? []).length) parts.push(`## 范围内\n${c.inScope.map((line) => `- ${line}`).join('\n')}`)
+      if ((c.outOfScope ?? []).length) parts.push(`## 范围外\n${c.outOfScope.map((line) => `- ${line}`).join('\n')}`)
+      if ((c.acceptance ?? []).length) {
+        parts.push(
+          `## 验收\n${c.acceptance
+            .map((row) => `- 当 ${row.precondition || '—'}，${row.action || '—'}，应 ${row.expected || '—'}`)
+            .join('\n')}`,
+        )
+      }
+      return parts.join('\n\n')
+    }
+
+    function intentManualSession({ text, source, extractedText, attachment, projectId, projectName }) {
+      return {
+        sessionId: null,
+        state: 'editing',
+        manual: true,
+        input: {
+          text,
+          source,
+          extractedText: extractedText ?? '',
+          attachment: attachment ?? null,
+          inputRevision: 0,
+          explicit: { owner: null, priority: null },
+        },
+        answers: [],
+        runs: [],
+        context: { projectId: projectId ?? null, projectName: projectName ?? null, queryStatus: 'not-queried', readSet: [], boundary: '本项目' },
+        items: [
+          {
+            itemId: 'manual-1',
+            sourceRefs: [],
+            userProblem: text,
+            desiredOutcome: '',
+            recommendedRoute: 'create',
+            routeRationale: '没有模型判断：去向与候选完全由你填写，仍需确认才会保存。',
+            related: [],
+            assumptions: [],
+            unknowns: [],
+            candidate: { title: '', problem: text, goal: '', inScope: [], outOfScope: [], acceptance: [] },
+            counterexample: null,
+            fields: {},
+          },
+        ],
+        nextQuestion: null,
+        confirmation: null,
+        artifacts: [],
+        receipt: null,
+        readiness: null,
+      }
+    }
+
+    function IntentModal({ root, project, projectName, projectId, requirementCount, onClose, onCreated, onOpenRequirement }) {
+      const [screen, setScreen] = useState('input')
+      const [rawText, setRawText] = useState('')
       const [source, setSource] = useState('text')
       const [attachment, setAttachment] = useState(null)
       const [chatMarkdown, setChatMarkdown] = useState('')
       const [intake, setIntake] = useState({ loading: false, error: null, data: null })
-      const [state, setState] = useState({ loading: false, error: null, plan: null, result: null })
-      const field = (key) => ({
-        value: form[key],
-        onChange: (event) => setForm((current) => ({ ...current, [key]: event.target.value })),
+      const [ownerChoice, setOwnerChoice] = useState('')
+      const [priorityChoice, setPriorityChoice] = useState('')
+      const [session, setSession] = useState(null)
+      const [manual, setManual] = useState({})
+      const [routeChoices, setRouteChoices] = useState({})
+      const [unknownChoices, setUnknownChoices] = useState({})
+      const [conflicts, setConflicts] = useState([])
+      const [busy, setBusy] = useState(false)
+      const [editBusy, setEditBusy] = useState(false)
+      const [error, setError] = useState(null)
+      const [notice, setNotice] = useState(null)
+      const [questionText, setQuestionText] = useState('')
+      const [serverBlockers, setServerBlockers] = useState([])
+      const [confirmState, setConfirmState] = useState({ loading: false, error: null, result: null })
+      const [rehearsal, setRehearsal] = useState({ loading: false, error: null, data: null, base: null })
+      const [receipt, setReceipt] = useState(null)
+      const [answerChoice, setAnswerChoice] = useState(null)
+      const [answerBusy, setAnswerBusy] = useState(false)
+      const [answerElapsed, setAnswerElapsed] = useState(0)
+      const [answerFeedback, setAnswerFeedback] = useState(null)
+      const [investigations, setInvestigations] = useState([])
+      const [investigation, setInvestigation] = useState({ open: false, busy: false, elapsed: 0, error: null, data: null, question: null, expandedId: null })
+      const requestRef = useRef(0)
+      const abortRef = useRef(null)
+      const answerAbortRef = useRef(null)
+      const answerPollRef = useRef(null)
+      const answerTimerRef = useRef(null)
+      const investAbortRef = useRef(null)
+      const investTimerRef = useRef(null)
+      const mountedRef = useRef(true)
+      const sessionRef = useRef(null)
+      const aiValuesRef = useRef({ inputRevision: null, values: {} })
+      const idemRef = useRef(null)
+      const screenHeadingRef = useRef(null)
+      const editQueueRef = useRef(Promise.resolve())
+      const editPendingRef = useRef(0)
+
+      const fieldLabelStyle = { fontSize: '11px', letterSpacing: '.06em', textTransform: 'uppercase', color: T.text3 }
+      const blockTitleStyle = { fontSize: '12px', fontWeight: 600, color: T.text }
+
+      useEffect(() => {
+        return () => {
+          mountedRef.current = false
+          requestRef.current += 1
+          if (answerTimerRef.current) clearInterval(answerTimerRef.current)
+          if (answerPollRef.current) clearTimeout(answerPollRef.current)
+          if (investTimerRef.current) clearInterval(investTimerRef.current)
+          for (const controller of [abortRef.current, answerAbortRef.current, investAbortRef.current]) {
+            if (!controller) continue
+            try {
+              controller.abort()
+            } catch {}
+          }
+        }
+      }, [])
+
+      useEffect(() => {
+        if (!session || session.manual) return
+        const explicit = session.input?.explicit ?? {}
+        if (explicit.owner) setOwnerChoice((current) => current || explicit.owner)
+        if (explicit.priority) setPriorityChoice((current) => current || explicit.priority)
+      }, [session])
+
+      useEffect(() => {
+        if (screen === 'input') return
+        const node = screenHeadingRef.current
+        if (node && typeof node.focus === 'function') node.focus()
+      }, [screen])
+
+      const invalidateIdem = () => {
+        idemRef.current = null
+      }
+      const beginRequest = () => {
+        const token = requestRef.current + 1
+        requestRef.current = token
+        return token
+      }
+      const isCurrent = (token) => mountedRef.current && requestRef.current === token
+      const setSessionView = (view) => {
+        sessionRef.current = view ?? null
+        if (mountedRef.current) setSession(view ?? null)
+      }
+      const stopTimer = (ref) => {
+        if (ref.current) {
+          clearInterval(ref.current)
+          ref.current = null
+        }
+      }
+      const startTimer = (ref, tick) => {
+        stopTimer(ref)
+        ref.current = setInterval(() => {
+          if (!mountedRef.current) {
+            stopTimer(ref)
+            return
+          }
+          tick()
+        }, 1000)
+      }
+      const trackInvestigations = (payload) => {
+        const list = intentInvestigationList(payload)
+        if (list.length === 0) return
+        setInvestigations((current) => {
+          const seen = new Map()
+          for (const entry of [...list, ...current]) {
+            const id = intentInvestigationId(entry)
+            if (!id || seen.has(id)) continue
+            seen.set(id, entry)
+          }
+          return [...seen.values()].slice(0, 20)
+        })
+      }
+      const activeItems = () => (session?.items ?? []).filter((item) => !item.excluded)
+      const routeOf = (item) => routeChoices[item?.itemId] ?? item?.recommendedRoute ?? 'create'
+      const fieldWasEdited = (item, field) => (manual[item?.itemId] ?? {})[field] !== undefined
+      const candidateOf = (item) => {
+        const base = item?.candidate ?? {}
+        const edited = manual[item?.itemId] ?? {}
+        return {
+          title: edited.title ?? base.title ?? '',
+          problem: edited.problem ?? base.problem ?? '',
+          goal: edited.goal ?? base.goal ?? '',
+          inScope: edited.inScope ?? base.inScope ?? [],
+          outOfScope: edited.outOfScope ?? base.outOfScope ?? [],
+          acceptance: edited.acceptance ?? base.acceptance ?? [],
+        }
+      }
+      const cleanCandidate = (candidate) => ({
+        title: String(candidate.title ?? '').trim(),
+        problem: String(candidate.problem ?? '').trim(),
+        goal: String(candidate.goal ?? '').trim(),
+        inScope: (candidate.inScope ?? []).map((line) => String(line).trim()).filter((line) => line !== ''),
+        outOfScope: (candidate.outOfScope ?? []).map((line) => String(line).trim()).filter((line) => line !== ''),
+        acceptance: (candidate.acceptance ?? []).map((row) => ({
+          ...row,
+          precondition: row?.precondition ?? '',
+          action: row?.action ?? '',
+          expected: row?.expected ?? '',
+          judgement: row?.judgement ?? 'pass',
+        })),
       })
-      const payload = (apply) => ({ ...form, attachments: attachment ? [attachment] : [], apply })
-      const preview = () => {
-        setState({ loading: true, error: null, plan: null, result: null })
-        writeJson('create', payload(false), root)
-          .then((plan) => setState({ loading: false, error: null, plan, result: null }))
-          .catch((error) => setState({ loading: false, error: error.message, plan: null, result: null }))
+      const changeBaseOf = (item) => {
+        const related = item?.related ?? []
+        return related.find((entry) => entry.match === 'covered' || entry.match === 'conflict') ?? related.find((entry) => entry.match === 'related') ?? related[0] ?? null
       }
-      const apply = () => {
-        setState((current) => ({ ...current, loading: true, error: null }))
-        writeJson('create', payload(true), root)
-          .then((result) => {
-            setState((current) => ({ ...current, loading: false, result }))
-            onCreated?.(result)
+      const relatedTitleOf = (entry) => {
+        if (entry?.title) return entry.title
+        const readSet = session?.context?.readSet ?? []
+        const found = readSet.find((item) => item?.uid === entry?.uid || item?.id === entry?.uid)
+        return found?.title ?? null
+      }
+      const errorOf = (caught) => ({
+        code: caught?.code ?? null,
+        status: caught?.status ?? null,
+        message: caught?.message ?? String(caught),
+        reasons: caught?.reasons ?? caught?.payload?.error?.reasons ?? [],
+        appliedArtifacts: caught?.appliedArtifacts ?? caught?.payload?.error?.appliedArtifacts ?? [],
+        manualFallback: caught?.manualFallback === true || caught?.payload?.manualFallback === true,
+      })
+      const setManualField = (itemId, field, value) => {
+        invalidateIdem()
+        setServerBlockers([])
+        setManual((current) => ({ ...current, [itemId]: { ...(current[itemId] ?? {}), [field]: value } }))
+      }
+      const applySession = (view) => {
+        if (!view) return
+        const nextValues = {}
+        for (const item of view.items ?? []) {
+          const base = item.candidate ?? {}
+          const fieldValues = {}
+          for (const field of INTENT_FIELDS) fieldValues[field] = base[field] ?? (Array.isArray(base[field]) ? [] : '')
+          nextValues[item.itemId] = fieldValues
+        }
+        const previous = aiValuesRef.current.values
+        const found = []
+        for (const item of view.items ?? []) {
+          const edited = manual[item.itemId] ?? {}
+          for (const field of INTENT_FIELDS) {
+            if (edited[field] === undefined) continue
+            const before = previous[item.itemId]?.[field]
+            const after = nextValues[item.itemId]?.[field]
+            if (before === undefined && after === undefined) continue
+            if (before !== undefined && after !== undefined && !intentSame(before, after) && !intentSame(edited[field], after) && !intentSame(edited[field], before)) {
+              found.push({ itemId: item.itemId, field, manualValue: edited[field], aiValue: after })
+            }
+          }
+        }
+        setConflicts(found)
+        aiValuesRef.current = { inputRevision: view.input?.inputRevision ?? null, values: nextValues }
+        // 手动模式下重新分析：把手填候选带到新会话的第一个意图项，避免从零重填。
+        const carryFor = session?.manual ? manual['manual-1'] : null
+        const firstNew = (view.items ?? []).find((item) => !item.excluded)
+        if (carryFor && firstNew) {
+          setManual((current) => (current[firstNew.itemId] ? current : { ...current, [firstNew.itemId]: carryFor }))
+        }
+        const previousRoutes = routeChoices
+        const nextRoutes = {}
+        for (const item of view.items ?? []) {
+          if (previousRoutes[item.itemId] !== undefined) nextRoutes[item.itemId] = previousRoutes[item.itemId]
+        }
+        setRouteChoices(nextRoutes)
+        setSessionView(view)
+      }
+      const runAnalyze = (options = {}) => {
+        const text = String(options.textOverride ?? rawText).trim()
+        if (text === '') {
+          setError({ code: 'input-required', message: '请先用原话写下你想改变什么' })
+          return
+        }
+        invalidateIdem()
+        setServerBlockers([])
+        setError(null)
+        setNotice(null)
+        setAnswerFeedback(null)
+        const token = beginRequest()
+        const controller = new AbortController()
+        abortRef.current = controller
+        setScreen('analyzing')
+        setBusy(true)
+        const investigationIds = (options.investigationIds ?? []).filter((id) => typeof id === 'string' && id !== '').slice(0, 5)
+        const body = {
+          action: 'analyze',
+          projectId: projectId ?? project ?? undefined,
+          input: {
+            text,
+            source,
+            extractedText: intake.data?.text ?? '',
+            attachment: attachment ? { name: attachment.name, kind: attachment.kind } : undefined,
+          },
+          explicit: { owner: ownerChoice.trim() || null, priority: priorityChoice || null },
+        }
+        if (investigationIds.length > 0) body.investigationIds = investigationIds
+        const previous = sessionRef.current
+        if (previous?.sessionId) body.sessionId = previous.sessionId
+        writeJson('intent', body, root, { signal: controller.signal })
+          .then((payload) => {
+            if (!isCurrent(token)) return
+            setBusy(false)
+            const view = intentView(payload)
+            if (!view) {
+              setScreen('input')
+              setError({ code: 'empty-response', message: '分析没有返回会话' })
+              return
+            }
+            trackInvestigations(payload)
+            applySession(view)
+            setScreen('review')
+            if (investigationIds.length > 0) setNotice('已把调查证据带入这次判断；证据仍需要你核对。')
           })
-          .catch((error) => setState((current) => ({ ...current, loading: false, error: error.message })))
+          .catch((caught) => {
+            if (!isCurrent(token) || caught?.name === 'AbortError') return
+            setBusy(false)
+            const view = intentView(caught?.payload)
+            if (view) applySession(view)
+            const info = errorOf(caught)
+            if (info.status === 503) {
+              setNotice(`模型不可用：${info.message}。你仍可手动填写候选并保存会话，稍后再确认；现在不会创建任何需求。`)
+              setScreen(view ? 'review' : 'input')
+              return
+            }
+            setError(info)
+            setScreen(view || (options.investigationIds ?? []).length > 0 ? 'review' : 'input')
+          })
       }
-      const generateDraft = (overrideIntent) => {
-        const text = String(overrideIntent ?? intent ?? '').trim()
+      const cancelAnalyze = () => {
+        requestRef.current += 1
+        if (abortRef.current) {
+          try {
+            abortRef.current.abort()
+          } catch {}
+        }
+        setBusy(false)
+        setScreen('input')
+        setNotice('已取消分析；旧结果不会写入界面。')
+      }
+      const startManual = () => {
+        const text = rawText.trim()
+        if (text === '') {
+          setError({ code: 'input-required', message: '请先用原话写下你想改变什么，再手动填写候选' })
+          return
+        }
+        requestRef.current += 1
+        invalidateIdem()
+        setError(null)
+        setNotice('手动填写：没有调用模型。未保存前不会创建任何东西；要保存仍需先拿到服务端会话（可稍后点“重新分析”）。')
+        const stub = intentManualSession({
+          text,
+          source,
+          extractedText: intake.data?.text ?? '',
+          attachment: attachment ? { name: attachment.name, kind: attachment.kind } : null,
+          projectId: projectId ?? project,
+          projectName,
+        })
+        aiValuesRef.current = { inputRevision: null, values: {} }
+        setSessionView(stub)
+        setScreen('review')
+      }
+      const answerPayload = () => {
+        const question = session?.nextQuestion
+        if (!question) return null
+        const optionId = answerChoice && answerChoice !== 'unknown' ? answerChoice : undefined
+        const text = answerChoice === 'unknown' ? '我不知道，需要调查' : questionText.trim() === '' ? undefined : questionText.trim()
+        if (optionId === undefined && text === undefined) return null
+        return { question, optionId, text }
+      }
+      const stopAnswerPoll = () => {
+        if (answerPollRef.current) {
+          clearTimeout(answerPollRef.current)
+          answerPollRef.current = null
+        }
+      }
+      // The answer request returns as soon as the answer is recorded; the
+      // server re-runs the model in the background. Poll `load` until that run
+      // finishes so the UI can show fresh candidates without blocking submit.
+      const pollAnalysis = (sessionId, token) => {
+        stopAnswerPoll()
+        const startedAt = Date.now()
+        const tick = () => {
+          if (!mountedRef.current || requestRef.current !== token) return
+          if (Date.now() - startedAt > 90_000) {
+            setAnswerFeedback({ kind: 'error', message: '回答已记录，但重新分析超时；可点“重新分析”重试。' })
+            return
+          }
+          writeJson('intent', { action: 'load', sessionId }, root)
+            .then((payload) => {
+              if (!mountedRef.current || requestRef.current !== token) return
+              const view = intentView(payload)
+              if (view) applySession(view)
+              trackInvestigations(payload)
+              const status = intentAnalysisStatus(payload)
+              if (!status || status.status === 'running') {
+                answerPollRef.current = setTimeout(tick, 800)
+                return
+              }
+              answerPollRef.current = null
+              if (status.status === 'done') {
+                setAnswerFeedback({ kind: 'success', message: '已记录你的回答，候选已更新' })
+              } else {
+                setAnswerFeedback({ kind: 'error', message: `回答已记录，但重新分析失败：${status.error?.message ?? '未知错误'}；可点“重新分析”。` })
+              }
+            })
+            .catch((caught) => {
+              if (!mountedRef.current || requestRef.current !== token) return
+              answerPollRef.current = null
+              setAnswerFeedback({ kind: 'error', message: `回答已记录，但刷新会话失败：${caught.message ?? caught}` })
+            })
+        }
+        answerPollRef.current = setTimeout(tick, 600)
+      }
+      const submitAnswer = () => {
+        const payload = answerPayload()
+        if (!payload || answerBusy || !session?.sessionId) return
+        stopAnswerPoll()
+        const token = beginRequest()
+        const controller = new AbortController()
+        answerAbortRef.current = controller
+        setAnswerBusy(true)
+        setAnswerElapsed(0)
+        setAnswerFeedback(null)
+        setError(null)
+        startTimer(answerTimerRef, () => setAnswerElapsed((current) => current + 1))
+        const body = {
+          action: 'answer',
+          sessionId: session.sessionId,
+          expectedInputRevision: session.input?.inputRevision ?? 0,
+          questionId: payload.question.questionId,
+        }
+        if (payload.optionId !== undefined) body.optionId = payload.optionId
+        if (payload.text !== undefined) body.text = payload.text
+        writeJson('intent', body, root, { signal: controller.signal })
+          .then((response) => {
+            if (answerAbortRef.current !== controller) return
+            answerAbortRef.current = null
+            stopTimer(answerTimerRef)
+            if (!isCurrent(token)) {
+              setAnswerBusy(false)
+              return
+            }
+            setAnswerBusy(false)
+            setAnswerChoice(null)
+            setQuestionText('')
+            invalidateIdem()
+            const view = intentView(response)
+            if (view) applySession(view)
+            trackInvestigations(response)
+            const status = intentAnalysisStatus(response)
+            if (status?.status === 'running') {
+              setAnswerFeedback({ kind: 'success', message: '已记录你的回答，正在更新候选…' })
+              pollAnalysis(session.sessionId, token)
+            } else if (status?.status === 'error') {
+              setAnswerFeedback({ kind: 'error', message: `回答已记录，但重新分析失败：${status.error?.message ?? '未知错误'}；可点“重新分析”。` })
+            } else {
+              setAnswerFeedback({ kind: 'success', message: '已记录你的回答，已更新候选' })
+            }
+          })
+          .catch((caught) => {
+            if (answerAbortRef.current !== controller) return
+            answerAbortRef.current = null
+            stopTimer(answerTimerRef)
+            if (!isCurrent(token)) {
+              setAnswerBusy(false)
+              return
+            }
+            setAnswerBusy(false)
+            if (caught?.name === 'AbortError') {
+              setAnswerFeedback({ kind: 'error', message: '提交已取消；已选内容仍保留，可重试。', retry: true })
+              return
+            }
+            const info = errorOf(caught)
+            setAnswerFeedback({ kind: 'error', message: `提交失败：${info.message}`, retry: true })
+            if (info.code === 'stale-input' || info.code === 'stale-context') {
+              setAnswerChoice(null)
+              setNotice(`会话已变化（${info.message}）；已回答的内容可能没有写入，已刷新会话，请重试。`)
+              loadLatestSession(session.sessionId)
+                .then((result) => {
+                  const view = result?.view
+                  if (view && mountedRef.current && sessionRef.current?.sessionId === session.sessionId) applySession(view)
+                  if (result?.payload) trackInvestigations(result.payload)
+                })
+                .catch(() => {})
+            }
+          })
+      }
+      const cancelAnswer = () => {
+        const controller = answerAbortRef.current
+        answerAbortRef.current = null
+        if (controller) {
+          try {
+            controller.abort()
+          } catch {}
+        }
+        stopTimer(answerTimerRef)
+        setAnswerBusy(false)
+        setAnswerFeedback({ kind: 'error', message: '已取消提交；已选内容仍保留，可重试。', retry: true })
+      }
+      const mergeInvestigations = (list) => {
+        if (!Array.isArray(list) || list.length === 0) return
+        setInvestigations((current) => {
+          const seen = new Map()
+          for (const entry of [...list, ...current]) {
+            const id = intentInvestigationId(entry)
+            if (!id || seen.has(id)) continue
+            seen.set(id, entry)
+          }
+          return [...seen.values()].slice(0, 20)
+        })
+      }
+      const startInvestigation = (focus) => {
+        const current = sessionRef.current
+        if (!current?.sessionId) return
+        const question = current.nextQuestion
+        const questionId = question?.questionId ?? null
+        const text = String(focus ?? question?.text ?? '').trim()
         if (text === '') return
-        setAiDraft({ loading: true, error: null, draft: null })
-        writeJson('draft', { intent: text, source, extractedText: parsed?.text ?? '', projectName }, root)
-          .then((draft) => {
-            // AI only proposes: never auto-fill priority/owner (or any field)
-            // before the human explicitly adopts the suggestion.
-            setAiDraft({ loading: false, error: null, draft })
+        if (investAbortRef.current) {
+          try {
+            investAbortRef.current.abort()
+          } catch {}
+        }
+        const controller = new AbortController()
+        investAbortRef.current = controller
+        setInvestigation({ open: true, busy: true, elapsed: 0, error: null, data: null, question: { questionId, text }, expandedId: null })
+        startTimer(investTimerRef, () => {
+          setInvestigation((current) => ({ ...current, elapsed: current.elapsed + 1 }))
+        })
+        const body = {
+          action: 'investigate',
+          sessionId: current.sessionId,
+          questionId,
+          question: text,
+        }
+        writeJson('intent', body, root, { signal: controller.signal })
+          .then((payload) => {
+            if (investAbortRef.current !== controller) return
+            investAbortRef.current = null
+            stopTimer(investTimerRef)
+            if (!mountedRef.current) return
+            const data = payload?.investigation ?? payload?.data?.investigation ?? null
+            if (!data) throw new Error('调查没有返回证据')
+            mergeInvestigations([data, ...intentInvestigationList(payload)])
+            setInvestigation((state) => ({ ...state, busy: false, error: null, data }))
           })
-          .catch((error) => setAiDraft({ loading: false, error: error.message, draft: null }))
+          .catch((caught) => {
+            if (investAbortRef.current !== controller) return
+            investAbortRef.current = null
+            stopTimer(investTimerRef)
+            if (!mountedRef.current) return
+            if (caught?.name === 'AbortError') {
+              setInvestigation((state) => ({ ...state, busy: false, error: { code: 'cancelled', message: '调查已取消；没有写入任何证据。' } }))
+              return
+            }
+            const info = errorOf(caught)
+            const hint =
+              info.code === 'outside-root'
+                ? '当前项目的可读边界之外的内容不会被读取，请缩小到本项目。'
+                : info.code === 'too-large'
+                  ? '问题太大，请把问题缩小到一个具体行为或文件。'
+                  : info.code === 'no-question'
+                    ? '请先写下要调查的问题。'
+                    : info.status === 503
+                      ? '模型暂不可用，稍后重试；这不会影响你已经填写的内容。'
+                      : info.status === 502
+                        ? '模型这次没有给出可校验的证据，稍后重试。'
+                        : null
+            setInvestigation((state) => ({ ...state, busy: false, error: { ...info, hint } }))
+          })
       }
-      const adoptSuggestion = (key, suggestedValue) => {
-        const suggested = suggestedValue ?? aiDraft.draft?.[key]
-        if (suggested === undefined || suggested === null || suggested === '') return
-        setForm((current) => ({ ...current, [key]: suggested }))
+      const cancelInvestigation = () => {
+        const controller = investAbortRef.current
+        investAbortRef.current = null
+        if (controller) {
+          try {
+            controller.abort()
+          } catch {}
+        }
+        stopTimer(investTimerRef)
+        setInvestigation((state) => ({ ...state, busy: false }))
       }
-      const suggestionRow = (label, suggested, key, adoptValue) => {
-        if (!suggested) return null
-        const shown = String(suggested).length > 160 ? `${String(suggested).slice(0, 160)}…` : String(suggested)
-        return h(
-          'div',
-          { style: { display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', padding: '3px 0', fontSize: '12px', color: T.text2 } },
-          h('span', { style: { color: T.text3, flex: 'none' } }, label),
-          h('span', { style: { color: T.text, minWidth: 0, wordBreak: 'break-word' } }, shown),
-          h('button', { style: { ...button, padding: '1px 8px', fontSize: '11px', flex: 'none' }, onClick: () => adoptSuggestion(key, adoptValue) }, '采用'),
+      const reanalyzeWithEvidence = () => {
+        const list = investigations.slice(0, 5)
+        const ids = list.map(intentInvestigationId).filter(Boolean)
+        if (ids.length === 0) {
+          setNotice('还没有可用的调查证据；先点“调查这个问题（只读）”。')
+          return
+        }
+        setInvestigation((state) => ({ ...state, open: false }))
+        runAnalyze({ investigationIds: ids })
+      }
+      const loadLatestSession = (sessionId) => {
+        return fetch(`/api/alm/requirements/intent?session=${encodeURIComponent(sessionId)}&root=${encodeURIComponent(root)}`, {
+          headers: { accept: 'application/json' },
+        }).then(async (response) => {
+          const payload = await response.json().catch(() => null)
+          if (!response.ok || payload?.ok === false) throw new Error(payload?.error?.message ?? `HTTP ${response.status}`)
+          return { view: intentView(payload), payload }
+        })
+      }
+      const sendEdit = (fields, itemId) => {
+        const current = sessionRef.current
+        if (!current?.sessionId) return Promise.resolve(null)
+        const body = {
+          action: 'edit',
+          sessionId: current.sessionId,
+          expectedInputRevision: current.input?.inputRevision ?? 0,
+          fields,
+        }
+        if (itemId) body.itemId = itemId
+        editPendingRef.current += 1
+        setEditBusy(true)
+        const run = () =>
+          writeJson('intent', body, root).then((payload) => {
+            if (!mountedRef.current) return null
+            const view = intentView(payload)
+            const live = sessionRef.current
+            // 迟到响应：会话或输入版本已变化时丢弃，旧响应不得覆盖新输入/新会话。
+            if (!view || live?.sessionId !== current.sessionId || (live?.input?.inputRevision ?? 0) !== (current.input?.inputRevision ?? 0)) return null
+            sessionRef.current = view
+            setSession(view)
+            return view
+          })
+        const queued = editQueueRef.current.then(run, run)
+        editQueueRef.current = queued.catch(() => {})
+        return queued
+          .catch((caught) => {
+            if (!mountedRef.current) return null
+            const info = errorOf(caught)
+            setError(info)
+            if (info.code === 'stale-input' || info.code === 'stale-context') {
+              setNotice(`会话已变化（${info.message}）；已刷新，请再确认一次。`)
+              invalidateIdem()
+              loadLatestSession(current.sessionId)
+                .then((result) => {
+                  const view = result?.view
+                  if (view && mountedRef.current && view.sessionId === current.sessionId && sessionRef.current?.sessionId === current.sessionId) applySession(view)
+                  if (result?.payload) trackInvestigations(result.payload)
+                })
+                .catch(() => {})
+            }
+            return null
+          })
+          .finally(() => {
+            editPendingRef.current -= 1
+            if (mountedRef.current && editPendingRef.current === 0) setEditBusy(false)
+          })
+      }
+      const chooseRoute = (item, route) => {
+        invalidateIdem()
+        setServerBlockers([])
+        setRouteChoices((current) => ({ ...current, [item.itemId]: route }))
+        sendEdit({ route }, item.itemId)
+      }
+      const changeOwner = (value) => {
+        invalidateIdem()
+        setServerBlockers([])
+        setOwnerChoice(value)
+        sendEdit({ owner: value.trim() || null })
+      }
+      const changePriority = (value) => {
+        invalidateIdem()
+        setServerBlockers([])
+        setPriorityChoice(value)
+        sendEdit({ priority: value || null })
+      }
+      const chooseUnknown = (item, index, resolution) => {
+        invalidateIdem()
+        setServerBlockers([])
+        setUnknownChoices((current) => ({ ...current, [`${item.itemId}:${index}`]: resolution }))
+        sendEdit(
+          {
+            unknownResolutions: [
+              {
+                itemId: item.itemId,
+                index,
+                description: item.unknowns?.[index]?.description ?? '',
+                resolution,
+              },
+            ],
+          },
+          item.itemId,
         )
       }
-      const suggestionNote = (label, values) => {
-        const list = (values ?? []).filter(Boolean)
-        if (list.length === 0) return null
+      const resolveConflict = (conflict, useAi) => {
+        if (useAi) setManualField(conflict.itemId, conflict.field, conflict.aiValue)
+        setConflicts((current) => current.filter((entry) => !(entry.itemId === conflict.itemId && entry.field === conflict.field)))
+      }
+      const flushAllEdits = () => {
+        const current = sessionRef.current
+        if (!current?.sessionId) return Promise.resolve(null)
+        const items = current.items ?? []
+        const merged = items.map((item) => ({ item, candidate: cleanCandidate(candidateOf(item)), route: routeOf(item) }))
+        const resolutions = Object.entries(unknownChoices).map(([key, resolution]) => {
+          const separator = key.indexOf(':')
+          return { itemId: key.slice(0, separator), index: Number(key.slice(separator + 1)), resolution }
+        })
+        if (merged.length === 0) return Promise.resolve(null)
+        const primary = merged[0]
+        const fields = {
+          route: primary.route,
+          title: primary.candidate.title,
+          problem: primary.candidate.problem,
+          goal: primary.candidate.goal,
+          inScope: primary.candidate.inScope,
+          outOfScope: primary.candidate.outOfScope,
+          acceptance: primary.candidate.acceptance,
+        }
+        if (ownerChoice.trim()) fields.owner = ownerChoice.trim()
+        if (priorityChoice) fields.priority = priorityChoice
+        if (resolutions.length) fields.unknownResolutions = resolutions
+        let chain = sendEdit(fields, primary.item.itemId)
+        for (const entry of merged.slice(1)) {
+          chain = chain.then(() =>
+            sendEdit(
+              {
+                route: entry.route,
+                title: entry.candidate.title,
+                problem: entry.candidate.problem,
+                goal: entry.candidate.goal,
+                inScope: entry.candidate.inScope,
+                outOfScope: entry.candidate.outOfScope,
+                acceptance: entry.candidate.acceptance,
+              },
+              entry.item.itemId,
+            ),
+          )
+        }
+        return chain
+      }
+      // An unanswered question blocks saving only while it could still change the
+      // route or scope. If every item has been routed to "investigate", the open
+      // question *is* the research question that gets saved with the investigation.
+      const openQuestionBlocks = () => {
+        if (!session?.nextQuestion) return false
+        const items = activeItems()
+        if (items.length === 0) return true
+        return !items.every((item) => routeOf(item) === 'investigate')
+      }
+      const reviewReadiness = () => {
+        const reasons = []
+        if (!session) reasons.push({ code: 'no-session', message: '还没有分析结果' })
+        else {
+          if (session.state === 'committed') reasons.push({ code: 'already-committed', message: '这份草案已经保存过' })
+          if (openQuestionBlocks()) reasons.push({ code: 'open-question', message: '还有一个会影响判断的问题未回答' })
+          if (activeItems().length === 0) reasons.push({ code: 'no-items', message: '没有可确认的意图项' })
+        }
+        return { ready: reasons.length === 0, reasons }
+      }
+      const confirmReadiness = () => {
+        const reasons = []
+        if (!session) reasons.push({ code: 'no-session', message: '还没有分析结果' })
+        else {
+          if (!session.sessionId) reasons.push({ code: 'no-session-id', message: '服务端还没有会话（可能是模型不可用）；请重新分析以保存' })
+          if (session.state === 'committed') reasons.push({ code: 'already-committed', message: '这份草案已经保存过' })
+          if (openQuestionBlocks()) reasons.push({ code: 'open-question', message: '还有一个会影响判断的问题未回答' })
+          for (const item of activeItems()) {
+            const route = routeOf(item)
+            const candidate = candidateOf(item)
+            if (route === 'create' && String(candidate.title ?? '').trim() === '') {
+              reasons.push({ code: 'candidate-title-required', itemId: item.itemId, message: '新建需求需要先填写标题' })
+            }
+            if (route === 'create' && !priorityChoice) {
+              reasons.push({ code: 'needs-priority', message: '需要你明确选择优先级（优先级不猜）' })
+            }
+            if (route === 'change' && !changeBaseOf(item)) {
+              reasons.push({ code: 'change-needs-requirement', itemId: item.itemId, message: '变更需要先选择要修改的既有承诺' })
+            }
+            const pendingBlocking = (item.unknowns ?? []).filter(
+              (unknown, index) => unknown.blocking && (unknownChoices[`${item.itemId}:${index}`] ?? unknown.resolution ?? 'pending') === 'pending',
+            )
+            if (pendingBlocking.length) reasons.push({ code: 'blocking-unknown', itemId: item.itemId, message: '有阻塞性未知项还没处理（澄清 / 转调查 / 排除）' })
+          }
+          for (const reason of serverBlockers) reasons.push(reason)
+        }
+        return { ready: reasons.length === 0, reasons }
+      }
+      const enterConfirm = () => {
+        if (!idemRef.current) idemRef.current = intentIdemKey()
+        setConfirmState({ loading: false, error: null, result: null })
+        setScreen('confirm')
+      }
+      const submitConfirm = () => {
+        if (confirmState.loading) return
+        const current = sessionRef.current ?? session
+        if (!current?.sessionId) {
+          setConfirmState({ loading: false, error: { code: 'no-session', message: '服务端还没有这份会话，无法保存；请先重新分析。' }, result: null })
+          return
+        }
+        const gate = confirmReadiness()
+        if (!gate.ready) {
+          setConfirmState({ loading: false, error: { code: 'not-ready', message: '还不能保存', reasons: gate.reasons }, result: null })
+          requestAnimationFrame(() => {
+            const node = screenHeadingRef.current
+            if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'start', behavior: 'smooth' })
+          })
+          return
+        }
+        if (!idemRef.current) idemRef.current = intentIdemKey()
+        setConfirmState({ loading: true, error: null, result: null })
+        setError(null)
+        flushAllEdits()
+          .then(() => {
+            if (!mountedRef.current) return null
+            const latest = sessionRef.current ?? current
+            const items = (latest.items ?? [])
+              .filter((item) => !item.excluded)
+              .map((item) => ({
+                itemId: item.itemId,
+                route: routeOf(item),
+                candidate: cleanCandidate(candidateOf(item)),
+                unknowns: (item.unknowns ?? []).map((unknown, index) => ({
+                  ...unknown,
+                  resolution: unknownChoices[`${item.itemId}:${index}`] ?? unknown.resolution ?? 'pending',
+                })),
+              }))
+            const leadItem = items[0] ?? null
+            const body = {
+              action: 'confirm',
+              sessionId: latest.sessionId,
+              expectedInputRevision: latest.input?.inputRevision ?? 0,
+              contextSnapshotId: latest.context?.contextSnapshotId ?? null,
+              confirmation: {
+                contentHash: latest.confirmation?.contentHash ?? latest.contentHash ?? null,
+                route: leadItem?.route ?? 'create',
+                items,
+                owner: ownerChoice.trim() || null,
+                priority: priorityChoice || null,
+              },
+              idempotencyKey: idemRef.current,
+              actor: 'human:local',
+            }
+            return writeJson('intent', body, root)
+          })
+          .then((payload) => {
+            if (!mountedRef.current || !payload) return
+            setReceipt({ receipt: payload.receipt ?? null, artifacts: payload.artifacts ?? [], replayed: payload.replayed === true })
+            setConfirmState({ loading: false, error: null, result: payload })
+            setScreen('receipt')
+          })
+          .catch((caught) => {
+            if (!mountedRef.current) return
+            const info = errorOf(caught)
+            if (info.code === 'stale-input' || info.code === 'stale-context') {
+              invalidateIdem()
+              loadLatestSession(current.sessionId)
+                .then((result) => {
+                  const view = result?.view
+                  if (view && mountedRef.current && view.sessionId === current.sessionId && sessionRef.current?.sessionId === current.sessionId) applySession(view)
+                  if (result?.payload) trackInvestigations(result.payload)
+                })
+                .catch(() => {})
+              setConfirmState({
+                loading: false,
+                error: { ...info, message: `上下文或输入已变化（${info.message}）。已刷新会话，请核对后再次确认。` },
+                result: null,
+              })
+              return
+            }
+            if (info.code === 'not-ready') {
+              setServerBlockers(info.reasons ?? [])
+              setConfirmState({ loading: false, error: { ...info, message: '后端判定还不能保存' }, result: null })
+              return
+            }
+            setConfirmState({ loading: false, error: info, result: null })
+          })
+      }
+      const finish = () => {
+        const artifacts = receipt?.artifacts ?? []
+        const requirement = artifacts.find((artifact) => artifact.kind === 'requirement')
+        if (onCreated) onCreated({ requirementId: requirement?.id ?? null, artifacts })
+        onClose()
+      }
+      const handleClose = () => {
+        if (screen === 'receipt') {
+          finish()
+          return
+        }
+        if (sessionRef.current?.sessionId && (screen === 'review' || screen === 'confirm')) flushAllEdits().catch(() => {})
+        onClose()
+      }
+      const postpone = () => {
+        requestRef.current += 1
+        if (sessionRef.current?.sessionId) flushAllEdits().catch(() => {})
+        onClose()
+      }
+      const saveAndLeave = () => {
+        flushAllEdits().catch(() => {})
+        onClose()
+      }
+      const loadRehearsal = () => {
+        const changeItems = activeItems().filter((item) => routeOf(item) === 'change')
+        const first = changeItems[0]
+        if (!first) {
+          setRehearsal({ loading: false, error: null, data: null, base: null })
+          return
+        }
+        const base = changeBaseOf(first)
+        if (!base?.uid) {
+          setRehearsal({ loading: false, error: null, data: null, base: base ?? null })
+          return
+        }
+        const candidate = cleanCandidate(candidateOf(first))
+        const changes = []
+        if (candidate.title) changes.push({ field: 'title', value: candidate.title })
+        const brief = intentBriefOf(candidate)
+        if (brief) changes.push({ field: 'brief', value: brief })
+        if (changes.length === 0) {
+          setRehearsal({ loading: false, error: null, data: null, base })
+          return
+        }
+        setRehearsal({ loading: true, error: null, data: null, base })
+        const requestPreview = (list) => postJson('requirements/rehearsal', { requirementId: base.uid, changes: list, apply: false }, root)
+        requestPreview(changes)
+          .catch((caught) => {
+            // 没有 BRIEF 字段的需求无法预演 brief 变更；降级为仅标题差异，仍然只读。
+            const info = errorOf(caught)
+            const titleOnly = changes.filter((entry) => entry.field === 'title')
+            if (info.code === 'brief-missing' && titleOnly.length > 0) return requestPreview(titleOnly)
+            throw caught
+          })
+          .then((payload) => {
+            if (mountedRef.current) setRehearsal({ loading: false, error: null, data: payload, base })
+          })
+          .catch((caught) => {
+            if (mountedRef.current) setRehearsal({ loading: false, error: caught.message, data: null, base })
+          })
+      }
+      useEffect(() => {
+        if (screen === 'confirm') loadRehearsal()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [screen, session?.sessionId, session?.input?.inputRevision])
+
+      const tonePill = (tone, text, key) => {
+        const colors = EVIDENCE_TONE[tone] ?? EVIDENCE_TONE.neutral
         return h(
-          'div',
-          { style: { padding: '3px 0', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
-          h('span', { style: { color: T.text3, marginRight: '6px' } }, label),
-          list.join('；'),
+          'span',
+          {
+            key: key ?? `${tone}-${text}`,
+            style: {
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              border: `1px solid ${T.line2}`,
+              borderRadius: '999px',
+              padding: '1px 8px',
+              fontSize: '11.5px',
+              color: colors.color,
+              background: colors.bg,
+              whiteSpace: 'nowrap',
+            },
+          },
+          text,
         )
       }
+      const contextCell = (label, value) =>
+        h(
+          'div',
+          { key: label, style: { minWidth: 0 } },
+          h('div', { style: { fontSize: '10.5px', letterSpacing: '.06em', textTransform: 'uppercase', color: T.text3 } }, label),
+          h('div', { style: { marginTop: '2px', fontSize: '12.5px', color: T.text, wordBreak: 'break-word' } }, value),
+        )
+      const fieldBlock = (label, tag, control) =>
+        h(
+          'div',
+          { style: { marginTop: '8px' } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '3px' } },
+            h('span', { style: { fontSize: '11px', letterSpacing: '.06em', textTransform: 'uppercase', color: T.text3 } }, label),
+            tag,
+          ),
+          control,
+        )
+      const sourceTag = (edited) =>
+        h(
+          'span',
+          { style: { fontSize: '10.5px', color: edited ? T.warn : T.text3, border: `1px solid ${T.line2}`, borderRadius: '5px', padding: '0 5px' } },
+          edited ? '已手改' : 'AI 候选',
+        )
+      const linesField = (label, values, onChange) =>
+        h(
+          'div',
+          { style: { marginTop: '8px' } },
+          h('div', { style: fieldLabelStyle }, label),
+          h('textarea', {
+            value: intentLines(values),
+            onChange: (event) => onChange(event.target.value.split('\n')),
+            placeholder: '每行一条；留空表示暂无',
+            style: { ...input, width: '100%', minWidth: 0, minHeight: '48px', resize: 'vertical', fontFamily: 'inherit' },
+          }),
+        )
+      const acceptanceInput = (item, list, index, key, placeholder) =>
+        h('input', {
+          key,
+          value: list?.[index]?.[key] ?? '',
+          placeholder,
+          onChange: (event) => {
+            const next = (list ?? []).map((row, position) => (position === index ? { ...row, [key]: event.target.value } : row))
+            setManualField(item.itemId, 'acceptance', next)
+          },
+          style: { ...input, width: '100%', minWidth: 0, marginTop: '4px' },
+        })
+      const renderAcceptance = (item, list) =>
+        h(
+          'div',
+          { style: { marginTop: '10px' } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' } },
+            h('span', { style: fieldLabelStyle }, `验收标准（${(list ?? []).length} 条）`),
+            h(
+              'button',
+              {
+                type: 'button',
+                style: { ...button, padding: '2px 9px', fontSize: '11px' },
+                onClick: () =>
+                  setManualField(item.itemId, 'acceptance', [...(list ?? []), { precondition: '', action: '', expected: '', judgement: 'pass' }]),
+              },
+              '＋ 加一条',
+            ),
+          ),
+          (list ?? []).map((row, index) =>
+            h(
+              'div',
+              { key: index, style: { border: `1px solid ${T.line}`, borderRadius: '9px', padding: '8px 10px', marginTop: '6px', background: T.layer } },
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' } },
+                h('span', { style: { fontSize: '11px', color: T.text3 } }, `验收 ${index + 1}`),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    style: { ...button, padding: '0 8px', fontSize: '11px' },
+                    onClick: () => setManualField(item.itemId, 'acceptance', (list ?? []).filter((_, position) => position !== index)),
+                  },
+                  '删除',
+                ),
+              ),
+              acceptanceInput(item, list, index, 'precondition', '前置条件'),
+              acceptanceInput(item, list, index, 'action', '动作'),
+              acceptanceInput(item, list, index, 'expected', '期望结果'),
+              acceptanceInput(item, list, index, 'judgement', '判定（pass / fail）'),
+            ),
+          ),
+        )
       const runIntake = (body) => {
         setIntake({ loading: true, error: null, data: null })
         writeJson('intake', body, root)
           .then((data) => {
+            if (!mountedRef.current) return
             setIntake({ loading: false, error: null, data })
-            const text = data.text ?? ''
-            if (text) {
-              setIntent(text)
-              generateDraft(text)
-            }
+            const text = data?.text ?? ''
+            if (text) setRawText((current) => (current.trim() === '' ? text : `${current.trim()}\n${text}`))
           })
-          .catch((error) => setIntake({ loading: false, error: error.message, data: null }))
+          .catch((caught) => {
+            if (mountedRef.current) setIntake({ loading: false, error: caught.message, data: null })
+          })
       }
-      const onFile = (event) => {
-        const file = event.target.files?.[0]
+      const ingestImage = (file) => {
         if (!file) return
+        setSource('ocr')
+        setAttachment({ name: String(file.name || 'screenshot.png').replace(/[^A-Za-z0-9._-]/g, '_'), kind: 'screenshot' })
         const reader = new FileReader()
         reader.onload = () => {
           const base64 = String(reader.result ?? '').split(',')[1] ?? ''
-          setAttachment({ name: file.name.replace(/[^A-Za-z0-9._-]/g, '_'), kind: 'screenshot', dataBase64: base64 })
-          runIntake({ mode: 'ocr', filename: file.name, imageBase64: base64 })
+          if (!base64) {
+            setIntake({ loading: false, error: '读取图片失败', data: null })
+            return
+          }
+          setAttachment({ name: String(file.name || 'screenshot.png').replace(/[^A-Za-z0-9._-]/g, '_'), kind: 'screenshot', dataBase64: base64 })
+          runIntake({ mode: 'ocr', filename: file.name || 'screenshot.png', imageBase64: base64 })
         }
         reader.onerror = () => setIntake({ loading: false, error: '读取图片失败', data: null })
         reader.readAsDataURL(file)
       }
-      const useAsBackground = (text) => {
-        if (!text) return
-        setForm((current) => ({ ...current, brief: current.brief ? `${current.brief}\n\n${text}` : text }))
+      const onFile = (event) => {
+        const file = event.target.files?.[0]
+        if (!file) return
+        ingestImage(file)
       }
-      const parsed = intake.data
-      const result = state.result
-      const tabs = [
-        ['text', '口语 / 文本'],
-        ['ocr', '截图 OCR'],
-        ['chat', '聊天记录'],
-      ]
-      const sourcePanel =
-        source === 'text'
-          ? null
-          : source === 'ocr'
+      const onPasteImage = (event) => {
+        const items = Array.from(event.clipboardData?.items ?? [])
+        const imageItem = items.find((entry) => entry.kind === 'file' && String(entry.type).startsWith('image/'))
+        if (!imageItem) return
+        const file = imageItem.getAsFile()
+        if (!file) return
+        event.preventDefault()
+        setNotice('已从剪贴板读取图片，正在本地 OCR；识别结果会写入原话。')
+        ingestImage(file)
+      }
+      const useRecognizedText = (text) => {
+        if (!text) return
+        setRawText((current) => (current.trim() === '' ? text : `${current.trim()}\n${text}`))
+      }
+      const renderSourcePanel = () => {
+        if (source === 'text') return null
+        const parsed = intake.data
+        if (source === 'ocr') {
+          return h(
+            'div',
+            { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', marginTop: '8px' } },
+            h('input', { type: 'file', accept: 'image/*', onChange: onFile, 'aria-label': '选择截图做本地 OCR', style: { fontSize: '12px', color: T.text2 } }),
+            attachment ? h('p', { style: { margin: '6px 0 0', ...muted } }, `已选择：${attachment.name}`) : null,
+            intake.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在本地 OCR（离线 PP-OCRv5）…') : null,
+            intake.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12.5px' } }, intake.error) : null,
+            parsed?.schema === 'alm.ocr/v1'
+              ? h(
+                  'div',
+                  null,
+                  h('p', { style: { margin: '8px 0 4px', fontSize: '12px', color: T.text2 } }, `识别 ${parsed.lines.length} 行 · ${parsed.lowConfidence} 行低置信度`),
+                  h(
+                    'pre',
+                    { style: { margin: 0, padding: '8px', maxHeight: '150px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '8px', fontSize: '11.5px', whiteSpace: 'pre-wrap' } },
+                    parsed.lines.map((line) => `${line.ref}  ${line.text}  (${Math.round(line.confidence * 100)}%)`).join('\n'),
+                  ),
+                  h('button', { type: 'button', style: { ...button, marginTop: '8px' }, onClick: () => useRecognizedText(parsed.text) }, '把识别文本加入原话'),
+                )
+              : null,
+          )
+        }
+        return h(
+          'div',
+          { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', marginTop: '8px' } },
+          h('textarea', {
+            value: chatMarkdown,
+            onChange: (event) => setChatMarkdown(event.target.value),
+            placeholder: '粘贴聊天记录，例如：10:12 张三：退款要幂等',
+            style: { ...input, minWidth: 0, minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', width: '100%' },
+          }),
+          h(
+            'button',
+            {
+              type: 'button',
+              style: { ...button, marginTop: '8px' },
+              onClick: () => {
+                if (chatMarkdown.trim() === '') return
+                setAttachment({ name: 'chat.md', kind: 'chat', text: chatMarkdown })
+                runIntake({ mode: 'chat', markdown: chatMarkdown })
+              },
+            },
+            '解析聊天',
+          ),
+          intake.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在解析聊天记录…') : null,
+          intake.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12.5px' } }, intake.error) : null,
+          parsed?.schema === 'alm.intake.chat/v1'
             ? h(
                 'div',
-                { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', marginTop: '4px' } },
-                h('input', { type: 'file', accept: 'image/*', onChange: onFile, style: { fontSize: '12px', color: T.text2 } }),
-                attachment ? h('p', { style: { margin: '6px 0 0', ...muted } }, `已选择：${attachment.name}`) : null,
-                intake.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在本地 OCR（离线 PP-OCRv5）…') : null,
-                intake.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12.5px' } }, intake.error) : null,
-                parsed?.schema === 'alm.ocr/v1'
-                  ? h(
+                null,
+                h('p', { style: { margin: '8px 0 4px', fontSize: '12px', color: T.text2 } }, `解析 ${parsed.messages.length} 条消息`),
+                h(
+                  'div',
+                  { style: { maxHeight: '140px', overflow: 'auto', border: `1px solid ${T.line}`, borderRadius: '8px', padding: '6px 10px' } },
+                  parsed.messages.map((message) =>
+                    h(
                       'div',
-                      null,
-                      h('p', { style: { margin: '8px 0 4px', fontSize: '12px', color: T.text2 } }, `识别 ${parsed.lines.length} 行 · ${parsed.lowConfidence} 行低置信度`),
-                      h(
-                        'pre',
-                        { style: { margin: 0, padding: '8px', maxHeight: '150px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '8px', fontSize: '11.5px', whiteSpace: 'pre-wrap' } },
-                        parsed.lines.map((line) => `${line.ref}  ${line.text}  (${Math.round(line.confidence * 100)}%)`).join('\n'),
-                      ),
-                      h('button', { style: { ...button, marginTop: '8px' }, onClick: () => useAsBackground(parsed.text) }, '使用 OCR 文本为背景'),
-                    )
-                  : null,
+                      { key: message.id, style: { padding: '3px 0', fontSize: '12px', color: T.text2, borderBottom: `1px solid ${T.line}` } },
+                      h('span', { style: { color: T.text3, marginRight: '6px' } }, message.ref),
+                      h('b', { style: { color: T.text, fontWeight: 500 } }, message.speaker || '—'),
+                      ` ${message.text}`,
+                    ),
+                  ),
+                ),
+                h('button', { type: 'button', style: { ...button, marginTop: '8px' }, onClick: () => useRecognizedText(parsed.text) }, '把聊天内容加入原话'),
               )
-            : h(
-                'div',
-                { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', marginTop: '4px' } },
-                h('textarea', {
-                  value: chatMarkdown,
-                  onChange: (event) => setChatMarkdown(event.target.value),
-                  placeholder: '粘贴聊天记录，例如：10:12 张三：退款要幂等',
-                  style: { ...input, minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', width: '100%' },
-                }),
-                h('button', {
-                  style: { ...button, marginTop: '8px' },
-                  onClick: () => {
-                    if (chatMarkdown.trim() === '') return
-                    setAttachment({ name: 'chat.md', kind: 'chat', text: chatMarkdown })
-                    runIntake({ mode: 'chat', markdown: chatMarkdown })
-                  },
-                }, '解析聊天'),
-                intake.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在解析聊天记录…') : null,
-                intake.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12.5px' } }, intake.error) : null,
-                parsed?.schema === 'alm.intake.chat/v1'
-                  ? h(
-                      'div',
-                      null,
-                      h('p', { style: { margin: '8px 0 4px', fontSize: '12px', color: T.text2 } }, `解析 ${parsed.messages.length} 条消息`),
-                      h(
-                        'div',
-                        { style: { maxHeight: '140px', overflow: 'auto', border: `1px solid ${T.line}`, borderRadius: '8px', padding: '6px 10px' } },
-                        parsed.messages.map((message) =>
-                          h('div', { key: message.id, style: { padding: '3px 0', fontSize: '12px', color: T.text2, borderBottom: `1px solid ${T.line}` } },
-                            h('span', { style: { color: T.text3, marginRight: '6px' } }, message.ref),
-                            h('b', { style: { color: T.text, fontWeight: 500 } }, message.speaker || '—'),
-                            ` ${message.text}`,
-                          ),
-                        ),
-                      ),
-                      h('button', { style: { ...button, marginTop: '8px' }, onClick: () => useAsBackground(parsed.text) }, '使用聊天内容为背景'),
-                    )
-                  : null,
-              )
-      return h(
-        ModalShell,
-        {
-          title: '新建需求',
-          lead: `归属项目 ${projectName ?? project ?? '—'}；输入口语 / 聊天 / 截图，AI 生成建议草稿（待确认），不会自动填写优先级与负责人；预览确认后创建。`,
-          onClose,
-          width: '820px',
-          footer: [
-            h('button', { key: 'cancel', style: button, onClick: onClose }, result ? '关闭' : '取消'),
-            result
-              ? null
-              : state.plan
-                ? h('button', { key: 'apply', style: primary, onClick: apply, disabled: state.loading }, state.loading ? '创建中…' : '确认创建')
-                : h('button', { key: 'preview', style: primary, onClick: preview, disabled: state.loading || form.title.trim() === '' }, '预览'),
-          ],
-        },
+            : null,
+        )
+      }
+      const renderInput = () =>
         h(
           'div',
-          { style: { display: 'flex', gap: '6px', marginTop: '14px', borderBottom: `1px solid ${T.line}`, paddingBottom: '8px' } },
-          tabs.map(([id, label]) =>
-            h(
-              'button',
-              {
-                key: id,
-                onClick: () => setSource(id),
-                style: {
-                  border: 0,
-                  background: source === id ? T.layer2 : 'transparent',
-                  color: source === id ? T.text : T.text2,
-                  borderRadius: '7px',
-                  padding: '5px 12px',
-                  fontSize: '12.5px',
-                  cursor: 'pointer',
-                },
-              },
-              label,
-            ),
-          ),
-        ),
-        h(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } },
+          { style: { marginTop: '6px' } },
           h(
             'div',
-            { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', background: T.layer } },
-            h('label', { style: { display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: T.text2 } },
-              '需求意图（直接用口语描述，或先在截图/聊天标签解析）',
+            { style: { ...card, cursor: 'default', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' } },
+            contextCell('项目', projectName ?? project ?? '—'),
+            contextCell('项目 ID', project ?? '—'),
+            contextCell('可读需求', requirementCount === undefined || requirementCount === null ? '—' : `${requirementCount} 条`),
+            contextCell('只读边界', '本项目（只读检索，不写入其他项目）'),
+          ),
+          h(
+            'div',
+            { style: { marginTop: '14px' } },
+            h(
+              'label',
+              { style: { display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: T.text2 } },
+              '用你自己的话写下想改变什么（必填）',
               h('textarea', {
-                value: intent,
-                onChange: (event) => setIntent(event.target.value),
-                placeholder: '例如：退款这里老是重复退，财务对账很麻烦，要保证同一笔订单只退一次，并发也不能重复扣款。',
-                style: { ...input, minHeight: '76px', resize: 'vertical', fontFamily: 'inherit', width: '100%' },
+                value: rawText,
+                autoFocus: true,
+                onPaste: onPasteImage,
+                onChange: (event) => {
+                  setRawText(event.target.value)
+                  setError(null)
+                },
+                placeholder: '例如：退款这里老是重复退，财务对账很麻烦；要保证同一笔订单只退一次，并发也不能重复扣款。',
+                style: { ...input, minWidth: 0, width: '100%', minHeight: '96px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.8, boxSizing: 'border-box' },
               }),
+              h('span', { style: { fontSize: '11.5px', color: T.text3 } }, '可以直接粘贴截图（Ctrl/⌘+V），会自动本地 OCR 并写入原话。'),
             ),
             h(
               'div',
-              { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px', flexWrap: 'wrap' } },
-              h('button', { style: primary, onClick: () => generateDraft(), disabled: aiDraft.loading || intent.trim() === '' }, aiDraft.loading ? 'AI 正在生成…' : 'AI 生成需求草稿'),
-              h('span', { style: { ...muted } }, 'AI 只生成建议草稿（待确认）；优先级与负责人不会被自动填写。'),
+              { style: { display: 'flex', gap: '6px', marginTop: '12px', borderBottom: `1px solid ${T.line}`, paddingBottom: '8px', flexWrap: 'wrap' } },
+              INTENT_SOURCE_TABS.map(([id, label]) =>
+                h(
+                  'button',
+                  {
+                    key: id,
+                    type: 'button',
+                    'aria-pressed': source === id,
+                    onClick: () => setSource(id),
+                    style: {
+                      border: 0,
+                      background: source === id ? T.layer2 : 'transparent',
+                      color: source === id ? T.text : T.text2,
+                      borderRadius: '7px',
+                      padding: '5px 12px',
+                      fontSize: '12.5px',
+                      cursor: 'pointer',
+                    },
+                  },
+                  label,
+                ),
+              ),
             ),
-            aiDraft.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在调用 DSH 默认模型整理需求，约 5–30 秒…') : null,
-            aiDraft.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12px' } }, aiDraft.error) : null,
-            aiDraft.draft
-              ? h(
-                  'div',
-                  { style: { marginTop: '8px', border: `1px dashed ${T.line2}`, borderRadius: '10px', padding: '10px 12px' } },
-                  h('div', { style: { fontSize: '11px', letterSpacing: '.08em', textTransform: 'uppercase', color: T.text3, marginBottom: '4px' } }, 'AI 建议（待确认）'),
-                  suggestionRow('标题', aiDraft.draft.title, 'title'),
-                  suggestionRow('背景', aiDraft.draft.brief, 'brief'),
-                  suggestionRow(
-                    '建议优先级',
-                    aiDraft.draft.suggestedPriority ?? aiDraft.draft.priority,
-                    'priority',
-                    aiDraft.draft.suggestedPriority ?? aiDraft.draft.priority,
+            renderSourcePanel(),
+            h(
+              'div',
+              { style: { ...card, cursor: 'default', marginTop: '12px' } },
+              h('div', { style: { fontSize: '12px', color: T.text2, fontWeight: 500 } }, '可选的明确信息'),
+              h('p', { style: { margin: '4px 0 0', ...muted, lineHeight: 1.7 } }, '只有你在原话或这里明确说的才会填；不填就不会指派负责人，也不会猜优先级。'),
+              h(
+                'div',
+                { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' } },
+                h(
+                  'label',
+                  { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2, flex: '1 1 160px', minWidth: 0 } },
+                  '负责人（可选）',
+                  h('input', { value: ownerChoice, onChange: (event) => setOwnerChoice(event.target.value), placeholder: '例如：李楠', style: { ...input, width: '100%', minWidth: 0 } }),
+                ),
+                h(
+                  'label',
+                  { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2, flex: '0 1 150px', minWidth: 0 } },
+                  '优先级（可选）',
+                  h(
+                    'select',
+                    { value: priorityChoice, onChange: (event) => setPriorityChoice(event.target.value), style: { ...input, width: '100%', minWidth: 0 } },
+                    h('option', { value: '' }, '未指定（不猜）'),
+                    ['P0', 'P1', 'P2'].map((value) => h('option', { key: value, value }, value)),
                   ),
-                  h('p', { style: { margin: '3px 0 0', ...muted, lineHeight: 1.8 } }, '负责人：AI 不提供建议，由人工指定；表单里已有的负责人不会被覆盖。'),
-                  aiDraft.draft.rationale ? h('p', { style: { margin: '6px 0 0', ...muted, lineHeight: 1.8 } }, aiDraft.draft.rationale) : null,
-                  suggestionNote('核心断言', [aiDraft.draft.claim]),
-                  suggestionNote('假设', aiDraft.draft.assumptions),
-                  suggestionNote('待确认问题', [aiDraft.draft.question]),
-                  suggestionNote('反例（不是已发生缺陷）', [aiDraft.draft.counterexample]),
-                  suggestionNote('验收线索', aiDraft.draft.acceptanceDraft),
-                  suggestionNote('未知 / 待确认', aiDraft.draft.unknowns),
-                  h('p', { style: { margin: '6px 0 0', fontSize: '11.5px', color: T.text3 } }, '需逐项手动「采用」；未采用的建议不会写入表单。'),
-                )
+                ),
+              ),
+            ),
+          ),
+          notice ? h('p', { style: { margin: '10px 0 0', color: T.text2, fontSize: '12px', lineHeight: 1.7 } }, notice) : null,
+          error ? renderError(error) : null,
+        )
+      const renderAnalyzing = () =>
+        h(
+          'div',
+          { style: { marginTop: '10px' } },
+          h(
+            'div',
+            { style: { ...card, cursor: 'default' } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+              tonePill('neutral', '分析中'),
+              h('span', { style: muted }, '只显示真实阶段，不伪造进度百分比'),
+            ),
+            h(
+              'ul',
+              { style: { margin: '10px 0 0', paddingLeft: '20px', fontSize: '12.5px', lineHeight: 2, color: T.text2 } },
+              INTENT_STAGES.map((label) => h('li', { key: label }, label)),
+            ),
+            h('p', { style: { margin: '10px 0 0', ...muted } }, '这次请求会依次做这三件事；没有伪造的进度百分比。取消后旧结果不会写入界面。'),
+          ),
+        )
+      const renderQuestion = () => {
+        const question = session?.nextQuestion
+        if (!question) return null
+        const options = (question.options ?? []).slice(0, 3)
+        const selected = answerChoice
+        const canSubmit = selected !== null || questionText.trim() !== ''
+        const select = (id) => {
+          if (answerBusy) return
+          setAnswerFeedback(null)
+          setAnswerChoice((current) => (current === id ? null : id))
+        }
+        return h(
+          'div',
+          { style: { ...card, cursor: 'default', marginTop: '12px', borderColor: T.line2 } },
+          h(
+            'div',
+            { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+            tonePill('neutral', '需要你回答一个问题'),
+            h('span', { style: muted }, '一次只问一个；先选择，再提交'),
+          ),
+          h('div', { style: { marginTop: '8px', fontSize: '13.5px', color: T.text, lineHeight: 1.8 } }, question.text),
+          question.whyNow ? h('p', { style: { margin: '4px 0 0', ...muted, lineHeight: 1.7 } }, `为什么现在问：${question.whyNow}`) : null,
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' } },
+            options.map((option) => {
+              const active = selected === option.id
+              return h(
+                'button',
+                {
+                  key: option.id,
+                  type: 'button',
+                  'aria-pressed': active,
+                  disabled: answerBusy,
+                  onClick: () => select(option.id),
+                  style: {
+                    textAlign: 'left',
+                    ...button,
+                    padding: '8px 10px',
+                    display: 'flex',
+                    gap: '8px',
+                    alignItems: 'flex-start',
+                    width: '100%',
+                    borderColor: active ? T.brand : T.line,
+                    background: active ? T.layer2 : T.layer,
+                    boxShadow: active ? `inset 0 0 0 1px ${T.brand}` : 'none',
+                    cursor: answerBusy ? 'default' : 'pointer',
+                  },
+                },
+                h('span', {
+                  'aria-hidden': 'true',
+                  style: {
+                    flex: '0 0 auto',
+                    width: '14px',
+                    height: '14px',
+                    marginTop: '2px',
+                    borderRadius: '50%',
+                    border: `2px solid ${active ? T.brand : T.ln2 ?? T.line}`,
+                    background: active ? T.brand : 'transparent',
+                    boxSizing: 'border-box',
+                    display: 'inline-block',
+                  },
+                }),
+                h(
+                  'span',
+                  { style: { display: 'block', minWidth: 0, flex: '1 1 auto' } },
+                  h('span', { style: { display: 'block', fontSize: '12.5px', color: T.text, wordBreak: 'break-word' } }, option.label),
+                  option.impact
+                    ? h('span', { style: { display: 'block', marginTop: '2px', fontSize: '11.5px', color: T.text3, lineHeight: 1.6 } }, `影响：${option.impact}`)
+                    : null,
+                ),
+              )
+            }),
+            h(
+              'button',
+              {
+                type: 'button',
+                'aria-pressed': selected === 'unknown',
+                disabled: answerBusy,
+                onClick: () => select('unknown'),
+                style: {
+                  textAlign: 'left',
+                  ...button,
+                  padding: '8px 10px',
+                  borderColor: selected === 'unknown' ? T.warn : T.line,
+                  background: selected === 'unknown' ? T.layer2 : T.layer,
+                  color: T.text2,
+                  cursor: answerBusy ? 'default' : 'pointer',
+                },
+              },
+              h('span', { style: { display: 'block', fontSize: '12.5px' } }, '不知道 / 需要调查'),
+              h('span', { style: { display: 'block', marginTop: '2px', fontSize: '11.5px', color: T.text3 } }, '当前证据不足时选这个；不会假装已经回答。'),
+            ),
+          ),
+          h('input', {
+            value: questionText,
+            onChange: (event) => {
+              setAnswerFeedback(null)
+              setQuestionText(event.target.value)
+            },
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' && canSubmit && !answerBusy) {
+                event.preventDefault()
+                submitAnswer()
+              }
+            },
+            placeholder: '或者直接写下你的回答',
+            disabled: answerBusy,
+            'aria-label': '自由回答',
+            style: { ...input, width: '100%', marginTop: '8px', boxSizing: 'border-box', minWidth: 0 },
+          }),
+          h(
+            'div',
+            { style: { display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', alignItems: 'center' } },
+            h(
+              'button',
+              {
+                type: 'button',
+                style: { ...primary, opacity: answerBusy ? 0.7 : 1 },
+                disabled: answerBusy || !canSubmit,
+                onClick: () => submitAnswer(),
+              },
+              answerBusy ? `提交中…（已用 ${answerElapsed}s）` : '提交回答',
+            ),
+            answerBusy
+              ? h('button', { type: 'button', style: button, onClick: () => cancelAnswer() }, '取消提交')
+              : h(
+                  'button',
+                  {
+                    type: 'button',
+                    style: button,
+                    onClick: () => startInvestigation(question.text),
+                    disabled: !session?.sessionId || investigation.busy,
+                  },
+                  '调查这个问题（只读）',
+                ),
+          ),
+          h('p', { style: { margin: '4px 0 0', ...muted, lineHeight: 1.6 } }, '“调查”只读取当前项目代码，不修改文件；证据需要你核对。'),
+          answerFeedback
+            ? h(
+                'div',
+                { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '8px' } },
+                tonePill(answerFeedback.kind === 'success' ? 'warn' : 'error', answerFeedback.kind === 'success' ? '已记录回答' : '提交失败'),
+                h('span', { style: { fontSize: '12px', color: T.text2, flex: '1 1 220px', minWidth: 0, wordBreak: 'break-word', lineHeight: 1.7 } }, answerFeedback.message),
+                answerFeedback.retry
+                  ? h('button', { type: 'button', style: button, disabled: answerBusy, onClick: () => submitAnswer() }, '重试')
+                  : null,
+              )
+            : null,
+        )
+      }
+      const renderClarificationStatus = () => {
+        const pending = (session?.items ?? []).filter((item) => !item.excluded && (item.unknowns ?? []).some((unknown) => (unknown.resolution ?? 'pending') === 'pending')).length
+        const total = investigations.length
+        const gateQuestion = session?.nextQuestion ? 1 : 0
+        const allCovered = gateQuestion === 0 && pending === 0 && session?.state === 'ready_for_confirmation'
+        return h(
+          'div',
+          {
+            style: {
+              display: 'flex',
+              gap: '8px',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              marginTop: '10px',
+              padding: '8px 10px',
+              border: `1px solid ${T.line}`,
+              borderRadius: '10px',
+              background: T.layer,
+            },
+          },
+          h('span', { style: { fontSize: '12.5px', color: T.text2 } }, `待澄清问题 ${pending + gateQuestion} · 已有调查证据 ${total}`),
+          allCovered
+            ? tonePill('neutral', '澄清可以收口：所有阻塞问题都有证据或明确留给你决定')
+            : total > 0
+              ? tonePill('warn', '还有待澄清项；证据只是旁证')
+              : tonePill('neutral', '尚未使用调查证据'),
+        )
+      }
+      const renderInvestigationPanel = () => {
+        if (!investigation.open) return null
+        const data = investigation.data
+        const verdict = data?.verdict ?? null
+        const findings = Array.isArray(data?.findings) ? data.findings : []
+        const unknowns = Array.isArray(data?.unknowns) ? data.unknowns : []
+        return h(
+          'div',
+          { style: { ...card, cursor: 'default', marginTop: '12px', borderColor: T.line2 } },
+          h(
+            'div',
+            { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+            tonePill('neutral', '只读调查'),
+            h('span', { style: { fontSize: '12px', color: T.text2, flex: '1 1 220px', minWidth: 0, wordBreak: 'break-word' } }, investigation.question?.text ?? ''),
+            investigation.busy
+              ? h('span', { style: { fontSize: '12px', color: T.warn } }, `已用 ${investigation.elapsed}s`)
               : null,
           ),
-          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '标题', h('input', { ...field('title'), style: input, placeholder: '可手填，或采用 AI 建议' })),
-          h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '背景 / 目标', h('textarea', { ...field('brief'), style: { ...input, minHeight: '88px', resize: 'vertical', fontFamily: 'inherit' }, placeholder: '原始诉求、目标与范围外' })),
-          sourcePanel,
-          attachment
-            ? h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: T.text2 } },
-                h('span', null, `附件：${attachment.name}（${attachment.kind}）`),
-                h('button', { style: { ...button, padding: '2px 8px' }, onClick: () => { setAttachment(null); setIntake({ loading: false, error: null, data: null }) } }, '移除'),
+          investigation.busy
+            ? h(
+                'div',
+                null,
+                h(
+                  'div',
+                  { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' } },
+                  INTENT_INVESTIGATION_STAGES.map((stage) =>
+                    h(
+                      'span',
+                      { key: stage, style: { fontSize: '11.5px', color: T.text3, padding: '2px 8px', border: `1px solid ${T.line}`, borderRadius: '999px' } },
+                      stage,
+                    ),
+                  ),
+                ),
+                h('p', { style: { margin: '8px 0 0', ...muted, lineHeight: 1.7 } }, '这次调查会依次读取当前项目文件、生成证据并核对引用；完成前没有伪造的进度百分比。这一步只读，不会改任何文件。'),
+                h(
+                  'div',
+                  { style: { display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' } },
+                  h('button', { type: 'button', style: button, onClick: () => cancelInvestigation() }, '取消调查'),
+                ),
+              )
+            : investigation.error
+              ? h(
+                  'div',
+                  { style: { marginTop: '8px' } },
+                  h(
+                    'div',
+                    { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+                    tonePill('error', `调查失败：${investigation.error.code ?? 'error'}`),
+                    h(
+                      'span',
+                      { style: { fontSize: '12px', color: T.text2, flex: '1 1 220px', minWidth: 0, wordBreak: 'break-word', lineHeight: 1.7 } },
+                      investigation.error.message,
+                    ),
+                    h('button', { type: 'button', style: button, onClick: () => startInvestigation(investigation.question?.text ?? '') }, '重试'),
+                    h('button', { type: 'button', style: button, onClick: () => setInvestigation((state) => ({ ...state, open: false })) }, '关闭'),
+                  ),
+                  investigation.error.hint ? h('p', { style: { margin: '6px 0 0', ...muted, lineHeight: 1.7 } }, investigation.error.hint) : null,
+                )
+              : data
+                ? h(
+                    'div',
+                    { style: { marginTop: '8px' } },
+                    h(
+                      'div',
+                      { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+                      tonePill(
+                        verdict === 'partially-answered' ? 'warn' : 'neutral',
+                        `调查结论：${INTENT_VERDICT_LABELS[verdict] ?? (verdict || '未确定')}`,
+                      ),
+                      data?.investigationId ? h('span', { style: { fontSize: '11px', color: T.text3 } }, `INV ${data.investigationId}`) : null,
+                      investigation.elapsed > 0 ? h('span', { style: { fontSize: '11px', color: T.text3 } }, `用时约 ${investigation.elapsed}s`) : null,
+                    ),
+                    h('p', { style: { margin: '6px 0 0', fontSize: '12.5px', color: T.text2, lineHeight: 1.7 } }, '这些是只读观察证据，引用可核对；仍不是已确认决定。'),
+                    data.summary ? h('p', { style: { margin: '6px 0 0', fontSize: '12.5px', color: T.text, lineHeight: 1.8 } }, data.summary) : null,
+                    verdict === 'not-determined'
+                      ? h('p', { style: { margin: '6px 0 0', color: T.warn, fontSize: '12px', lineHeight: 1.7 } }, '模型没有从代码里得到确定答案。可以换个问题、缩小范围，或把结论留给你决定。')
+                      : null,
+                    findings.length === 0
+                      ? null
+                      : h(
+                          'div',
+                          { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' } },
+                          findings.map((finding, index) =>
+                            h(
+                              'div',
+                              { key: typeof finding?.claim === 'string' ? `${index}-${finding.claim.slice(0, 24)}` : index, style: { border: `1px solid ${T.line}`, borderRadius: '8px', padding: '8px 10px', background: T.base } },
+                              h('div', { style: { fontSize: '12.5px', color: T.text, lineHeight: 1.7, wordBreak: 'break-word' } }, finding?.claim ?? '（无描述）'),
+                              (finding?.refs ?? []).map((ref) =>
+                                h(
+                                  'div',
+                                  { key: `${ref.path}-${ref.line}-${ref.endLine ?? ''}`, style: { marginTop: '4px' } },
+                                  h(
+                                    'div',
+                                    { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' } },
+                                    h('span', { style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11.5px', color: T.text2, wordBreak: 'break-all' } }, intentRefLabel(ref)),
+                                    tonePill(ref?.verified === false ? 'warn' : 'success', ref?.verified === false ? '引用未核对' : '引用已核对'),
+                                  ),
+                                  ref?.quote
+                                    ? h(
+                                        'pre',
+                                        { style: { margin: '4px 0 0', padding: '6px 8px', background: T.layer2, borderRadius: '6px', fontSize: '11px', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: T.text2, maxHeight: '7.5em', overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } },
+                                        String(ref.quote).split('\n').slice(0, 6).join('\n'),
+                                      )
+                                    : null,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    unknowns.length > 0
+                      ? h(
+                          'div',
+                          { style: { marginTop: '8px' } },
+                          h('div', { style: fieldLabelStyle }, '仍需确认'),
+                          unknowns.map((unknown, index) =>
+                            h(
+                              'p',
+                              { key: index, style: { margin: '2px 0 0', fontSize: '12px', color: T.text2, lineHeight: 1.7 } },
+                              typeof unknown === 'string'
+                                ? unknown
+                                : `${unknown?.description ?? unknown?.text ?? '未知项'}${unknown?.blocking === true ? '（需要你决定）' : unknown?.resolution === 'investigate' ? '（需进一步调查）' : ''}`,
+                            ),
+                          ),
+                        )
+                      : null,
+                    (data?.warnings ?? []).length > 0
+                      ? h('p', { style: { margin: '6px 0 0', ...muted, lineHeight: 1.7 } }, `提醒：${data.warnings.join('；')}`)
+                      : null,
+                    h(
+                      'div',
+                      { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } },
+                      h('button', { type: 'button', style: primary, disabled: busy, onClick: () => reanalyzeWithEvidence() }, '用这些证据重新判断'),
+                      h('button', { type: 'button', style: button, onClick: () => startInvestigation(investigation.question?.text ?? '') }, '再调查一次'),
+                      h('button', { type: 'button', style: button, onClick: () => setInvestigation((state) => ({ ...state, open: false })) }, '收起'),
+                    ),
+                    h('p', { style: { margin: '6px 0 0', ...muted, lineHeight: 1.6 } }, '“用这些证据重新判断”会把最近几条调查证据交给模型重新分析；证据仍不是已确认决定。'),
+                  )
+                : null,
+        )
+      }
+      const renderInvestigations = () => {
+        if (investigations.length === 0) return null
+        return h(
+          'div',
+          { style: { ...card, cursor: 'default', marginTop: '12px' } },
+          h('div', { style: fieldLabelStyle }, `调查记录（${investigations.length}）`),
+          h(
+            'div',
+            { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' } },
+            investigations.map((entry, index) => {
+              const id = intentInvestigationId(entry)
+              const outerId = investigation.expandedId
+              const expanded = outerId === id
+              const verdict = entry?.verdict ?? null
+              const findings = Array.isArray(entry?.findings) ? entry.findings : []
+              return h(
+                'div',
+                { key: id ?? `${index}`, style: { border: `1px solid ${T.line}`, borderRadius: '8px', padding: '8px 10px', background: T.layer } },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => setInvestigation((state) => ({ ...state, expandedId: expanded ? null : id })),
+                    style: {
+                      textAlign: 'left',
+                      border: `1px solid ${T.line}`,
+                      borderRadius: '8px',
+                      background: T.base,
+                      padding: '6px 8px',
+                      display: 'flex',
+                      gap: '8px',
+                      flexWrap: 'wrap',
+                      alignItems: 'baseline',
+                      width: '100%',
+                      cursor: 'pointer',
+                      color: T.text,
+                    },
+                  },
+                  h('span', { style: { fontSize: '12px', color: T.text2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } }, id ?? 'INV-?'),
+                  h('span', { style: { fontSize: '12px', color: T.text, flex: '1 1 220px', minWidth: 0, wordBreak: 'break-word' } }, entry?.question ?? ''),
+                  tonePill(verdict === 'partially-answered' ? 'warn' : 'neutral', INTENT_VERDICT_LABELS[verdict] ?? '未确定'),
+                  h('span', { style: { fontSize: '11px', color: T.text3 } }, intentInvestigationTime(entry)),
+                ),
+                expanded
+                  ? h(
+                      'div',
+                      { style: { marginTop: '6px' } },
+                      findings.length === 0
+                        ? h('p', { style: { margin: 0, ...muted } }, '这次调查没有可校验的发现。')
+                        : findings.map((finding, findingIndex) =>
+                            h(
+                              'p',
+                              { key: findingIndex, style: { margin: '3px 0 0', fontSize: '12px', color: T.text2, lineHeight: 1.7 } },
+                              typeof finding === 'string' ? finding : `${finding?.claim ?? ''}${(finding?.refs ?? []).length ? ` — ${(finding.refs ?? []).map(intentRefLabel).join('；')}` : ''}`,
+                            ),
+                          ),
+                    )
+                  : null,
+              )
+            }),
+          ),
+        )
+      }
+      const renderRelated = (item) => {
+        const related = item.related ?? []
+        const contextFailed = session?.context?.queryStatus === 'error'
+        return h(
+          'div',
+          { style: { marginTop: '10px' } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+            h('span', { style: fieldLabelStyle }, '相关承诺'),
+            contextFailed ? tonePill('warn', '相关需求尚未核对') : tonePill('neutral', `${related.length} 条候选`),
+          ),
+          contextFailed
+            ? h('p', { style: { margin: '4px 0 0', color: T.warn, fontSize: '12px', lineHeight: 1.7 } }, '检索失败：相关需求尚未核对，不能据此认为“全新”或“没有重复”。')
+            : null,
+          related.length === 0
+            ? h('p', { style: { margin: '4px 0 0', ...muted } }, '没有匹配到相关承诺；这不等于没有影响。')
+            : h(
+                'div',
+                { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' } },
+                related.map((entry, index) =>
+                  h(
+                    'button',
+                    {
+                      key: `${entry.uid}-${index}`,
+                      type: 'button',
+                      disabled: !onOpenRequirement,
+                      onClick: () => onOpenRequirement && onOpenRequirement(entry.uid),
+                      style: {
+                        textAlign: 'left',
+                        border: `1px solid ${T.line}`,
+                        borderRadius: '10px',
+                        background: T.layer,
+                        padding: '8px 10px',
+                        cursor: onOpenRequirement ? 'pointer' : 'default',
+                        color: T.text,
+                      },
+                    },
+                    h(
+                      'span',
+                      { style: { display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' } },
+                      h('span', { style: { fontSize: '12.5px', fontWeight: 500, wordBreak: 'break-word' } }, entry.uid),
+                      entry.revision === undefined || entry.revision === null ? null : h('span', { style: { fontSize: '11px', color: T.text3 } }, `rev ${entry.revision}`),
+                      h('span', { style: { fontSize: '11px', color: T.warn } }, INTENT_MATCH_LABELS[entry.match] ?? entry.match ?? '相关'),
+                    ),
+                    relatedTitleOf(entry)
+                      ? h('span', { style: { display: 'block', marginTop: '2px', fontSize: '12px', color: T.text2, wordBreak: 'break-word' } }, relatedTitleOf(entry))
+                      : null,
+                    h('span', { style: { display: 'block', marginTop: '2px', fontSize: '11.5px', color: T.text3, lineHeight: 1.6 } }, entry.reason ?? ''),
+                  ),
+                ),
+              ),
+        )
+      }
+      const renderRoutes = (item) => {
+        const chosen = routeOf(item)
+        const edited = routeChoices[item.itemId] !== undefined
+        return h(
+          'div',
+          { style: { marginTop: '8px' } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+            h('span', { style: fieldLabelStyle }, '去向建议'),
+            h(
+              'span',
+              { style: { fontSize: '11px', color: edited ? T.warn : T.text3 } },
+              edited ? `已手改：${INTENT_ROUTE_LABELS[chosen] ?? chosen}` : `AI 建议：${INTENT_ROUTE_LABELS[chosen] ?? chosen}`,
+            ),
+          ),
+          h(
+            'div',
+            { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', marginTop: '6px' } },
+            INTENT_ROUTE_LIST.map(([id, label, hint]) =>
+              h(
+                'button',
+                {
+                  key: id,
+                  type: 'button',
+                  'aria-pressed': chosen === id,
+                  disabled: busy,
+                  onClick: () => chooseRoute(item, id),
+                  style: {
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    border: `1px solid ${chosen === id ? T.brand : T.line}`,
+                    borderLeftWidth: chosen === id ? '3px' : '1px',
+                    borderRadius: '10px',
+                    padding: '8px 10px',
+                    background: chosen === id ? T.layer2 : T.layer,
+                    color: chosen === id ? T.text : T.text2,
+                  },
+                },
+                h('span', { style: { display: 'block', fontSize: '12.5px', fontWeight: 500 } }, label),
+                h('span', { style: { display: 'block', marginTop: '2px', fontSize: '11px', color: T.text3, lineHeight: 1.6 } }, hint),
+              ),
+            ),
+          ),
+          item.routeRationale ? h('p', { style: { margin: '6px 0 0', ...muted, lineHeight: 1.7 } }, `为什么这么建议：${item.routeRationale}`) : null,
+        )
+      }
+      const renderCandidate = (item) => {
+        const candidate = candidateOf(item)
+        return h(
+          'div',
+          { style: { marginTop: '10px' } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' } },
+            h('span', { style: fieldLabelStyle }, routeOf(item) === 'change' ? '变更后的内容（草案）' : '需求候选（草案）'),
+            h('span', { style: { fontSize: '11px', color: T.text3 } }, 'AI 只给候选；你改过的字段不会被自动覆盖'),
+          ),
+          fieldBlock(
+            '标题',
+            sourceTag(fieldWasEdited(item, 'title')),
+            h('input', {
+              value: candidate.title,
+              onChange: (event) => setManualField(item.itemId, 'title', event.target.value),
+              placeholder: '一句话说清要改变什么',
+              style: { ...input, width: '100%', minWidth: 0 },
+            }),
+          ),
+          fieldBlock(
+            '问题',
+            sourceTag(fieldWasEdited(item, 'problem')),
+            h('textarea', {
+              value: candidate.problem,
+              onChange: (event) => setManualField(item.itemId, 'problem', event.target.value),
+              placeholder: '现在哪里不对、谁受影响',
+              style: { ...input, width: '100%', minWidth: 0, minHeight: '64px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 },
+            }),
+          ),
+          fieldBlock(
+            '目标',
+            sourceTag(fieldWasEdited(item, 'goal')),
+            h('textarea', {
+              value: candidate.goal,
+              onChange: (event) => setManualField(item.itemId, 'goal', event.target.value),
+              placeholder: '改成什么样就算对了',
+              style: { ...input, width: '100%', minWidth: 0, minHeight: '56px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 },
+            }),
+          ),
+          linesField('范围内', candidate.inScope, (values) => setManualField(item.itemId, 'inScope', values)),
+          linesField('范围外', candidate.outOfScope, (values) => setManualField(item.itemId, 'outOfScope', values)),
+          renderAcceptance(item, candidate.acceptance),
+        )
+      }
+      const renderUnknowns = (item) => {
+        const unknowns = item.unknowns ?? []
+        if (unknowns.length === 0) return null
+        return h(
+          'div',
+          { style: { marginTop: '10px' } },
+          h('div', { style: fieldLabelStyle }, `未知项（${unknowns.length}）`),
+          unknowns.map((unknown, index) => {
+            const key = `${item.itemId}:${index}`
+            const resolution = unknownChoices[key] ?? unknown.resolution ?? 'pending'
+            return h(
+              'div',
+              { key, style: { border: `1px solid ${T.line}`, borderRadius: '9px', padding: '8px 10px', marginTop: '6px', background: T.layer } },
+              h(
+                'div',
+                { style: { fontSize: '12px', color: T.text2, lineHeight: 1.7 } },
+                unknown.blocking ? h('span', { style: { color: T.warn, fontWeight: 500 } }, '[阻塞] ') : null,
+                unknown.description,
+                h('span', { style: { color: T.text3, marginLeft: '6px' } }, `当前：${INTENT_UNKNOWN_LABELS[resolution] ?? resolution}`),
+              ),
+              h(
+                'div',
+                { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' } },
+                [
+                  ['clarify', '澄清'],
+                  ['investigate', '转调查'],
+                  ['exclude', '排除'],
+                ].map(([id, label]) =>
+                  h(
+                    'button',
+                    {
+                      key: id,
+                      type: 'button',
+                      style: {
+                        ...button,
+                        padding: '2px 8px',
+                        fontSize: '11px',
+                        borderColor: resolution === id ? T.brand : T.line,
+                        background: resolution === id ? T.layer2 : T.layer,
+                      },
+                      onClick: () => chooseUnknown(item, index, id),
+                    },
+                    label,
+                  ),
+                ),
+              ),
+            )
+          }),
+        )
+      }
+      const renderDetails = (item) => {
+        const runs = session?.runs ?? []
+        const lastRun = runs[runs.length - 1] ?? null
+        const references = item.sourceRefs ?? []
+        return h(
+          'details',
+          { style: { marginTop: '10px', borderTop: `1px solid ${T.line}`, paddingTop: '8px' } },
+          h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: T.text2 } }, '依据、反例与模型信息（展开）'),
+          (item.assumptions ?? []).length
+            ? h(
+                'div',
+                { style: { marginTop: '8px' } },
+                h('div', { style: fieldLabelStyle }, `假设（${item.assumptions.length} 条，未证实）`),
+                h(
+                  'ul',
+                  { style: { margin: '4px 0 0', paddingLeft: '18px', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+                  item.assumptions.map((line, index) => h('li', { key: index }, line)),
+                ),
+              )
+            : null,
+          item.counterexample
+            ? h(
+                'div',
+                { style: { marginTop: '8px' } },
+                h('div', { style: fieldLabelStyle }, '反例（待证场景，不是已发生缺陷）'),
+                h('p', { style: { margin: '4px 0 0', fontSize: '12px', color: T.text2, lineHeight: 1.8 } }, item.counterexample.scenario ?? '—'),
               )
             : null,
           h(
             'div',
-            { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
-            h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '优先级', h('select', { ...field('priority'), style: input }, ['P0', 'P1', 'P2'].map((value) => h('option', { key: value, value }, value)))),
-            h('label', { style: { flex: 1, display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '责任人', h('input', { ...field('owner'), style: input, placeholder: '默认张浩' })),
+            { style: { marginTop: '8px' } },
+            h('div', { style: fieldLabelStyle }, '来源引用'),
+            references.length === 0
+              ? h('p', { style: { margin: '4px 0 0', ...muted } }, '没有可显示的来源引用。')
+              : references.map((reference, index) => {
+                  const resolved = reference?.resolved !== false && reference?.ref !== undefined
+                  return h(
+                    'div',
+                    { key: index, style: { fontSize: '11.5px', color: resolved ? T.text2 : T.warn, lineHeight: 1.7, wordBreak: 'break-word' } },
+                    resolved
+                      ? `${reference.ref}${reference.line ? `:${reference.line}` : ''}${reference.endLine ? `-${reference.endLine}` : ''} · ${reference.quote ?? ''}`
+                      : `${reference.ref ?? '未知来源'} · 来源无法解析`,
+                  )
+                }),
           ),
-        ),
-        state.loading ? h('p', { style: { margin: '12px 0 0', ...muted } }, '处理中…') : null,
-        state.error ? h('p', { style: { margin: '12px 0 0', color: T.err, fontSize: '13px' } }, state.error) : null,
-        state.plan
-          ? h(
+          h(
+            'div',
+            { style: { marginTop: '8px' } },
+            h('div', { style: fieldLabelStyle }, '模型信息'),
+            h(
+              'p',
+              { style: { margin: '4px 0 0', ...muted, lineHeight: 1.8 } },
+              lastRun
+                ? `${lastRun.provider ?? '—'} / ${lastRun.model ?? '—'} · ${INTENT_STATE_LABELS[lastRun.status] ?? lastRun.status ?? '—'} · ${intentTime(lastRun.finishedAt ?? lastRun.startedAt)}`
+                : '这次没有模型运行记录（手动填写或模型不可用）。',
+            ),
+          ),
+        )
+      }
+      const VALUE_CHECK_STATUS_LABELS = { pending: '待确认', unknown: '待确认', unverified: '未验证', verified: '已验证', failed: '未通过', blocked: '已阻塞' }
+      // 对象/数组字段兜底转文本，避免任何情况下渲染出 [object Object]。
+      const valueCheckText = (value) => {
+        if (typeof value === 'string') return value
+        if (value !== null && typeof value === 'object') {
+          try {
+            return JSON.stringify(value)
+          } catch (caught) {
+            return String(value)
+          }
+        }
+        return String(value)
+      }
+      const valueCheckOf = (value) => {
+        if (value === null || value === undefined) return null
+        if (typeof value === 'string') {
+          const text = value.trim()
+          return text ? { kind: 'text', text } : null
+        }
+        if (typeof value === 'object' && !Array.isArray(value)) {
+          const rows = [
+            ['断言', value.claim],
+            ['最小验证', value.smallestCheck],
+            ['停止或撤回条件', value.stopCondition],
+          ]
+            .filter(([, current]) => current !== null && current !== undefined && String(current).trim() !== '')
+            .map(([label, current]) => [label, valueCheckText(current)])
+          const statusRaw = value.status === null || value.status === undefined ? '' : valueCheckText(value.status).trim()
+          if (rows.length === 0 && statusRaw === '') return null
+          return {
+            kind: 'object',
+            rows,
+            status: statusRaw === '' ? null : { raw: statusRaw, label: VALUE_CHECK_STATUS_LABELS[statusRaw] ?? statusRaw },
+          }
+        }
+        return { kind: 'text', text: String(value) }
+      }
+      const valueCheckTone = (status) => {
+        if (!status) return 'neutral'
+        if (status.raw === 'verified') return 'success'
+        if (status.raw === 'unverified' || status.raw === 'failed' || status.raw === 'blocked') return status.raw === 'unverified' ? 'warn' : 'error'
+        return 'neutral'
+      }
+      // 价值检查来自 core 的 valueCheck 对象（intent-review.v1），这里统一做对象/字符串/null 容错，只走文本渲染。
+      const renderValueCheck = (item) => {
+        const valueCheck = valueCheckOf(item?.valueCheck)
+        if (!valueCheck) return null
+        if (valueCheck.kind === 'text') return tonePill('neutral', `价值检查：${valueCheck.text}`)
+        return h(
+          'div',
+          { style: { marginTop: '8px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.line2}`, borderRadius: '10px', padding: '8px 12px', background: T.layer } },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+            h('span', { style: fieldLabelStyle }, '价值检查'),
+            valueCheck.status ? tonePill(valueCheckTone(valueCheck.status), `状态：${valueCheck.status.label}`) : null,
+          ),
+          valueCheck.rows.map(([label, text]) =>
+            h(
               'div',
-              { style: { marginTop: '14px' } },
-              h(PlanRows, {
-                rows: [
-                  ['需求', state.plan.requirementId],
-                  ['项目', state.plan.project],
-                  ['sdoc', state.plan.file],
-                  ['brief', state.plan.briefFile],
-                  ['附件', `${state.plan.attachmentCount ?? 0} 个`],
-                ],
-              }),
-              h('div', { style: { marginTop: '10px', fontSize: '12px', color: T.text3 } }, '文件内容预览：'),
+              { key: label, style: { marginTop: '4px', fontSize: '12px', color: T.text2, lineHeight: 1.8, wordBreak: 'break-word' } },
+              h('span', { style: { color: T.text3 } }, `${label}：`),
+              text,
+            ),
+          ),
+        )
+      }
+      const renderItemSection = (item, index, total) =>
+        h(
+          'section',
+          {
+            key: item.itemId ?? index,
+            style: { borderTop: index === 0 ? 'none' : `1px solid ${T.line}`, paddingTop: index === 0 ? 0 : '12px', marginTop: '12px' },
+          },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+            h(
+              'span',
+              { style: { fontSize: '11px', color: T.text3, letterSpacing: '.06em', textTransform: 'uppercase' } },
+              total > 1 ? `意图 ${index + 1} / ${total}` : '这次意图',
+            ),
+          ),
+          h('p', { style: { margin: '6px 0 0', fontSize: '13px', color: T.text, lineHeight: 1.8 } }, item.userProblem || item.desiredOutcome || '（没有可显示的理解）'),
+          item.desiredOutcome && item.userProblem ? h('p', { style: { margin: '2px 0 0', ...muted, lineHeight: 1.7 } }, `期望：${item.desiredOutcome}`) : null,
+          renderValueCheck(item),
+          renderRoutes(item),
+          renderRelated(item),
+          renderCandidate(item),
+          renderUnknowns(item),
+          renderDetails(item),
+        )
+      const renderConflicts = () =>
+        h(
+          'div',
+          { style: { border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.warn}`, borderRadius: '10px', padding: '8px 12px', marginBottom: '10px', background: T.layer } },
+          h('div', { style: { color: T.warn, fontSize: '12px', fontWeight: 500 } }, '重新分析后 AI 给出了不同的建议'),
+          h('p', { style: { margin: '2px 0 6px', ...muted, lineHeight: 1.7 } }, '你的手改不会被自动覆盖；请逐项选择。'),
+          conflicts.map((conflict, index) =>
+            h(
+              'div',
+              {
+                key: `${conflict.itemId}-${conflict.field}-${index}`,
+                style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', padding: '4px 0', borderTop: index === 0 ? 'none' : `1px solid ${T.line}` },
+              },
               h(
-                'pre',
-                { style: { margin: '6px 0 0', padding: '12px', maxHeight: '180px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '10px', fontSize: '11.5px', lineHeight: 1.7, whiteSpace: 'pre-wrap' } },
-                state.plan.content,
+                'span',
+                { style: { fontSize: '12px', color: T.text2, flex: '1 1 220px', minWidth: 0, wordBreak: 'break-word' } },
+                `${conflictLabel(conflict.field)}：你的「${previewValue(conflict.manualValue)}」 ↔ AI「${previewValue(conflict.aiValue)}」`,
               ),
-            )
-          : null,
-        result
-          ? h(
+              h('button', { type: 'button', style: button, onClick: () => resolveConflict(conflict, false) }, '保留我的手改'),
+              h('button', { type: 'button', style: button, onClick: () => resolveConflict(conflict, true) }, '使用新建议'),
+            ),
+          ),
+        )
+      const conflictLabel = (field) => ({ title: '标题', problem: '问题', goal: '目标', inScope: '范围内', outOfScope: '范围外', acceptance: '验收标准' })[field] ?? field
+      const previewValue = (value) => {
+        if (Array.isArray(value)) {
+          return value
+            .slice(0, 2)
+            .map((entry) => (typeof entry === 'string' ? entry : entry?.expected ?? entry?.action ?? ''))
+            .join(' / ') || '（空）'
+        }
+        const text = String(value ?? '')
+        return text.length > 60 ? `${text.slice(0, 60)}…` : text || '（空）'
+      }
+      const renderError = (info) =>
+        h(
+          'div',
+          { role: 'alert', style: { border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.err}`, borderRadius: '10px', padding: '8px 12px', marginTop: '10px', background: EVIDENCE_TONE.error.bg } },
+          h('div', { style: { color: T.err, fontSize: '12.5px', lineHeight: 1.7 } }, info.message ?? '出错了'),
+          info.code
+            ? h('div', { style: { marginTop: '2px', fontSize: '11px', color: T.text3 } }, `错误码：${info.code}${info.status ? ` · HTTP ${info.status}` : ''}`)
+            : null,
+          (info.reasons ?? []).length
+            ? h(
+                'ul',
+                { style: { margin: '6px 0 0', paddingLeft: '18px', fontSize: '11.5px', color: T.text2, lineHeight: 1.8 } },
+                info.reasons.map((reason, index) => h('li', { key: index }, `${reason.message ?? reason.code}${reason.itemId ? `（${reason.itemId}）` : ''}`)),
+              )
+            : null,
+          (info.appliedArtifacts ?? []).length
+            ? h(
+                'div',
+                { style: { marginTop: '6px', fontSize: '11.5px', color: T.text2, lineHeight: 1.7 } },
+                `已写入：${info.appliedArtifacts.map((artifact) => `${artifact.kind ?? '产物'} ${artifact.id ?? ''}`).join('、')}`,
+              )
+            : null,
+        )
+      const renderReview = () => {
+        const gate = reviewReadiness()
+        const items = activeItems()
+        const first = items[0]
+        return h(
+          'div',
+          { style: { marginTop: '8px' } },
+          notice ? h('div', { style: { border: `1px solid ${T.line2}`, borderRadius: '10px', padding: '8px 12px', marginBottom: '10px', color: T.text2, fontSize: '12px', lineHeight: 1.7, background: T.layer } }, notice) : null,
+          error ? renderError(error) : null,
+          conflicts.length ? renderConflicts() : null,
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+            tonePill(
+              session?.state === 'failed' ? 'error' : session?.state === 'needs_input' ? 'warn' : 'neutral',
+              INTENT_STATE_LABELS[session?.state] ?? '待确认',
+            ),
+            session?.input?.inputRevision === undefined ? null : h('span', { style: muted }, `输入版本 ${session.input.inputRevision}`),
+            session?.context?.generatedAt ? h('span', { style: muted }, `上下文 ${intentTime(session.context.generatedAt)}`) : null,
+            session?.manual ? tonePill('warn', '手动模式（未调用模型）') : null,
+            editBusy ? h('span', { style: muted }, '正在保存你的修改…') : null,
+          ),
+          renderClarificationStatus(),
+          h(
+            'p',
+            { style: { margin: '8px 0 0', fontSize: '13.5px', color: T.text, lineHeight: 1.8 } },
+            items.length === 0
+              ? '没有可确认的意图项。'
+              : items.length === 1
+                ? `我的理解：${first.userProblem || first.desiredOutcome || '（见下方候选）'}`
+                : `我的理解：这里其实是 ${items.length} 个意图，下面逐个确认。`,
+          ),
+          renderQuestion(),
+          renderInvestigationPanel(),
+          renderInvestigations(),
+          items.map((item, index) => renderItemSection(item, index, items.length)),
+          gate.ready
+            ? null
+            : h(
+                'div',
+                { style: { marginTop: '12px' } },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, tonePill('neutral', '还不能确认'), h('span', { style: muted }, '先处理下面的原因')),
+                h(
+                  'ul',
+                  { style: { margin: '6px 0 0', paddingLeft: '18px', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+                  gate.reasons.map((reason, index) => h('li', { key: `${reason.code ?? 'reason'}-${index}` }, reason.message ?? reason.code)),
+                ),
+              ),
+        )
+      }
+      const renderRehearsal = () => {
+        if (rehearsal.loading) return h('p', { style: { margin: '6px 0 0', ...muted } }, '正在读取旧/新差异与影响（只读请求）…')
+        if (rehearsal.error) return h('p', { style: { margin: '6px 0 0', color: T.warn, fontSize: '12px' } }, `影响预览失败：${rehearsal.error}`)
+        const preview = rehearsal.data
+        if (!preview) {
+          const noBase = !rehearsal.base?.uid
+          return h(
+            'p',
+            { style: { margin: '6px 0 0', color: T.warn, fontSize: '12px', lineHeight: 1.7 } },
+            noBase
+              ? '没有匹配到可变更的既有承诺：请返回原话补充需求 ID，或把去向改为“新建需求”。未登记影响（不等于无影响）。'
+              : '未登记影响（不等于无影响）；未取得变更预览。',
+          )
+        }
+        const before = preview.requirementBefore ?? {}
+        const after = preview.requirementAfter ?? {}
+        const changes = preview.changes ?? []
+        const impact = preview.impact ?? {}
+        return h(
+          'div',
+          { style: { marginTop: '6px' } },
+          h(
+            'div',
+            { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' } },
+            h(
               'div',
-              { style: { marginTop: '14px' } },
-              h(PlanRows, {
-                rows: [
-                  ['状态', '已创建'],
-                  ['需求', result.requirementId],
-                  ['sdoc', result.file],
-                  ['brief', result.briefFile],
-                  ['附件', `${result.attachments?.length ?? 0} 个`],
-                  ['门禁', `${result.check.result} · ${result.check.gaps} 个覆盖缺口`],
-                ],
-              }),
-              h('p', { style: { margin: '10px 0 0', ...muted } }, '需求状态为 proposed；补验收后 COV-001 才会通过。原始材料已归档到 requirements/attachments/。'),
-            )
-          : null,
+              { style: { border: `1px solid ${T.line}`, borderRadius: '9px', padding: '8px 10px', background: T.layer } },
+              h('div', { style: { fontSize: '10.5px', color: T.text3 } }, '变更前'),
+              h(
+                'div',
+                { style: { fontSize: '12px', color: T.text2, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: '2px' } },
+                `标题：${before.title ?? '—'}\n优先级：${before.priority ?? '—'}`,
+              ),
+            ),
+            h(
+              'div',
+              { style: { border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.brand}`, borderRadius: '9px', padding: '8px 10px' } },
+              h('div', { style: { fontSize: '10.5px', color: T.text3 } }, '变更后'),
+              h(
+                'div',
+                { style: { fontSize: '12px', color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: '2px' } },
+                `标题：${after.title ?? '—'}\n优先级：${after.priority ?? '—'}`,
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { style: { marginTop: '6px', fontSize: '11.5px', color: T.text2, lineHeight: 1.8 } },
+            changes.map((entry) => `${entry.field}：${entry.before || '（空）'} → ${entry.after || '（空）'}`).join('\n'),
+          ),
+          impact.coverage
+            ? h(
+                'div',
+                { style: { marginTop: '4px', fontSize: '11px', color: T.text3 } },
+                `影响扫描：关系 ${impact.coverage.relations ?? 0} · 已探索 ${impact.coverage.explored ?? 0} · 路径 ${(impact.paths ?? []).length}${impact.coverage.truncated ? ' · 已截断' : ''}`,
+              )
+            : null,
+          (impact.paths ?? []).length
+            ? h(
+                'details',
+                { style: { marginTop: '6px' } },
+                h('summary', { style: { cursor: 'pointer', fontSize: '11.5px', color: T.text2 } }, `影响路径（${impact.paths.length}）`),
+                h(
+                  'div',
+                  { style: { marginTop: '4px', fontSize: '11.5px', color: T.text2, lineHeight: 1.8 } },
+                  impact.paths.map((path, index) => h('div', { key: index }, `${path.to} · 深度 ${path.depth}`)),
+                ),
+              )
+            : null,
+          (impact.blindSpots ?? []).length
+            ? h(
+                'div',
+                { style: { marginTop: '6px', border: `1px solid ${T.line}`, borderRadius: '9px', padding: '6px 10px' } },
+                h('div', { style: { color: T.warn, fontSize: '11.5px' } }, '盲区：未登记影响不等于无影响'),
+                impact.blindSpots.map((spot, index) =>
+                  h(
+                    'div',
+                    { key: index, style: { fontSize: '11.5px', color: T.text2, lineHeight: 1.8 } },
+                    `${spot.kind === 'no-relations' ? '未登记关系' : spot.kind === 'unresolved-target' ? '目标资产缺失' : '未知关系类型'}：${spot.detail}`,
+                  ),
+                ),
+              )
+            : null,
+          h('p', { style: { margin: '4px 0 0', fontSize: '11px', color: T.text3 } }, '影响只是提示，不是阻塞；正式变更仍需人工确认。'),
+        )
+      }
+      const estimateArtifacts = (routes) => {
+        const unique = new Set(routes)
+        const lines = []
+        if (unique.has('create')) lines.push('1 份需求草稿')
+        if (unique.has('change')) lines.push('1 份变更草稿（不改正式 sdoc）')
+        if (unique.has('investigate')) lines.push('1 个排查项')
+        lines.push('1 份决策回执')
+        return lines
+      }
+      const renderConfirm = () => {
+        const items = activeItems()
+        const gate = confirmReadiness()
+        const shownError = confirmState.error ?? error
+        const routes = items.map((item) => routeOf(item))
+        const createNeedsPriority = routes.indexOf('create') !== -1
+        return h(
+          'div',
+          { style: { marginTop: '8px' } },
+          shownError ? renderError(shownError) : null,
+          h(
+            'section',
+            { style: { ...card, cursor: 'default', marginTop: '10px' } },
+            h('div', { style: blockTitleStyle }, '① 确认的问题与期望行为（最终文本可直接编辑）'),
+            items.map((item) =>
+              h(
+                'div',
+                { key: item.itemId, style: { marginTop: '8px' } },
+                h('div', { style: fieldLabelStyle }, '问题'),
+                h('textarea', {
+                  value: candidateOf(item).problem,
+                  onChange: (event) => setManualField(item.itemId, 'problem', event.target.value),
+                  style: { ...input, width: '100%', minWidth: 0, minHeight: '56px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 },
+                }),
+                h('div', { style: { ...fieldLabelStyle, marginTop: '6px' } }, '期望行为'),
+                h('textarea', {
+                  value: candidateOf(item).goal,
+                  onChange: (event) => setManualField(item.itemId, 'goal', event.target.value),
+                  style: { ...input, width: '100%', minWidth: 0, minHeight: '56px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 },
+                }),
+              ),
+            ),
+          ),
+          h(
+            'section',
+            { style: { ...card, cursor: 'default', marginTop: '10px' } },
+            h('div', { style: blockTitleStyle }, '② 做什么 / 不做什么，以及未证实部分'),
+            items.map((item) => {
+              const candidate = candidateOf(item)
+              const unknowns = item.unknowns ?? []
+              return h(
+                'div',
+                { key: item.itemId, style: { marginTop: '6px', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+                h('div', null, h('b', { style: { color: T.text, fontWeight: 500 } }, '做：'), (candidate.inScope ?? []).length ? candidate.inScope.join('；') : '（未填写范围内）'),
+                h('div', null, h('b', { style: { color: T.text, fontWeight: 500 } }, '不做：'), (candidate.outOfScope ?? []).length ? candidate.outOfScope.join('；') : '（未填写范围外）'),
+                h(
+                  'div',
+                  { style: { color: T.text3 } },
+                  `未证实：假设 ${(item.assumptions ?? []).length} 条、未知项 ${unknowns.length} 条、反例 ${item.counterexample ? '1' : '0'} 条；这些不会被写成已证实事实。`,
+                ),
+              )
+            }),
+          ),
+          h(
+            'section',
+            { style: { ...card, cursor: 'default', marginTop: '10px' } },
+            h('div', { style: blockTitleStyle }, '③ 去向与既有承诺'),
+            items.map((item, index) => {
+              const route = routeOf(item)
+              const related = item.related ?? []
+              return h(
+                'div',
+                { key: item.itemId, style: { marginTop: index === 0 ? '6px' : '10px', borderTop: index === 0 ? 'none' : `1px solid ${T.line}`, paddingTop: index === 0 ? 0 : '8px' } },
+                h('div', { style: { fontSize: '12.5px', color: T.text } }, `${INTENT_ROUTE_LABELS[route] ?? route}${items.length > 1 ? `（意图 ${index + 1}）` : ''}`),
+                related.length
+                  ? h(
+                      'div',
+                      { style: { marginTop: '4px', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+                      `既有承诺：${related.map((entry) => `${entry.uid}（${INTENT_MATCH_LABELS[entry.match] ?? entry.match}）`).join('、')}`,
+                    )
+                  : h(
+                      'div',
+                      { style: { marginTop: '4px', fontSize: '12px', color: T.text3 } },
+                      route === 'create' ? '将新建需求，不改动既有承诺。' : '未登记影响（不等于无影响）。',
+                    ),
+                route === 'change' ? renderRehearsal() : null,
+              )
+            }),
+          ),
+          h(
+            'section',
+            { style: { ...card, cursor: 'default', marginTop: '10px' } },
+            h('div', { style: blockTitleStyle }, '④ 将写入什么（保存不等于采纳）'),
+            h(
+              'div',
+              { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' } },
+              estimateArtifacts(routes).map((line, index) =>
+                h('span', { key: index, style: { fontSize: '12px', color: T.text2, border: `1px solid ${T.line}`, borderRadius: '7px', padding: '2px 8px', background: T.layer } }, line),
+              ),
+            ),
+            h(
+              'div',
+              { style: { marginTop: '8px', display: 'flex', gap: '12px', flexWrap: 'wrap' } },
+              h(
+                'label',
+                { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2, flex: '1 1 180px', minWidth: 0 } },
+                '负责人',
+                h('input', { value: ownerChoice, onChange: (event) => changeOwner(event.target.value), placeholder: '未指定（沿用项目默认）', style: { ...input, width: '100%', minWidth: 0 } }),
+              ),
+              h(
+                'label',
+                { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2, flex: '0 1 160px', minWidth: 0 } },
+                createNeedsPriority ? '优先级（新建必选，不猜）' : '优先级',
+                h(
+                  'select',
+                  { value: priorityChoice, onChange: (event) => changePriority(event.target.value), style: { ...input, width: '100%', minWidth: 0 } },
+                  h('option', { value: '' }, '未指定（不猜）'),
+                  ['P0', 'P1', 'P2'].map((value) => h('option', { key: value, value }, value)),
+                ),
+              ),
+            ),
+            h(
+              'p',
+              { style: { margin: '6px 0 0', ...muted, lineHeight: 1.7 } },
+              `负责人来源：${ownerChoice.trim() ? '你在原话或表单里明确指定' : '未指定，沿用项目默认'}；优先级来源：${priorityChoice ? '你明确选择' : '未指定'}。两者都“待权限确认”，保存时不会自动指派或通知。`,
+            ),
+          ),
+          gate.ready
+            ? null
+            : h(
+                'div',
+                { style: { marginTop: '10px', borderTop: `1px solid ${T.line}`, paddingTop: '8px' } },
+                h('div', { style: { color: T.text3, fontSize: '11px', letterSpacing: '.06em', textTransform: 'uppercase' } }, '还不能保存'),
+                h(
+                  'ul',
+                  { style: { margin: '4px 0 0', paddingLeft: '18px', fontSize: '12px', color: T.text2, lineHeight: 1.8 } },
+                  gate.reasons.map((reason, index) => h('li', { key: index }, reason.message ?? reason.code)),
+                ),
+              ),
+        )
+      }
+      const renderReceipt = () => {
+        const artifacts = receipt?.artifacts ?? []
+        const kindLabel = { requirement: '需求草稿', change: '变更草稿', 'change-draft': '变更草稿', investigation: '排查项', link: '关联记录', receipt: '决策回执' }
+        return h(
+          'div',
+          { style: { marginTop: '10px' } },
+          h(
+            'div',
+            { style: { ...card, cursor: 'default' } },
+            h(
+              'div',
+              { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+              tonePill('success', '已保存草案'),
+              receipt?.replayed ? tonePill('neutral', '幂等重放') : null,
+            ),
+            artifacts.length === 0
+              ? h('p', { style: { margin: '8px 0 0', ...muted } }, '没有返回产物；保存可能只写入了回执。')
+              : h(
+                  'div',
+                  { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' } },
+                  artifacts.map((artifact, index) => {
+                    // 兼容两代核心形状：旧 {kind:'change', id, path}，新 {kind:'change-draft', changeId, file} / {kind:'requirement', id, file}。
+                    const artifactId = artifact.id ?? artifact.changeId ?? null
+                    const artifactPath = artifact.path ?? artifact.file ?? null
+                    const artifactLabel = kindLabel[artifact.kind] ?? artifact.kind ?? '产物'
+                    const artifactSummary = artifact.summary ?? artifact.draft?.summary ?? null
+                    return h(
+                      'div',
+                      { key: `${artifact.kind ?? 'artifact'}-${artifactId ?? index}`, style: { border: `1px solid ${T.line}`, borderRadius: '9px', padding: '8px 10px', background: T.layer } },
+                      h(
+                        'div',
+                        { style: { display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' } },
+                        h('span', { style: { fontSize: '11px', color: T.text3 } }, artifactLabel),
+                        h('span', { style: { fontSize: '12.5px', color: T.text, fontWeight: 500, wordBreak: 'break-word' } }, artifactId ?? artifactLabel),
+                        artifact.kind === 'requirement' && onOpenRequirement && artifactId
+                          ? h(
+                              'button',
+                              {
+                                type: 'button',
+                                style: { ...button, padding: '0 8px', fontSize: '11px' },
+                                onClick: () => {
+                                  onOpenRequirement(artifactId)
+                                  finish()
+                                },
+                              },
+                              '打开需求详情',
+                            )
+                          : null,
+                      ),
+                      artifactPath ? h('div', { style: { marginTop: '2px', fontSize: '11px', color: T.text3, wordBreak: 'break-all' } }, artifactPath) : null,
+                      artifactSummary ? h('div', { style: { marginTop: '2px', fontSize: '11.5px', color: T.text2, lineHeight: 1.7 } }, artifactSummary) : null,
+                      artifactPath || artifactSummary || artifactId
+                        ? null
+                        : h('div', { style: { marginTop: '2px', ...muted } }, '核心未返回该产物的 ID、路径或摘要。'),
+                    )
+                  }),
+                ),
+            h(
+              'p',
+              { style: { margin: '10px 0 0', color: T.text2, fontSize: '12px', lineHeight: 1.8 } },
+              '保存 ≠ 采纳 / 开工 / 验收 / 发布。需求仍是草稿；变更草稿尚不改正式 sdoc；负责人 / 优先级待权限确认。',
+            ),
+            receipt?.receipt?.id ? h('p', { style: { margin: '4px 0 0', ...muted } }, `回执：${receipt.receipt.id}`) : null,
+          ),
+        )
+      }
+      const footerFor = () => {
+        if (screen === 'input') {
+          return [
+            h('span', { key: 'note', style: { marginRight: 'auto', fontSize: '11.5px', color: T.text3, alignSelf: 'center' } }, '先澄清，不会创建需求。'),
+            h('button', { key: 'manual', type: 'button', style: button, onClick: startManual }, '手动填写候选'),
+            h('button', { key: 'analyze', type: 'button', style: primary, disabled: rawText.trim() === '' || busy, onClick: runAnalyze }, busy ? '分析中…' : '分析意图'),
+          ]
+        }
+        if (screen === 'analyzing') {
+          return [h('button', { key: 'cancel', type: 'button', style: button, onClick: cancelAnalyze }, '取消分析')]
+        }
+        if (screen === 'review') {
+          return [
+            h('button', { key: 'later', type: 'button', style: button, onClick: postpone }, '暂不处理'),
+            h('button', { key: 'back', type: 'button', style: button, onClick: () => setScreen('input') }, '返回原话'),
+            h('button', { key: 'again', type: 'button', style: button, disabled: busy, onClick: runAnalyze }, busy ? '分析中…' : '重新分析'),
+            h(
+              'button',
+              { key: 'confirm', type: 'button', style: primary, disabled: busy, onClick: enterConfirm },
+              '确认并保存这份草案',
+            ),
+          ]
+        }
+        if (screen === 'confirm') {
+          const retry = confirmState.error?.code === 'write-failed'
+          return [
+            h(
+              'button',
+              { key: 'leave', type: 'button', style: { ...button, borderColor: 'transparent', background: 'transparent', color: T.text2 }, onClick: saveAndLeave },
+              '保存会话离开',
+            ),
+            h('button', { key: 'back', type: 'button', style: button, onClick: () => setScreen('review') }, '返回修改'),
+            h(
+              'button',
+              { key: 'save', type: 'button', style: primary, disabled: confirmState.loading, onClick: submitConfirm },
+              confirmState.loading ? '保存中…' : retry ? '重试保存（同幂等键）' : '确认并保存这份草案',
+            ),
+          ]
+        }
+        return [h('button', { key: 'done', type: 'button', style: primary, onClick: finish }, '完成')]
+      }
+      const title =
+        screen === 'input'
+          ? '你想改变什么？'
+          : screen === 'analyzing'
+            ? '正在理解你的意图'
+            : screen === 'review'
+              ? '这份理解对吗？'
+              : screen === 'confirm'
+                ? '确认并保存这份草案'
+                : '草案已保存'
+      const lead =
+        screen === 'input'
+          ? `归属项目 ${projectName ?? project ?? '—'} · 只读边界：本项目。先澄清，不会创建需求。`
+          : screen === 'confirm'
+            ? '保存的是一份待确认草案；保存不等于采纳、开工、验收或发布。'
+            : screen === 'receipt'
+              ? '真实写入的产物如下；关闭后会刷新列表。'
+              : null
+      return h(
+        ModalShell,
+        { title, lead, onClose: handleClose, width: '820px', footer: footerFor() },
+        h(
+          'div',
+          { ref: screenHeadingRef, tabIndex: -1, style: { outline: 'none' } },
+          screen === 'input'
+            ? renderInput()
+            : screen === 'analyzing'
+              ? renderAnalyzing()
+              : screen === 'review'
+                ? renderReview()
+                : screen === 'confirm'
+                  ? renderConfirm()
+                  : renderReceipt(),
+        ),
       )
     }
 
@@ -3654,11 +6008,10 @@ window.__ModuleLoader__.load({
       const [startItem, setStartItem] = useState(null)
       const [acceptItem, setAcceptItem] = useState(null)
       const [acceptanceItem, setAcceptanceItem] = useState(null)
-      const [reviewItem, setReviewItem] = useState(null)
       const [aiReviewItem, setAiReviewItem] = useState(null)
-      const [signoffItem, setSignoffItem] = useState(null)
       const [rehearsalItem, setRehearsalItem] = useState(null)
       const [createOpen, setCreateOpen] = useState(false)
+      const [createdNotice, setCreatedNotice] = useState(null)
       const [associateTarget, setAssociateTarget] = useState(null)
       const [showRoot, setShowRoot] = useState(false)
       const [anomalyOnly, setAnomalyOnly] = useState(false)
@@ -3836,6 +6189,17 @@ window.__ModuleLoader__.load({
         const match = items.find((item) => item.id === id)
         setSelectedId(match ? keyOf(match) : id)
       }
+      // INT-19: after a create, tell the user when the new requirement is
+      // hidden by the current filter/keyword, without clearing their filter.
+      const onIntentCreated = (result) => {
+        if (result?.requirementId) setCreatedNotice({ requirementId: result.requirementId, awaiting: true })
+        reload()
+      }
+      useEffect(() => {
+        if (!createdNotice?.awaiting) return
+        if (loading || !data) return
+        setCreatedNotice((current) => (current && current.awaiting ? { ...current, awaiting: false } : current))
+      }, [data, loading, createdNotice])
       const singleWorkspace = projectId !== ALL_PROJECTS
       const linked = Boolean(currentProject?.linked)
       const scopeText =
@@ -3921,7 +6285,7 @@ window.__ModuleLoader__.load({
             variant: 'primary',
             disabled: !singleWorkspace,
             onClick: createRequirement,
-            title: singleWorkspace ? '新建需求' : '切换到单个工作区后可新建需求',
+            title: singleWorkspace ? '先澄清意图，再保存需求' : '切换到单个工作区后可新建需求',
           }),
         ),
       )
@@ -4035,6 +6399,40 @@ window.__ModuleLoader__.load({
         ),
       )
 
+      const createdBanner =
+        createdNotice && !createdNotice.awaiting && !visible.some((item) => item.id === createdNotice.requirementId)
+          ? h(
+              'div',
+              {
+                role: 'status',
+                style: {
+                  ...card,
+                  cursor: 'default',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  borderColor: T.line2,
+                  background: EVIDENCE_TONE.warn.bg,
+                },
+              },
+              h('span', { style: { fontSize: '12.5px', color: T.text2 } }, `已创建 ${createdNotice.requirementId}，但当前筛选下不可见`),
+              h(
+                'button',
+                {
+                  style: button,
+                  onClick: () => {
+                    setFilter('all')
+                    setKeyword('')
+                    setCreatedNotice(null)
+                  },
+                },
+                '清除筛选查看',
+              ),
+            )
+          : null
+
       let body
       if (loading) {
         body = h(SkeletonTable, { narrow, mobile })
@@ -4086,6 +6484,7 @@ window.__ModuleLoader__.load({
         header,
         showRoot ? h(RootPicker, { rootInput, setRootInput, onApply: () => applyRoot(rootInput), onReset: () => { setRootInput(''); applyRoot('') } }) : null,
         toolbar,
+        createdBanner,
         notices,
         body,
         selected
@@ -4102,8 +6501,6 @@ window.__ModuleLoader__.load({
               onStart: (entry) => setStartItem(entry),
               onAccept: (entry) => setAcceptItem(entry),
               onAcceptance: (entry) => setAcceptanceItem(entry),
-              onReview: (entry) => setReviewItem(entry),
-              onSignoff: (entry) => setSignoffItem(entry),
               onAiReview: (entry) => setAiReviewItem(entry),
               onRehearsal: (entry) => setRehearsalItem(entry),
             })
@@ -4121,8 +6518,6 @@ window.__ModuleLoader__.load({
               onStart: (entry) => setStartItem(entry),
               onAccept: (entry) => setAcceptItem(entry),
               onAcceptance: (entry) => setAcceptanceItem(entry),
-              onReview: (entry) => setReviewItem(entry),
-              onSignoff: (entry) => setSignoffItem(entry),
               onAiReview: (entry) => setAiReviewItem(entry),
               onRehearsal: (entry) => setRehearsalItem(entry),
             })
@@ -4150,22 +6545,6 @@ window.__ModuleLoader__.load({
               item: aiReviewItem,
               root: aiReviewItem.root ?? data?.root ?? root,
               onClose: () => setAiReviewItem(null),
-              onDone: () => reload(),
-            })
-          : null,
-        reviewItem
-          ? h(ReviewModal, {
-              item: reviewItem,
-              root: reviewItem.root ?? data?.root ?? root,
-              onClose: () => setReviewItem(null),
-              onDone: () => reload(),
-            })
-          : null,
-        signoffItem
-          ? h(SignoffModal, {
-              item: signoffItem,
-              root: signoffItem.root ?? data?.root ?? root,
-              onClose: () => setSignoffItem(null),
               onDone: () => reload(),
             })
           : null,
@@ -4198,13 +6577,18 @@ window.__ModuleLoader__.load({
             })
           : null,
         createOpen
-          ? h(CreateModal, {
+          ? h(IntentModal, {
               root: data?.root ?? root,
               project: data?.project ?? currentProject?.projectId,
               projectName: data?.projectName ?? currentProject?.name,
+              projectId: data?.project ?? currentProject?.projectId ?? null,
+              requirementCount: data?.summary?.requirements,
               onClose: () => setCreateOpen(false),
-              onCreated: () => {
-                reload()
+              onCreated: onIntentCreated,
+              onOpenRequirement: (id) => {
+                setCreateOpen(false)
+                setDetailOpen(false)
+                openRequirementById(id)
               },
             })
           : null,

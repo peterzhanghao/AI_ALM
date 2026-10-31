@@ -992,3 +992,23 @@
   - 正例：1440×900 首屏完整 8 行、6 列、行高 68px；搜索 `REQ-DUP-001` 得 2 行；待评审叠加仍 2 行；空结果可清除；只看异常 2 行→显示全部 15 行；抽屉打开/关闭保留滚动位置；切换 DEMO 4 行 / ALL 15 行；刷新后筛选保留。
   - 反例：1024 窄屏 4 列无横向溢出；720 移动端 2 列且状态/检查内联；请求失败显示「读取需求失败」+ 重试后恢复；无需求/无结果不误显示异常。
 - 证据：`pnpm test` 301/301；Playwright `tmp/eval-list-flow.mjs`、`tmp/verify-states.mjs`、`tmp/verify-error.mjs`；截图 `plugin-list-1440.png`、`plugin-list-scrolled.png`、`plugin-list-empty.png`、`plugin-list-anomaly-only.png`、`plugin-list-detail.png`、`plugin-list-narrow.png`、`plugin-list-mobile.png`、`plugin-list-error.png`
+
+### ALM-09.14 意图澄清入口与三项交互修复
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.13（#138，已关闭）
+- 技能：`cordis-plugin-development`、`alm-mvp-dev`、`ai-github-pr-workflow`
+- 实施范围：`packages/dsh-plugin-requirements/{client.js,intent.mjs,investigate.mjs,index.js}`；`packages/alm-core/src/intent/`；intent 单测/HTTP 测试与截图
+- 不在范围：改写意图判定/去重规则、自动指派负责人或优先级、升级 OCR 模型、覆盖全部 20 个验收场景的未验证项
+- 接口/行为：
+  - 意图输入框支持 `onPaste` 图片：读剪贴板 `image/*`，复用本地 PP-OCRv5，识别文本追加到原话；普通文本粘贴不受影响。
+  - `POST /api/alm/requirements/intent` 的 `answer` 立即返回 `{pending:true, analysisStatus}`，`runAnalysis` 转入后台；`load`/`GET ?session=` 返回 `analysisStatus`（running/done/error），前端 800ms 轮询至完成。
+  - 确认/保存按钮不再因 `gate.ready=false` 而静默禁用；点击后展示 `not-ready` 错误、逐条原因，并滚动到顶部提示区。
+- 交付物：
+  - [x] 粘贴截图 → 本地 OCR → 回填原话；输入区提示与失败提示
+  - [x] 回答提交立即反馈（实测 72–79ms），后台重分析、轮询状态与失败提示
+  - [x] 确认保存的未就绪反馈、原因列表、滚动定位；就绪时仍按原契约保存
+  - [x] 意图核心/插件路由/测试与验收报告
+- 验收：
+  - 正例：粘贴截图后 2s 内出现 OCR 文本并进入原话；提交回答 <2s 显示「已记录…正在更新候选」，随后候选更新；点击保存未就绪时顶部出现「还不能保存」+ 原因；全部问题与优先级就绪时可保存。
+  - 反例：普通文本粘贴不触发 OCR；OCR 失败有可理解提示；后台分析失败时回答仍保留并提示可重试；确认按钮不出现「无任何反馈」。
+- 证据：`pnpm test` 394/394；Playwright `tmp/eval-intent-fix.mjs`（ocrElapsed≈2s、answerElapsed≈72ms、saveErrorVisible=true）；截图 `docs/assets/design/intent-{input,paste,review,answer,confirm,confirm-result}.png`

@@ -17,6 +17,7 @@ import * as reviewExecutor from '../alm-core/src/review/executor.mjs'
 import { extractChat, extractOcr } from './intake.mjs'
 import { AiReviewError, adoptAiReview, readAiReview, readRequirementBrief, runAiReview, writeAiReview } from './ai-review.mjs'
 import { runAiDraft } from './ai-draft.mjs'
+import { MAX_BODY_BYTES, handleIntentLoad, handleIntentRequest, intentErrorResponse } from './intent.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -200,6 +201,15 @@ export default class RequirementsService {
         handler: (req, res) => this.handleWrite(req, res, action),
       })
     }
+
+    // Intent clarification (contract §2): POST drives analyze|answer|edit|confirm|
+    // cancel|migrate, GET loads one session by ?session=. Registered after the
+    // legacy write loop and before the page so existing routes stay untouched.
+    webServer.register({
+      kind: 'exact',
+      path: '/api/alm/requirements/intent',
+      handler: (req, res) => this.handleIntent(req, res),
+    })
 
     // Standalone read-only page: the GUI origin itself needs the dsh web token,
     // so expose an HTML view that can be opened directly from a browser.
@@ -484,6 +494,44 @@ export default class RequirementsService {
     })
     writeAiReview(root, report)
     return report
+  }
+
+  /**
+   * Intent clarification transport (contract §2). The plugin owns only HTTP
+   * framing: bounded body, root resolution, model plumbing and the shared
+   * `{ok:false,error:{code,message}}` shape. Session semantics live in intent.mjs
+   * and alm-core; the body is analysis data, never instructions (INT-16).
+   */
+  async handleIntent(req, res) {
+    const respond = (status, payload) => {
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(payload))
+    }
+    try {
+      const url = new URL(req?.url ?? '/', 'http://127.0.0.1')
+      if (req.method === 'GET') {
+        const payload = await handleIntentLoad({ root: this.rootFor(req), query: url.searchParams })
+        respond(200, payload)
+        return
+      }
+      if (req.method !== 'POST') {
+        respond(405, { ok: false, error: { code: 'method-not-allowed', message: 'POST or GET required' } })
+        return
+      }
+      const body = await readJsonBody(req, MAX_BODY_BYTES)
+      const bodyRoot = body && typeof body.root === 'string' && body.root ? body.root : null
+      const root = bodyRoot ? resolveRequirementsRoot(bodyRoot, this.root) : this.rootFor(req)
+      const payload = await handleIntentRequest({
+        root,
+        body,
+        resolveAiSelection: (options) => this.resolveAiSelection(options),
+        aiStreamFor: () => this.aiStreamFor(),
+      })
+      respond(200, payload)
+    } catch (error) {
+      const { status, payload } = intentErrorResponse(error)
+      respond(status, payload)
+    }
   }
 
   async handleWrite(req, res, action) {
