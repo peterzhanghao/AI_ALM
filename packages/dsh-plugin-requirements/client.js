@@ -184,8 +184,9 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', flexDirection: 'column', gap: '5px' } },
-          review.roles.map((role) =>
-            h(
+          review.roles.map((role) => {
+            const meta = VERDICT[role.verdict] ?? VERDICT.skip
+            return h(
               'div',
               {
                 key: role.id,
@@ -195,17 +196,19 @@ window.__ModuleLoader__.load({
                   justifyContent: 'space-between',
                   gap: '10px',
                   border: `1px solid ${T.line}`,
+                  borderLeft: `3px solid ${meta.color}`,
                   borderRadius: '8px',
+                  background: T.layer2,
                   padding: '6px 10px',
                   fontSize: '12.5px',
                   color: T.text2,
                 },
               },
               h('span', null, role.label),
-              h(VerdictBadge, { verdict: role.verdict }),
-            ),
+                h(VerdictBadge, { verdict: role.verdict }),
+              )
+            }),
           ),
-        ),
         review.roles.some((role) => role.findings.length)
           ? h(
               'div',
@@ -881,98 +884,191 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, compact }) {
-      const relations = relationsOf(item, allItems)
+    function GroupCard({ title, hint, accent, children }) {
       return h(
-        'div',
-        { style: { padding: compact ? '24px 26px 32px' : '28px 30px 40px' } },
+        'section',
+        {
+          style: {
+            marginTop: '14px',
+            border: `1px solid ${T.line}`,
+            borderLeft: `2px solid ${accent}`,
+            borderRadius: '12px',
+            background: T.layer,
+            padding: '13px 16px 15px',
+          },
+        },
         h(
           'div',
-          { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
-          h(Pill, { status: item.status }),
-          h('span', { style: { color: T.text3, fontSize: '11.5px' } }, item.id),
-          h(
-            'span',
-            { style: { color: T.text3, fontSize: '11px', border: `1px solid ${T.line}`, borderRadius: '5px', padding: '0 5px' } },
-            `v${item.revision ?? 1}`,
-          ),
-          h('span', { style: { marginLeft: 'auto' } }, h('button', { style: { ...button, borderColor: 'transparent', background: 'transparent', color: T.text2 }, onClick: onClose, 'aria-label': '关闭' }, '×')),
+          { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '10px', marginBottom: '10px' } },
+          h('div', { style: { fontSize: '12.5px', fontWeight: 600, color: T.text2, letterSpacing: '.01em' } }, title),
+          hint ?? null,
         ),
-        h('h2', { style: { margin: '12px 0 0', fontSize: '21px', lineHeight: 1.4, letterSpacing: '-.01em' } }, item.title),
+        children,
+      )
+    }
+
+    function SubBlock({ title, action, children, first = false }) {
+      return h(
+        'div',
+        { style: { marginTop: first ? 0 : 12, paddingTop: first ? 0 : 12, borderTop: first ? 0 : `1px solid ${T.line}` } },
         h(
-          'p',
-          { style: { margin: '8px 0 0', ...muted } },
-          [item.owner, item.priority, `${item.projectName ?? item.project ?? '未归属项目'}${item.project ? `（${item.project}）` : ''}`].filter(Boolean).join(' · '),
+          'div',
+          { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '7px' } },
+          h('span', { style: { fontSize: '10.5px', letterSpacing: '.08em', textTransform: 'uppercase', color: T.text3 } }, title),
+          action ?? null,
         ),
+        children,
+      )
+    }
 
-        h(Section, { title: '背景与来源' },
-          item.briefText
-            ? renderBrief(item.briefText)
-            : h('p', { style: { margin: 0, color: T.text2, fontSize: '13px', lineHeight: 1.8 } }, item.brief ? `见 ${item.brief}` : '未填写背景。'),
-        ),
-        item.sources?.length ? h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } }, item.sources.map((source) => h(Chip, { key: source }, `来源 · ${source}`))) : null,
-        h(Attachments, { item }),
-
-        h(Section, { title: '评审', action: h('div', { style: { display: 'flex', gap: '10px' } }, h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onReview(item) }, '运行评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onSignoff(item) }, '人工签收')) }, h(ReviewBlock, { review: item.review })),
-
-        h(Section, { title: '验收覆盖' },
-          (item.verifiedBy ?? []).length
-            ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '0' } }, item.verifiedBy.map((id) => h('div', { key: id, style: { ...row, color: T.text } }, h('span', { style: { color: T.ok } }, '✓'), id)))
-            : h('p', { style: { margin: 0, color: T.warn, fontSize: '12.5px' } }, '没有 verified_by，COV-001 会失败。'),
-        ),
-
-        h(
-          Section,
-          {
-            title: '验收执行',
-            action: h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onAcceptance(item) }, '运行需求验收 ›'),
+    function MetaChip({ children, color }) {
+      return h(
+        'span',
+        {
+          style: {
+            border: `1px solid ${T.line}`,
+            borderRadius: '999px',
+            padding: '1px 9px',
+            fontSize: '11.5px',
+            color: color ?? T.text2,
+            background: T.layer2,
+            whiteSpace: 'nowrap',
           },
-          item.acceptance?.registered
-            ? h(
-                'div',
-                null,
-                h('div', { style: row }, h('span', { style: rowLabel }, '登记命令'), h('span', { style: { color: T.text } }, `${item.acceptance.commandCount} 条`)),
-                h(
-                  'div',
-                  { style: row },
-                  h('span', { style: rowLabel }, '最近证据'),
-                  item.acceptance.latest
-                    ? h(
-                        'span',
-                        { style: { color: item.acceptance.latest.result === 'pass' ? T.ok : T.err } },
-                        `${item.acceptance.latest.result} · ${item.acceptance.latest.headSha.slice(0, 8)}${item.acceptance.latest.current ? ' · 当前提交' : ' · 历史提交'}`,
-                      )
-                    : h('span', { style: muted }, '尚未运行'),
-                ),
-              )
-            : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令（.alm/acceptance/<REQ>.json，白名单 node / npm / pnpm）。'),
-        ),
+        },
+        children,
+      )
+    }
 
-        h(Section, { title: '关系', action: h(TraceLink, { onClick: () => onTrace(item) }) },
-          relations.length
-            ? h('div', null, relations.map(([label, ids]) => h('div', { key: label, style: row }, h('span', { style: rowLabel }, label), h('span', { style: { color: T.text } }, ids.join('、')))))
-            : h('p', { style: { margin: 0, ...muted } }, '暂无关系。'),
-        ),
-
-        h(Section, { title: 'GitHub 归属' }, h(GithubBlock, { item, projectMeta })),
-
-        h(Section, { title: '历史' }, h(VersionList, { item, onSnapshot, onDiff })),
-
-        h('details', { style: { marginTop: '22px', borderTop: `1px solid ${T.line}`, paddingTop: '12px' } },
-          h('summary', { style: { cursor: 'pointer', color: T.text2, fontSize: '12.5px' } }, '技术详情'),
-          h('div', { style: { marginTop: '10px', color: T.text2, fontSize: '12px', lineHeight: 1.9 } },
-            h('div', null, h('code', { style: { color: T.text } }, `${item.file}${item.line ? `:${item.line}` : ''}`)),
-            item.brief ? h('div', null, '简报：', h('code', { style: { color: T.text } }, item.brief)) : null,
-            h('div', null, `门禁提示词：${item.nextActionLabel ?? item.nextAction}`),
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, compact }) {
+      const relations = relationsOf(item, allItems)
+      const priorityColor = item.priority === 'P0' ? T.err : item.priority === 'P1' ? T.warn : T.text2
+      const review = item.review
+      const reviewHint = review?.summary
+        ? h('span', { style: { color: review.summary.blockers > 0 ? T.err : T.ok, fontSize: '11.5px' } }, `${review.summary.completed}/${review.summary.total} 角色 · ${review.summary.blockers} 阻塞`)
+        : null
+      const actionLink = (label, handler) =>
+        h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: handler }, label)
+      return h(
+        'div',
+        null,
+        h(
+          'div',
+          {
+            style: {
+              position: 'sticky',
+              top: 0,
+              zIndex: 2,
+              background: T.base,
+              borderBottom: `1px solid ${T.line}`,
+              padding: compact ? '18px 22px 14px' : '22px 26px 16px',
+            },
+          },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+            h(Pill, { status: item.status }),
+            h('span', { style: { color: T.text3, fontSize: '11.5px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } }, item.id),
+            h('span', { style: { color: T.text3, fontSize: '11px', border: `1px solid ${T.line}`, borderRadius: '5px', padding: '0 5px' } }, `v${item.revision ?? 1}`),
+            h('span', { style: { marginLeft: 'auto' } }, h('button', { style: { ...button, borderColor: 'transparent', background: 'transparent', color: T.text2 }, onClick: onClose, 'aria-label': '关闭' }, '×')),
           ),
-          h(CopyPrompt, { text: nextPrompt(item, root) }),
+          h('h2', { style: { margin: '10px 0 0', fontSize: '22px', lineHeight: 1.4, letterSpacing: '-.012em' } }, item.title),
+          h(
+            'div',
+            { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' } },
+            item.owner ? h(MetaChip, null, item.owner) : null,
+            item.priority ? h(MetaChip, { color: priorityColor }, item.priority) : null,
+            h(MetaChip, null, `${item.projectName ?? item.project ?? '未归属项目'}${item.project ? `（${item.project}）` : ''}`),
+          ),
         ),
-
-        h('div', { style: { display: 'flex', gap: '10px', marginTop: '22px', flexWrap: 'wrap' } },
-          h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
-          h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
-          h('button', { style: button, onClick: () => onDetail(item) }, '查看详情'),
-          onClose ? h('button', { style: button, onClick: onClose }, '关闭') : null,
+        h(
+          'div',
+          { style: { padding: compact ? '4px 22px 28px' : '4px 26px 34px' } },
+          h(
+            GroupCard,
+            { title: '需求背景', accent: T.brand, hint: item.brief ? h('span', { style: { ...muted } }, item.brief) : null },
+            item.briefText
+              ? renderBrief(item.briefText)
+              : h('p', { style: { margin: 0, color: T.text2, fontSize: '13.5px', lineHeight: 1.85 } }, item.brief ? `见 ${item.brief}` : '未填写背景。'),
+            item.sources?.length ? h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } }, item.sources.map((source) => h(Chip, { key: source }, `来源 · ${source}`))) : null,
+            h(Attachments, { item }),
+          ),
+          h(
+            GroupCard,
+            { title: '质量与验收', accent: T.ok, hint: reviewHint },
+            h(
+              SubBlock,
+              {
+                title: '评审',
+                first: true,
+                action: h('div', { style: { display: 'flex', gap: '10px' } }, actionLink('运行评审', () => onReview(item)), actionLink('人工签收', () => onSignoff(item))),
+              },
+              h(ReviewBlock, { review: item.review }),
+            ),
+            h(
+              SubBlock,
+              { title: `验收覆盖（${item.verifiedBy?.length ?? 0}）` },
+              (item.verifiedBy ?? []).length
+                ? h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, item.verifiedBy.map((id) => h(MetaChip, { key: id, color: T.ok }, `✓ ${id}`)))
+                : h('p', { style: { margin: 0, color: T.warn, fontSize: '12.5px' } }, '没有 verified_by，COV-001 会失败。'),
+            ),
+            h(
+              SubBlock,
+              { title: '验收执行', action: actionLink('运行需求验收 ›', () => onAcceptance(item)) },
+              item.acceptance?.registered
+                ? h(
+                    'div',
+                    null,
+                    h('div', { style: row }, h('span', { style: rowLabel }, '登记命令'), h('span', { style: { color: T.text } }, `${item.acceptance.commandCount} 条`)),
+                    h(
+                      'div',
+                      { style: row },
+                      h('span', { style: rowLabel }, '最近证据'),
+                      item.acceptance.latest
+                        ? h(
+                            'span',
+                            { style: { color: item.acceptance.latest.result === 'pass' ? T.ok : T.err } },
+                            `${item.acceptance.latest.result} · ${item.acceptance.latest.headSha.slice(0, 8)}${item.acceptance.latest.current ? ' · 当前提交' : ' · 历史提交'}`,
+                          )
+                        : h('span', { style: muted }, '尚未运行'),
+                    ),
+                  )
+                : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令（.alm/acceptance/<REQ>.json，白名单 node / npm / pnpm）。'),
+            ),
+          ),
+          h(
+            GroupCard,
+            { title: '归属、关系与历史', accent: T.line2 },
+            h(
+              SubBlock,
+              { title: '关系', first: true, action: h(TraceLink, { onClick: () => onTrace(item) }) },
+              relations.length
+                ? h('div', null, relations.map(([label, ids]) => h('div', { key: label, style: row }, h('span', { style: rowLabel }, label), h('span', { style: { color: T.text } }, ids.join('、')))))
+                : h('p', { style: { margin: 0, ...muted } }, '暂无关系。'),
+            ),
+            h(SubBlock, { title: 'GitHub 归属' }, h(GithubBlock, { item, projectMeta })),
+            h(SubBlock, { title: '历史' }, h(VersionList, { item, onSnapshot, onDiff })),
+          ),
+          h(
+            'details',
+            { style: { marginTop: '18px', borderTop: `1px solid ${T.line}`, paddingTop: '12px' } },
+            h('summary', { style: { cursor: 'pointer', color: T.text2, fontSize: '12.5px' } }, '技术详情'),
+            h(
+              'div',
+              { style: { marginTop: '10px', color: T.text2, fontSize: '12px', lineHeight: 1.9 } },
+              h('div', null, h('code', { style: { color: T.text } }, `${item.file}${item.line ? `:${item.line}` : ''}`)),
+              item.brief ? h('div', null, '简报：', h('code', { style: { color: T.text } }, item.brief)) : null,
+              h('div', null, `门禁提示词：${item.nextActionLabel ?? item.nextAction}`),
+            ),
+            h(CopyPrompt, { text: nextPrompt(item, root) }),
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', gap: '10px', marginTop: '20px', flexWrap: 'wrap' } },
+            h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
+            h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
+            h('button', { style: button, onClick: () => onDetail(item) }, '查看详情'),
+            onClose ? h('button', { style: button, onClick: onClose }, '关闭') : null,
+          ),
         ),
       )
     }
@@ -999,8 +1095,8 @@ window.__ModuleLoader__.load({
               top: 0,
               right: 0,
               height: '100%',
-              width: '560px',
-              maxWidth: '94vw',
+              width: '720px',
+              maxWidth: '95vw',
               overflowY: 'auto',
               background: T.base,
               borderLeft: `1px solid ${T.line}`,

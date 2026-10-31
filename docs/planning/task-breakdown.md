@@ -874,3 +874,18 @@
   - 正例：真实 OCR 识别中文截图（2 行 #L1/#L2）；聊天解析 3 条消息；创建后 chat.md + manifest 落盘
   - 反例：空聊天/缺图片/超大图片/非法附件名分别报错；OCR 引擎缺失返回明确错误
 - 证据：全量 231/231；Playwright 全流程 27/27、0 pageerror；截图 `docs/assets/design/plugin-intake.png`、`plugin-create-demo.png`
+
+### ALM-09.08 需求详情侧栏可读性
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.07（#126，已关闭）
+- 技能：`cordis-plugin-development`、`frontend-design`
+- 实施范围：`packages/dsh-plugin-requirements/client.js`（Drawer / DrawerContent / ReviewBlock 样式）
+- 不在范围：数据契约、详情大弹窗布局、主题 token 变更
+- 交付物：
+  - [ ] 侧栏 560 → 720px（`max-width: 95vw`），sticky 头部 + 负责人/优先级/项目 chips
+  - [ ] 三组卡片：需求背景（brand）/ 质量与验收（success）/ 归属、关系与历史（neutral），组内子块分隔线
+  - [ ] 评审行 verdict 左侧色条 + 底色；验收覆盖绿色 pill；验收执行命令/证据两行
+- 验收：
+  - 正例：1440 视口下侧栏实测 721px；三组卡片与色条可见；评审 5 行按 verdict 着色；无横向溢出
+  - 反例：窄视口 `max-width: 95vw` 不撑破；详情弹窗不受影响
+- 证据：`pnpm test` 231/231；截图 `docs/assets/design/plugin-drawer-wide.png`、`plugin-drawer-wide-bottom.png`（侧栏 boundingBox 721×1000）

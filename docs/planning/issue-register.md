@@ -93,6 +93,7 @@
 | ALM-09.05 | 评审执行器 + 人工签收 | task | @peterzhanghao | P1 | plugin | done | ALM-09.04（#120，已关闭） | 确认发布 | #122 | #123 | in-sync | 2026-10-31 10:50 |
 | ALM-09.06 | 开始开发切分支/隔离 worktree | task | @peterzhanghao | P1 | plugin | done | ALM-09.05（#122，已关闭） | 确认发布 | #124 | #125 | in-sync | 2026-10-31 11:25 |
 | ALM-09.07 | 新建向导接入 OCR/聊天入库 | task | @peterzhanghao | P1 | plugin | done | ALM-09.06（#124，已关闭） | 确认发布 | #126 | #127 | in-sync | 2026-10-31 12:10 |
+| ALM-09.08 | 需求详情侧栏可读性 | task | @peterzhanghao | P1 | plugin | review | ALM-09.07（#126，已关闭） | 确认发布 | #128 | — | local-newer | 2026-10-31 17:35 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
