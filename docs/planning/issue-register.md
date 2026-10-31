@@ -95,7 +95,7 @@
 | ALM-09.07 | 新建向导接入 OCR/聊天入库 | task | @peterzhanghao | P1 | plugin | done | ALM-09.06（#124，已关闭） | 确认发布 | #126 | #127 | in-sync | 2026-10-31 12:10 |
 | ALM-09.08 | 需求详情侧栏可读性 | task | @peterzhanghao | P1 | plugin | done | ALM-09.07（#126，已关闭） | 确认发布 | #128 | #129 | in-sync | 2026-10-31 17:45 |
 | ALM-09.09 | 侧栏 60% 宽 + 底部操作固定 + AI 评审 | task | @peterzhanghao | P1 | plugin | done | ALM-09.08（#128，已关闭） | 确认发布 | #130 | #131 | in-sync | 2026-10-31 18:05 |
-| ALM-09.10 | AI 驱动新建需求 | task | @peterzhanghao | P1 | plugin | review | ALM-09.09（#130，已关闭） | 确认发布 | #132 | #133 | in-sync | 2026-10-31 18:25 |
+| ALM-09.10 | AI 驱动新建需求 | task | @peterzhanghao | P1 | plugin | done | ALM-09.09（#130，已关闭） | 确认发布 | #132 | #133 | in-sync | 2026-10-31 18:30 |
 
 > 批次 1 的 11 个工作项已创建并回读：`#1`–`#11`。父项、blocked-by、标签、状态与本文档一致。
 > ALM-01.01 已合并：PR `#12` → merge commit `2642153`。
@@ -128,6 +128,7 @@
 > OCR/聊天入库（ALM-09.07）：新建向导三来源，截图本地 PP-OCRv5、聊天 `parseChatMarkdown`，附件 + manifest 归档；`pnpm test` 231/231、Playwright 27/27；已合并 PR `#127` → `b1afb39`，Issue `#126` 关闭。第二阶段 ALM-09.01–09.07 全部完成。
 > 侧栏可读性（ALM-09.08）：详情侧栏 720px、三组卡片 + 状态色条、评审/验收色块；`pnpm test` 231/231、Playwright 侧栏 721×1000；已合并 PR `#129` → `32a9094`，Issue `#128` 关闭。
 > 60% 宽 + AI 评审（ALM-09.09）：抽屉 60vw、底部操作 sticky；AI 评审接入 DSH 默认模型，意见/建议/方案可勾选采纳到 brief，真实 deepseek-flash 验证；`pnpm test` 236/236；已合并 PR `#131` → `a0bcd7e`，Issue `#130` 关闭。
+> AI 新建需求（ALM-09.10）：口语/聊天/截图意图生成标题/背景/优先级/责任人（默认张浩），预览确认后创建；`pnpm test` 241/241；已合并 PR `#133` → `8847e7a`，Issue `#132` 关闭。
 > 批次 5 已收口：`ALM-06.01`（PR `#61`）、`ALM-06.02`（PR `#62`）、`#57`（ALM-06）与 `#1`（ALM-00）全部关闭并置 `status::done`。最终证据见 [验证报告](verification-report.md)：119 测试、3 演练 / 21 步、UI 28/28（本地 + 宿主）。`#60`（ALM-03.07 分隔符乱码）经复查为终端解码误报，已关闭且未改代码。
 > 2026-10-24 05:44 用户指示继续收尾：新增 `ALM-04.05`（Playwright UI 验证的按需 GitHub Actions）与 `ALM-04.06`（Gitea SCM 适配器），`确认结论=确认发布`；两者都在批次 4 的 SCM/CI 主题内。
 > 两张卡已收口：`ALM-04.05`（PR `#66`）按需 UI workflow 真实触发一次绿 / 一次红并留 artifact；`ALM-04.06`（PR `#67`）Gitea 客户端 + 8 个 mock 测试，全量测试 127。为让 `workflow_dispatch` 生效，`main` 从 `b94381f` 快进到 `95578b7`（`main` 是 `develop` 严格祖先，fast-forward，无强推）；后续 `main` 可继续与 `develop` 快进同步。
