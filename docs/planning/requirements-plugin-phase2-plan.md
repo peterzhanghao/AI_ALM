@@ -98,3 +98,11 @@ ALM-09.07：新建向导接入 OCR/聊天入库——三来源标签页，截图
 ALM-09.08：需求详情侧栏加宽到 720px，按背景 / 质量验收 / 归属历史分卡片，评审与验收用状态色块提升可读性。
 ALM-09.09：侧栏改为 60vw，底部操作条 sticky；AI 评审接入 DSH 默认模型，输出评审意见/建议/方案并可勾选采纳到 brief。真实 deepseek-flash 验证通过。
 ALM-09.10：新建需求改为 AI 驱动——输入口语/聊天/截图，AI 自动生成标题、背景、优先级与责任人（默认张浩），预览确认后创建。
+
+### ALM-09.12 评审采纳幂等 + 评审合并 + 三字段试演 + 功能按钮重构
+
+- AI 评审采纳改为**替换式**：brief 只保留一个「AI 评审建议（已采纳）」小节，重复采纳替换旧内容并返回 `changed`；0 建议时只记录「评审通过」、不改 brief；`proposedBrief` 全文只留在评审报告，不再写入 brief。
+- 评审语义合并：采纳 AI 评审即视为评审通过（`acceptReview` 写入 `signoffs`，source `ai-review`），详情/抽屉移除「运行评审」「人工签收」入口；evidence 无签收时为 `unchecked` + `review-not-accepted`，nextStep 指向 AI 评审；后端 `signReview` 保留兼容并标记 `legacyHumanSignoff`。
+- 变更试演补全：一次可改标题/优先级/背景，前端只提交差异 `changes[]`；preview/apply 均返回逐字段 before/after，保留 CAS、审计、幂等与旧证据失效提示。
+- 功能按钮统一：新增 `ActionButton`/`ActionIcon`（图标+边框/底色，primary 反色），替换抽屉、详情、评审、验收、底部所有文字链接；深色主题下不再出现白底白字。
+- 验收：`pnpm test` 368/368；Playwright `tmp/eval-full-flow-v14.mjs` 13/13（抽屉 865px、按钮高 30.8px/带 svg、AI 采纳幂等、0 建议不改 brief、三字段试演预览/提交、详情按钮）；截图见 `docs/assets/design/plugin-actions*.png`、`plugin-rehearsal-*.png`。

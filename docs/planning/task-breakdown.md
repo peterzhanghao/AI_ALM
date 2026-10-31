@@ -952,3 +952,24 @@
   - 正例：无验收证据签收 409 `acceptance-missing`；0/5 覆盖签收 409 `coverage-incomplete`；改动需求后旧验收 `current:false` 且签收需复核；试演预览零写入、apply 后 revision+1 并让旧证据失效。
   - 反例：重复业务 ID 两条记录保留且不合并；悬空关系可见不删除；标题含换行拒绝写入；陈旧预览 409；落盘失败保留草稿；未知枚举/超大导入/脚本载荷被拒或隔离。
 - 证据：`pnpm test` 301/301；`tmp/verify-evidence-desk.mjs` 26/26；Playwright 独立页 27/27；独立判定抽查 13/13；截图 `tmp/verify-ui/requirements-full.png`；报告 `tmp/verification-evidence-desk.md`
+
+### ALM-09.12 评审采纳幂等 + 评审合并 + 三字段试演 + 功能按钮重构
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.11（#134，已关闭）
+- 技能：`cordis-plugin-development`、`alm-mvp-dev`、`ai-github-pr-workflow`
+- 实施范围：`packages/alm-core/src/{evidence/decision.mjs,review/executor.mjs,rehearsal/rehearsal.mjs,requirements/update.mjs}`；`packages/dsh-plugin-requirements/{ai-review.mjs,client.js,index.js,query.mjs}`；定向测试与截图
+- 不在范围：删除 `signReview` 后端兼容 API、AI 角色评分、自动合并重复需求、全量 UID re-key
+- 接口：
+  - `adoptAiReview({root,asset,report,selectedSuggestionIds=[]})`：只维护一个「AI 评审建议（已采纳）」小节；重复采纳替换而非追加；`changed` 标识是否实际改动；0 建议只写 `adopted.noSuggestions=true`，不改 brief；proposedBrief 全文不写入 brief
+  - `acceptReview({root,asset,report,actor='ai:adopted',suggestions=[]})`：校验 contentHash/阻塞，追加 AI 签收记录（`alm.review.acceptance/v1`）
+  - `decideEvidence(..., {legacyHumanSignoff})`：无签收返回 `unchecked` + `review-not-accepted`，nextStep 指向 `ai-review`；不再产生 `ready-for-human`
+  - `normalizeChanges` / `changes[]`：试演一次提交 title/priority/brief 多字段差异，preview/apply 均返回逐项 before/after
+- 交付物：
+  - [x] AI 采纳幂等与空建议语义；连续采纳/空建议单测
+  - [x] `acceptReview` + 采纳后重跑 gate 报告并自动签收；query/decision 状态与 nextAction 更新
+  - [x] 试演多字段：`normalizeChanges`、`changes[]`、审计/CAS/幂等、UI 三字段同编
+  - [x] 统一 `ActionButton`/`ActionIcon`：AI 评审、验收、底部操作、详情操作均图标+边框；移除详情人工签收/运行评审入口
+- 验收：
+  - 正例：连续采纳同一批建议 heading 恒 1 个，第三次 `changed=false`；0 建议确认通过不改 brief；AI 采纳后 evidence `verified`；三字段试演 preview/apply 均返回 3 项 changes，提交后 revision+1 且旧证据失效；Playwright 按钮带 svg/边框/30.8px 高。
+  - 反例：内容变化后 `acceptReview` 409 `review-stale`；有阻塞时 `accepted:false`；空 changes/重复字段被拒；陈旧试演预览 409；无模型/解析失败不写文件。
+- 证据：`pnpm test` 368/368；Playwright `tmp/eval-full-flow-v14.mjs` 13/13；截图 `docs/assets/design/plugin-actions.png`、`plugin-actions-detail.png`、`plugin-ai-review-zero.png`、`plugin-ai-review-adopted.png`、`plugin-rehearsal-preview.png`、`plugin-rehearsal-result.png`

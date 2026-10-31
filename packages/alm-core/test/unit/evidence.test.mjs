@@ -121,20 +121,19 @@ test('riskLevel and requirementPolicy map priority to required review perspectiv
   assert.equal(requirementPolicy(requirementAsset({ extra: {} })).requiresAcceptance, true)
 })
 
-test('complete evidence with a stored review and no blockers is ready for human sign-off', () => {
+test('complete evidence without an accepted AI review stays open until adoption', () => {
   const decision = decideEvidence({
     asset: requirementAsset(),
     review: reviewOf(),
     acceptance: acceptanceOf({ latest: latestEvidence() }),
   })
   assert.equal(decision.schema, EVIDENCE_SCHEMA)
-  assert.equal(decision.state, 'ready-for-human')
-  assert.equal(decision.label, '可进入人工确认')
-  assert.equal(decision.tone, 'success')
-  assert.equal(decision.topGap, null)
-  assert.deepEqual(decision.gaps, [])
-  assert.deepEqual(decision.signoff, { allowed: true, reasons: [] })
-  assert.deepEqual(decision.nextStep, { label: '人工签收', action: 'signoff' })
+  assert.equal(decision.state, 'unchecked')
+  assert.equal(decision.label, '未检查')
+  assert.equal(decision.tone, 'neutral')
+  assert.equal(decision.topGap.code, 'review-not-accepted')
+  assert.deepEqual(decision.signoff.allowed, false)
+  assert.deepEqual(decision.nextStep, { label: '运行 AI 评审并采纳意见', action: 'ai-review' })
   assert.equal(decision.policy.risk, 'high')
   assert.deepEqual(decision.coverage, { rolesCompleted: 5, rolesRequired: 5, missingRoles: [] })
 })
@@ -311,7 +310,8 @@ test('low and normal risk only require their own perspectives', () => {
     review: reviewOf({ verdicts: { business: 'skip', architecture: 'skip', security: 'skip' } }),
     acceptance: acceptanceOf({ latest: latestEvidence() }),
   })
-  assert.equal(lowRisk.state, 'ready-for-human')
+  assert.equal(lowRisk.state, 'unchecked')
+  assert.equal(lowRisk.topGap.code, 'review-not-accepted')
   assert.equal(lowRisk.coverage.rolesRequired, 2)
 
   const normalRisk = decideEvidence({
@@ -319,7 +319,7 @@ test('low and normal risk only require their own perspectives', () => {
     review: reviewOf({ verdicts: { security: 'skip' } }),
     acceptance: acceptanceOf({ latest: latestEvidence() }),
   })
-  assert.equal(normalRisk.state, 'ready-for-human')
+  assert.equal(normalRisk.state, 'unchecked')
 })
 
 test('acceptance must be registered and executed before sign-off', () => {
@@ -357,7 +357,7 @@ test('topGap is always gaps[0] and every decision carries consistent labels', ()
     assert.equal(decision.topGap, decision.gaps[0] ?? null)
     assert.equal(typeof decision.label, 'string')
     assert.ok(['neutral', 'error', 'warn', 'success'].includes(decision.tone))
-    assert.ok(['run-review', 'run-acceptance', 'fix-blockers', 'fix-anomaly', 'rehearse', 'signoff'].includes(decision.nextStep.action))
+    assert.ok(['run-review', 'run-acceptance', 'fix-blockers', 'fix-anomaly', 'rehearse', 'ai-review', 'signoff'].includes(decision.nextStep.action))
   }
 })
 

@@ -37,6 +37,29 @@ export class RequirementUpdateError extends Error {
   }
 }
 
+/**
+ * Validate and normalize one or more `{ field, value }` changes. A caller may
+ * pass either a single change or a `changes` array; the array form lets the UI
+ * rehearse title + priority + brief in one audited revision.
+ */
+export function normalizeChanges(input) {
+  const list = Array.isArray(input?.changes) ? input.changes : Array.isArray(input) ? input : [input]
+  if (list.length === 0) {
+    throw new RequirementUpdateError('at least one change is required', { code: 'invalid-change' })
+  }
+  const out = []
+  const seen = new Set()
+  for (const entry of list) {
+    const normalized = normalizeChange(entry)
+    if (seen.has(normalized.field)) {
+      throw new RequirementUpdateError(`duplicate change field: ${normalized.field}`, { code: 'invalid-change' })
+    }
+    seen.add(normalized.field)
+    out.push(normalized)
+  }
+  return out
+}
+
 /** Validate and normalize one `{ field, value }` change. */
 export function normalizeChange(change) {
   if (!change || typeof change !== 'object' || Array.isArray(change)) {
@@ -222,7 +245,7 @@ export function planRequirementUpdate({ root, asset, change }) {
   if (!asset || typeof asset !== 'object' || typeof asset.id !== 'string' || asset.id === '') {
     throw new RequirementUpdateError('requirement asset is required', { code: 'unknown-requirement', status: 404 })
   }
-  const normalized = normalizeChange(change)
+  const changes = normalizeChanges(change)
   const file = asset.source?.path
   if (typeof file !== 'string' || file.trim() === '') {
     throw new RequirementUpdateError(`requirement ${asset.id} has no source file`, {
@@ -241,25 +264,30 @@ export function planRequirementUpdate({ root, asset, change }) {
   const after = { content, title: before.title, priority: before.priority, revision: revision + 1 }
 
   const fields = {}
-  if (normalized.field === 'title') {
-    after.title = normalized.value
-    fields.TITLE = normalized.value
-  } else if (normalized.field === 'priority') {
-    after.priority = normalized.value
-    fields.PRIORITY = normalized.value
+  let briefValue = null
+  for (const entry of changes) {
+    if (entry.field === 'title') {
+      after.title = entry.value
+      fields.TITLE = entry.value
+    } else if (entry.field === 'priority') {
+      after.priority = entry.value
+      fields.PRIORITY = entry.value
+    } else if (entry.field === 'brief') {
+      briefValue = entry.value
+    }
   }
   fields.REVISION = String(after.revision)
   after.content = rewriteRequirement({ content, id: asset.id, fields })
 
-  const plan = { file, before, after }
-  if (normalized.field === 'brief') {
+  const plan = { file, before, after, changes }
+  if (briefValue !== null) {
     const brief = asset.extra?.brief
     if (typeof brief !== 'string' || brief.trim() === '') {
       throw new RequirementUpdateError(`requirement ${asset.id} has no BRIEF field to update`, { code: 'brief-missing' })
     }
     safeAbsolute(repo, brief)
     plan.briefFile = brief
-    plan.briefContent = normalized.value
+    plan.briefContent = briefValue
   }
   return plan
 }
@@ -393,7 +421,8 @@ export function applyRequirementUpdate({
   // CAS is evaluated against the current disk state, not the caller's snapshot.
   const current = freshRequirement({ repo, requirementId: asset.id, fallback: asset })
   const plan = planRequirementUpdate({ root: repo, asset: current, change })
-  const normalized = normalizeChange(change)
+  const normalizedList = normalizeChanges(change)
+  const normalized = normalizedList.length === 1 ? normalizedList[0] : normalizedList
   const baseline = assertBaseline({ root: repo, asset: current, expectedBaseline })
 
   const at = new Date().toISOString()
@@ -456,6 +485,7 @@ export function applyRequirementUpdate({
     revision: plan.after.revision,
     baseline,
     change: normalized,
+    changes: normalizedList,
     before: plan.before,
     after: plan.after,
     auditFile,

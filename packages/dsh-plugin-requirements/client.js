@@ -1339,7 +1339,61 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, onRehearsal, compact }) {
+    const ICON_PATHS = {
+      sparkles: 'M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7z',
+      play: 'M8 5v14l11-7z',
+      check: 'M20 6L9 17l-5-5',
+      flask: 'M9 3h6M10 3v5l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3',
+      eye: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z M12 9a3 3 0 100 6 3 3 0 000-6z',
+      close: 'M6 6l12 12M18 6L6 18',
+    }
+
+    function ActionIcon({ name, size = 14 }) {
+      return h(
+        'svg',
+        { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
+        h('path', { d: ICON_PATHS[name] ?? ICON_PATHS.sparkles }),
+      )
+    }
+
+    /** One visual language for every action: icon + label, never a bare text link. */
+    function ActionButton({ label, icon, onClick, variant = 'secondary', disabled = false, title }) {
+      const variants = {
+        primary: { background: T.text, color: T.base, borderColor: 'transparent' },
+        secondary: { background: T.layer2, color: T.text, borderColor: T.line2 },
+        ghost: { background: 'transparent', color: T.text2, borderColor: T.line2 },
+        accent: { background: 'rgba(231,176,75,.12)', color: T.warn, borderColor: 'rgba(231,176,75,.32)' },
+      }
+      return h(
+        'button',
+        {
+          type: 'button',
+          title: title ?? label,
+          disabled,
+          onClick,
+          style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            border: '1px solid',
+            fontSize: '12px',
+            fontWeight: 500,
+            lineHeight: 1.4,
+            whiteSpace: 'nowrap',
+            cursor: disabled ? 'default' : 'pointer',
+            opacity: disabled ? 0.5 : 1,
+            ...(variants[variant] ?? variants.secondary),
+          },
+        },
+        icon ? h(ActionIcon, { name: icon }) : null,
+        label,
+      )
+    }
+
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal, compact }) {
       const relations = relationsOf(item, allItems)
       const priorityColor = item.priority === 'P0' ? T.err : item.priority === 'P1' ? T.warn : T.text2
       const review = item.review
@@ -1349,8 +1403,6 @@ window.__ModuleLoader__.load({
         : review?.summary
           ? h('span', { style: { color: review.summary.blockers > 0 ? T.err : T.text2, fontSize: '11.5px' } }, `${review.summary.completed}/${review.summary.total} 角色 · ${review.summary.blockers} 阻塞`)
           : null
-      const actionLink = (label, handler) =>
-        h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: handler }, label)
       return h(
         'div',
         null,
@@ -1425,25 +1477,30 @@ window.__ModuleLoader__.load({
                 title: '评审',
                 action: h(
                   'div',
-                  { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
-                  actionLink('AI 评审', () => onAiReview(item)),
-                  actionLink('运行评审', () => onReview(item)),
-                  actionLink('人工签收', () => onSignoff(item)),
-                  actionLink('变更试演', () => onRehearsal(item)),
+                  { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                  h(ActionButton, { label: item.aiReview?.adopted ? '重新评审' : 'AI 评审', icon: 'sparkles', variant: 'primary', onClick: () => onAiReview(item) }),
+                  h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
                 ),
               },
               h(ReviewBlock, { review, showRoles: false }),
               h(
                 'div',
-                { style: { marginTop: '8px', fontSize: '12px' } },
+                { style: { marginTop: '8px', fontSize: '12px', lineHeight: 1.7 } },
                 item.aiReview?.stored
                   ? h('span', { style: { color: item.aiReview.verdict === 'block' ? T.err : item.aiReview.verdict === 'pass' ? T.ok : T.warn } }, `AI 评审：${item.aiReview.verdict} · ${item.aiReview.suggestions} 条建议${item.aiReview.adopted ? ' · 已采纳' : ''}`)
                   : h('span', { style: muted }, 'AI 尚未参与评审，可生成评审与重构方案。'),
+                h(
+                  'div',
+                  { style: { ...muted, marginTop: '2px' } },
+                  item.review?.signoff?.actor?.startsWith?.('ai:')
+                    ? '采纳 AI 评审即视为评审通过，无需人工签收；验收证据仍需独立门禁。'
+                    : '采纳 AI 评审即视为评审通过，无需人工签收。',
+                ),
               ),
             ),
             h(
               SubBlock,
-              { title: '验收执行', action: actionLink('运行需求验收 ›', () => onAcceptance(item)) },
+              { title: '验收执行', action: h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }) },
               item.acceptance?.registered
                 ? h(
                     'div',
@@ -1508,17 +1565,17 @@ window.__ModuleLoader__.load({
                 borderTop: `1px solid ${T.line}`,
               },
             },
-            h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
-            h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
-            h('button', { style: button, onClick: () => onRehearsal(item) }, '变更试演'),
-            h('button', { style: button, onClick: () => onDetail(item) }, '查看详情'),
-            onClose ? h('button', { style: button, onClick: onClose }, '关闭') : null,
+            h(ActionButton, { label: '开始开发', icon: 'play', variant: 'primary', onClick: () => onStart(item) }),
+            h(ActionButton, { label: '运行门禁检查', icon: 'check', variant: 'secondary', onClick: () => onAccept(item) }),
+            h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+            h(ActionButton, { label: '查看详情', icon: 'eye', variant: 'ghost', onClick: () => onDetail(item) }),
+            onClose ? h(ActionButton, { label: '关闭', icon: 'close', variant: 'ghost', onClick: onClose }) : null,
           ),
         ),
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, onRehearsal }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -1549,12 +1606,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, onRehearsal, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, onRehearsal }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onAiReview, onRehearsal }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -1632,13 +1689,26 @@ window.__ModuleLoader__.load({
                 h('p', { style: { margin: '4px 0 0', ...muted } }, projectMeta?.repo ?? item.github?.repo ?? '—'),
               ),
               h(Section, { title: 'GitHub / 看板' }, h(GithubBlock, { item, projectMeta })),
-              h(Section, { title: '评审', action: h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onAiReview(item) }, 'AI 评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onReview(item) }, '运行评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onSignoff(item) }, '签收'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onRehearsal(item) }, '变更试演')) }, h(ReviewBlock, { review: item.review, showRoles: false })),
+              h(
+                Section,
+                {
+                  title: '评审',
+                  action: h(
+                    'div',
+                    { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                    h(ActionButton, { label: 'AI 评审', icon: 'sparkles', variant: 'primary', onClick: () => onAiReview(item) }),
+                    h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+                  ),
+                },
+                h(ReviewBlock, { review: item.review, showRoles: false }),
+                h('p', { style: { margin: '6px 0 0', ...muted } }, '采纳 AI 评审即视为评审通过，无需人工签收。'),
+              ),
               h(Section, { title: '角色覆盖' }, h(RoleBars, { review: item.review, decision })),
               h(
                 Section,
                 {
                   title: '验收执行',
-                  action: h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onAcceptance(item) }, '运行 ›'),
+                  action: h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }),
                 },
                 item.acceptance?.registered
                   ? h('p', { style: { margin: 0, fontSize: '12.5px', color: T.text2 } },
@@ -1659,11 +1729,11 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', flexWrap: 'wrap' } },
-            h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
-            h('button', { style: button, onClick: () => onAcceptance(item) }, '运行需求验收'),
-            h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
-            h('button', { style: button, onClick: () => onRehearsal(item) }, '变更试演'),
-            h('button', { style: button, onClick: onClose }, '关闭'),
+            h(ActionButton, { label: '开始开发', icon: 'play', variant: 'primary', onClick: () => onStart(item) }),
+            h(ActionButton, { label: '运行验收', icon: 'play', variant: 'secondary', onClick: () => onAcceptance(item) }),
+            h(ActionButton, { label: '运行门禁检查', icon: 'check', variant: 'secondary', onClick: () => onAccept(item) }),
+            h(ActionButton, { label: '变更试演', icon: 'flask', variant: 'secondary', onClick: () => onRehearsal(item) }),
+            h(ActionButton, { label: '关闭', icon: 'close', variant: 'ghost', onClick: onClose }),
           ),
         ),
       )
@@ -1975,11 +2045,12 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function postJson(path, body, root) {
+    function postJson(path, body, root, options = {}) {
       return fetch(`/api/alm/${path}?root=${encodeURIComponent(root)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
+        signal: options.signal,
       }).then(async (response) => {
         const payload = await response.json().catch(() => null)
         if (!response.ok || payload?.ok === false) {
@@ -1988,24 +2059,44 @@ window.__ModuleLoader__.load({
           // (e.g. stale-preview) instead of guessing from the message text.
           error.code = payload?.error?.code ?? null
           error.status = response.status
+          // Contract errors also carry recovery details (reasons, applied
+          // artifacts, manual-fallback session); keep the payload reachable.
+          error.payload = payload
+          error.reasons = payload?.error?.reasons ?? null
+          error.appliedArtifacts = payload?.error?.appliedArtifacts ?? null
+          error.manualFallback = payload?.manualFallback === true
           throw error
         }
         return payload
       })
     }
 
-    function writeJson(path, body, root) {
-      return postJson(`requirements/${path}`, body, root)
+    function writeJson(path, body, root, options) {
+      return postJson(`requirements/${path}`, body, root, options)
     }
 
     function ModalShell({ title, lead, onClose, children, footer, width = '720px' }) {
+      const returnFocusRef = useRef(undefined)
+      if (returnFocusRef.current === undefined) {
+        returnFocusRef.current = typeof document === 'undefined' ? null : document.activeElement
+      }
+      const closeRef = useRef(onClose)
+      closeRef.current = onClose
       useEffect(() => {
         const onKey = (event) => {
-          if (event.key === 'Escape') onClose()
+          if (event.key === 'Escape') closeRef.current()
         }
         document.addEventListener('keydown', onKey)
-        return () => document.removeEventListener('keydown', onKey)
-      }, [onClose])
+        return () => {
+          document.removeEventListener('keydown', onKey)
+          const previous = returnFocusRef.current
+          if (previous && previous !== document.body && typeof previous.focus === 'function') {
+            try {
+              previous.focus()
+            } catch {}
+          }
+        }
+      }, [])
       return h(
         'div',
         {
@@ -2394,8 +2485,8 @@ window.__ModuleLoader__.load({
       const [report, setReport] = useState(null)
       const [error, setError] = useState(null)
       const [selected, setSelected] = useState([])
-      const [includeBrief, setIncludeBrief] = useState(true)
       const [adopted, setAdopted] = useState(null)
+      const [accepted, setAccepted] = useState(null)
 
       const applyReport = (next) => {
         setReport(next)
@@ -2429,9 +2520,10 @@ window.__ModuleLoader__.load({
       const adopt = () => {
         setPhase('adopting')
         setError(null)
-        writeJson('ai-review', { requirementId: item.id, apply: true, selectedSuggestionIds: selected, includeBrief }, root)
+        writeJson('ai-review', { requirementId: item.id, apply: true, selectedSuggestionIds: selected }, root)
           .then((next) => {
             setAdopted(next.adopted ?? { suggestionIds: selected })
+            setAccepted(next.accepted ?? null)
             setReport(next)
             setPhase('adopted')
             onDone?.()
@@ -2447,7 +2539,7 @@ window.__ModuleLoader__.load({
         ModalShell,
         {
           title: `AI 评审 · ${item.id}`,
-          lead: 'AI 读取需求字段、门禁发现与背景，给出评审意见、重构建议与方案；采纳后写入 brief 的「AI 评审建议」小节。',
+          lead: 'AI 读取需求字段、门禁发现与背景，给出评审意见、重构建议与方案。采纳后只维护一个「AI 评审建议」小节（重复采纳替换，不追加），并视为评审通过。',
           onClose,
           width: '860px',
           footer: [
@@ -2457,7 +2549,7 @@ window.__ModuleLoader__.load({
               : null,
             phase === 'intro' && hasStored ? h('button', { key: 'load', style: button, onClick: load }, '查看已有评审') : null,
             phase === 'report'
-              ? h('button', { key: 'adopt', style: primary, onClick: adopt, disabled: selected.length === 0 && !includeBrief }, '采纳所选')
+              ? h('button', { key: 'adopt', style: primary, onClick: adopt }, selected.length === 0 ? '确认评审通过' : `采纳 ${selected.length} 条并确认通过`)
               : null,
           ],
         },
@@ -2525,14 +2617,18 @@ window.__ModuleLoader__.load({
                 ? h('div', { style: { marginTop: '12px' } },
                     h('div', { style: { fontSize: '11px', letterSpacing: '.08em', color: T.text3, marginBottom: '6px' } }, '建议背景'),
                     h('pre', { style: { margin: 0, padding: '10px', maxHeight: '160px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '8px', fontSize: '11.5px', lineHeight: 1.8, whiteSpace: 'pre-wrap' } }, report.proposedBrief),
-                    h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', fontSize: '12px', color: T.text2 } },
-                      h('input', { type: 'checkbox', checked: includeBrief, onChange: (event) => setIncludeBrief(event.target.checked) }),
-                      '采纳时同时写入「AI 建议背景」',
-                    ),
+                    h('p', { style: { margin: '6px 0 0', ...muted } }, '建议背景只保存在评审报告中，不整段写入需求 brief，避免重复膨胀。'),
                   )
                 : null,
               phase === 'adopted'
-                ? h('p', { style: { margin: '12px 0 0', color: T.ok, fontSize: '12.5px' } }, `已采纳 ${adopted?.suggestionIds?.length ?? selected.length} 条建议，已写入需求 brief。`)
+                ? h('div', { style: { margin: '12px 0 0', fontSize: '12.5px', color: T.ok, lineHeight: 1.9 } },
+                    h('p', { style: { margin: 0 } }, adopted?.noSuggestions
+                      ? '已记录评审通过；未选择建议，需求 brief 未修改。'
+                      : `已采纳 ${adopted?.suggestionIds?.length ?? selected.length} 条建议；brief 的「AI 评审建议」已更新（不会重复追加）。`),
+                    accepted?.accepted
+                      ? h('p', { style: { margin: '2px 0 0' } }, '评审已通过：采纳 AI 评审即视为签收，无需人工操作。')
+                      : h('p', { style: { margin: '2px 0 0', color: T.warn } }, accepted?.reason === 'blocking-findings' ? '评审仍有阻塞项，已记录采纳，但不能视为通过。' : `评审通过记录未生成：${accepted?.reason ?? '未知原因'}`),
+                  )
                 : null,
             )
           : null,
@@ -2540,30 +2636,42 @@ window.__ModuleLoader__.load({
     }
 
     function RehearsalModal({ item, root, onClose, onDone }) {
-      const [field, setField] = useState('title')
-      const [value, setValue] = useState(item.title ?? '')
+      const original = {
+        title: item.title ?? '',
+        priority: item.priority ?? 'P1',
+        brief: item.briefText ?? '',
+      }
+      const [draft, setDraft] = useState(original)
       const [state, setState] = useState({ loading: false, preview: null, result: null, error: null, stale: false })
       const [idempotencyKey] = useState(() => `ui-rehearsal-${item.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
-      const change = () => ({ field, value })
+      const changes = () =>
+        REHEARSAL_FIELDS.map(([field]) => ({ field, value: draft[field] ?? '' })).filter(
+          (entry) => String(entry.value) !== String(original[entry.field] ?? ''),
+        )
       const fieldLabel = (key) => (REHEARSAL_FIELDS.find(([id]) => id === key) ?? [key, key])[1]
-      const pickField = (nextField) => {
-        setField(nextField)
-        setValue(nextField === 'title' ? (item.title ?? '') : nextField === 'priority' ? (item.priority ?? 'P1') : (item.briefText ?? ''))
-        setState({ loading: false, preview: null, result: null, error: null, stale: false })
+      const edit = (field, value) => {
+        setDraft((current) => ({ ...current, [field]: value }))
+        setState((current) => ({ ...current, preview: null, result: null, error: null, stale: false }))
       }
       const preview = () => {
+        const list = changes()
+        if (list.length === 0) {
+          setState({ loading: false, preview: null, result: null, error: '至少修改一个字段后再预览。', stale: false })
+          return
+        }
         setState({ loading: true, preview: null, result: null, error: null, stale: false })
-        writeJson('rehearsal', { requirementId: item.id, change: change() }, root)
+        writeJson('rehearsal', { requirementId: item.id, changes: list }, root)
           .then((next) => setState({ loading: false, preview: next, result: null, error: null, stale: false }))
           .catch((error) => setState({ loading: false, preview: null, result: null, error: error.message, stale: false }))
       }
       const submit = () => {
         const current = state.preview
         if (!current || state.loading) return
+        const list = changes()
         setState((previous) => ({ ...previous, loading: true, result: null, error: null, stale: false }))
         writeJson(
           'rehearsal',
-          { requirementId: item.id, change: change(), apply: true, expectedBaseline: current.baseline, actor: 'human:local', idempotencyKey },
+          { requirementId: item.id, changes: list, apply: true, expectedBaseline: current.baseline, actor: 'human:local', idempotencyKey },
           root,
         )
           .then((result) => {
@@ -2578,13 +2686,16 @@ window.__ModuleLoader__.load({
             }
             // The baseline moved under us: recompute instead of pretending success.
             setState((previous) => ({ ...previous, loading: false, error: null, stale: true }))
-            writeJson('rehearsal', { requirementId: item.id, change: change() }, root)
+            writeJson('rehearsal', { requirementId: item.id, changes: list }, root)
               .then((next) => setState((previous) => ({ ...previous, loading: false, preview: next, error: null, stale: true })))
               .catch((nextError) => setState((previous) => ({ ...previous, loading: false, error: nextError.message, stale: true })))
           })
       }
       const previewData = state.preview
       const result = state.result
+      const previewChanges = previewData ? previewData.changes ?? (previewData.change ? [previewData.change] : []) : []
+      const editedLabels = changes().map((entry) => fieldLabel(entry.field))
+      const hasChanges = editedLabels.length > 0
       const nodeLabel = (node) => {
         if (!node) return '—'
         if (typeof node === 'string') return node
@@ -2595,44 +2706,53 @@ window.__ModuleLoader__.load({
         ['reconfirm', '需重新确认'],
         ['reference', '仅参考'],
       ]
+      const fieldInput = (field) => {
+        if (field === 'priority') {
+          return h(
+            'select',
+            { style: input, value: draft.priority, onChange: (event) => edit('priority', event.target.value) },
+            ['P0', 'P1', 'P2', 'P3'].map((priority) => h('option', { key: priority, value: priority }, priority)),
+          )
+        }
+        if (field === 'brief') {
+          return h('textarea', {
+            style: { ...input, width: '100%', minHeight: '150px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 },
+            value: draft.brief,
+            onChange: (event) => edit('brief', event.target.value),
+          })
+        }
+        return h('input', { style: input, value: draft.title, onChange: (event) => edit('title', event.target.value) })
+      }
       return h(
         ModalShell,
         {
           title: `变更试演 · ${item.id}`,
-          lead: '试演只预览影响面，不写文件；确认提交会携带当前 baseline（内容哈希 + 关系快照）做 CAS，并写入审计记录。',
+          lead: '一次可改标题、优先级、背景；只提交有改动的字段。试演不写文件，确认提交携带当前 baseline 做 CAS 并写审计记录。',
           onClose,
           width: '860px',
           footer: [
             h('button', { key: 'close', style: result ? primary : button, onClick: onClose }, result ? '关闭' : '取消'),
             result
               ? null
-              : h('button', { key: 'preview', style: button, onClick: preview }, state.loading ? '处理中…' : '预览变更'),
-            previewData && !result ? h('button', { key: 'submit', style: primary, onClick: submit }, '确认提交') : null,
+              : h('button', { key: 'preview', style: { ...button, opacity: state.loading || !hasChanges ? 0.5 : 1 }, onClick: preview, disabled: state.loading || !hasChanges }, state.loading ? '处理中…' : '预览影响面'),
+            previewData && !result ? h('button', { key: 'submit', style: primary, onClick: submit, disabled: state.loading }, '确认提交') : null,
           ],
         },
         h(
           'div',
-          { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '14px' } },
-          h('span', { style: { fontSize: '12px', color: T.text2 } }, '字段'),
-          h(
-            'select',
-            { style: input, value: field, onChange: (event) => pickField(event.target.value) },
-            REHEARSAL_FIELDS.map(([id, label]) => h('option', { key: id, value: id }, label)),
+          { style: { marginTop: '14px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px' } },
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap' } },
+            h('div', { style: { fontSize: '11px', letterSpacing: '.08em', textTransform: 'uppercase', color: T.text3 } }, '可修改字段'),
+            h('span', { style: { fontSize: '12px', color: hasChanges ? T.ok : T.text3 } }, hasChanges ? `将提交：${editedLabels.join('、')}` : '尚未修改'),
           ),
-        ),
-        h(
-          'label',
-          { style: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '10px', fontSize: '12px', color: T.text2 } },
-          field === 'brief' ? '背景全文（Markdown）' : field === 'priority' ? '优先级' : '标题',
-          field === 'priority'
-            ? h(
-                'select',
-                { style: input, value, onChange: (event) => setValue(event.target.value) },
-                ['P0', 'P1', 'P2', 'P3'].map((priority) => h('option', { key: priority, value: priority }, priority)),
-              )
-            : field === 'brief'
-              ? h('textarea', { style: { ...input, width: '100%', minHeight: '120px', resize: 'vertical', fontFamily: 'inherit' }, value, onChange: (event) => setValue(event.target.value) })
-              : h('input', { style: input, value, onChange: (event) => setValue(event.target.value) }),
+          REHEARSAL_FIELDS.map(([field, label]) =>
+            h(
+              'label',
+              { key: field, style: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '10px', fontSize: '12px', color: T.text2 } },
+              h('span', null, label, h('span', { style: { ...muted, marginLeft: '8px' } }, String(draft[field] ?? '') === String(original[field] ?? '') ? '未修改' : '已修改')),
+              fieldInput(field),
+            ),
+          ),
         ),
         state.stale
           ? h('p', { style: { margin: '10px 0 0', color: T.warn, fontSize: '12.5px', lineHeight: 1.8 } }, '已被他人修改，已重新计算，请确认。')
@@ -2647,11 +2767,12 @@ window.__ModuleLoader__.load({
                 rows: [
                   ['状态', result.applied === false ? '未提交' : '已提交'],
                   ['修订', result.revision ? `v${result.revision}` : '—'],
+                  ['变更', (result.changes ?? []).map((entry) => fieldLabel(entry.field)).join('、') || '—'],
                   ['文件', result.file ?? '—'],
                   ['审计', result.auditFile ?? '—'],
                 ],
               }),
-              h('p', { style: { margin: '8px 0 0', color: T.warn, fontSize: '12px' } }, '签收与验收证据已失效：需要重新评审、重新签收并重跑验收。'),
+              h('p', { style: { margin: '8px 0 0', color: T.warn, fontSize: '12px' } }, '评审与验收证据已失效：请重新采纳 AI 评审并重跑验收。'),
             )
           : null,
         previewData
@@ -2660,27 +2781,34 @@ window.__ModuleLoader__.load({
               { style: { marginTop: '14px' } },
               h(PlanRows, {
                 rows: [
-                  ['变更', `${fieldLabel(previewData.change?.field ?? field)} · ${item.id}`],
+                  ['变更', `${previewChanges.map((entry) => fieldLabel(entry.field)).join('、')} · ${item.id}`],
                   ['基线内容哈希', shortHash(previewData.baseline?.contentHash)],
                   ['基线关系快照', shortHash(previewData.baseline?.relationHash)],
                   ['基线提交', shortHash(previewData.baseline?.headSha, 8)],
                   ['基线修订', `v${previewData.baseline?.revision ?? item.revision ?? 1}`],
                 ],
               }),
-              h(
-                'div',
-                { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px', marginTop: '10px' } },
+              previewChanges.map((entry) =>
                 h(
                   'div',
-                  { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '10px 12px' } },
-                  h('div', { style: { fontSize: '11px', color: T.text3, marginBottom: '4px' } }, '变更前'),
-                  h('div', { style: { fontSize: '12.5px', color: T.text2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, previewData.change?.before ?? '（空）'),
-                ),
-                h(
-                  'div',
-                  { style: { border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.brand}`, borderRadius: '10px', padding: '10px 12px' } },
-                  h('div', { style: { fontSize: '11px', color: T.text3, marginBottom: '4px' } }, '变更后'),
-                  h('div', { style: { fontSize: '12.5px', color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, previewData.change?.after ?? '（空）'),
+                  { key: entry.field, style: { marginTop: '10px' } },
+                  h('div', { style: { fontSize: '11px', letterSpacing: '.08em', textTransform: 'uppercase', color: T.text3, marginBottom: '5px' } }, fieldLabel(entry.field)),
+                  h(
+                    'div',
+                    { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' } },
+                    h(
+                      'div',
+                      { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '10px 12px', background: T.layer } },
+                      h('div', { style: { fontSize: '11px', color: T.text3, marginBottom: '4px' } }, '变更前'),
+                      h('div', { style: { fontSize: '12.5px', color: T.text2, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: entry.field === 'brief' ? '180px' : 'none', overflow: entry.field === 'brief' ? 'auto' : 'visible' } }, entry.before || '（空）'),
+                    ),
+                    h(
+                      'div',
+                      { style: { border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.brand}`, borderRadius: '10px', padding: '10px 12px' } },
+                      h('div', { style: { fontSize: '11px', color: T.text3, marginBottom: '4px' } }, '变更后'),
+                      h('div', { style: { fontSize: '12.5px', color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: entry.field === 'brief' ? '180px' : 'none', overflow: entry.field === 'brief' ? 'auto' : 'visible' } }, entry.after || '（空）'),
+                    ),
+                  ),
                 ),
               ),
               h(
