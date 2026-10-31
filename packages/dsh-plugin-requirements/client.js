@@ -250,7 +250,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function VersionList({ item, onSnapshot, compact }) {
+    function VersionList({ item, onSnapshot, onDiff, compact }) {
       const versions = item.versions ?? []
       return h(
         'div',
@@ -268,33 +268,105 @@ window.__ModuleLoader__.load({
               { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
               versions.map((version) =>
                 h(
-                  'button',
+                  'div',
                   {
                     key: version.sha,
-                    'data-version-sha': version.sha,
-                    onClick: () => onSnapshot(item, version),
-                    style: {
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      gap: '8px',
-                      textAlign: 'left',
-                      border: 0,
-                      background: 'transparent',
-                      color: T.text2,
-                      padding: '5px 0',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      borderTop: `1px solid ${T.line}`,
-                      lineHeight: 1.6,
-                    },
+                    style: { display: 'flex', alignItems: 'baseline', gap: '8px', borderTop: `1px solid ${T.line}`, padding: '4px 0' },
                   },
-                  h('span', { style: { color: T.text3, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11px', flex: 'none' } }, version.short),
-                  h('span', { style: { color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, version.subject),
-                  h('span', { style: { color: T.text3, fontSize: '11px', marginLeft: 'auto', flex: 'none' } }, version.date?.slice(0, 10)),
+                  h(
+                    'button',
+                    {
+                      'data-version-sha': version.sha,
+                      onClick: () => onSnapshot(item, version),
+                      style: {
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        gap: '8px',
+                        flex: 1,
+                        minWidth: 0,
+                        textAlign: 'left',
+                        border: 0,
+                        background: 'transparent',
+                        color: T.text2,
+                        padding: '1px 0',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        lineHeight: 1.6,
+                      },
+                    },
+                    h('span', { style: { color: T.text3, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11px', flex: 'none' } }, version.short),
+                    h('span', { style: { color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, version.subject),
+                  ),
+                  h('span', { style: { color: T.text3, fontSize: '11px', flex: 'none' } }, version.date?.slice(0, 10)),
+                  onDiff
+                    ? h(
+                        'button',
+                        {
+                          'data-diff-sha': version.sha,
+                          onClick: () => onDiff(item, version),
+                          style: { border: 0, background: 'transparent', color: T.brand, padding: 0, fontSize: '11px', cursor: 'pointer', flex: 'none' },
+                        },
+                        '对比当前',
+                      )
+                    : null,
                 ),
               ),
             ),
-        compact ? null : h('p', { style: { margin: '8px 0 0', ...muted } }, '只读快照：读取该提交时的需求文件内容。'),
+        compact ? null : h('p', { style: { margin: '8px 0 0', ...muted } }, '只读快照 / 对比：读取提交时的需求文件，不改动工作区。'),
+      )
+    }
+
+    function DiffModal({ state, onClose }) {
+      const { item, version, data, loading, error } = state
+      const fieldRow = (field) =>
+        h(
+          'div',
+          { key: field.field, style: { ...row, alignItems: 'baseline' } },
+          h('span', { style: { ...rowLabel, width: '110px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11px' } }, field.field),
+          h('span', { style: { color: T.text2, textDecoration: 'line-through', wordBreak: 'break-word' } }, field.from === null ? '（无）' : field.from),
+          h('span', { style: { color: T.text3, flex: 'none' } }, '→'),
+          h('span', { style: { color: T.ok, wordBreak: 'break-word' } }, field.to === null ? '（删除）' : field.to),
+        )
+      return h(
+        ModalShell,
+        {
+          title: `版本对比 · ${item.id}`,
+          lead: `${version.short}（${version.date?.slice(0, 10) ?? ''}）→ 当前工作区；只读，不改动工作区。`,
+          onClose,
+          width: '820px',
+          footer: [h('button', { key: 'close', style: primary, onClick: onClose }, '关闭')],
+        },
+        loading ? h('p', { style: muted }, '正在对比版本…') : null,
+        error ? h('p', { style: { margin: 0, color: T.err, fontSize: '13px' } }, error) : null,
+        data
+          ? h(
+              'div',
+              null,
+              h(PlanRows, {
+                rows: [
+                  ['变更字段', `${data.summary.changedFields}`],
+                  ['新增关系', `${data.summary.addedRelations}`],
+                  ['移除关系', `${data.summary.removedRelations}`],
+                  ['文件', data.file],
+                ],
+              }),
+              data.fields.length
+                ? h(
+                    'div',
+                    { style: { marginTop: '12px', border: `1px solid ${T.line}`, borderRadius: '10px', padding: '4px 12px' } },
+                    data.fields.map(fieldRow),
+                  )
+                : h('p', { style: { margin: '12px 0 0', ...muted } }, '字段无变化。'),
+              data.relations.added.length || data.relations.removed.length
+                ? h(
+                    'div',
+                    { style: { marginTop: '12px', fontSize: '12.5px', color: T.text2, lineHeight: 1.9 } },
+                    data.relations.added.map((key) => h('div', { key: `add-${key}`, style: { color: T.ok } }, `+ ${key.replace('|', ' → ')}`)),
+                    data.relations.removed.map((key) => h('div', { key: `remove-${key}`, style: { color: T.err } }, `- ${key.replace('|', ' → ')}`)),
+                  )
+                : h('p', { style: { margin: '10px 0 0', ...muted } }, '关系无变化。'),
+            )
+          : null,
       )
     }
 
@@ -712,7 +784,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, compact }) {
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, compact }) {
       const relations = relationsOf(item, allItems)
       return h(
         'div',
@@ -787,7 +859,7 @@ window.__ModuleLoader__.load({
 
         h(Section, { title: 'GitHub 归属' }, h(GithubBlock, { item, projectMeta })),
 
-        h(Section, { title: '历史' }, h(VersionList, { item, onSnapshot })),
+        h(Section, { title: '历史' }, h(VersionList, { item, onSnapshot, onDiff })),
 
         h('details', { style: { marginTop: '22px', borderTop: `1px solid ${T.line}`, paddingTop: '12px' } },
           h('summary', { style: { cursor: 'pointer', color: T.text2, fontSize: '12.5px' } }, '技术详情'),
@@ -808,7 +880,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -838,12 +910,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -933,7 +1005,7 @@ window.__ModuleLoader__.load({
                     )
                   : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令。'),
               ),
-              h(Section, { title: '版本历史' }, h(VersionList, { item, onSnapshot, compact: true })),
+              h(Section, { title: '版本历史' }, h(VersionList, { item, onSnapshot, onDiff, compact: true })),
               h(Section, { title: '技术' },
                 h('p', { style: { margin: 0, ...muted } }, `${item.file}${item.line ? `:${item.line}` : ''}`),
                 item.brief ? h('p', { style: { margin: '4px 0 0', ...muted } }, `简报：${item.brief}`) : null,
@@ -1850,6 +1922,7 @@ window.__ModuleLoader__.load({
       const [selectedId, setSelectedId] = useState(null)
       const [detailOpen, setDetailOpen] = useState(false)
       const [snapshot, setSnapshot] = useState(null)
+      const [diff, setDiff] = useState(null)
       const [traceItem, setTraceItem] = useState(null)
       const [startItem, setStartItem] = useState(null)
       const [acceptItem, setAcceptItem] = useState(null)
@@ -1921,6 +1994,21 @@ window.__ModuleLoader__.load({
             setSnapshot((current) =>
               current?.version.sha === version.sha ? { ...current, loading: false, error: error.message } : current,
             ),
+          )
+      }
+
+      const openDiff = (item, version) => {
+        const diffRoot = item.root ?? data?.root ?? root
+        setDiff({ loading: true, item, version, data: null, error: null })
+        const query = `root=${encodeURIComponent(diffRoot)}&asset=${encodeURIComponent(item.id)}&from=${encodeURIComponent(version.sha)}`
+        fetch(`/api/alm/requirements/diff?${query}`, { headers: { accept: 'application/json' } })
+          .then(async (response) => {
+            const body = await response.json().catch(() => null)
+            if (!response.ok || body?.ok === false) throw new Error(body?.error?.message ?? `HTTP ${response.status}`)
+            setDiff((current) => (current?.version.sha === version.sha ? { ...current, loading: false, data: body } : current))
+          })
+          .catch((error) =>
+            setDiff((current) => (current?.version.sha === version.sha ? { ...current, loading: false, error: error.message } : current)),
           )
       }
 
@@ -2120,6 +2208,7 @@ window.__ModuleLoader__.load({
               onClose: () => setSelectedId(null),
               onDetail: () => setDetailOpen(true),
               onSnapshot: openSnapshot,
+              onDiff: openDiff,
               onTrace: (entry) => setTraceItem(entry),
               onStart: (entry) => setStartItem(entry),
               onAccept: (entry) => setAcceptItem(entry),
@@ -2134,6 +2223,7 @@ window.__ModuleLoader__.load({
               root: data?.root ?? root,
               onClose: () => setDetailOpen(false),
               onSnapshot: openSnapshot,
+              onDiff: openDiff,
               onTrace: (entry) => setTraceItem(entry),
               onStart: (entry) => setStartItem(entry),
               onAccept: (entry) => setAcceptItem(entry),
@@ -2141,6 +2231,7 @@ window.__ModuleLoader__.load({
             })
           : null,
         snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
+        diff ? h(DiffModal, { state: diff, onClose: () => setDiff(null) }) : null,
         startItem
           ? h(StartModal, {
               item: startItem,

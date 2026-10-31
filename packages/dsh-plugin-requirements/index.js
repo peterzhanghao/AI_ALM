@@ -10,6 +10,8 @@ import { createRequirement } from '../alm-core/src/requirements/create.mjs'
 import { runCi } from '../alm-core/src/ci/ci.mjs'
 import { runAcceptance } from '../alm-core/src/acceptance/acceptance.mjs'
 import { applyGithub, previewGithub } from './github-sync.mjs'
+import { diffRequirementVersions } from './version-diff.mjs'
+import { indexReport } from '../alm-core/src/commands.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -127,6 +129,12 @@ export default class RequirementsService {
       kind: 'exact',
       path: '/api/alm/requirements/version',
       handler: (req, res) => this.handleVersion(req, res),
+    })
+
+    webServer.register({
+      kind: 'exact',
+      path: '/api/alm/requirements/diff',
+      handler: (req, res) => this.handleDiff(req, res),
     })
 
     for (const [path, action] of [
@@ -336,6 +344,31 @@ export default class RequirementsService {
         ok: false,
         error: { code: error?.code ?? 'write-failed', message: error?.message ?? String(error) },
       })
+    }
+  }
+
+  handleDiff(req, res) {
+    try {
+      const url = new URL(req?.url ?? '/', 'http://127.0.0.1')
+      const root = this.rootFor(req)
+      const assetId = url.searchParams.get('asset')
+      const index = indexReport(root)
+      if (index.ok === false) throw Object.assign(new Error(index.error ?? 'index failed'), { status: 400, code: 'index-failed' })
+      const asset = index.assets.find((entry) => entry.id === assetId)
+      if (!asset) throw Object.assign(new Error(`asset not found: ${assetId}`), { status: 404, code: 'asset-not-found' })
+      const payload = diffRequirementVersions({
+        root,
+        file: asset.source.path,
+        assetId,
+        from: url.searchParams.get('from'),
+        to: url.searchParams.get('to') ?? 'worktree',
+      })
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(payload))
+    } catch (error) {
+      const status = error?.status ?? 400
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify({ ok: false, error: { code: error?.code ?? 'diff-failed', message: error?.message ?? String(error) } }))
     }
   }
 

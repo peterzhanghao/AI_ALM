@@ -798,3 +798,21 @@
   - 正例：plan 不写证据；apply 后 `pass` 证据落 `<sha>.json`，摘要 `current=true`；eval 运行 2 条 node 命令均 exit 0
   - 反例：非白名单二进制 `binary-not-allowed`；未登记 `no-config` 404；非 git 根 `not-a-git-repo`
 - 证据：全量 212/212；Playwright 全流程 17/17（含验收执行）、0 pageerror；截图 `docs/assets/design/plugin-acceptance.png`
+
+### ALM-09.04 版本 diff 对比
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.03（#118，已关闭）
+- 技能：`alm-mvp-dev`
+- 实施范围：`packages/dsh-plugin-requirements/{version-diff.mjs,index.js,client.js,test}`
+- 不在范围：门禁影响重算、跨文件 diff、写操作（diff 只读）
+- 接口：
+  - `diffRequirementVersions({root, file, assetId, from, to='worktree'})` → `alm.version.diff/v1`：`fields[{field,from,to}]`、`relations{added,removed}`、`summary`、`mode`
+  - `GET /api/alm/requirements/diff?root&asset&from&to`；非法 ref 400，未知提交/资产 404
+- 交付物：
+  - [ ] `version-diff.mjs`：git 读取两版 sdoc、解析字段/关系、字段级 diff
+  - [ ] 端点 + 单测（两版提交、worktree、坏 ref、未知资产）+ HTTP 测试
+  - [ ] 版本行「对比当前」与 diff 弹层（字段旧值→新值、关系增删、summary）
+- 验收：
+  - 正例：两版提交 TITLE/STATUS/PRIORITY 变化可检出；`to=worktree` 默认；关系增删正确
+  - 反例：`not-a-ref` → `invalid-ref`；未知资产 → 404 `asset-not-found`
+- 证据：全量 216/216；Playwright 全流程 19/19、0 pageerror；截图 `docs/assets/design/plugin-diff.png`
