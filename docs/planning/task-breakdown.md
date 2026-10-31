@@ -855,3 +855,22 @@
   - 正例：`isolate:true` 生成 worktree + 分支，`changes/CHG-*` 只在 worktree，主工作区无该变更
   - 反例：worktree 路径已存在 409；非 git 根拒绝
 - 证据：全量 223/223；Playwright 全流程 23/23、0 pageerror；截图 `docs/assets/design/plugin-worktree.png`
+
+### ALM-09.07 新建向导接入 OCR/聊天入库
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.06（#124，已关闭）
+- 技能：`alm-mvp-dev`、`cordis-plugin-development`
+- 实施范围：`packages/alm-core/src/requirements/create.mjs`、`packages/dsh-plugin-requirements/{intake.mjs,index.js,client.js,test}`
+- 不在范围：云端 OCR/大模型总结、多文件批量导入、附件版本化
+- 接口：
+  - `POST /api/alm/requirements/intake`：`{mode:'chat', markdown}` → `alm.intake.chat/v1`；`{mode:'ocr', imageBase64, filename}` → `alm.ocr/v1`（本地 PP-OCRv5，临时文件即用即删，8MB 上限，body 12MB）
+  - `POST /api/alm/requirements/create` 增加 `attachments[]`：`{name, kind, dataBase64|text}`；写 `requirements/attachments/<REQ>/` + `manifest.json`（sha256/kind/capturedAt/addedBy）
+- 交付物：
+  - [ ] `intake.mjs`：聊天解析引用、OCR 归一化与引用、大小/空输入校验
+  - [ ] create 附件落盘 + manifest + 失败回滚；附件名白名单
+  - [ ] CreateModal 三来源标签页、OCR/聊天解析展示、使用为背景、附件预览/结果
+  - [ ] 单测：chat/OCR 提取、附件 manifest、HTTP intake/create
+- 验收：
+  - 正例：真实 OCR 识别中文截图（2 行 #L1/#L2）；聊天解析 3 条消息；创建后 chat.md + manifest 落盘
+  - 反例：空聊天/缺图片/超大图片/非法附件名分别报错；OCR 引擎缺失返回明确错误
+- 证据：全量 231/231；Playwright 全流程 27/27、0 pageerror；截图 `docs/assets/design/plugin-intake.png`、`plugin-create-demo.png`

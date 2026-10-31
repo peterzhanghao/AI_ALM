@@ -13,6 +13,7 @@ import { applyGithub, previewGithub } from './github-sync.mjs'
 import { diffRequirementVersions } from './version-diff.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 import { runReview, signReview } from '../alm-core/src/review/executor.mjs'
+import { extractChat, extractOcr } from './intake.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -146,6 +147,7 @@ export default class RequirementsService {
       ['/api/alm/requirements/acceptance', 'acceptance'],
       ['/api/alm/requirements/review', 'review'],
       ['/api/alm/requirements/signoff', 'signoff'],
+      ['/api/alm/requirements/intake', 'intake'],
     ]) {
       webServer.register({
         kind: 'exact',
@@ -317,7 +319,8 @@ export default class RequirementsService {
         respond(405, { ok: false, error: { code: 'method-not-allowed', message: 'POST required' } })
         return
       }
-      const body = await readJsonBody(req)
+      const limit = action === 'intake' || action === 'create' ? 12 * 1024 * 1024 : 64 * 1024
+      const body = await readJsonBody(req, limit)
       const root = this.rootFor(req)
       let payload
       if (action === 'start') {
@@ -340,6 +343,7 @@ export default class RequirementsService {
           priority: body.priority,
           owner: body.owner,
           id: body.id,
+          attachments: body.attachments,
           apply: body.apply === true,
         })
       } else if (action === 'github') {
@@ -347,6 +351,11 @@ export default class RequirementsService {
           body.apply === true
             ? await applyGithub({ root, changeId: body.changeId })
             : await previewGithub({ root, changeId: body.changeId })
+      } else if (action === 'intake') {
+        payload =
+          body.mode === 'ocr'
+            ? extractOcr({ imageBase64: body.imageBase64, filename: body.filename })
+            : extractChat({ markdown: body.markdown })
       } else if (action === 'acceptance') {
         payload = runAcceptance({ root, requirementId: body.requirementId, apply: body.apply === true })
       } else if (action === 'review') {

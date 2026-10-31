@@ -1835,34 +1835,131 @@ window.__ModuleLoader__.load({
 
     function CreateModal({ root, project, projectName, onClose, onCreated }) {
       const [form, setForm] = useState({ title: '', brief: '', priority: 'P1', owner: '' })
+      const [source, setSource] = useState('text')
+      const [attachment, setAttachment] = useState(null)
+      const [chatMarkdown, setChatMarkdown] = useState('')
+      const [intake, setIntake] = useState({ loading: false, error: null, data: null })
       const [state, setState] = useState({ loading: false, error: null, plan: null, result: null })
       const field = (key) => ({
         value: form[key],
         onChange: (event) => setForm((current) => ({ ...current, [key]: event.target.value })),
       })
+      const payload = (apply) => ({ ...form, attachments: attachment ? [attachment] : [], apply })
       const preview = () => {
         setState({ loading: true, error: null, plan: null, result: null })
-        writeJson('create', { ...form, apply: false }, root)
+        writeJson('create', payload(false), root)
           .then((plan) => setState({ loading: false, error: null, plan, result: null }))
           .catch((error) => setState({ loading: false, error: error.message, plan: null, result: null }))
       }
       const apply = () => {
         setState((current) => ({ ...current, loading: true, error: null }))
-        writeJson('create', { ...form, apply: true }, root)
+        writeJson('create', payload(true), root)
           .then((result) => {
             setState((current) => ({ ...current, loading: false, result }))
             onCreated?.(result)
           })
           .catch((error) => setState((current) => ({ ...current, loading: false, error: error.message })))
       }
+      const runIntake = (body) => {
+        setIntake({ loading: true, error: null, data: null })
+        writeJson('intake', body, root)
+          .then((data) => setIntake({ loading: false, error: null, data }))
+          .catch((error) => setIntake({ loading: false, error: error.message, data: null }))
+      }
+      const onFile = (event) => {
+        const file = event.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = () => {
+          const base64 = String(reader.result ?? '').split(',')[1] ?? ''
+          setAttachment({ name: file.name.replace(/[^A-Za-z0-9._-]/g, '_'), kind: 'screenshot', dataBase64: base64 })
+          runIntake({ mode: 'ocr', filename: file.name, imageBase64: base64 })
+        }
+        reader.onerror = () => setIntake({ loading: false, error: '读取图片失败', data: null })
+        reader.readAsDataURL(file)
+      }
+      const useAsBackground = (text) => {
+        if (!text) return
+        setForm((current) => ({ ...current, brief: current.brief ? `${current.brief}\n\n${text}` : text }))
+      }
+      const parsed = intake.data
       const result = state.result
+      const tabs = [
+        ['text', '文本'],
+        ['ocr', '截图 OCR'],
+        ['chat', '聊天记录'],
+      ]
+      const sourcePanel =
+        source === 'text'
+          ? null
+          : source === 'ocr'
+            ? h(
+                'div',
+                { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', marginTop: '4px' } },
+                h('input', { type: 'file', accept: 'image/*', onChange: onFile, style: { fontSize: '12px', color: T.text2 } }),
+                attachment ? h('p', { style: { margin: '6px 0 0', ...muted } }, `已选择：${attachment.name}`) : null,
+                intake.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在本地 OCR（离线 PP-OCRv5）…') : null,
+                intake.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12.5px' } }, intake.error) : null,
+                parsed?.schema === 'alm.ocr/v1'
+                  ? h(
+                      'div',
+                      null,
+                      h('p', { style: { margin: '8px 0 4px', fontSize: '12px', color: T.text2 } }, `识别 ${parsed.lines.length} 行 · ${parsed.lowConfidence} 行低置信度`),
+                      h(
+                        'pre',
+                        { style: { margin: 0, padding: '8px', maxHeight: '150px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '8px', fontSize: '11.5px', whiteSpace: 'pre-wrap' } },
+                        parsed.lines.map((line) => `${line.ref}  ${line.text}  (${Math.round(line.confidence * 100)}%)`).join('\n'),
+                      ),
+                      h('button', { style: { ...button, marginTop: '8px' }, onClick: () => useAsBackground(parsed.text) }, '使用 OCR 文本为背景'),
+                    )
+                  : null,
+              )
+            : h(
+                'div',
+                { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '12px', marginTop: '4px' } },
+                h('textarea', {
+                  value: chatMarkdown,
+                  onChange: (event) => setChatMarkdown(event.target.value),
+                  placeholder: '粘贴聊天记录，例如：10:12 张三：退款要幂等',
+                  style: { ...input, minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', width: '100%' },
+                }),
+                h('button', {
+                  style: { ...button, marginTop: '8px' },
+                  onClick: () => {
+                    if (chatMarkdown.trim() === '') return
+                    setAttachment({ name: 'chat.md', kind: 'chat', text: chatMarkdown })
+                    runIntake({ mode: 'chat', markdown: chatMarkdown })
+                  },
+                }, '解析聊天'),
+                intake.loading ? h('p', { style: { margin: '6px 0 0', ...muted } }, '正在解析聊天记录…') : null,
+                intake.error ? h('p', { style: { margin: '6px 0 0', color: T.err, fontSize: '12.5px' } }, intake.error) : null,
+                parsed?.schema === 'alm.intake.chat/v1'
+                  ? h(
+                      'div',
+                      null,
+                      h('p', { style: { margin: '8px 0 4px', fontSize: '12px', color: T.text2 } }, `解析 ${parsed.messages.length} 条消息`),
+                      h(
+                        'div',
+                        { style: { maxHeight: '140px', overflow: 'auto', border: `1px solid ${T.line}`, borderRadius: '8px', padding: '6px 10px' } },
+                        parsed.messages.map((message) =>
+                          h('div', { key: message.id, style: { padding: '3px 0', fontSize: '12px', color: T.text2, borderBottom: `1px solid ${T.line}` } },
+                            h('span', { style: { color: T.text3, marginRight: '6px' } }, message.ref),
+                            h('b', { style: { color: T.text, fontWeight: 500 } }, message.speaker || '—'),
+                            ` ${message.text}`,
+                          ),
+                        ),
+                      ),
+                      h('button', { style: { ...button, marginTop: '8px' }, onClick: () => useAsBackground(parsed.text) }, '使用聊天内容为背景'),
+                    )
+                  : null,
+              )
       return h(
         ModalShell,
         {
           title: '新建需求',
-          lead: `归属项目 ${projectName ?? project ?? '—'}；先预览再创建，写入 sdoc 与 brief 两个文件。`,
+          lead: `归属项目 ${projectName ?? project ?? '—'}；支持文本 / 截图 OCR / 聊天记录作为原始材料，先预览再创建。`,
           onClose,
-          width: '760px',
+          width: '820px',
           footer: [
             h('button', { key: 'cancel', style: button, onClick: onClose }, result ? '关闭' : '取消'),
             result
@@ -1874,9 +1971,39 @@ window.__ModuleLoader__.load({
         },
         h(
           'div',
+          { style: { display: 'flex', gap: '6px', marginTop: '14px', borderBottom: `1px solid ${T.line}`, paddingBottom: '8px' } },
+          tabs.map(([id, label]) =>
+            h(
+              'button',
+              {
+                key: id,
+                onClick: () => setSource(id),
+                style: {
+                  border: 0,
+                  background: source === id ? T.layer2 : 'transparent',
+                  color: source === id ? T.text : T.text2,
+                  borderRadius: '7px',
+                  padding: '5px 12px',
+                  fontSize: '12.5px',
+                  cursor: 'pointer',
+                },
+              },
+              label,
+            ),
+          ),
+        ),
+        h(
+          'div',
           { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' } },
           h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '标题', h('input', { ...field('title'), style: input, placeholder: '例如：退款状态对账' })),
           h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: T.text2 } }, '背景 / 目标', h('textarea', { ...field('brief'), style: { ...input, minHeight: '88px', resize: 'vertical', fontFamily: 'inherit' }, placeholder: '原始诉求、目标与范围外' })),
+          sourcePanel,
+          attachment
+            ? h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: T.text2 } },
+                h('span', null, `附件：${attachment.name}（${attachment.kind}）`),
+                h('button', { style: { ...button, padding: '2px 8px' }, onClick: () => { setAttachment(null); setIntake({ loading: false, error: null, data: null }) } }, '移除'),
+              )
+            : null,
           h(
             'div',
             { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
@@ -1896,6 +2023,7 @@ window.__ModuleLoader__.load({
                   ['项目', state.plan.project],
                   ['sdoc', state.plan.file],
                   ['brief', state.plan.briefFile],
+                  ['附件', `${state.plan.attachmentCount ?? 0} 个`],
                 ],
               }),
               h('div', { style: { marginTop: '10px', fontSize: '12px', color: T.text3 } }, '文件内容预览：'),
@@ -1916,10 +2044,11 @@ window.__ModuleLoader__.load({
                   ['需求', result.requirementId],
                   ['sdoc', result.file],
                   ['brief', result.briefFile],
+                  ['附件', `${result.attachments?.length ?? 0} 个`],
                   ['门禁', `${result.check.result} · ${result.check.gaps} 个覆盖缺口`],
                 ],
               }),
-              h('p', { style: { margin: '10px 0 0', ...muted } }, '需求状态为 proposed；补验收后 COV-001 才会通过。'),
+              h('p', { style: { margin: '10px 0 0', ...muted } }, '需求状态为 proposed；补验收后 COV-001 才会通过。原始材料已归档到 requirements/attachments/。'),
             )
           : null,
       )

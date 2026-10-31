@@ -61,8 +61,12 @@
 
 ### ALM-09.07 新建向导接入 OCR/聊天入库（item 3）
 
-- 新建需求向导支持文本/截图/聊天记录来源：截图走本地 OCR（`ocr_image` 等价服务）、聊天走 `intake/chat.mjs` 解析；引用位置写入 brief/attachments，再进入确认创建。
+- 新建向导三来源：文本 / 截图 OCR / 聊天记录；截图走本地 PP-OCRv5（`runOcr`），聊天走 `parseChatMarkdown`，返回逐行/逐条 `#L` 引用与置信度。
+- 原始材料作为附件随需求创建归档到 `requirements/attachments/<REQ>/`：文件 + `manifest.json`（sha256/kind/capturedAt/addedBy）；附件名白名单，失败整体回滚。
+- 端点：`POST /api/alm/requirements/intake`（chat/ocr，body 上限 12MB；OCR 临时文件即用即删）；`POST /api/alm/requirements/create` 支持 `attachments[]`（base64 或文本）。
+- UI：CreateModal 标签页切换来源，「使用 OCR/聊天内容为背景」，预览/结果显示附件数；OCR 显示逐行置信度，聊天显示 `chat.md#L<n>`。
+- 验收：真实 OCR 识别中文截图；聊天解析 3 条消息；创建后附件与 manifest 落盘；OCR 引擎缺失/超大图片有明确错误。
 
 ## 3. 本轮交付
 
-ALM-09.06：隔离 worktree——开始开发可选创建同级 git worktree + 分支，变更/任务卡写在工作区内，主工作区保持干净；失败回滚。完成后进入最后一卡 ALM-09.07 新建向导接入 OCR/聊天入库。
+ALM-09.07：新建向导接入 OCR/聊天入库——三来源标签页，截图走本地 PP-OCRv5、聊天走 `parseChatMarkdown`，均带 `#L` 引用；附件 + manifest 随需求创建归档，失败整体回滚。第二阶段 ALM-09.01–09.07 全部完成。
