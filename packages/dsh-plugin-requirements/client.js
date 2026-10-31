@@ -939,7 +939,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, compact }) {
+    function DrawerContent({ item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, compact }) {
       const relations = relationsOf(item, allItems)
       const priorityColor = item.priority === 'P0' ? T.err : item.priority === 'P1' ? T.warn : T.text2
       const review = item.review
@@ -1000,9 +1000,16 @@ window.__ModuleLoader__.load({
               {
                 title: '评审',
                 first: true,
-                action: h('div', { style: { display: 'flex', gap: '10px' } }, actionLink('运行评审', () => onReview(item)), actionLink('人工签收', () => onSignoff(item))),
+                action: h('div', { style: { display: 'flex', gap: '10px' } }, actionLink('AI 评审', () => onAiReview(item)), actionLink('运行评审', () => onReview(item)), actionLink('人工签收', () => onSignoff(item))),
               },
               h(ReviewBlock, { review: item.review }),
+              h(
+                'div',
+                { style: { marginTop: '8px', fontSize: '12px' } },
+                item.aiReview?.stored
+                  ? h('span', { style: { color: item.aiReview.verdict === 'block' ? T.err : item.aiReview.verdict === 'pass' ? T.ok : T.warn } }, `AI 评审：${item.aiReview.verdict} · ${item.aiReview.suggestions} 条建议${item.aiReview.adopted ? ' · 已采纳' : ''}`)
+                  : h('span', { style: muted }, 'AI 尚未参与评审，可生成评审与重构方案。'),
+              ),
             ),
             h(
               SubBlock,
@@ -1063,7 +1070,20 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: { display: 'flex', gap: '10px', marginTop: '20px', flexWrap: 'wrap' } },
+            {
+              style: {
+                position: 'sticky',
+                bottom: 0,
+                zIndex: 2,
+                display: 'flex',
+                gap: '10px',
+                marginTop: '20px',
+                flexWrap: 'wrap',
+                padding: '12px 0 6px',
+                background: T.base,
+                borderTop: `1px solid ${T.line}`,
+              },
+            },
             h('button', { style: primary, onClick: () => onStart(item) }, '开始开发'),
             h('button', { style: button, onClick: () => onAccept(item) }, '运行门禁检查'),
             h('button', { style: button, onClick: () => onDetail(item) }, '查看详情'),
@@ -1073,7 +1093,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff }) {
+    function Drawer({ item, allItems, projectMeta, root, onClose, onDetail, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -1095,7 +1115,8 @@ window.__ModuleLoader__.load({
               top: 0,
               right: 0,
               height: '100%',
-              width: '720px',
+              width: '60vw',
+              minWidth: '560px',
               maxWidth: '95vw',
               overflowY: 'auto',
               background: T.base,
@@ -1103,12 +1124,12 @@ window.__ModuleLoader__.load({
               boxShadow: '-24px 0 60px rgba(0,0,0,.4)',
             },
           },
-          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, compact: true }),
+          h(DrawerContent, { item, allItems, projectMeta, root, onDetail, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview, compact: true }),
         ),
       )
     }
 
-    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff }) {
+    function DetailModal({ item, allItems, projectMeta, root, onClose, onSnapshot, onTrace, onStart, onAccept, onAcceptance, onDiff, onReview, onSignoff, onAiReview }) {
       useEffect(() => {
         const onKey = (event) => {
           if (event.key === 'Escape') onClose()
@@ -1182,7 +1203,7 @@ window.__ModuleLoader__.load({
                 h('p', { style: { margin: '4px 0 0', ...muted } }, projectMeta?.repo ?? item.github?.repo ?? '—'),
               ),
               h(Section, { title: 'GitHub / 看板' }, h(GithubBlock, { item, projectMeta })),
-              h(Section, { title: '评审', action: h('div', { style: { display: 'flex', gap: '8px' } }, h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onReview(item) }, '运行评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onSignoff(item) }, '签收')) }, h(ReviewBlock, { review: item.review })),
+              h(Section, { title: '评审', action: h('div', { style: { display: 'flex', gap: '8px' } }, h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onAiReview(item) }, 'AI 评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onReview(item) }, '运行评审'), h('button', { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick: () => onSignoff(item) }, '签收')) }, h(ReviewBlock, { review: item.review })),
               h(
                 Section,
                 {
@@ -1929,6 +1950,157 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function AiReviewModal({ item, root, onClose, onDone }) {
+      const hasStored = Boolean(item.aiReview?.stored)
+      const [phase, setPhase] = useState(hasStored ? 'loading' : 'intro')
+      const [report, setReport] = useState(null)
+      const [error, setError] = useState(null)
+      const [selected, setSelected] = useState([])
+      const [includeBrief, setIncludeBrief] = useState(true)
+      const [adopted, setAdopted] = useState(null)
+
+      const applyReport = (next) => {
+        setReport(next)
+        setSelected((next.suggestions ?? []).map((suggestion) => suggestion.id))
+        setPhase('report')
+      }
+      const load = useCallback(() => {
+        if (!hasStored) return
+        setPhase('loading')
+        writeJson('ai-review', { requirementId: item.id, load: true }, root)
+          .then((next) => applyReport(next))
+          .catch((err) => {
+            setError(err.message)
+            setPhase('intro')
+          })
+      }, [hasStored, item.id, root])
+      useEffect(() => {
+        load()
+      }, [load])
+
+      const generate = () => {
+        setPhase('generating')
+        setError(null)
+        writeJson('ai-review', { requirementId: item.id }, root)
+          .then((next) => applyReport(next))
+          .catch((err) => {
+            setError(err.message)
+            setPhase('intro')
+          })
+      }
+      const adopt = () => {
+        setPhase('adopting')
+        setError(null)
+        writeJson('ai-review', { requirementId: item.id, apply: true, selectedSuggestionIds: selected, includeBrief }, root)
+          .then((next) => {
+            setAdopted(next.adopted ?? { suggestionIds: selected })
+            setReport(next)
+            setPhase('adopted')
+            onDone?.()
+          })
+          .catch((err) => {
+            setError(err.message)
+            setPhase('report')
+          })
+      }
+      const toggle = (id) => setSelected((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]))
+      const verdictMeta = report ? VERDICT[report.verdict] ?? VERDICT.warn : null
+      return h(
+        ModalShell,
+        {
+          title: `AI 评审 · ${item.id}`,
+          lead: 'AI 读取需求字段、门禁发现与背景，给出评审意见、重构建议与方案；采纳后写入 brief 的「AI 评审建议」小节。',
+          onClose,
+          width: '860px',
+          footer: [
+            h('button', { key: 'close', style: phase === 'report' ? button : primary, onClick: onClose }, phase === 'adopted' ? '关闭' : '取消'),
+            phase === 'intro' || (phase === 'report' && !report)
+              ? h('button', { key: 'generate', style: primary, onClick: generate }, '生成 AI 评审')
+              : null,
+            phase === 'intro' && hasStored ? h('button', { key: 'load', style: button, onClick: load }, '查看已有评审') : null,
+            phase === 'report'
+              ? h('button', { key: 'adopt', style: primary, onClick: adopt, disabled: selected.length === 0 && !includeBrief }, '采纳所选')
+              : null,
+          ],
+        },
+        phase === 'loading' ? h('p', { style: muted }, '正在读取已有 AI 评审…') : null,
+        phase === 'generating'
+          ? h('div', { style: { padding: '16px 0', color: T.text2, fontSize: '13px', lineHeight: 1.9 } },
+              h('p', { style: { margin: 0 } }, 'AI 正在阅读需求并生成评审与方案，通常需要 10–60 秒…'),
+              h('p', { style: { margin: '4px 0 0', ...muted } }, '本次调用使用 DSH 当前默认模型；生成结果会保存到 .alm/reviews/<REQ>.ai.json。'),
+            )
+          : null,
+        error ? h('p', { style: { margin: '10px 0 0', color: T.err, fontSize: '12.5px' } }, error) : null,
+        phase === 'intro'
+          ? h('div', { style: { padding: '10px 0', color: T.text2, fontSize: '13px', lineHeight: 1.9 } },
+              h('p', { style: { margin: 0 } }, '还没有 AI 评审记录。生成后可以查看：'),
+              h('ul', { style: { margin: '6px 0 0', paddingLeft: '20px' } },
+                h('li', null, '评审意见与阻塞/建议分级'),
+                h('li', null, '可执行的重构建议（可勾选采纳）'),
+                h('li', null, '分步重构方案与建议背景'),
+              ),
+            )
+          : null,
+        report
+          ? h(
+              'div',
+              { style: { marginTop: '10px' } },
+              h('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } },
+                h('span', { style: { borderRadius: '999px', padding: '2px 10px', fontSize: '11.5px', color: verdictMeta.color, background: verdictMeta.bg } }, report.verdict),
+                h('b', { style: { fontSize: '13.5px', color: T.text, fontWeight: 500 } }, report.summary),
+              ),
+              h('p', { style: { margin: '6px 0 0', ...muted } }, `${report.provider} · ${report.model} · ${report.generatedAt?.slice(0, 19).replace('T', ' ')}`),
+              h('div', { style: { marginTop: '12px' } },
+                h('div', { style: { fontSize: '11px', letterSpacing: '.08em', color: T.text3, marginBottom: '6px' } }, '评审意见'),
+                (report.findings ?? []).length
+                  ? report.findings.map((finding) =>
+                      h('div', { key: finding.id, style: { borderLeft: `3px solid ${finding.severity === 'block' ? T.err : finding.severity === 'warn' ? T.warn : T.line2}`, background: T.layer2, borderRadius: '8px', padding: '7px 10px', marginBottom: '6px', fontSize: '12.5px', color: T.text2 } },
+                        h('b', { style: { color: T.text, fontWeight: 500 } }, `${finding.title} `),
+                        finding.detail,
+                        finding.ref ? h('span', { style: { ...muted, marginLeft: '6px' } }, `（${finding.ref}）`) : null,
+                      ),
+                    )
+                  : h('p', { style: { margin: 0, ...muted } }, '无评审意见。'),
+              ),
+              h('div', { style: { marginTop: '12px' } },
+                h('div', { style: { fontSize: '11px', letterSpacing: '.08em', color: T.text3, marginBottom: '6px' } }, '重构建议（勾选后采纳）'),
+                (report.suggestions ?? []).map((suggestion) =>
+                  h('label', { key: suggestion.id, style: { display: 'flex', gap: '8px', alignItems: 'flex-start', border: `1px solid ${T.line}`, borderRadius: '8px', padding: '8px 10px', marginBottom: '6px', fontSize: '12.5px', color: T.text2, cursor: 'pointer' } },
+                    h('input', { type: 'checkbox', checked: selected.includes(suggestion.id), onChange: () => toggle(suggestion.id), style: { marginTop: '2px' } }),
+                    h('span', null,
+                      h('b', { style: { color: T.text, fontWeight: 500 } }, `[${suggestion.category}] ${suggestion.title}`),
+                      h('span', { style: { display: 'block', marginTop: '2px' } }, suggestion.detail),
+                      suggestion.suggestedText ? h('code', { style: { display: 'block', marginTop: '4px', color: T.text3, fontSize: '11.5px', whiteSpace: 'pre-wrap' } }, suggestion.suggestedText) : null,
+                    ),
+                  ),
+                ),
+              ),
+              (report.plan ?? []).length
+                ? h('div', { style: { marginTop: '12px' } },
+                    h('div', { style: { fontSize: '11px', letterSpacing: '.08em', color: T.text3, marginBottom: '6px' } }, '重构方案'),
+                    h('ol', { style: { margin: 0, paddingLeft: '20px', fontSize: '12.5px', color: T.text2, lineHeight: 1.9 } },
+                      report.plan.map((entry, index) => h('li', { key: `${entry.step}-${index}` }, h('b', { style: { color: T.text, fontWeight: 500 } }, entry.step), `：${entry.detail}`)),
+                    ),
+                  )
+                : null,
+              report.proposedBrief
+                ? h('div', { style: { marginTop: '12px' } },
+                    h('div', { style: { fontSize: '11px', letterSpacing: '.08em', color: T.text3, marginBottom: '6px' } }, '建议背景'),
+                    h('pre', { style: { margin: 0, padding: '10px', maxHeight: '160px', overflow: 'auto', background: T.layer, border: `1px solid ${T.line}`, borderRadius: '8px', fontSize: '11.5px', lineHeight: 1.8, whiteSpace: 'pre-wrap' } }, report.proposedBrief),
+                    h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', fontSize: '12px', color: T.text2 } },
+                      h('input', { type: 'checkbox', checked: includeBrief, onChange: (event) => setIncludeBrief(event.target.checked) }),
+                      '采纳时同时写入「AI 建议背景」',
+                    ),
+                  )
+                : null,
+              phase === 'adopted'
+                ? h('p', { style: { margin: '12px 0 0', color: T.ok, fontSize: '12.5px' } }, `已采纳 ${adopted?.suggestionIds?.length ?? selected.length} 条建议，已写入需求 brief。`)
+                : null,
+            )
+          : null,
+      )
+    }
+
     function CreateModal({ root, project, projectName, onClose, onCreated }) {
       const [form, setForm] = useState({ title: '', brief: '', priority: 'P1', owner: '' })
       const [source, setSource] = useState('text')
@@ -2261,6 +2433,7 @@ window.__ModuleLoader__.load({
       const [acceptItem, setAcceptItem] = useState(null)
       const [acceptanceItem, setAcceptanceItem] = useState(null)
       const [reviewItem, setReviewItem] = useState(null)
+      const [aiReviewItem, setAiReviewItem] = useState(null)
       const [signoffItem, setSignoffItem] = useState(null)
       const [createOpen, setCreateOpen] = useState(false)
       const [associateTarget, setAssociateTarget] = useState(null)
@@ -2550,6 +2723,7 @@ window.__ModuleLoader__.load({
               onAcceptance: (entry) => setAcceptanceItem(entry),
               onReview: (entry) => setReviewItem(entry),
               onSignoff: (entry) => setSignoffItem(entry),
+              onAiReview: (entry) => setAiReviewItem(entry),
             })
           : null,
         detailOpen && selected
@@ -2567,6 +2741,7 @@ window.__ModuleLoader__.load({
               onAcceptance: (entry) => setAcceptanceItem(entry),
               onReview: (entry) => setReviewItem(entry),
               onSignoff: (entry) => setSignoffItem(entry),
+              onAiReview: (entry) => setAiReviewItem(entry),
             })
           : null,
         snapshot ? h(SnapshotModal, { snapshot, onClose: () => setSnapshot(null) }) : null,
@@ -2585,6 +2760,14 @@ window.__ModuleLoader__.load({
               item: acceptItem,
               root: acceptItem.root ?? data?.root ?? root,
               onClose: () => setAcceptItem(null),
+            })
+          : null,
+        aiReviewItem
+          ? h(AiReviewModal, {
+              item: aiReviewItem,
+              root: aiReviewItem.root ?? data?.root ?? root,
+              onClose: () => setAiReviewItem(null),
+              onDone: () => reload(),
             })
           : null,
         reviewItem

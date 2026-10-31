@@ -889,3 +889,24 @@
   - 正例：1440 视口下侧栏实测 721px；三组卡片与色条可见；评审 5 行按 verdict 着色；无横向溢出
   - 反例：窄视口 `max-width: 95vw` 不撑破；详情弹窗不受影响
 - 证据：`pnpm test` 231/231；截图 `docs/assets/design/plugin-drawer-wide.png`、`plugin-drawer-wide-bottom.png`（侧栏 boundingBox 721×1000）
+
+### ALM-09.09 侧栏 60% 宽 + 底部操作固定 + AI 评审
+
+- 类型：Task ｜ Owner：@peterzhanghao ｜ 优先级：P1 ｜ 前置：ALM-09.08（#128，已关闭）
+- 技能：`cordis-plugin-development`、`frontend-design`
+- 实施范围：`packages/dsh-plugin-requirements/{client.js,ai-review.mjs,index.js,query.mjs,test}`
+- 不在范围：AI 自动改 sdoc 字段/关系、自动签字、历史 AI 评审版本对比
+- 接口：
+  - `POST /api/alm/requirements/ai-review`：默认生成；`{load:true}` 读取已有；`{apply:true, selectedSuggestionIds[], includeBrief}` 采纳
+  - `.alm/reviews/<REQ>.ai.json`（`alm.ai-review/v1`）：verdict/summary/findings/suggestions/plan/proposedBrief/adopted
+  - payload `item.aiReview` 摘要
+- 交付物：
+  - [ ] 侧栏 `60vw` + sticky 底部操作条
+  - [ ] `ai-review.mjs`：提示词、流式收集、JSON 截断修复、采纳写 brief（幂等）
+  - [ ] 端点按 DSH 默认模型解析 provider/model；无模型 503
+  - [ ] AI 评审弹层（意见/建议勾选/方案/建议背景/采纳）与抽屉状态行
+  - [ ] 单测：假流解析、截断修复、采纳幂等、HTTP 生成/读取/采纳
+- 验收：
+  - 正例：1440 视口侧栏 865px；`开始开发` 按钮初始即位于视口内（y≈966）；真实 deepseek-flash 生成评审并采纳，brief 出现「AI 评审建议（已采纳）」。
+  - 反例：模型缺失/调用失败返回 503/502 且不写文件；截断 JSON 自动修复；无建议时采纳报错。
+- 证据：`pnpm test` 236/236；截图 `plugin-drawer-60.png`、`plugin-ai-review.png`、`plugin-ai-review-adopted.png`

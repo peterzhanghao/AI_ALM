@@ -14,6 +14,7 @@ import { diffRequirementVersions } from './version-diff.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 import { runReview, signReview } from '../alm-core/src/review/executor.mjs'
 import { extractChat, extractOcr } from './intake.mjs'
+import { AiReviewError, adoptAiReview, readAiReview, readRequirementBrief, runAiReview, writeAiReview } from './ai-review.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
 
@@ -68,6 +69,9 @@ export default class RequirementsService {
     this.ctx = ctx
     this.version = pkg.version
     this.root = config?.root ? resolve(config.root) : DEFAULT_ROOT
+    this.aiStream = config?.aiStream ?? null
+    this.aiProvider = config?.aiProvider ?? null
+    this.aiModel = config?.aiModel ?? null
     this.sidecarOrigin = null
 
     // Own every registration through a Cordis effect: on reload the old routes
@@ -148,6 +152,7 @@ export default class RequirementsService {
       ['/api/alm/requirements/review', 'review'],
       ['/api/alm/requirements/signoff', 'signoff'],
       ['/api/alm/requirements/intake', 'intake'],
+      ['/api/alm/requirements/ai-review', 'ai-review'],
     ]) {
       webServer.register({
         kind: 'exact',
@@ -309,6 +314,43 @@ export default class RequirementsService {
     return { asset, item: { id: asset.id, file: asset.source.path }, check }
   }
 
+  async resolveAiSelection(body = {}) {
+    const provider = body.provider ?? this.aiProvider ?? process.env.ALM_AI_PROVIDER
+    const model = body.model ?? this.aiModel ?? process.env.ALM_AI_MODEL
+    if (provider && model) return { provider, model }
+    const current = this.ctx?.get?.('agentDefaultModel')?.currentSelection?.()
+    if (current?.provider && current?.model) return { provider: current.provider, model: current.model }
+    const llm = this.ctx?.get?.('llm')
+    const firstProvider = llm?.listProviders?.()?.[0]?.id
+    if (firstProvider) {
+      const models = await llm.listModels(firstProvider)
+      if (models?.[0]?.id) return { provider: firstProvider, model: models[0].id }
+    }
+    throw new AiReviewError('未配置可用的默认模型，请先在 DSH 中选择模型', { code: 'ai-model-unavailable', status: 503 })
+  }
+
+  async generateAiReview(root, context, body) {
+    const selection = await this.resolveAiSelection(body)
+    const stream =
+      this.aiStream ??
+      ((options) => {
+        const llm = this.ctx?.get?.('llm')
+        if (!llm) throw new AiReviewError('AI 模型不可用（缺少 llm 服务）', { code: 'ai-unavailable', status: 503 })
+        return llm.stream(options)
+      })
+    const report = await runAiReview({
+      stream,
+      provider: selection.provider,
+      model: selection.model,
+      asset: context.asset,
+      item: context.item,
+      check: context.check,
+      briefText: readRequirementBrief(root, context.asset),
+    })
+    writeAiReview(root, report)
+    return report
+  }
+
   async handleWrite(req, res, action) {
     const respond = (status, payload) => {
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -351,6 +393,25 @@ export default class RequirementsService {
           body.apply === true
             ? await applyGithub({ root, changeId: body.changeId })
             : await previewGithub({ root, changeId: body.changeId })
+      } else if (action === 'ai-review') {
+        const context = this.reviewContext(root, body.requirementId)
+        if (body.load === true) {
+          const stored = readAiReview(root, context.asset.id)
+          if (!stored) throw new AiReviewError('尚未生成 AI 评审', { code: 'no-ai-review', status: 404 })
+          payload = stored
+        } else if (body.apply === true) {
+          const stored = readAiReview(root, context.asset.id)
+          if (!stored) throw new AiReviewError('尚未生成 AI 评审', { code: 'no-ai-review', status: 404 })
+          payload = adoptAiReview({
+            root,
+            asset: context.asset,
+            report: stored,
+            selectedSuggestionIds: Array.isArray(body.selectedSuggestionIds) ? body.selectedSuggestionIds : [],
+            includeBrief: body.includeBrief !== false,
+          })
+        } else {
+          payload = await this.generateAiReview(root, context, body)
+        }
       } else if (action === 'intake') {
         payload =
           body.mode === 'ocr'

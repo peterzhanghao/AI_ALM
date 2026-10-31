@@ -9,6 +9,7 @@ import { requirementLabels } from '../alm-core/src/github/sync-requirements.mjs'
 import { buildGraph, findCycles, walk } from '../alm-core/src/index/closure.mjs'
 import { acceptanceSummary } from '../alm-core/src/acceptance/acceptance.mjs'
 import { reviewView } from '../alm-core/src/review/executor.mjs'
+import { aiReviewSummary } from './ai-review.mjs'
 import { gitHead } from '../alm-core/src/approvals/approval.mjs'
 import { checkReport, indexReport } from '../alm-core/src/commands.mjs'
 
@@ -312,6 +313,7 @@ export function requirements(root) {
       item.versions = versions
       item.trace = traceFor({ asset, graph, byId })
       item.acceptance = acceptanceSummary(root, asset.id, headSha)
+      item.aiReview = aiReviewSummary(root, asset.id)
       return item
     })
 

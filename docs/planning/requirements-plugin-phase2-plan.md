@@ -74,7 +74,18 @@
 - 评审行按 verdict 加左侧色条与底色（通过绿 / 建议黄 / 阻塞红 / 未覆盖灰）；验收覆盖改为绿色 pill；验收执行保留登记命令与最近证据两行。
 - 不改变数据与交互，仅客户端样式；`pnpm test` 全量通过。
 
+### ALM-09.09 侧栏 60% 宽 + 底部操作固定 + AI 评审（体验补丁 2）
+
+- 侧栏宽度改为 `60vw`（`minWidth: 560px`，`maxWidth: 95vw`）：1440 视口实测 865px，高分辨率屏按比例占满 60%，不再固定窄栏。
+- 底部操作条 `position: sticky; bottom: 0`：开始开发 / 门禁检查 / 查看详情 / 关闭 始终可见，无需滚动到底。
+- AI 评审：`POST /api/alm/requirements/ai-review` 使用 DSH 当前默认模型（`agentDefaultModel` + `llm.stream`），输出严格 JSON：verdict、summary、findings、suggestions、plan、proposedBrief；报告存 `.alm/reviews/<REQ>.ai.json`。
+  - 弹层展示评审意见、可勾选建议、重构方案与建议背景；「采纳所选」把选中的建议/方案/背景追加到需求 brief 的「AI 评审建议」小节（重复采纳替换该小节）。
+  - AI 输出被截断时自动补齐 JSON 括号重试解析；模型/解析失败给出明确错误，不写文件。
+  - 抽屉质量卡片显示 AI 评审状态（verdict/建议数/是否已采纳），与门禁执行器、人工签收并存。
+- 验收：真实 deepseek-flash 生成评审并采纳成功；单测覆盖假流解析、截断修复、采纳幂等；`pnpm test` 236/236。
+
 ## 3. 本轮交付
 
 ALM-09.07：新建向导接入 OCR/聊天入库——三来源标签页，截图走本地 PP-OCRv5、聊天走 `parseChatMarkdown`，均带 `#L` 引用；附件 + manifest 随需求创建归档，失败整体回滚。第二阶段 ALM-09.01–09.07 全部完成。
 ALM-09.08：需求详情侧栏加宽到 720px，按背景 / 质量验收 / 归属历史分卡片，评审与验收用状态色块提升可读性。
+ALM-09.09：侧栏改为 60vw，底部操作条 sticky；AI 评审接入 DSH 默认模型，输出评审意见/建议/方案并可勾选采纳到 brief。真实 deepseek-flash 验证通过。
