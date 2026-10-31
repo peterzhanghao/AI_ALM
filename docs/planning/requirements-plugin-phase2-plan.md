@@ -38,7 +38,10 @@
 
 ### ALM-09.04 版本 diff 对比（item 5）
 
-- 在 git 快照基础上解析两个版本的 sdoc 字段，输出字段级 diff（标题/状态/优先级/关系/验收）与门禁影响；UI 版本行支持「对比当前」。
+- `version-diff.mjs`：`diffRequirementVersions` 用 `git show <ref>:<path>` 读取两版 sdoc，解析为字段/关系后输出 `alm.version.diff/v1`（字段 before/after、关系增删、summary）；默认 `to=worktree`，只读不写。
+- `GET /api/alm/requirements/diff?root&asset&from&to`；非法 ref 400，未知提交/资产 404。
+- UI：版本行「对比当前」→ 字段表（旧值删除线 → 新值）+ 关系增删 + summary；与只读快照并列。
+- 验收：字段级 diff 与关系增删由 git 提交对比验证；eval 用两版 demo 需求展示 TITLE/STATUS/PRIORITY 变化。
 
 ### ALM-09.05 AI 评审执行器 + 人工签收（item 4）
 
@@ -55,4 +58,4 @@
 
 ## 3. 本轮交付
 
-ALM-09.03：需求级验收证据契约——`.alm/acceptance/<REQ>.json` 登记白名单命令，执行后归档 `.alm/acceptance/<REQ>/<sha>.json`；抽屉/详情「验收执行」可预览并运行，证据含逐条退出码/耗时/输出。完成后进入 ALM-09.04 版本 diff。
+ALM-09.04：版本 diff 对比——`diffRequirementVersions` 读取任意 git 版本/工作区的 sdoc，输出字段 before/after、关系增删与 summary；版本行「对比当前」打开只读 diff 弹层。完成后进入 ALM-09.05 AI 评审执行器 + 人工签收。

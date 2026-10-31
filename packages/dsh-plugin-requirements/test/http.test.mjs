@@ -501,3 +501,35 @@ test('POST /api/alm/requirements/acceptance previews and archives evidence', asy
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('GET /api/alm/requirements/diff compares a commit against the worktree', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-diff-http-'))
+  try {
+    cpSync(fixture, dir, { recursive: true })
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['add', '-A'], { cwd: dir })
+    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init'], { cwd: dir })
+    const head = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    const file = join(dir, 'requirements', 'refund.sdoc')
+    writeFileSync(file, readFileSync(file, 'utf8').replace('STATUS: proposed', 'STATUS: accepted'))
+
+    await withWriteServer(dir, async (base) => {
+      const response = await fetch(
+        `${base}/api/alm/requirements/diff?root=${encodeURIComponent(dir)}&asset=REQ-PAY-001&from=${head.slice(0, 8)}`,
+      )
+      const payload = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(payload.schema, 'alm.version.diff/v1')
+      assert.equal(payload.to, 'worktree')
+      assert.ok(payload.fields.some((field) => field.field === 'STATUS' && field.to === 'accepted'))
+
+      const missing = await fetch(
+        `${base}/api/alm/requirements/diff?root=${encodeURIComponent(dir)}&asset=REQ-NOPE-001&from=${head.slice(0, 8)}`,
+      )
+      assert.equal(missing.status, 404)
+      assert.equal((await missing.json()).error.code, 'asset-not-found')
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
