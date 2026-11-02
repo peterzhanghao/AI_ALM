@@ -304,6 +304,27 @@ test('required review perspectives that were skipped leave the decision unchecke
   assert.deepEqual(decision.signoff.reasons.map((reason) => reason.code), ['coverage-incomplete'])
 })
 
+test('an adopted AI review replaces the five perspective roles as the review decision', () => {
+  const verdicts = Object.fromEntries(ROLE_IDS.map((id) => [id, 'skip']))
+  const decision = decideEvidence({
+    asset: requirementAsset(),
+    review: reviewOf({
+      verdicts,
+      signoff: {
+        actor: 'ai:adopted',
+        decision: 'approve',
+        valid: true,
+        source: 'ai-review',
+        at: '2026-10-31T23:57:31.461Z',
+      },
+    }),
+    acceptance: acceptanceOf({ latest: latestEvidence() }),
+  })
+  assert.equal(decision.state, 'verified')
+  assert.equal(decision.topGap, null)
+  assert.equal(decision.coverage.missingRoles.length, ROLE_IDS.length)
+})
+
 test('low and normal risk only require their own perspectives', () => {
   const lowRisk = decideEvidence({
     asset: requirementAsset({ extra: { priority: 'P3' } }),

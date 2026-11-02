@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import * as query from './query.mjs'
 import { resolveRequirementsRoot } from './query.mjs'
 import { associateProject, readProject } from '../alm-core/src/project/project.mjs'
@@ -10,7 +10,8 @@ import { openChange } from '../alm-core/src/changes/open.mjs'
 import { createRequirement } from '../alm-core/src/requirements/create.mjs'
 import { applyArchive, planArchive } from '../alm-core/src/requirements/archive.mjs'
 import { runCi } from '../alm-core/src/ci/ci.mjs'
-import { runAcceptance } from '../alm-core/src/acceptance/acceptance.mjs'
+import { CONFIG_SCHEMA, configPath, readAcceptanceConfig, runAcceptance } from '../alm-core/src/acceptance/acceptance.mjs'
+import { applyRemove, planRemove } from '../alm-core/src/requirements/remove.mjs'
 import { applyRehearsal, previewRehearsal } from '../alm-core/src/rehearsal/rehearsal.mjs'
 import { applyGithub, previewGithub } from './github-sync.mjs'
 import { diffRequirementVersions } from './version-diff.mjs'
@@ -19,6 +20,7 @@ import * as reviewExecutor from '../alm-core/src/review/executor.mjs'
 import { extractChat, extractOcr } from './intake.mjs'
 import { AiReviewError, adoptAiReview, readAiReview, readRequirementBrief, runAiReview, writeAiReview } from './ai-review.mjs'
 import { runAiDraft } from './ai-draft.mjs'
+import { runPreflight, startReadiness, writePreflightAudit } from './preflight.mjs'
 import { MAX_BODY_BYTES, handleIntentLoad, handleIntentRequest, intentErrorResponse } from './intent.mjs'
 import { renderErrorPage, renderRequirementsPage } from './render.mjs'
 import { SIDEBAR_API_PATH, SIDEBAR_PATH, SIDEBAR_PORT, startSidebarServer } from './sidebar.mjs'
@@ -198,6 +200,8 @@ export default class RequirementsService {
       ['/api/alm/requirements/draft', 'draft'],
       ['/api/alm/requirements/reveal', 'reveal'],
       ['/api/alm/requirements/archive', 'archive'],
+      ['/api/alm/requirements/remove', 'remove'],
+      ['/api/alm/requirements/preflight', 'preflight'],
     ]) {
       webServer.register({
         kind: 'exact',
@@ -395,6 +399,128 @@ export default class RequirementsService {
     }
   }
 
+  /**
+   * Resolve exactly one requirement for deletion. Duplicate UIDs are a data
+   * problem rather than an error in the request, so the caller passes the file
+   * when more than one asset shares the id.
+   */
+  removeContext(root, requirementId, file) {
+    if (!requirementId) throw Object.assign(new Error('requirementId is required'), { status: 400, code: 'requirement-required' })
+    const index = indexReport(root)
+    if (index.ok === false) throw Object.assign(new Error(index.error ?? 'index failed'), { status: 400, code: 'index-failed' })
+    const wanted = typeof file === 'string' && file.trim() !== '' ? file.trim() : null
+    const candidates = index.assets.filter((entry) => entry.id === requirementId && entry.type === 'requirement')
+    if (wanted) {
+      const exact = candidates.find((entry) => entry.source?.path === wanted)
+      if (exact) return { asset: exact }
+      // A retried request can arrive after the record left the index. The file
+      // being gone is the success state for deletion, so report it idempotently.
+      if (!existsSync(resolve(root, wanted))) return { removed: true, file: wanted }
+      throw Object.assign(new Error(`requirement ${requirementId} is not in ${wanted}`), { status: 404, code: 'requirement-not-found' })
+    }
+    if (candidates.length === 0) {
+      throw Object.assign(new Error(`requirement not found: ${requirementId}`), { status: 404, code: 'requirement-not-found' })
+    }
+    if (candidates.length > 1) {
+      throw Object.assign(new Error(`需求 ${requirementId} 有 ${candidates.length} 条同 ID 记录，请指定要删除的文件`), {
+        status: 409,
+        code: 'ambiguous-requirement',
+        candidates: candidates.map((entry) => entry.source?.path ?? null),
+      })
+    }
+    return { asset: candidates[0] }
+  }
+
+  /**
+   * Adopt the stored AI review, then rebuild the gate-backed report for the
+   * rewritten brief before recording acceptance. Shared by the manual
+   * `ai-review` action and the automatic preflight.
+   */
+  adoptStoredAiReview(root, requirementId, selectedSuggestionIds) {
+    const context = this.reviewContext(root, requirementId)
+    const stored = readAiReview(root, context.asset.id)
+    if (!stored) throw new AiReviewError('尚未生成 AI 评审', { code: 'no-ai-review', status: 404 })
+    const adopted = adoptAiReview({
+      root,
+      asset: context.asset,
+      report: stored,
+      selectedSuggestionIds: Array.isArray(selectedSuggestionIds) ? selectedSuggestionIds : [],
+    })
+    let accepted = null
+    try {
+      const after = this.reviewContext(root, requirementId)
+      const report = runReview({ root, asset: after.asset, item: after.item, check: after.check, apply: true })
+      accepted = acceptReview({
+        root,
+        asset: after.asset,
+        report,
+        suggestions: adopted.adopted?.suggestionIds ?? [],
+      })
+    } catch (error) {
+      accepted = { accepted: false, reason: error?.code ?? 'acceptance-failed', message: error?.message ?? String(error) }
+    }
+    return { ...adopted, accepted }
+  }
+
+  /**
+   * Register the acceptance commands for a requirement. Parsing/validation is
+   * delegated to the acceptance module so the whitelist and timeout rules stay
+   * in one place; a rejected write is rolled back instead of leaving a file the
+   * gate cannot read.
+   */
+  applyAcceptanceConfig(root, requirementId, commands) {
+    if (!requirementId) throw Object.assign(new Error('requirementId is required'), { status: 400, code: 'requirement-required' })
+    const file = configPath(root, requirementId)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify({ schema: CONFIG_SCHEMA, requirement: requirementId, commands }, null, 2) + '\n')
+    try {
+      return readAcceptanceConfig(root, requirementId)
+    } catch (error) {
+      try {
+        rmSync(file, { force: true })
+      } catch {}
+      throw error
+    }
+  }
+
+  /**
+   * Side-effect surface for the preflight orchestration. Keeping it here (not
+   * in preflight.mjs) lets the orchestration stay pure and unit-testable.
+   */
+  preflightDeps(root, requirementId) {
+    return {
+      inspect: () => query.requirements(root),
+      runReview: () => {
+        const context = this.reviewContext(root, requirementId)
+        return runReview({ root, asset: context.asset, item: context.item, check: context.check, apply: true })
+      },
+      readAiReview: () => readAiReview(root, requirementId),
+      generateAiReview: async () => {
+        const context = this.reviewContext(root, requirementId)
+        return this.generateAiReview(root, context, {})
+      },
+      adoptAiReview: (report) => {
+        const ids = (report?.suggestions ?? []).map((entry) => entry.id).filter(Boolean)
+        return this.adoptStoredAiReview(root, requirementId, ids)
+      },
+      applyAcceptanceConfig: (commands) => this.applyAcceptanceConfig(root, requirementId, commands),
+      runAcceptance: () =>
+        runAcceptance({
+          root,
+          requirementId,
+          apply: true,
+          context: this.acceptanceContext(root, requirementId),
+        }),
+    }
+  }
+
+  async handlePreflight(root, requirementId, apply) {
+    const deps = this.preflightDeps(root, requirementId)
+    const record = await runPreflight({ root, requirementId, apply, deps })
+    const auditPath = writePreflightAudit(root, record)
+    return { ...record, auditPath }
+  }
+
   rehearsalContext(root, requirementId) {
     if (!requirementId) throw Object.assign(new Error('requirementId is required'), { status: 400, code: 'requirement-required' })
     const index = indexReport(root)
@@ -565,6 +691,26 @@ export default class RequirementsService {
         child.unref()
         payload = { ok: true, root: target, command }
       } else if (action === 'start') {
+        const items = query.requirements(root)?.requirements ?? []
+        const wanted = items.find((entry) => entry.id === body.requirementId)
+        if (!wanted) {
+          respond(404, { ok: false, error: { code: 'requirement-not-found', message: `需求不存在：${body.requirementId}` } })
+          return
+        }
+        const readiness = startReadiness(wanted)
+        if (body.apply === true && !readiness.ready && body.acknowledgeGaps !== true) {
+          respond(409, {
+            ok: false,
+            error: {
+              code: 'evidence-incomplete',
+              message: readiness.reasons?.join('；') || readiness.label,
+              state: readiness.state,
+              readinessCode: readiness.code,
+              reasons: readiness.gaps,
+            },
+          })
+          return
+        }
         payload = openChange({
           root,
           requirementIds: [body.requirementId],
@@ -573,6 +719,25 @@ export default class RequirementsService {
           isolate: body.isolate === true,
           worktreeRoot: body.worktreeRoot,
         })
+      } else if (action === 'preflight') {
+        payload = await this.handlePreflight(root, body.requirementId, body.apply === true)
+      } else if (action === 'remove') {
+        const context = this.removeContext(root, body.requirementId, body.file)
+        if (context.removed) {
+          payload = { schema: 'alm.requirement.remove/v1', requirement: body.requirementId, applied: true, alreadyRemoved: true, file: context.file }
+        } else {
+          payload =
+            body.apply === true
+              ? applyRemove({
+                  root,
+                  asset: context.asset,
+                  expectedBaseline: body.expectedBaseline,
+                  actor: body.actor ?? 'human:local',
+                  reason: body.reason,
+                  idempotencyKey: body.idempotencyKey,
+                })
+              : planRemove({ root, asset: context.asset, reason: body.reason })
+        }
       } else if (action === 'accept') {
         payload = runCi({ root, base: body.base })
       } else if (action === 'create') {
@@ -610,31 +775,7 @@ export default class RequirementsService {
           if (!stored) throw new AiReviewError('尚未生成 AI 评审', { code: 'no-ai-review', status: 404 })
           payload = stored
         } else if (body.apply === true) {
-          const stored = readAiReview(root, context.asset.id)
-          if (!stored) throw new AiReviewError('尚未生成 AI 评审', { code: 'no-ai-review', status: 404 })
-          const adopted = adoptAiReview({
-            root,
-            asset: context.asset,
-            report: stored,
-            selectedSuggestionIds: Array.isArray(body.selectedSuggestionIds) ? body.selectedSuggestionIds : [],
-          })
-          // Adoption changes the brief, so the gate-backed report is rebuilt for
-          // the new content before recording acceptance. Adopting a blocked
-          // report still records the suggestions but never counts as approval.
-          let accepted = null
-          try {
-            const after = this.reviewContext(root, body.requirementId)
-            const report = runReview({ root, asset: after.asset, item: after.item, check: after.check, apply: true })
-            accepted = acceptReview({
-              root,
-              asset: after.asset,
-              report,
-              suggestions: adopted.adopted?.suggestionIds ?? [],
-            })
-          } catch (error) {
-            accepted = { accepted: false, reason: error?.code ?? 'acceptance-failed', message: error?.message ?? String(error) }
-          }
-          payload = { ...adopted, accepted }
+          payload = this.adoptStoredAiReview(root, body.requirementId, body.selectedSuggestionIds)
         } else {
           payload = await this.generateAiReview(root, context, body)
         }
