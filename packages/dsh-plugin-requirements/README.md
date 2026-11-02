@@ -4,14 +4,15 @@
 
 | 项 | 内容 |
 |---|---|
-| 路由 | `GET /api/alm/requirements`、`/api/alm/projects`；写接口 `/api/alm/requirements/{start,accept,create,github,acceptance,review,signoff,diff,intake}` |
+| 路由 | `GET /api/alm/requirements`、`/api/alm/projects`；写接口 `/api/alm/requirements/{preflight,start,accept,create,github,acceptance,review,signoff,diff,intake,remove}` |
 | 页面路由 | `GET /alm/requirements` → 只读 HTML（免 token，可直接在浏览器打开） |
 | 工具 | `alm_requirements [root]` |
 | 页面 | 侧边栏「需求」图标 / Settings → Requirements；`main` 面板 key `requirements` |
 | 数据 | 复用 `alm-core` 的 index + check；缺口来自 COV-001/COV-002 |
 | 项目空间 | 项目列表 = DSH 工作区（剔除默认工作区），每个工作区可关联 GitHub 仓库（`.alm/project.json`） |
-| 变更 / 验收 | 开始开发可登记变更或创建隔离 worktree；需求级验收命令与证据见 `.alm/acceptance/` |
-| 评审 / 版本 | `.alm/reviews/<REQ>.json` 门禁报告 + 人工签收；`.alm/reviews/<REQ>.ai.json` AI 评审（评审意见/建议/方案可采纳到 brief）；版本快照/字段 diff |
+| 变更 / 验收 | `POST /api/alm/requirements/preflight` 先跑 AI preflight（自动补评审、登记并执行验收，失败项作为 carry-over 带入开发），再 `start` 登记变更或创建隔离 worktree；过程写入 `.alm/preflight/<REQ>/`，验收证据见 `.alm/acceptance/` |
+| 列表 / 删除 | 列表只展示项目 `requirementRoot` 内的需求（测试 fixture 不再混入）；`archive` 保留记录并移出活跃列表，`remove` 从仓库移除记录，删除前把原文与基线写入 `.alm/audit/requirements/`（客户端入口随后续 PR 接入） |
+| 评审 / 版本 | `.alm/reviews/<REQ>.json` 门禁报告 + 人工签收；`.alm/reviews/<REQ>.ai.json` AI 评审（评审意见/建议/方案可采纳到 brief；采纳即评审通过）；版本快照/字段 diff |
 | 入库 | 新建向导支持口语 / 截图本地 OCR / 聊天记录；AI 自动生成标题、背景、优先级（责任人默认张浩），附件归档到 `requirements/attachments/` |
 
 ## 打开页面

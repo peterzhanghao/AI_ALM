@@ -26,6 +26,17 @@ const NEXT = {
   done: '已完成',
 }
 
+/**
+ * Requirement roots are stored as repo-relative paths (`.alm/project.json`).
+ * Accept backslashes and a leading `./` so hand-written configs keep working;
+ * an empty value means "whole repository" (legacy fixture projects).
+ */
+function normaliseRoot(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '')
+  return normalized === '' || normalized === '.' ? null : normalized
+}
+
 function attachmentFiles(root, id) {
   const file = join(root, 'requirements', 'attachments', id, 'manifest.json')
   if (!existsSync(file)) return []
@@ -411,9 +422,19 @@ export function requirements(root) {
   } catch {
     headSha = null
   }
+  // Requirements belong to the project's declared requirement root. Scanning
+  // the whole repository would surface test fixtures (`fixtures/negative/*`)
+  // as editable requirements, so a record deleted through the plugin would
+  // reappear from a fixture file the user never meant to manage.
+  const requirementRoot = normaliseRoot(project?.requirementRoot) ?? (existsSync(join(root, 'requirements')) ? 'requirements' : null)
+  const belongsToProject = (asset) => {
+    if (!requirementRoot) return true
+    const file = String(asset?.source?.path ?? '').replaceAll('\\', '/')
+    return file === requirementRoot || file.startsWith(`${requirementRoot}/`)
+  }
+  const requirementAssets = assets.filter((asset) => asset.type === 'requirement' && belongsToProject(asset))
   const versionCache = new Map()
-  const items = assets
-    .filter((asset) => asset.type === 'requirement')
+  const items = requirementAssets
     .map((asset) => {
       const verifiedBy = asset.links.filter((link) => link.type === 'verified_by').map((link) => link.target)
       const extra = asset.extra ?? {}
