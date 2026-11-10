@@ -13,11 +13,12 @@ const STYLE = `
   .summary { color: #9da7b3; margin: 0 0 20px; }
   .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #1f6feb33; color: #79c0ff; font-size: 12px; }
   .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  table { width: 100%; table-layout: fixed; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
   th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #21262d; vertical-align: top; }
   th { color: #9da7b3; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: #12171e; }
   tr:last-child td { border-bottom: none; }
   td div { margin-top: 3px; }
+  .requirement-title { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   code { font: 12px/1.4 "Cascadia Code", Consolas, monospace; color: #c9d1d9; background: #21262d; padding: 1px 5px; border-radius: 4px; }
   .muted { color: #8b949e; }
   .ok { color: #3fb950; }
@@ -122,7 +123,7 @@ export function renderRequirementsPage(payload, options = {}) {
         .map(
           (item) => `<tr>
         <td><code>${escapeHtml(item.id)}</code></td>
-        <td>${escapeHtml(item.title)}</td>
+        <td class="requirement-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</td>
         <td>${escapeHtml(item.statusLabel ?? item.status)}</td>
         <td>${escapeHtml(item.owner)}</td>
         <td>${decisionCell(item)}</td>
@@ -188,4 +189,4 @@ export function renderRequirementsPage(payload, options = {}) {
   <p class="muted">Read-only · root <code>${escapeHtml(payload.root)}</code></p>
   ${options.sidebarUrl ? `<p class="muted">Sidebar browser: <code>${escapeHtml(options.sidebarUrl)}</code> — DSH blocks its own host, so use this port.</p>` : ''}
 </div></body></html>`
-}
+}

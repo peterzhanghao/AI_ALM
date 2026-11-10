@@ -89,7 +89,15 @@ export {
   setInput,
 } from './session.mjs'
 
-export { applyAnalysis, effectiveCandidate, effectiveRoute, effectiveValue, normalizeAnalysis } from './analysis.mjs'
+export {
+  MANUAL_TITLE_FIELD,
+  applyAnalysis,
+  effectiveCandidate,
+  effectiveRoute,
+  effectiveValue,
+  hasManualTitle,
+  normalizeAnalysis,
+} from './analysis.mjs'
 
 export {
   READINESS_CODES,
@@ -114,4 +122,4 @@ export {
 
 export { SESSION_VIEW_SCHEMA, renderSessionView } from './view.mjs'
 
-export { migrateIntentStore } from './migrate.mjs'
+export { migrateIntentStore } from './migrate.mjs'

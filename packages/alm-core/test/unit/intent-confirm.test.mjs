@@ -132,6 +132,26 @@ test('create 去向：写需求草稿、回执与审计，会话提交', (t) => 
   assert.equal(reloaded.confirmation.contentHash, result.receipt.contentHash)
 })
 
+test('create 去向：长候选标题自动精简且原始标题保留在正文', (t) => {
+  const original = '我希望需求列表里的长篇用户诉求能够自动变成简洁标题，同时完整原话仍然可在需求正文中查看'
+  const { root, context, session } = stage(t, { items: [makeItem({ candidate: makeCandidate({ title: original }) })] })
+  const result = confirmIntent({
+    root,
+    sessionId: session.sessionId,
+    confirmation: confirmationFor(session, context),
+    actor: 'human:tester',
+    idempotencyKey: 'key-create-long-title',
+  })
+  const requirement = result.artifacts.find((entry) => entry.kind === 'requirement')
+  const sdoc = readFileSync(join(root, requirement.path), 'utf8')
+  const brief = readFileSync(join(root, 'requirements/briefs/REQ-PAY-005.md'), 'utf8')
+  const title = /^TITLE: (.+)$/m.exec(sdoc)?.[1] ?? ''
+  assert.ok(title.length <= 28)
+  assert.notEqual(title, original)
+  assert.match(brief, /## 原始诉求/)
+  assert.ok(brief.includes(original))
+})
+
 test('change 去向：只写变更草稿，绝不修改正式需求', (t) => {
   const { root, context, session } = stage(t, {
     items: [
@@ -381,4 +401,4 @@ test('写入失败返回 appliedArtifacts + journal；同键重试可恢复且�
   const created = requirementFiles(root).filter((name) => name === 'req-pay-005.sdoc')
   assert.equal(created.length, 1)
   assert.equal(loadSession({ root, sessionId: session.sessionId }).state, 'committed')
-})
+})

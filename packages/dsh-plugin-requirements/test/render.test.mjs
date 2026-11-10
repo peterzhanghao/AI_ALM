@@ -96,6 +96,15 @@ test('requirements page renders the table, decision, coverage and gaps', () => {
   assert.match(html, /check pass/)
 })
 
+test('server list keeps long titles to one line while exposing the exact full title on hover', () => {
+  const title = '这是一个足够长、需要在服务端需求列表中单行截断但仍可完整悬停查看的需求标题'
+  const html = renderRequirementsPage({ ...payload, requirements: [{ ...payload.requirements[0], title }] })
+  assert.match(html, /table-layout: fixed/)
+  assert.match(html, /\.requirement-title \{ max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/)
+  assert.match(html, new RegExp(`class="requirement-title" title="${title}"`))
+  assert.match(html, new RegExp(`>${title}<`))
+})
+
 test('decision state and next step are always rendered as text', () => {
   const html = renderRequirementsPage(payload)
   assert.match(html, /未检查/)
@@ -217,4 +226,4 @@ test('empty payload renders the start-here guidance', () => {
   assert.match(html, /Start here/)
   assert.match(html, /fixtures\/order-refund/)
   assert.match(html, /没有数据异常/)
-})
+})

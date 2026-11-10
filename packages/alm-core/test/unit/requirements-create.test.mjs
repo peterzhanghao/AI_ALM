@@ -39,6 +39,19 @@ test('planRequirement picks the next id and returns file content without writing
   assert.ok(!existsSync(join(root, plan.file)))
 })
 
+test('long creation title is shortened while the full original stays in the brief', () => {
+  const root = makeRepo()
+  const original = '我希望在需求列表中展示一个足够简洁的标题，并且完整保留用户输入的原始业务诉求，避免信息丢失'
+  const plan = planRequirement({ root, title: original })
+  assert.ok(plan.title.length <= 28)
+  assert.notEqual(plan.title, original)
+  assert.equal(plan.originalTitle, original)
+  assert.equal(plan.titleGenerated, true)
+  assert.match(plan.content, new RegExp(`TITLE: ${plan.title}`))
+  assert.match(plan.briefContent, /## 原始诉求/)
+  assert.ok(plan.briefContent.includes(original))
+})
+
 test('createRequirement apply writes the sdoc and brief and reports gate state', () => {
   const root = makeRepo()
   const result = createRequirement({ root, title: '退款状态对账', brief: '每天对账退款状态', apply: true })
@@ -123,4 +136,4 @@ test('createRequirement rejects sdoc injection through title and owner', () => {
     (error) => error.code === 'invalid-owner',
   )
   assert.ok(!existsSync(join(root, 'requirements/req-pay-005.sdoc')))
-})
+})
