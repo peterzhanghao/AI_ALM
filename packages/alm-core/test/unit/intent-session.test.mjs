@@ -134,7 +134,13 @@ test('会话：setEdits 以 human 来源记录人工修改（不被后续 AI 覆
   const edited = setEdits({ session, edits: [{ itemId: 'ITM-01', field: 'candidate.title', value: '支持退款幂等键' }] })
   assert.equal(edited.items[0].fields['candidate.title'].value, '支持退款幂等键')
   assert.equal(edited.items[0].fields['candidate.title'].source, 'human')
+  assert.equal(edited.items[0].fields['candidate.title'].manual, true)
   assert.ok(edited.items[0].fields['candidate.title'].at)
+
+  const root = makeRepo(t)
+  const persisted = saveSession({ root, session: edited })
+  const reloaded = loadSession({ root, sessionId: persisted.sessionId })
+  assert.equal(reloaded.items[0].fields['candidate.title'].manual, true, 'manual title marker must survive persistence')
 })
 
 test('会话：cancel 后不可再修改；committed 会话拒绝 setInput', (t) => {
@@ -171,4 +177,4 @@ test('会话：损坏/未知 schema 的会话不会被静默当作新会话', (t
     () => loadSession({ root, sessionId: session.sessionId }),
     (error) => error instanceof IntentError && error.code === 'invalid-session',
   )
-})
+})

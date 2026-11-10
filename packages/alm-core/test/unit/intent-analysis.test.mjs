@@ -14,6 +14,7 @@ import {
   createSession,
   effectiveCandidate,
   effectiveRoute,
+  hasManualTitle,
   normalizeAnalysis,
 } from '../../src/intent/index.mjs'
 
@@ -269,6 +270,42 @@ test('applyAnalysis 按 itemId 合并，人工编辑优先并记录冲突', (t) 
   assert.equal(next.state, 'ready_for_confirmation')
 })
 
+test('explicit manual title marker survives auto-title rewrites and records the competing model title', (t) => {
+  const root = makeRepo(t)
+  const { session, context } = makeSession(root)
+  const { analysis } = normalizeAnalysis(
+    rawAnalysis(context, [
+      {
+        itemId: 'ITM-1',
+        recommendedRoute: 'create',
+        candidate: { title: '自动重写标题', problem: '新问题', acceptance: [{ action: 'a', expected: 'b' }] },
+      },
+    ]),
+    { session, context },
+  )
+  const base = {
+    ...session,
+    items: [
+      {
+        itemId: 'ITM-1',
+        recommendedRoute: 'create',
+        candidate: { title: '旧自动标题', problem: '旧问题', acceptance: [] },
+        fields: {
+          'candidate.title': { value: '人工锁定标题', manual: true, at: '2026-11-10T00:00:00.000Z' },
+        },
+      },
+    ],
+  }
+
+  const next = applyAnalysis({ session: base, analysis, runId: 'RUN-title-rewrite' })
+  const field = next.items[0].fields['candidate.title']
+  assert.equal(hasManualTitle(next.items[0]), true)
+  assert.equal(effectiveCandidate(next.items[0]).title, '人工锁定标题')
+  assert.equal(field.manual, true)
+  assert.equal(field.conflict.value, '自动重写标题')
+  assert.ok(next.analysisMeta.warnings.some((warning) => warning.includes('candidate.title')))
+})
+
 test('applyAnalysis 拒绝陈旧输入与陈旧上下文', (t) => {
   const root = makeRepo(t)
   const { session, context } = makeSession(root)
@@ -421,4 +458,4 @@ test('系统提示词对可回答的使用类提问优先 answer（INT-07）', (
   assert.equal(messages[0].role, 'system')
   assert.ok(messages[0].content.includes(INTENT_SYSTEM_PROMPT))
   assert.ok(messages[0].content.includes('route=answer'))
-})
+})

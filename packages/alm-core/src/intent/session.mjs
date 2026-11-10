@@ -312,7 +312,12 @@ export function setEdits({ root, session, edits, now } = {}) {
     const item = next.items.find((entry) => entry.itemId === itemId)
     if (!item) throw intentError('invalid-request', `未知条目：${itemId}`)
     item.fields = item.fields && typeof item.fields === 'object' ? item.fields : {}
-    item.fields[field] = { value: edit.value ?? null, source: 'human', at: nowIso(now) }
+    item.fields[field] = {
+      value: edit.value ?? null,
+      source: 'human',
+      ...(field === 'candidate.title' ? { manual: true } : {}),
+      at: nowIso(now),
+    }
   }
   next.updatedAt = nowIso(now)
   if (root) return saveSession({ root, session: next })
@@ -405,4 +410,4 @@ export function routeOfSession(session) {
   return item?.recommendedRoute && ROUTES.includes(item.recommendedRoute) ? item.recommendedRoute : null
 }
 
-export { ANALYSIS_SCHEMA, INTENT_SCHEMA, INTENT_SCHEMA_VERSION }
+export { ANALYSIS_SCHEMA, INTENT_SCHEMA, INTENT_SCHEMA_VERSION }

@@ -1084,7 +1084,7 @@ window.__ModuleLoader__.load({
               : code === 'coverage-incomplete'
                 ? '评审视角不全'
                 : code === 'acceptance-missing'
-                  ? '未登记验收命令'
+                  ? '待补充验收'
                   : code === 'acceptance-not-run'
                     ? '验收尚未执行'
                     : decision.topGap?.message ?? null
@@ -1104,7 +1104,7 @@ window.__ModuleLoader__.load({
       if (decision.state === 'failed') return { label: '重跑验收', icon: 'flask', run: () => onAcceptance(item) }
       if (decision.state === 'stale') return { label: '重新验收', icon: 'flask', run: () => onAcceptance(item) }
       if (decision.state === 'unchecked') {
-        if (code === 'acceptance-missing') return { label: '登记验收', icon: 'flask', run: () => onAcceptance(item) }
+        if (code === 'acceptance-missing') return { label: '补充验收', icon: 'flask', run: () => onAcceptance(item) }
         if (code === 'acceptance-not-run') return { label: '运行验收', icon: 'flask', run: () => onAcceptance(item) }
         if (code === 'review-not-run' || code === 'review-not-accepted' || code === 'coverage-incomplete') {
           return { label: '运行评审', icon: 'sparkles', run: () => onAiReview(item) }
@@ -1228,7 +1228,7 @@ window.__ModuleLoader__.load({
                 onMouseLeave: () => setHover(false),
                 onFocus: () => setHover(true),
                 onBlur: () => setHover(false),
-                title: `打开需求：${item.title}`,
+                title: item.title,
                 style: {
                   display: 'block',
                   minWidth: 0,
@@ -2057,7 +2057,7 @@ window.__ModuleLoader__.load({
                         : h('span', { style: muted }, '尚未运行'),
                     ),
                   )
-                : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令（.alm/acceptance/<REQ>.json，白名单 node / npm / pnpm）。'),
+                : h('p', { style: { margin: 0, ...muted } }, '尚未补充验收；请先添加验收项，再运行验收。'),
               h(AcceptanceProvenance, { latest: item.acceptance?.latest }),
             ),
           ),
@@ -2273,7 +2273,7 @@ window.__ModuleLoader__.load({
                         ? ` · 最近 ${item.acceptance.latest.result}${item.acceptance.latest.current ? '（当前提交）' : '（历史提交）'}${item.acceptance.latest.complete === false ? ' · 来源不完整' : ''}`
                         : ' · 尚未运行',
                     )
-                  : h('p', { style: { margin: 0, ...muted } }, '未登记验收命令。'),
+                  : h('p', { style: { margin: 0, ...muted } }, '尚未补充验收；请先添加验收项，再运行验收。'),
                 h(AcceptanceProvenance, { latest: item.acceptance?.latest }),
               ),
               h(Section, { title: '版本历史' }, h(VersionList, { item, onSnapshot, onDiff, compact: true })),
@@ -7334,4 +7334,4 @@ window.__ModuleLoader__.load({
       },
     }
   },
-})
+})

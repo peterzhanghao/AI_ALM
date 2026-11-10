@@ -6,6 +6,9 @@ import { readProject } from '../project/project.mjs'
 
 const ID = /^REQ-[A-Z0-9]{2,8}-\d{3}$/
 const PRIORITIES = new Set(['P0', 'P1', 'P2'])
+export const AUTO_TITLE_THRESHOLD = 28
+const AUTO_TITLE_MAX_LENGTH = 28
+const TITLE_PREFIX = /^(?:我(?:想|希望|需要|要)|请(?:帮我|协助|支持)?|帮我|希望(?:能够)?|需要(?:能够)?|能否|麻烦(?:你)?|关于)/
 
 export class RequirementCreateError extends Error {
   constructor(message, { code = 'requirement-create', status = 400 } = {}) {
@@ -27,6 +30,24 @@ export function nextRequirementId({ root, projectId }) {
     if (Number.isInteger(value)) max = Math.max(max, value)
   }
   return `${prefix}${String(max + 1).padStart(3, '0')}`
+}
+
+/**
+ * Generate a compact, deterministic display title when the supplied source
+ * text is too long for a requirement list. The original text belongs in the
+ * brief, so this function never discards it.
+ */
+export function conciseTitle(title) {
+  const source = String(title ?? '').trim()
+  if (source.length <= AUTO_TITLE_THRESHOLD) return source
+  const withoutPrefix = source.replace(TITLE_PREFIX, '').trim() || source
+  const sentence = withoutPrefix.split(/[。！？!?；;\n]/, 1)[0].trim() || withoutPrefix
+  if (sentence.length <= AUTO_TITLE_MAX_LENGTH) return sentence
+  return `${sentence.slice(0, AUTO_TITLE_MAX_LENGTH - 1).trimEnd()}…`
+}
+
+function originalRequestMarkdown(originalTitle, title) {
+  return originalTitle === title ? '' : `\n\n## 原始诉求\n\n${originalTitle}\n`
 }
 
 function sdocContent({ id, title, owner, project, priority, briefFile }) {
@@ -52,17 +73,18 @@ function sdocContent({ id, title, owner, project, priority, briefFile }) {
   ].join('\n')
 }
 
-function briefMarkdown({ id, title, brief, goal }) {
+function briefMarkdown({ id, title, brief, goal, originalTitle }) {
+  const originalRequest = originalRequestMarkdown(originalTitle, title)
   return [
     `# ${id} ${title}`,
     '',
     '## 背景',
     '',
     brief || '（待补充背景）',
-    '',
+    originalRequest,
     '## 目标',
     '',
-    goal || brief || '（待补充目标）',
+    goal || brief || originalTitle || '（待补充目标）',
     '',
   ].join('\n')
 }
@@ -74,14 +96,15 @@ function briefMarkdown({ id, title, brief, goal }) {
  */
 export function planRequirement({ root, title, brief = '', goal = '', priority = 'P1', owner, project, id, attachments = [], apply = false }) {
   const repo = resolve(root)
-  const cleanTitle = String(title ?? '').trim()
-  if (cleanTitle === '') throw new RequirementCreateError('title is required', { code: 'title-required' })
+  const originalTitle = String(title ?? '').trim()
+  if (originalTitle === '') throw new RequirementCreateError('title is required', { code: 'title-required' })
   // User material and AI output are untrusted: a newline in a single-line sdoc
   // field could inject a field or a [RELATION] block into the file.
-  if (/[\u0000-\u001F\u007F]/.test(cleanTitle)) {
+  if (/[\u0000-\u001F\u007F]/.test(originalTitle)) {
     throw new RequirementCreateError('title must not contain control characters or newlines', { code: 'invalid-title' })
   }
-  if (cleanTitle.length > 200) throw new RequirementCreateError('title is too long (max 200)', { code: 'title-too-long' })
+  if (originalTitle.length > 200) throw new RequirementCreateError('title is too long (max 200)', { code: 'title-too-long' })
+  const cleanTitle = conciseTitle(originalTitle)
   if (!PRIORITIES.has(priority)) throw new RequirementCreateError(`invalid priority: ${priority}`, { code: 'invalid-priority' })
   const cleanOwner = owner === undefined || owner === null ? '' : String(owner).trim()
   if (/[\u0000-\u001F\u007F]/.test(cleanOwner)) {
@@ -112,12 +135,14 @@ export function planRequirement({ root, title, brief = '', goal = '', priority =
     requirementId,
     project: projectId,
     title: cleanTitle,
+    originalTitle,
+    titleGenerated: originalTitle !== cleanTitle,
     priority,
     owner: ownerId,
     file,
     briefFile,
     content: sdocContent({ id: requirementId, title: cleanTitle, owner: ownerId, project: projectId, priority, briefFile }),
-    briefContent: briefMarkdown({ id: requirementId, title: cleanTitle, brief, goal }),
+    briefContent: briefMarkdown({ id: requirementId, title: cleanTitle, brief, goal, originalTitle }),
     attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
     attachmentNames: Array.isArray(attachments) ? attachments.map((entry) => String(entry?.name ?? '')).filter(Boolean) : [],
     applied: false,
@@ -188,4 +213,4 @@ export function createRequirement({ root, ...input }) {
     check: { result: check.result ?? 'fail', gaps: gaps.length },
     attachments: attachmentFiles,
   }
-}
+}

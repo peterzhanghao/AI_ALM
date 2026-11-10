@@ -554,17 +554,32 @@ export function effectiveRoute(item) {
 }
 
 const CANDIDATE_FIELD_KEYS = ['title', 'problem', 'goal', 'inScope', 'outOfScope', 'acceptance']
+export const MANUAL_TITLE_FIELD = 'candidate.title'
+
+/**
+ * A manual title is durable session state, not merely the current model value.
+ * `source: human` is retained for sessions written before the explicit marker.
+ */
+export function hasManualTitle(item) {
+  const title = item?.fields?.[MANUAL_TITLE_FIELD]
+  return title?.manual === true || title?.source === 'human'
+}
+
+function isHumanOverride(field, override) {
+  return override?.source === 'human' || (field === MANUAL_TITLE_FIELD && override?.manual === true)
+}
 
 /** Effective candidate: layer `item.fields['candidate.*']` human edits on top. */
 export function effectiveCandidate(item) {
   const base = item?.candidate ? clone(item.candidate) : null
   const fields = item?.fields ?? {}
-  const hasOverride = CANDIDATE_FIELD_KEYS.some((key) => fields[`candidate.${key}`]?.source === 'human')
+  const hasOverride = CANDIDATE_FIELD_KEYS.some((key) => isHumanOverride(`candidate.${key}`, fields[`candidate.${key}`]))
   if (!base && !hasOverride) return null
   const out = base ?? { title: null, problem: null, goal: null, inScope: [], outOfScope: [], acceptance: [], owner: null, priority: null }
   for (const key of CANDIDATE_FIELD_KEYS) {
-    const override = fields[`candidate.${key}`]
-    if (override && override.source === 'human') out[key] = override.value
+    const field = `candidate.${key}`
+    const override = fields[field]
+    if (isHumanOverride(field, override)) out[key] = override.value
   }
   if (out.owner && out.owner !== null) out.owner = null
   if (out.priority && out.priority !== null) out.priority = null
@@ -614,7 +629,7 @@ export function applyAnalysis({ session, analysis, model, runId, inputRevision, 
     } else {
       const mergedItem = { ...target, ...incoming, fields: clone(target.fields ?? {}) }
       for (const [field, override] of Object.entries(mergedItem.fields)) {
-        if (override?.source !== 'human') continue
+        if (!isHumanOverride(field, override)) continue
         const incomingValue = field.startsWith('candidate.')
           ? incoming.candidate?.[field.slice('candidate.'.length)]
           : incoming[field]
@@ -658,4 +673,4 @@ export function applyAnalysis({ session, analysis, model, runId, inputRevision, 
   }
   next.updatedAt = next.analysisMeta.appliedAt
   return next
-}
+}
