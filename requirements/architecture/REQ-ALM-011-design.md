@@ -5,12 +5,10 @@
 - 核心业务目标：解决需求列表第一列因直接展示用户长篇口语原话导致排版臃肿，以及“未登记验收命令 / 登记验收”对非技术用户认知负担过重的问题。
 
 ## 架构与模块变更
+- `requirements/req-alm-011.sdoc`：需求规格与工程资产
 - `requirements/briefs/REQ-ALM-011.md`：需求规格与工程资产
-- `packages/dsh-plugin-requirements/intent.mjs`：DSH 插件接口与用户视图
-- `packages/dsh-plugin-requirements/render.mjs`：DSH 插件接口与用户视图
-- `packages/dsh-plugin-requirements/client-source.js`：DSH 插件接口与用户视图
-- `packages/dsh-plugin-requirements/test/clarification-ui.test.mjs`：DSH 插件接口与用户视图
-- `packages/dsh-plugin-requirements/test/intent-http.test.mjs`：DSH 插件接口与用户视图
+- `requirements/architecture/REQ-ALM-011-design.md`：需求规格与工程资产
+- `packages/dsh-plugin-requirements/index.js`：DSH 插件接口与用户视图
 
 调用关系：需求规格与验收标准 → 领域实现与插件交互 → 定向验证证据 → 交付候选。
 
@@ -24,4 +22,4 @@
 - AC-03：将列表操作列文案优化为符合当前阶段的状态动作，隐藏非必要的底层命令术语。
 - AC-04：用户手动修改需求标题后，触发 AI 自动提炼、重新解析原始输入或其他自动标题生成流程，标题不得被自动内容覆盖。
 - AC-05：未手动修改标题的需求，仍可在创建或意图提取时按超过 28 个字符自动提炼标题的规则正常生成短标题。
-- 最近验证：通过
+- 最近验证：通过 · 证据：`.alm/acceptance/REQ-ALM-011/50cbcb2b7d8272c1765df58714980d9d288b544f.json`
