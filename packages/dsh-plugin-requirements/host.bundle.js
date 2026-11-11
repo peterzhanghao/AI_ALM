@@ -12244,7 +12244,7 @@ function git3(root, args, { allowFailure = false } = {}) {
 }
 function gitClean(root) {
   const localRuntime = /^(?:\.alm\/|artifacts\/|validation\/)/;
-  return git3(root, ["status", "--porcelain", "--untracked-files=all"]).split(/\r?\n/).filter(Boolean).every((line) => !localRuntime.test(line.slice(3).replaceAll("\\", "/")));
+  return git3(root, ["status", "--porcelain", "--untracked-files=all"]).split(/\r?\n/).filter(Boolean).every((line) => localRuntime.test(line.slice(3).replaceAll("\\", "/")));
 }
 function gitIntegrationFailure(base, reason2) {
   return { ...base, pushedToMain: false, reason: reason2 };

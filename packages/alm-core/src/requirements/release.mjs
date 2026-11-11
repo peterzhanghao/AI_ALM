@@ -43,7 +43,7 @@ function gitClean(root) {
   return git(root, ['status', '--porcelain', '--untracked-files=all'])
     .split(/\r?\n/)
     .filter(Boolean)
-    .every((line) => !localRuntime.test(line.slice(3).replaceAll('\\', '/')))
+    .every((line) => localRuntime.test(line.slice(3).replaceAll('\\', '/')))
 }
 
 function gitIntegrationFailure(base, reason) {
