@@ -7,11 +7,13 @@ import { fileURLToPath } from 'node:url'
 
 import {
   IntentError,
+  buildAnalysisMessages,
   cancelSession,
   createSession,
   listSessions,
   loadSession,
   recordAnswer,
+  renderSessionView,
   saveSession,
   setEdits,
   setInput,
@@ -118,6 +120,15 @@ test('会话：setInput 让 inputRevision +1 并清空派生建议、保留回�
   assert.equal(next.input.explicit.priority, 'P0')
   const reloaded = loadSession({ root, sessionId: session.sessionId })
   assert.equal(reloaded.input.inputRevision, 2)
+  assert.equal(renderSessionView(reloaded).answers.length, 0)
+  assert.equal(renderSessionView(reloaded).answerHistoryCount, 1)
+  assert.equal(renderSessionView(reloaded).historicalAnswers[0].text, '同一订单')
+  assert.equal(renderSessionView(reloaded).historicalAnswers[0].inputRevision, 1)
+  assert.doesNotMatch(JSON.stringify(buildAnalysisMessages({ session: reloaded, context: reloaded.context })), /同一订单/)
+  const repeated = recordAnswer({ root, session: reloaded, answer: { questionId: 'Q-1', optionId: 'O1', text: '同一订单' } })
+  assert.equal(repeated.answers.length, 2)
+  assert.equal(repeated.answers[1].inputRevision, 2)
+  assert.equal(renderSessionView(repeated).answers.length, 1)
 })
 
 test('会话：setEdits 以 human 来源记录人工修改（不被后续 AI 覆盖的载体）', (t) => {
@@ -134,6 +145,7 @@ test('会话：setEdits 以 human 来源记录人工修改（不被后续 AI 覆
   const edited = setEdits({ session, edits: [{ itemId: 'ITM-01', field: 'candidate.title', value: '支持退款幂等键' }] })
   assert.equal(edited.items[0].fields['candidate.title'].value, '支持退款幂等键')
   assert.equal(edited.items[0].fields['candidate.title'].source, 'human')
+  assert.equal(edited.sessionRevision, 2)
   assert.ok(edited.items[0].fields['candidate.title'].at)
 })
 

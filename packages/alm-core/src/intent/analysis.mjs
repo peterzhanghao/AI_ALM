@@ -9,11 +9,15 @@
  */
 import {
   ANALYSIS_SCHEMA,
+  ANALYSIS_SCHEMA_V2,
+  BLOCKING_FOR,
   MATCHES,
   RESOLUTIONS,
   ROUTES,
+  UNKNOWN_KINDS,
   intentError,
 } from './errors.mjs'
+import { DOC_SCHEMA, docHashOf, normalizeDoc, renderDoc } from '../requirements/doc.mjs'
 import {
   asString,
   canonicalJson,
@@ -25,7 +29,15 @@ import {
   truncateText,
 } from './util.mjs'
 
-const TOP_KEYS = new Set(['schemaVersion', 'contextSnapshotId', 'items', 'nextQuestion'])
+export const ANALYSIS_SCHEMA_V3 = 'intent-review.v3'
+export const DOC_DRAFT_SCHEMA = 'alm.requirement.doc.draft/v1'
+const PROVENANCES = new Set(['user-stated', 'user-answer', 'human-edit', 'verified-context', 'ai-suggestion', 'unconfirmed'])
+const LOCKED_KINDS = new Set(['feature', 'acceptance', 'goal', 'scope'])
+const MAX_DRAFT_FEATURES = 40
+const MAX_DRAFT_ACCEPTANCE = 40
+const MAX_DRAFT_PENDING = 40
+
+const TOP_KEYS = new Set(['schemaVersion', 'contextSnapshotId', 'items', 'nextQuestion', 'questions', 'docDraft'])
 const ITEM_KEYS = new Set([
   'itemId',
   'sourceRefs',
@@ -52,10 +64,14 @@ const CANDIDATE_KEYS = new Set([
 ])
 const ACCEPTANCE_KEYS = new Set(['precondition', 'action', 'expected', 'judgement', 'sourceRefs'])
 const QUESTION_KEYS = new Set(['questionId', 'itemIds', 'text', 'whyNow', 'options', 'allowFreeText'])
+const QUESTION_V2_KEYS = new Set([...QUESTION_KEYS, 'decisionId', 'impact', 'dependsOn', 'materiality', 'recommendedOptionId'])
+const UNKNOWN_KEYS = new Set(['description', 'blocking', 'resolution', 'kind', 'blockingFor'])
 const OPTION_KEYS = new Set(['id', 'label', 'impact'])
 const MAX_ITEMS = 20
 const MAX_OPTIONS = 3
 const MAX_TEXT = 4000
+const MAX_QUESTIONS = 3
+const MAX_GROUP_QUESTIONS = 12
 
 /**
  * Model-authored prose is untrusted markup: strip HTML/script/style tags and
@@ -282,6 +298,9 @@ function normalizeUnknown(entry, path, warnings) {
     warnings.push(`${path}: 非对象 unknown 已丢弃`)
     return null
   }
+  for (const key of Object.keys(entry)) {
+    if (!UNKNOWN_KEYS.has(key)) warnings.push(`${path}.${key}: 未知字段已丢弃`)
+  }
   const description = cleanModelText(entry.description, { max: 500, field: 'unknown.description', path: `${path}.description`, warnings })
   if (description === '') {
     warnings.push(`${path}: 缺少 description 的 unknown 已丢弃`)
@@ -291,10 +310,20 @@ function normalizeUnknown(entry, path, warnings) {
   if (!RESOLUTIONS.includes(resolution)) {
     warnings.push(`${path}: 未知 resolution ${resolution}，已按 pending 处理`)
   }
+  const kind = cleanLine(entry.kind, { max: 40, field: 'unknown.kind' }) || null
+  if (kind !== null && !UNKNOWN_KINDS.includes(kind)) {
+    warnings.push(`${path}: 未知 kind ${kind}，已忽略（允许 ${UNKNOWN_KINDS.join('/')}）`)
+  }
+  const blockingFor = cleanLine(entry.blockingFor, { max: 20, field: 'unknown.blockingFor' }) || 'confirmation'
+  if (!BLOCKING_FOR.includes(blockingFor)) {
+    warnings.push(`${path}: 未知 blockingFor ${blockingFor}，已按 confirmation 处理`)
+  }
   return {
     description,
     blocking: entry.blocking === true,
     resolution: RESOLUTIONS.includes(resolution) ? resolution : 'pending',
+    kind: kind !== null && UNKNOWN_KINDS.includes(kind) ? kind : null,
+    blockingFor: BLOCKING_FOR.includes(blockingFor) ? blockingFor : 'confirmation',
   }
 }
 
@@ -417,11 +446,544 @@ function normalizeQuestion(question, existingItems, warnings) {
   }
 }
 
+function isoNow(now) {
+  return now ? new Date(now).toISOString() : new Date().toISOString()
+}
+
+function derivedDecisionId(questionId, text) {
+  return `DEC-${sha256Hex(`${questionId}|${text}`).slice(0, 10)}`
+}
+
+/** Project a v2 question into the legacy single-question shape. */
+function legacyQuestionShape(question) {
+  return {
+    questionId: question.questionId,
+    itemIds: [...(question.itemIds ?? [])],
+    text: question.text,
+    whyNow: question.whyNow ?? null,
+    options: clone(question.options ?? []),
+    allowFreeText: question.allowFreeText !== false,
+  }
+}
+
+/** Wrap a legacy single question as a v2 question (v1 output compatibility). */
+function questionFromLegacy(question) {
+  if (!question) return null
+  return {
+    questionId: question.questionId,
+    decisionId: derivedDecisionId(question.questionId, question.text),
+    itemIds: [...(question.itemIds ?? [])],
+    text: question.text,
+    whyNow: question.whyNow ?? null,
+    impact: null,
+    materiality: 'major',
+    recommendedOptionId: null,
+    options: clone(question.options ?? []),
+    allowFreeText: question.allowFreeText !== false,
+    dependsOn: [],
+    status: 'open',
+    staleReason: null,
+    analysisRunId: null,
+  }
+}
+
+function normalizeQuestionV2(question, existingItems, path, warnings) {
+  if (!isPlainObject(question)) {
+    warnings.push(`${path}: 必须是对象，已丢弃`)
+    return null
+  }
+  for (const key of Object.keys(question)) {
+    if (!QUESTION_V2_KEYS.has(key)) warnings.push(`${path}.${key}: 未知字段已丢弃`)
+  }
+  const text = cleanModelText(question.text, { max: 1000, field: `${path}.text`, path: `${path}.text`, warnings })
+  if (text === '') {
+    warnings.push(`${path} 缺少 text，已丢弃`)
+    return null
+  }
+  const allowFreeText = question.allowFreeText !== false
+  const rawOptions = Array.isArray(question.options) ? question.options : []
+  if (rawOptions.length > MAX_OPTIONS) warnings.push(`${path}.options 超过 ${MAX_OPTIONS} 项，已截断`)
+  const options = []
+  rawOptions.slice(0, MAX_OPTIONS).forEach((option, index) => {
+    if (!isPlainObject(option)) {
+      warnings.push(`${path}.options[${index}]: 非对象已丢弃`)
+      return
+    }
+    for (const key of Object.keys(option)) {
+      if (!OPTION_KEYS.has(key)) warnings.push(`${path}.options[${index}].${key}: 未知字段已丢弃`)
+    }
+    const label = cleanModelText(option.label, { max: 200, field: 'option.label', path: `${path}.options[${index}].label`, warnings })
+    if (label === '') {
+      warnings.push(`${path}.options[${index}]: 缺少 label 已丢弃`)
+      return
+    }
+    const providedId = cleanLine(option.id, { max: 80, field: 'option.id' })
+    const fallbackId = `OPT-${index + 1}`
+    const id = providedId === '' || options.some((entry) => entry.id === providedId) ? fallbackId : providedId
+    if (providedId !== '' && id !== providedId) warnings.push(`${path}.options[${index}].id ${providedId} 重复，已改为 ${id}`)
+    options.push({
+      id,
+      label,
+      impact: cleanModelText(option.impact, { max: 500, field: 'option.impact', path: `${path}.options[${index}].impact`, warnings }) || null,
+    })
+  })
+  if (options.length === 0 && !allowFreeText) {
+    warnings.push(`${path} 没有选项且不允许自由回答，已丢弃`)
+    return null
+  }
+  const itemIds = (Array.isArray(question.itemIds) ? question.itemIds : [])
+    .map((itemId) => cleanLine(itemId, { max: 120, field: `${path}.itemIds` }))
+    .filter((itemId) => itemId !== '' && existingItems.has(itemId))
+  if (itemIds.length === 0) {
+    for (const itemId of existingItems) itemIds.push(itemId)
+  }
+  const questionId = cleanLine(question.questionId, { max: 120, field: `${path}.questionId` }) || `Q-${sha256Hex(text).slice(0, 12)}`
+  const materiality = cleanLine(question.materiality, { max: 20, field: `${path}.materiality` }) || 'major'
+  if (!['major', 'reversible'].includes(materiality)) {
+    warnings.push(`${path}.materiality ${materiality} 未知，已按 major 处理`)
+  }
+  const recommendedOptionId = cleanLine(question.recommendedOptionId, { max: 80, field: `${path}.recommendedOptionId` }) || null
+  if (recommendedOptionId !== null && !options.some((option) => option.id === recommendedOptionId)) {
+    warnings.push(`${path}.recommendedOptionId ${recommendedOptionId} 不在 options 中，已丢弃`)
+  }
+  return {
+    questionId,
+    decisionId: cleanLine(question.decisionId, { max: 120, field: `${path}.decisionId` }) || derivedDecisionId(questionId, text),
+    itemIds,
+    text,
+    whyNow: cleanModelText(question.whyNow, { max: 1000, field: `nextQuestion.whyNow`, path: `${path}.whyNow`, warnings }) || null,
+    impact: cleanModelText(question.impact, { max: 500, field: 'question.impact', path: `${path}.impact`, warnings }) || null,
+    materiality:
+      materiality === 'reversible' && options.some((option) => option.id === recommendedOptionId) ? 'reversible' : 'major',
+    recommendedOptionId: options.some((option) => option.id === recommendedOptionId) ? recommendedOptionId : null,
+    options,
+    allowFreeText,
+    dependsOn: (Array.isArray(question.dependsOn) ? question.dependsOn : [])
+      .map((entry) => cleanLine(entry, { max: 120, field: `${path}.dependsOn` }))
+      .filter((entry) => entry !== ''),
+    status: 'open',
+    staleReason: null,
+    analysisRunId: null,
+  }
+}
+
 /**
- * Normalize raw model output into `intent-review.v1`.
- *
- * @returns {{analysis: object, warnings: string[]}}
+ * Normalize the v2 `questions` array: at most 3 mutually independent questions,
+ * stable decision ids, and only valid `dependsOn` references.
  */
+export function normalizeQuestions(questions, existingItems, existingGroup, warnings = []) {
+  const itemSet = existingItems instanceof Set ? existingItems : new Set(Array.isArray(existingItems) ? existingItems : [])
+  const list = Array.isArray(questions) ? questions : []
+  if (list.length > MAX_QUESTIONS) warnings.push(`questions 超过 ${MAX_QUESTIONS} 个，已截断`)
+  const out = []
+  const seenDecisionIds = new Set()
+  const seenQuestionIds = new Set()
+  const allowedDependencies = new Set(
+    (existingGroup?.questions ?? [])
+      .filter((question) => question?.status === 'answered')
+      .map((question) => question.decisionId)
+      .filter(Boolean),
+  )
+  list.slice(0, MAX_QUESTIONS).forEach((entry, index) => {
+    const path = `questions[${index}]`
+    const question = normalizeQuestionV2(entry, itemSet, path, warnings)
+    if (!question) return
+    if (seenDecisionIds.has(question.decisionId)) {
+      warnings.push(`${path}.decisionId ${question.decisionId} 与本次输出的其它问题重复，已丢弃`)
+      return
+    }
+    if (seenQuestionIds.has(question.questionId)) {
+      warnings.push(`${path}.questionId ${question.questionId} 与本次输出的其它问题重复，已丢弃`)
+      return
+    }
+    question.dependsOn = question.dependsOn.filter((dependency) => {
+      if (dependency === question.decisionId || !allowedDependencies.has(dependency)) {
+        warnings.push(`${path}.dependsOn ${dependency} 不是本次输出中更早的问题或已答决定，已删除该依赖`)
+        return false
+      }
+      return true
+    })
+    out.push(question)
+    seenDecisionIds.add(question.decisionId)
+    seenQuestionIds.add(question.questionId)
+    allowedDependencies.add(question.decisionId)
+  })
+  return out
+}
+
+function nextQuestionFromGroup(group) {
+  const questions = group?.questions ?? []
+  const question = questions.find((entry) => entry.status === 'open') ?? questions.find((entry) => entry.status === 'stale') ?? null
+  return question ? legacyQuestionShape(question) : null
+}
+
+/**
+ * Merge the questions from one v2 analysis into the session's question group
+ * (pure). Answered/stale history is preserved by `decisionId`; current open
+ * questions are replaced by the model's new wording; the group is capped at 12.
+ */
+export function mergeQuestionGroup({ session, questions, analysisRunId, now } = {}) {
+  if (!session) throw intentError('invalid-request', 'mergeQuestionGroup 需要 session')
+  const warnings = []
+  const existingGroup = session.questionGroup ?? null
+  const prior = existingGroup?.questions ?? []
+  const priorRecommendations = existingGroup?.recommendations ?? []
+  const priorByDecision = new Map()
+  for (const question of prior) {
+    if (question?.decisionId && !priorByDecision.has(question.decisionId)) priorByDecision.set(question.decisionId, question)
+  }
+  const priorRecommendationsByDecision = new Map()
+  for (const recommendation of priorRecommendations) {
+    if (recommendation?.decisionId && !priorRecommendationsByDecision.has(recommendation.decisionId)) {
+      priorRecommendationsByDecision.set(recommendation.decisionId, recommendation)
+    }
+  }
+  const seen = new Set()
+  const current = []
+  const kept = []
+  const recommendations = []
+  for (const question of Array.isArray(questions) ? questions : []) {
+    if (!isPlainObject(question) || !question.decisionId || seen.has(question.decisionId)) continue
+    seen.add(question.decisionId)
+    if (question.materiality === 'reversible' && question.recommendedOptionId) {
+      const previous = priorRecommendationsByDecision.get(question.decisionId)
+      recommendations.push({
+        ...question,
+        options: clone(question.options ?? []),
+        dependsOn: [...(question.dependsOn ?? [])],
+        status: previous?.status === 'answered' ? 'answered' : 'suggested',
+        analysisRunId: analysisRunId ?? question.analysisRunId ?? null,
+      })
+      continue
+    }
+    const previous = priorByDecision.get(question.decisionId)
+    if (previous && (previous.status === 'answered' || previous.status === 'stale')) {
+      kept.push({ ...previous, options: clone(previous.options ?? []), dependsOn: [...(previous.dependsOn ?? [])] })
+      continue
+    }
+    current.push({
+      ...question,
+      options: clone(question.options ?? []),
+      dependsOn: [...(question.dependsOn ?? [])],
+      status: 'open',
+      staleReason: null,
+      analysisRunId: analysisRunId ?? question.analysisRunId ?? null,
+    })
+  }
+  for (const question of prior) {
+    if (!question || seen.has(question.decisionId)) continue
+    if (question.status === 'answered' || question.status === 'stale') {
+      kept.push({ ...question, options: clone(question.options ?? []), dependsOn: [...(question.dependsOn ?? [])] })
+    }
+    // An open question the model did not re-ask is dropped: the model owns the open set.
+  }
+  for (const recommendation of priorRecommendations) {
+    if (!recommendation || seen.has(recommendation.decisionId) || recommendation.status !== 'answered') continue
+    recommendations.push({
+      ...recommendation,
+      options: clone(recommendation.options ?? []),
+      dependsOn: [...(recommendation.dependsOn ?? [])],
+    })
+  }
+  let merged = [...current, ...kept]
+  if (merged.length > MAX_GROUP_QUESTIONS) {
+    const overflow = merged.length - MAX_GROUP_QUESTIONS
+    warnings.push(`问题组超过 ${MAX_GROUP_QUESTIONS} 条，已从最老的已答问题开始裁剪`)
+    const removed = new Set()
+    for (const question of merged) {
+      if (removed.size >= overflow) break
+      if (question.status === 'answered' || question.status === 'stale') removed.add(question)
+    }
+    merged = merged.filter((question) => !removed.has(question))
+  }
+  const remainingDecisions = new Set(merged.map((question) => question.decisionId))
+  for (const question of merged) {
+    question.dependsOn = (question.dependsOn ?? []).filter((decisionId) => decisionId !== question.decisionId && remainingDecisions.has(decisionId))
+  }
+  const updatedAt = isoNow(now)
+  const groupId =
+    cleanLine(existingGroup?.groupId, { max: 120, field: 'questionGroup.groupId' }) ||
+    `QG-${sha256Hex(`${analysisRunId ?? 'run'}|${merged.map((question) => question.decisionId).join('|')}`).slice(0, 10)}`
+  const questionGroup = {
+    groupId,
+    analysisRunId: analysisRunId ?? existingGroup?.analysisRunId ?? null,
+    createdAt: cleanLine(existingGroup?.createdAt, { max: 40, field: 'questionGroup.createdAt' }) || updatedAt,
+    updatedAt,
+    questions: merged,
+    recommendations,
+  }
+  return { questionGroup, warnings }
+}
+
+/* ------------------------------------------------------------------ */
+/* Requirement doc draft (intent-review.v3)                            */
+/* ------------------------------------------------------------------ */
+
+function normalizeDraftSources(value, path, warnings) {
+  return modelStringList(value, { max: 10, maxLength: 300, path: `${path}.sources`, warnings })
+}
+
+function normalizeProvenance(value, path, warnings) {
+  const text = cleanLine(value, { max: 40, field: `${path}.provenance` })
+  if (text === '') return 'ai-suggestion'
+  if (!PROVENANCES.has(text)) {
+    warnings.push(`${path}.provenance: 未知来源 ${text}，已按 ai-suggestion 处理`)
+    return 'ai-suggestion'
+  }
+  return text
+}
+
+function normalizeDraftFeatures(value, warnings) {
+  const list = Array.isArray(value) ? value : []
+  if (value !== undefined && value !== null && !Array.isArray(value)) warnings.push('docDraft.features 不是数组，已忽略')
+  if (list.length > MAX_DRAFT_FEATURES) warnings.push(`docDraft.features 超过 ${MAX_DRAFT_FEATURES} 条，已截断`)
+  const out = []
+  const seen = new Set()
+  list.forEach((entry, index) => {
+    if (out.length >= MAX_DRAFT_FEATURES) return
+    const path = `docDraft.features[${index}]`
+    if (!isPlainObject(entry)) {
+      warnings.push(`${path}: 非对象已丢弃`)
+      return
+    }
+    const title = cleanModelText(entry.title, { max: 200, field: `${path}.title`, path: `${path}.title`, warnings })
+    const behavior = cleanModelText(entry.behavior, { max: MAX_TEXT, field: `${path}.behavior`, path: `${path}.behavior`, warnings })
+    if (title === '' && behavior === '') {
+      warnings.push(`${path}: 缺少标题与行为，已丢弃`)
+      return
+    }
+    const rawId = cleanLine(entry.id, { max: 20, field: `${path}.id` })
+    const id = /^FR-\d{1,4}$/.test(rawId) ? rawId : null
+    if (id !== null) {
+      if (seen.has(id)) {
+        warnings.push(`${path}: 重复 ${id} 已丢弃`)
+        return
+      }
+      seen.add(id)
+    }
+    out.push({
+      id,
+      title: title || null,
+      behavior,
+      preconditions: modelStringList(entry.preconditions, { max: 10, maxLength: 500, path: `${path}.preconditions`, warnings }),
+      response: cleanModelText(entry.response, { max: MAX_TEXT, field: `${path}.response`, path: `${path}.response`, warnings }),
+      boundaries: modelStringList(entry.boundaries, { max: 10, maxLength: 500, path: `${path}.boundaries`, warnings }),
+      sources: normalizeDraftSources(entry.sources, path, warnings),
+      provenance: normalizeProvenance(entry.provenance, path, warnings),
+    })
+  })
+  return out
+}
+
+function normalizeDraftAcceptance(value, warnings) {
+  const list = Array.isArray(value) ? value : []
+  if (value !== undefined && value !== null && !Array.isArray(value)) warnings.push('docDraft.acceptance 不是数组，已忽略')
+  if (list.length > MAX_DRAFT_ACCEPTANCE) warnings.push(`docDraft.acceptance 超过 ${MAX_DRAFT_ACCEPTANCE} 条，已截断`)
+  const out = []
+  const seen = new Set()
+  list.forEach((entry, index) => {
+    if (out.length >= MAX_DRAFT_ACCEPTANCE) return
+    const path = `docDraft.acceptance[${index}]`
+    if (!isPlainObject(entry)) {
+      warnings.push(`${path}: 非对象已丢弃`)
+      return
+    }
+    const text = cleanModelText(entry.text, { max: MAX_TEXT, field: `${path}.text`, path: `${path}.text`, warnings })
+    const action = cleanModelText(entry.action, { max: 1000, field: `${path}.action`, path: `${path}.action`, warnings })
+    const expected = cleanModelText(entry.expected, { max: 1000, field: `${path}.expected`, path: `${path}.expected`, warnings })
+    if (text === '' && action === '' && expected === '') {
+      warnings.push(`${path}: 缺少验收文本与动作/预期，已丢弃`)
+      return
+    }
+    const rawId = cleanLine(entry.id, { max: 20, field: `${path}.id` })
+    const id = /^AC-\d{1,4}$/.test(rawId) ? rawId : null
+    if (id !== null) {
+      if (seen.has(id)) {
+        warnings.push(`${path}: 重复 ${id} 已丢弃`)
+        return
+      }
+      seen.add(id)
+    }
+    out.push({
+      id,
+      featureIds: modelStringList(entry.featureIds, { max: 10, maxLength: 20, path: `${path}.featureIds`, warnings }),
+      text,
+      precondition: cleanModelText(entry.precondition, { max: 1000, field: `${path}.precondition`, path: `${path}.precondition`, warnings }),
+      action,
+      expected,
+      judgement: cleanModelText(entry.judgement, { max: 1000, field: `${path}.judgement`, path: `${path}.judgement`, warnings }),
+      sources: normalizeDraftSources(entry.sources, path, warnings),
+      provenance: normalizeProvenance(entry.provenance, path, warnings),
+    })
+  })
+  return out
+}
+
+function normalizeDraftPending(value, warnings) {
+  const list = Array.isArray(value) ? value : []
+  if (value !== undefined && value !== null && !Array.isArray(value)) warnings.push('docDraft.pending 不是数组，已忽略')
+  if (list.length > MAX_DRAFT_PENDING) warnings.push(`docDraft.pending 超过 ${MAX_DRAFT_PENDING} 条，已截断`)
+  const out = []
+  const seen = new Set()
+  list.forEach((entry, index) => {
+    if (out.length >= MAX_DRAFT_PENDING) return
+    const path = `docDraft.pending[${index}]`
+    const source = isPlainObject(entry) ? entry : { text: entry }
+    const text = cleanModelText(source.text, { max: MAX_TEXT, field: `${path}.text`, path: `${path}.text`, warnings })
+    if (text === '' || seen.has(text)) return
+    seen.add(text)
+    const id = cleanLine(source.id, { max: 20, field: `${path}.id` })
+    out.push({
+      id: /^Q-\d{1,4}$/.test(id) ? id : null,
+      text,
+      status: source.status === 'resolved' ? 'resolved' : 'open',
+    })
+  })
+  return out
+}
+
+function previousAsDoc(previous) {
+  if (!previous || typeof previous !== 'object') return null
+  return { ...clone(previous), schema: DOC_SCHEMA }
+}
+
+/**
+ * Keep human-locked clauses: the model may propose new content, but a locked
+ * feature/acceptance/goal/scope is restored from the previous draft and only a
+ * warning is recorded. Locks never create new clauses out of nothing.
+ */
+function applyLockedClauses({ next, previous, lockedClauses, warnings }) {
+  if (!previous || !Array.isArray(lockedClauses) || lockedClauses.length === 0) return
+  for (const raw of lockedClauses) {
+    if (!isPlainObject(raw)) continue
+    const kind = LOCKED_KINDS.has(raw.kind) ? raw.kind : null
+    if (kind === null) continue
+    const id = cleanLine(raw.id, { max: 20, field: 'lockedClauses.id' }) || null
+    if (kind === 'goal' || kind === 'scope') {
+      const before = previous[kind]
+      if (before === undefined || before === null || (typeof before === 'string' && before === '')) continue
+      if (canonicalJson(next[kind]) === canonicalJson(before)) continue
+      next[kind] = clone(before)
+      warnings.push(`人工锁定的 ${kind} 未被模型覆盖`)
+      continue
+    }
+    if (id === null) continue
+    const collection = kind === 'feature' ? 'features' : 'acceptance'
+    const locked = (Array.isArray(previous[collection]) ? previous[collection] : []).find((entry) => entry?.id === id)
+    if (!locked) continue
+    const target = Array.isArray(next[collection]) ? next[collection] : []
+    const index = target.findIndex((entry) => entry?.id === id)
+    if (index >= 0 && canonicalJson(target[index]) === canonicalJson(locked)) continue
+    if (index >= 0) target[index] = clone(locked)
+    else target.push(clone(locked))
+    next[collection] = target
+    warnings.push(`人工锁定的 ${kind} ${id} 未被模型覆盖`)
+  }
+}
+
+/**
+ * Normalize a model-authored `docDraft` into `alm.requirement.doc.draft/v1`.
+ * Delegates clause/ID/provenance rules to `requirements/doc.mjs::normalizeDoc`
+ * and then re-applies the human locks (a lock wins even over normalization).
+ */
+export function normalizeDocDraft(raw, {
+  previous = null,
+  warnings = [],
+  lockedClauses = [],
+  requirementId = null,
+  revision = null,
+  draftRevision = null,
+  inputRevision = null,
+  sessionRevision = null,
+  legacy = false,
+} = {}) {
+  const source = isPlainObject(raw) ? raw : {}
+  if (!isPlainObject(raw)) warnings.push('docDraft 不是对象，已按空草稿处理')
+  const doc = {
+    schema: DOC_SCHEMA,
+    requirementId: cleanLine(source.requirementId ?? requirementId, { max: 120, field: 'docDraft.requirementId' }) || null,
+    title: cleanModelText(source.title, { max: 200, field: 'docDraft.title', path: 'docDraft.title', warnings }),
+    revision: Number.isInteger(source.revision) ? source.revision : Number.isInteger(revision) ? revision : null,
+    docHash: null,
+    goal: cleanModelText(source.goal, { max: MAX_TEXT, field: 'docDraft.goal', path: 'docDraft.goal', warnings }),
+    problem: cleanModelText(source.problem, { max: MAX_TEXT, field: 'docDraft.problem', path: 'docDraft.problem', warnings }),
+    features: normalizeDraftFeatures(source.features, warnings),
+    scope: modelStringList(source.scope, { max: 30, maxLength: 500, path: 'docDraft.scope', warnings }),
+    outOfScope: modelStringList(source.outOfScope, { max: 30, maxLength: 500, path: 'docDraft.outOfScope', warnings }),
+    acceptance: normalizeDraftAcceptance(source.acceptance, warnings),
+    constraints: modelStringList(source.constraints, { max: 30, maxLength: 500, path: 'docDraft.constraints', warnings }),
+    pending: normalizeDraftPending(source.pending, warnings),
+    meta: { nextFr: 1, nextAc: 1, confirmedAt: null },
+  }
+  const normalized = normalizeDoc(doc, { previous: previousAsDoc(previous) })
+  applyLockedClauses({ next: normalized, previous: previousAsDoc(previous), lockedClauses, warnings })
+  const docHash = docHashOf(renderDoc({ ...normalized, schema: DOC_SCHEMA }))
+  const previousRevision = Number.isInteger(previous?.draftRevision) && previous.draftRevision > 0 ? previous.draftRevision : 0
+  return {
+    ...clone(normalized),
+    schema: DOC_DRAFT_SCHEMA,
+    docHash,
+    draftRevision: Number.isInteger(draftRevision) && draftRevision > 0 ? draftRevision : previousRevision + 1,
+    basedOnInputRevision: Number.isInteger(inputRevision) ? inputRevision : (previous?.basedOnInputRevision ?? null),
+    basedOnSessionRevision: Number.isInteger(sessionRevision) ? sessionRevision : (previous?.basedOnSessionRevision ?? null),
+    legacy: legacy === true,
+  }
+}
+
+/**
+ * Backward-compatible v2 path: synthesize a doc draft from the legacy candidate
+ * so old analyses remain renderable. Every clause is `unconfirmed`, so
+ * `normalizeDoc` parks it in pending instead of pretending it was approved.
+ */
+export function synthesizeLegacyDocDraft({ items = [], previous = null, warnings = [], inputRevision = null, sessionRevision = null, requirementId = null } = {}) {
+  const item = items.find((entry) => entry?.excluded !== true) ?? items[0] ?? null
+  const candidate = item?.candidate ?? null
+  if (!candidate) {
+    return normalizeDocDraft({ goal: '', problem: item?.userProblem ?? '', features: [], acceptance: [] }, {
+      previous,
+      warnings,
+      inputRevision,
+      sessionRevision,
+      requirementId,
+      legacy: true,
+    })
+  }
+  const acceptance = (Array.isArray(candidate.acceptance) ? candidate.acceptance : []).map((entry, index) => ({
+    id: `AC-${String(index + 1).padStart(2, '0')}`,
+    featureIds: [],
+    text: entry?.expected ?? entry?.action ?? '',
+    precondition: entry?.precondition ?? '',
+    action: entry?.action ?? '',
+    expected: entry?.expected ?? '',
+    judgement: entry?.judgement ?? '',
+    sources: [],
+    provenance: 'unconfirmed',
+  }))
+  const features = candidate.title
+    ? [{
+        id: 'FR-01',
+        title: candidate.title,
+        behavior: candidate.goal ?? candidate.problem ?? '',
+        preconditions: [],
+        response: '',
+        boundaries: [],
+        sources: [],
+        provenance: 'unconfirmed',
+      }]
+    : []
+  return normalizeDocDraft({
+    goal: candidate.goal ?? '',
+    problem: candidate.problem ?? '',
+    features,
+    scope: candidate.inScope ?? [],
+    outOfScope: candidate.outOfScope ?? [],
+    acceptance,
+    constraints: [],
+    pending: [],
+  }, { previous, warnings, inputRevision, sessionRevision, requirementId, legacy: true })
+}
+
+
 export function normalizeAnalysis(raw, { session, context, extractedText, now } = {}) {
   const parsed = parseRaw(raw)
   if (!isPlainObject(parsed)) throw intentError('ai-invalid-output', '模型输出必须是 JSON 对象')
@@ -431,11 +993,12 @@ export function normalizeAnalysis(raw, { session, context, extractedText, now } 
   for (const key of Object.keys(parsed)) {
     if (!TOP_KEYS.has(key)) warnings.push(`顶层未知字段 ${key} 已丢弃`)
   }
-  if (parsed.schemaVersion !== undefined) {
-    const version = parsed.schemaVersion
-    if (!(version === ANALYSIS_SCHEMA || version === 1 || version === '1')) {
-      throw intentError('invalid-schema-version', `不支持的模型输出 schemaVersion：${String(version)}`, { value: version })
-    }
+  const version = parsed.schemaVersion
+  const isV3 = version === ANALYSIS_SCHEMA_V3 || version === 'intent-review.v3'
+  const isV2 = version === ANALYSIS_SCHEMA_V2 || version === 'intent-review.v2'
+  const supportsGroups = isV3 || isV2
+  if (version !== undefined && !supportsGroups && !(version === ANALYSIS_SCHEMA || version === 1 || version === '1')) {
+    throw intentError('invalid-schema-version', `不支持的模型输出 schemaVersion：${String(version)}`, { value: version })
   }
   const sessionSnapshot = session?.context?.contextSnapshotId ?? null
   let contextSnapshotId = parsed.contextSnapshotId ?? sessionSnapshot
@@ -530,16 +1093,60 @@ export function normalizeAnalysis(raw, { session, context, extractedText, now } 
   if (stubOnly && parsed.nextQuestion !== undefined && parsed.nextQuestion !== null) {
     warnings.push('模型输出的澄清问题缺少有效条目支撑，已替换为 stub 澄清问题')
   }
-  const nextQuestion = stubOnly
+  let nextQuestion = stubOnly
     ? normalizeQuestion(buildStubQuestion(items[0].itemId), itemIds, warnings)
     : normalizeQuestion(parsed.nextQuestion, itemIds, warnings)
+  let questions = []
+  const rawQuestions = parsed.questions
+  if (rawQuestions !== undefined && rawQuestions !== null) {
+    if (!Array.isArray(rawQuestions)) throw intentError('invalid-analysis', 'questions 必须是数组', { path: 'questions' })
+    if (parsed.nextQuestion !== undefined && parsed.nextQuestion !== null) {
+      warnings.push('模型输出同时包含 questions 与 nextQuestion，已以 questions 为准')
+    }
+    if (stubOnly) {
+      warnings.push('模型输出缺少有效条目，questions 已替换为 stub 澄清问题')
+    } else {
+      if (!supportsGroups) warnings.push('模型输出未声明 intent-review.v2/v3，questions 不合并到问题组，仅取第一题作 nextQuestion')
+      questions = normalizeQuestions(rawQuestions, itemIds, session?.questionGroup ?? null, warnings)
+      if (supportsGroups) {
+        nextQuestion = questions.length > 0 ? legacyQuestionShape(questions[0]) : null
+      } else if (questions.length > 0) {
+        nextQuestion = legacyQuestionShape(questions[0])
+      }
+    }
+  }
+  if (questions.length === 0 && nextQuestion) questions = [questionFromLegacy(nextQuestion)]
+
+  let docDraft = null
+  const previousDraft = session?.docDraft ?? null
+  const draftDefaults = {
+    previous: previousDraft,
+    warnings,
+    lockedClauses: Array.isArray(session?.lockedClauses) ? session.lockedClauses : [],
+    requirementId: session?.project?.requirementId ?? null,
+    inputRevision: session?.input?.inputRevision ?? null,
+    sessionRevision: session?.sessionRevision ?? null,
+  }
+  if (isV3) {
+    if (isPlainObject(parsed.docDraft)) {
+      docDraft = normalizeDocDraft(parsed.docDraft, { ...draftDefaults, legacy: false })
+    } else {
+      warnings.push('模型声明 intent-review.v3 但缺少 docDraft，已按候选条目合成未确认草稿')
+      docDraft = synthesizeLegacyDocDraft({ ...draftDefaults, items })
+    }
+  } else if (isV2) {
+    docDraft = synthesizeLegacyDocDraft({ ...draftDefaults, items })
+  }
+
   return {
     analysis: {
       schema: ANALYSIS_SCHEMA,
-      schemaVersion: ANALYSIS_SCHEMA,
+      schemaVersion: isV3 ? ANALYSIS_SCHEMA_V3 : isV2 ? ANALYSIS_SCHEMA_V2 : ANALYSIS_SCHEMA,
       contextSnapshotId: contextSnapshotId ?? null,
       items,
+      questions,
       nextQuestion,
+      docDraft,
       normalizedAt: now ? new Date(now).toISOString() : null,
     },
     warnings,
@@ -599,6 +1206,7 @@ export function applyAnalysis({ session, analysis, model, runId, inputRevision, 
 
   const warnings = []
   const next = clone(session)
+  next.investigationEvidence = []
   const existing = Array.isArray(next.items) ? next.items : []
   const byId = new Map(existing.map((item) => [item.itemId, item]))
   const merged = []
@@ -637,14 +1245,51 @@ export function applyAnalysis({ session, analysis, model, runId, inputRevision, 
   }
 
   let nextQuestion = analysis.nextQuestion ?? null
+  let stubQuestion = null
   if (merged.length === 0) {
     const stub = buildStubItem({ session, itemId: existing.length === 0 ? 'ITM-1' : `ITM-${existing.length + 1}` })
     merged.push(stub)
-    nextQuestion = buildStubQuestion(stub.itemId)
+    stubQuestion = buildStubQuestion(stub.itemId)
+    nextQuestion = stubQuestion
     warnings.push('分析结果没有条目，已生成待澄清的 stub 条目')
   }
   next.items = merged
-  next.nextQuestion = nextQuestion
+  const supportsGroups = analysis.schemaVersion === ANALYSIS_SCHEMA_V3
+    || analysis.schemaVersion === 'intent-review.v3'
+    || analysis.schemaVersion === ANALYSIS_SCHEMA_V2
+    || analysis.schemaVersion === 'intent-review.v2'
+  if (supportsGroups) {
+    const incoming = Array.isArray(analysis.questions) ? [...analysis.questions] : []
+    if (incoming.length === 0 && stubQuestion) incoming.push(questionFromLegacy(stubQuestion))
+    const groupResult = mergeQuestionGroup({ session: next, questions: incoming, analysisRunId: runId, now })
+    next.questionGroup = groupResult.questionGroup
+    warnings.push(...groupResult.warnings)
+    next.nextQuestion = nextQuestionFromGroup(groupResult.questionGroup)
+  } else if (next.questionGroup) {
+    // A late v1 result must not wipe decisions captured by a v2 question group.
+    next.nextQuestion = nextQuestionFromGroup(next.questionGroup)
+  } else {
+    next.nextQuestion = nextQuestion
+  }
+  if (analysis.docDraft) {
+    const draft = clone(analysis.docDraft)
+    const humanTitle = existing
+      .flatMap((item) => Object.entries(item?.fields ?? {}).map(([field, override]) => ({ field, override })))
+      .find(({ field, override }) => field === 'candidate.title' && override?.source === 'human')?.override?.value
+    if (typeof humanTitle === 'string' && humanTitle.trim() !== '') {
+      if (draft.title !== humanTitle) warnings.push('人工编辑标题已保留，模型草稿标题未覆盖')
+      draft.title = humanTitle
+    }
+    const previousRevision = Number.isInteger(session.draftRevision) && session.draftRevision >= 0 ? session.draftRevision : 0
+    draft.draftRevision = Math.max(
+      Number.isInteger(draft.draftRevision) && draft.draftRevision > 0 ? draft.draftRevision : 1,
+      previousRevision + 1,
+    )
+    draft.basedOnInputRevision = next.input.inputRevision
+    draft.basedOnSessionRevision = Number.isInteger(session.sessionRevision) ? session.sessionRevision : 1
+    next.docDraft = draft
+    next.draftRevision = draft.draftRevision
+  }
   next.state = next.nextQuestion ? 'needs_input' : merged.length > 0 ? 'ready_for_confirmation' : 'editing'
   next.error = null
   next.analysisMeta = {

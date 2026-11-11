@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -53,6 +53,10 @@ test('openChange apply writes the change record and three task cards without mov
   assert.ok(existsSync(join(root, 'changes/CHG-PAY-001/tasks.json')))
   assert.ok(existsSync(join(root, 'changes/CHG-PAY-001/proposal.md')))
   assert.equal(git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(), before)
+  const record = JSON.parse(readFileSync(join(root, '.alm/changes/CHG-PAY-001.json'), 'utf8'))
+  assert.equal(record.branch, before, 'record reports the actual branch, not an uncreated plan')
+  assert.equal(record.plannedBranch, 'alm/chg-pay-001')
+  assert.equal(record.branchCreated, false)
   assert.ok(changeIds(root).includes('CHG-PAY-001'))
   assert.equal(nextChangeId({ root, projectId: 'PAY' }), 'CHG-PAY-002')
 })

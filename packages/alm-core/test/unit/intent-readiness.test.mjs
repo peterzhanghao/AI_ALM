@@ -154,6 +154,110 @@ test('阻塞未知未解决、无 sourceRefs 时给出对应原因', (t) => {
   assert.ok(codes(secondResult).includes('unresolved-source'))
 })
 
+test('open/stale 阻塞决定即使优先级为 P2 也拒绝，非阻塞建议不误拦', (t) => {
+  const blockingUnknown = { description: '需要决定默认筛选状态', blocking: true, resolution: 'clarify', blockingFor: 'confirmation' }
+  for (const status of ['open', 'stale']) {
+    const item = makeItem({ unknowns: [blockingUnknown] })
+    const staged = stage(t, { items: [item], explicit: { priority: 'P2' } })
+    staged.session.questionGroup = {
+      groupId: `QG-${status}`,
+      questions: [{ questionId: `Q-${status}`, decisionId: `D-${status}`, itemIds: ['ITM-1'], text: '默认状态是什么？', status }],
+    }
+    const result = evaluateReadiness({
+      session: staged.session,
+      contextNow: staged.context,
+      confirmation: confirmationFor(staged.session, staged.context, { priority: 'P2' }),
+    })
+    assert.equal(result.ready, false)
+    assert.ok(codes(result).includes('unresolved-blocking-decision'))
+    assert.ok(codes(result).includes('unresolved-blocking-unknown'))
+  }
+
+  const advice = makeItem({
+    unknowns: [{ description: '可以优化按钮文案', blocking: false, resolution: 'clarify', blockingFor: 'none' }],
+  })
+  const nonBlocking = stage(t, { items: [advice] })
+  nonBlocking.session.questionGroup = {
+    groupId: 'QG-advice',
+    questions: [{ questionId: 'Q-advice', decisionId: 'D-advice', itemIds: ['ITM-1'], text: '是否优化按钮文案？', status: 'open' }],
+  }
+  const allowed = evaluateReadiness({
+    session: nonBlocking.session,
+    contextNow: nonBlocking.context,
+    confirmation: confirmationFor(nonBlocking.session, nonBlocking.context),
+  })
+  assert.equal(allowed.ready, true)
+  assert.deepEqual(allowed.reasons, [])
+})
+
+test('analysis pending 稳定拒绝 confirm，但 draft readiness 不受确认态竞态影响', (t) => {
+  const staged = stage(t, { items: [makeItem()] })
+  const confirmation = confirmationFor(staged.session, staged.context)
+  for (const session of [
+    { ...staged.session, state: 'analyzing' },
+    { ...staged.session, state: 'ready_for_confirmation', analysisStatus: { status: 'running' } },
+  ]) {
+    const confirm = evaluateReadiness({ session, contextNow: staged.context, confirmation })
+    assert.equal(confirm.ready, false)
+    assert.ok(codes(confirm).includes('analysis-pending'))
+    const draft = evaluateReadiness({ session, contextNow: staged.context, confirmation, mode: 'draft' })
+    assert.equal(draft.ready, true)
+    assert.ok(!codes(draft).includes('analysis-pending'))
+  }
+})
+
+test('investigate 路线标签不是完成；仅同会话/修订且有 verified observed evidence 才解除阻塞', (t) => {
+  const unknown = { description: '需要核对现有实现', blocking: true, resolution: 'investigate', blockingFor: 'confirmation' }
+  const item = makeItem({ unknowns: [unknown] })
+  const staged = stage(t, { items: [item] })
+  staged.session.questionGroup = {
+    groupId: 'QG-investigation',
+    questions: [{ questionId: 'Q-investigation', decisionId: 'D-investigation', itemIds: ['ITM-1'], text: unknown.description, status: 'open' }],
+  }
+  const confirmation = confirmationFor(staged.session, staged.context)
+  const incomplete = evaluateReadiness({ session: staged.session, contextNow: staged.context, confirmation })
+  assert.equal(incomplete.ready, false)
+  assert.ok(codes(incomplete).includes('investigation-evidence-incomplete'))
+  assert.ok(codes(incomplete).includes('unresolved-blocking-unknown'))
+  assert.ok(codes(incomplete).includes('unresolved-blocking-decision'))
+
+  const session = {
+    ...staged.session,
+    investigationEvidence: [
+      {
+        sessionId: staged.session.sessionId,
+        inputRevision: staged.session.input.inputRevision,
+        itemIds: ['ITM-1'],
+        unknownDescription: unknown.description,
+        status: 'completed',
+        verdict: 'answered',
+        source: 'observed_evidence',
+        findings: [{ refs: [{ path: 'src/refund.mjs', line: 1, quote: 'export function refund() {}', verified: true }] }],
+      },
+    ],
+  }
+  const completed = evaluateReadiness({ session, contextNow: staged.context, confirmation })
+  assert.equal(completed.ready, true)
+  assert.deepEqual(completed.reasons, [])
+  for (const inputRevision of [null, undefined, staged.session.input.inputRevision - 1]) {
+    const unbound = { ...session, investigationEvidence: [{ ...session.investigationEvidence[0], inputRevision }] }
+    const result = evaluateReadiness({ session: unbound, contextNow: staged.context, confirmation })
+    assert.equal(result.ready, false)
+    assert.ok(codes(result).includes('investigation-evidence-incomplete'))
+  }
+  for (const binding of [
+    { itemIds: [] },
+    { itemIds: ['ITM-other'] },
+    { unknownDescription: null },
+    { unknownDescription: '其他未知项' },
+  ]) {
+    const unbound = { ...session, investigationEvidence: [{ ...session.investigationEvidence[0], ...binding }] }
+    const result = evaluateReadiness({ session: unbound, contextNow: staged.context, confirmation })
+    assert.equal(result.ready, false)
+    assert.ok(codes(result).includes('investigation-evidence-incomplete'))
+  }
+})
+
 test('change 路由缺少可校验的基线时 invalid-change-base，且请求里的 revision/hash 不可信', (t) => {
   const item = makeItem({ recommendedRoute: 'change', related: [] })
   const { session, context } = stage(t, { items: [item] })
@@ -249,6 +353,9 @@ test('decline 必须给出原因与替代方案，answer 必须有答复', (t) =
     }),
   })
   assert.ok(codes(answerResult).includes('missing-answer'))
+  const oldAnswer = { ...second.session, answers: [{ text: '旧版答复', inputRevision: second.session.input.inputRevision - 1 }] }
+  const oldAnswerResult = evaluateReadiness({ session: oldAnswer, contextNow: second.context, confirmation: confirmationFor(oldAnswer, second.context, { route: 'answer', items: [{ itemId: 'ITM-1', route: 'answer' }], answer: null }) })
+  assert.ok(codes(oldAnswerResult).includes('missing-answer'))
 })
 
 test('检索失败（queryStatus=error）时不得假装已核对，给出 unverified-context', (t) => {

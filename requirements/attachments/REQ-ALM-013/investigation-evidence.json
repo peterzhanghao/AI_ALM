@@ -1,0 +1,24 @@
+[
+  {
+    "schema": "alm.intent-investigation/v1",
+    "investigationId": "INV-20261110043739-a2b0c7",
+    "source": "observed_evidence",
+    "verdict": "answered",
+    "question": "标题：需求列表版本徽章点击跳转至最新 Diff\n目标：当需求由 v1 升级到更高版本后，让用户能从需求列表的版本号徽章快速进入该需求最近一次版本变化的对比记录。\n问题：目前版本号徽章仅支持悬停查看摘要；用户若要查看具体变更，仍需自行进入详情页并寻找历史记录中的对应版本对比，路径较长。\n验收标准：\n- 对版本高于 v1 的需求，需求列表中的版本号徽章保留悬停显示版本摘要的现有行为。\n- 点击该版本号徽章后，直接打开对应需求的详情页。\n- 详情页默认切换至“历史记录”页签。\n- 历史记录定位并展示该需求最新一次版本升级对应的版本对比 Diff。\n- 未发生版本升级或不存在可用 Diff 时，点击行为应有明确、可理解的降级反馈，不得错误展示其他版本的 Diff。\r\n",
+    "findings": [
+      {
+        "claim": "检索命中的代码原文，相关性待人工核对",
+        "refs": [
+          {
+            "path": "packages/dsh-plugin-requirements/test/detail-v4-ui.test.mjs",
+            "line": 182,
+            "endLine": 182,
+            "quote": "const root=createRoot(document.getElementById('root')); window.renderHistory=(id)=>root.render(React.createElement(globalThis.TestHistory,{root:'D:/test',requirementId:id,onOpenRun(){}})); window.renderHistory('REQ-A');`",
+            "verified": true
+          }
+        ]
+      }
+    ],
+    "createdAt": "2026-11-10T04:37:39.759Z"
+  }
+]

@@ -1,0 +1,86 @@
+{
+  "schema": "alm.tasks/v1",
+  "changeId": "CHG-ALM-003",
+  "requirements": [
+    "REQ-ALM-012"
+  ],
+  "baselineSha": "64ec15e67af862334c0b04f3b0b9b4b354859b20",
+  "project": "ALM",
+  "generatedAt": "2026-11-11T02:43:37.677Z",
+  "tasks": [
+    {
+      "covers": [
+        "REQ-ALM-012"
+      ],
+      "evidence": [
+        "node packages/alm-core/bin/alm.mjs trace REQ-ALM-012",
+        "node packages/alm-core/bin/alm.mjs check --root ."
+      ],
+      "id": "TASK-ALM-001",
+      "title": "REQ-ALM-012 需求与验收资产",
+      "concern": "assets",
+      "scope": [
+        "requirements/",
+        "tests/"
+      ],
+      "outOfScope": [
+        "实现代码（下一张卡）"
+      ],
+      "interface": "补齐 REQ-ALM-012 的验收：新增 TEST-* 并在需求里加 verified_by",
+      "positive": "alm check 通过，COV-001 不再报告 REQ-ALM-012",
+      "negative": "缺少 verified_by → COV-001 失败，退出码 1",
+      "blockedBy": []
+    },
+    {
+      "covers": [
+        "REQ-ALM-012"
+      ],
+      "evidence": [
+        "node --test",
+        "node packages/alm-core/bin/alm.mjs check --root ."
+      ],
+      "id": "TASK-ALM-002",
+      "title": "REQ-ALM-012 实现",
+      "concern": "implement",
+      "scope": [
+        "architecture/",
+        "adr/"
+      ],
+      "outOfScope": [
+        "验收资产（上一张卡）",
+        "发布（ALM-04）"
+      ],
+      "interface": "实现 REQ-ALM-012：需求列表展示收敛变更状态与版本徽章",
+      "positive": "需求场景可执行并通过：验收用例",
+      "negative": "超出边界（如金额越界）返回明确错误且不产生副作用",
+      "blockedBy": [
+        "TASK-ALM-001"
+      ]
+    },
+    {
+      "covers": [
+        "REQ-ALM-012"
+      ],
+      "evidence": [
+        "node packages/alm-core/bin/alm.mjs diff --base 64ec15e6",
+        "node packages/alm-core/bin/alm.mjs impact --asset REQ-ALM-012"
+      ],
+      "id": "TASK-ALM-003",
+      "title": "REQ-ALM-012 门禁、差异与证据",
+      "concern": "verify",
+      "scope": [
+        "changes/",
+        ".alm/evidence/"
+      ],
+      "outOfScope": [
+        "实现细节"
+      ],
+      "interface": "跑门禁并记录证据：check/diff/impact → alm.evidence/v1",
+      "positive": "alm check --base 64ec15e6 --out .alm/evidence/CHG-ALM-003.json 退出 0",
+      "negative": "跳过门禁直接提 PR → APPROVAL/证据缺失被拒",
+      "blockedBy": [
+        "TASK-ALM-001"
+      ]
+    }
+  ]
+}

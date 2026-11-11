@@ -1,0 +1,10 @@
+{
+  "name": "@ai-alm/dsh-plugin-native-delivery",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "description": "Fixed-recipe native requirements deployment verification bridge",
+  "exports": { ".": "./index.js", "./icon": "./icon.svg", "./locale/*.json": "./locale/*.json" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

@@ -1,0 +1,24 @@
+[
+  {
+    "schema": "alm.intent-investigation/v1",
+    "investigationId": "INV-20261109055431-62c15d",
+    "source": "observed_evidence",
+    "verdict": "answered",
+    "question": "标题：需求列表长标题自动提炼与主操作按钮语义优化\n目标：解决需求列表第一列因直接展示用户长篇口语原话导致排版臃肿，以及“未登记验收命令 / 登记验收”对非技术用户认知负担过重的问题。\n问题现状：当前列表（如 REQ-ALM-003）直接将 70 多字的用户吐槽作为标题展示；且处于“待推进”状态的需求右侧主按钮显示为“登记验收”，检查结果列暴露“未登记验收命令”等技术细节。\n验收标准：\n- 意图提取或新建需求时，若原始输入超过 28 个字符，自动提炼简明短标题，完整原话保留在需求正文中。\n- 列表页标题超过单行宽度时支持优雅截断，悬停显示全文。\n- 将列表操作列文案优化为符合当前阶段的状态动作，隐藏非必要的底层命令术语。\r\n",
+    "findings": [
+      {
+        "claim": "检索命中的代码原文，相关性待人工核对",
+        "refs": [
+          {
+            "path": "packages/dsh-plugin-requirements/index.js",
+            "line": 56,
+            "endLine": 56,
+            "quote": "import { renderErrorPage, renderRequirementsPage } from './render.mjs'",
+            "verified": true
+          }
+        ]
+      }
+    ],
+    "createdAt": "2026-11-09T05:54:31.904Z"
+  }
+]

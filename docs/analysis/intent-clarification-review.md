@@ -78,7 +78,7 @@
 
 - 新增 `intent.mjs`（约 1.2k 行）：六 action（analyze/answer/edit/confirm/cancel/load + migrate）的字段白名单、错误码映射（400/404/409/422/500/502/503）、`streamOutput` 把 message content 规范为宿主要求的 parts 数组、非法模型输出一次性修复重试（失败 502 带 fields/attempts/rawExcerpt）、每次调用带 runId + inputRevision 防迟到覆盖、无模型时落可编辑 stub 会话。
 - `index.js`：注册 `POST/GET /api/alm/requirements/intent`（约 L208–212），`handleIntent` 复用 `resolveAiSelection`/`aiStreamFor`（约 L505–536）；另为兼容运行宿主 ESM 模块缓存，把 executor 导入改为命名空间 + 惰性 `acceptReview`（重启后可清理）。
-- `client.js`：`CreateModal` 被 `IntentModal` 五屏替代（约 L2978–4870）：输入（原话 + 文本/OCR/聊天来源 + 显式负责人/优先级 + “先澄清，不会创建需求”）→ 分析（真实阶段文案，可取消）→ 结果（一句理解、六去向、相关承诺与匹配理由、至多一问+影响、可编辑候选 dirty-field、未知项澄清/转调查/排除、价值检查/假设/反例/来源/模型信息渐进展开）→ 确认（四块回执：问题与期望、做什么/不做什么、去向与既有承诺、将写入什么；change 才显示旧新差异与影响）→ 回执（真实产物路径/ID、“打开需求详情”、“保存≠采纳/开工/验收/发布”）。列表在创建后提示“已创建但当前筛选不可见”并可清除筛选。
+- `client.js`：`CreateModal` 被 `IntentModal` 五屏替代（约 L2978–4870）：输入（极简图文 composer：原话 + 粘贴/拖拽/多选截图，OCR 延迟到点「分析意图」；项目名只保留在底部说明，来源收为内联「从聊天记录补充」，不再有项目信息块、负责人/优先级块）→ 分析（真实阶段文案与逐图识别进度，可取消）→ 结果（一句理解、六去向、相关承诺与匹配理由、至多一问+影响、可编辑候选 dirty-field、未知项澄清/转调查/排除、价值检查/假设/反例/来源/模型信息渐进展开）→ 确认（四块回执：问题与期望、做什么/不做什么、去向与既有承诺、将写入什么；负责人/优先级只在这里填，新建必选优先级；change 才显示旧新差异与影响）→ 回执（真实产物路径/ID、“打开需求详情”、“保存≠采纳/开工/验收/发布”）。列表在创建后提示“已创建但当前筛选不可见”并可清除筛选。
 - 测试：`test/intent-http.test.mjs` 20 项（假流 + 假 ctx：analyze→answer→confirm、幂等重放、同键冲突、stale-input/stale-context、非法输出修复重试、无模型 503、取消、load、注入、contextSnapshotId 透传）。
 
 ## 5. 验证（实际跑过的证据）

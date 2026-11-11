@@ -63,15 +63,16 @@ test('COV-002 flags an unreferenced acceptance test as warn', () => {
   assert.equal(cov002.level, 'warn')
 })
 
-test('STATE-001 skips without a base and reports an illegal transition with one', () => {
+test('STATE-001 is retired and skips regardless of --base', () => {
   const current = [asset('REQ-A-001', 'requirement', [], { status: 'proposed' })]
   const skipped = state001.check({ assets: current, index: buildIndex(current) })
   assert.equal(skipped.status, 'skip')
 
   const base = [asset('REQ-A-001', 'requirement', [], { status: 'accepted' })]
-  const findings = state001.check({ assets: current, index: buildIndex(current), baseAssets: base })
-  assert.equal(findings.length, 1)
-  assert.match(findings[0].message, /accepted -> proposed/)
+  const retired = state001.check({ assets: current, index: buildIndex(current), baseAssets: base })
+  assert.equal(retired.status, 'skip')
+  assert.deepEqual(retired.findings, [])
+  assert.match(retired.message, /已下线/)
 })
 
 test('SEC-001 finds credential-shaped values but ignores env references', () => {

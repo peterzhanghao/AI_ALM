@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawnSync, execFile } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -95,4 +95,28 @@ export function runOcr(image, { runtime = resolveOcrRuntime(), run = defaultRun,
   if (result.error) throw new OcrError(`OCR failed: ${result.error.message}`)
   if (result.status !== 0) throw new OcrError(`OCR exited ${result.status}: ${String(result.stderr ?? '').trim()}`)
   return normalizeOcrResult(parseOcrJson(result.stdout), image)
+}
+
+export async function runOcrAsync(image, { runtime = resolveOcrRuntime(), timeoutMs = 120000, signal } = {}) {
+  if (!existsSync(image)) throw new OcrError(`image not found: ${image}`)
+  if (!runtime.script || !existsSync(runtime.script)) throw new OcrError('dsh-ocr-local is not installed; run ocr_setup or set DSH_OCR_SCRIPT')
+  const stdout = await new Promise((resolve, reject) => {
+    let closed = false, result = null
+    const finish = () => {
+      if (!closed || !result) return
+      const { error, output, stderr } = result
+      if (error?.name === 'AbortError') reject(error)
+      else if (error) reject(new OcrError(`OCR failed: ${String(stderr ?? '').trim() || error.message}`))
+      else resolve(output)
+    }
+    const child = execFile(runtime.python, [runtime.script, image, '--full'], {
+      encoding: 'utf8', timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, signal,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    }, (error, output, stderr) => {
+      result = { error, output, stderr }
+      finish()
+    })
+    child.once('close', () => { closed = true; finish() })
+  })
+  return normalizeOcrResult(parseOcrJson(stdout), image)
 }

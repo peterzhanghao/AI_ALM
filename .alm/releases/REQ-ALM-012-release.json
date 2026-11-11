@@ -1,0 +1,131 @@
+{
+  "schema": "alm.requirement-release/v1",
+  "id": "REQ-ALM-012-release",
+  "releaseId": "REL-002",
+  "releasedAt": "2026-11-11T06:15:15.806Z",
+  "requirement": {
+    "id": "REQ-ALM-012",
+    "title": "需求列表展示收敛变更状态与版本徽章",
+    "revision": 5,
+    "contentHash": "7bd58832dab54a0c016a4eb39e66448961c734a91773d07512af7f91cdb2eca8"
+  },
+  "evolution": [
+    {
+      "revision": 2,
+      "at": "2026-11-09T10:55:16.224Z",
+      "summary": null
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-09T11:02:31.397Z",
+      "summary": null
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-10T04:37:58.337Z",
+      "summary": null
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-10T04:39:02.643Z",
+      "summary": null
+    }
+  ],
+  "acceptanceCriteria": [
+    {
+      "id": "AC-11",
+      "text": "列表中存在待确认收敛变更的需求，显示醒目的“待确认收敛变更”状态标识；无待确认变更的需求不显示该标识。"
+    },
+    {
+      "id": "AC-12",
+      "text": "每条需求显示清晰、统一的当前正式版本徽章（如 v2）；如存在待确认升级，同时展示候选版本（如 v2 → v3 待确认）。"
+    },
+    {
+      "id": "AC-13",
+      "text": "状态标识和版本徽章在不展开详情的情况下即可理解；悬停或聚焦时提供简短说明，且不挤压、遮挡需求标题及现有关键列表信息。"
+    },
+    {
+      "id": "AC-14",
+      "text": "如果某条需求存在待人工确认的演进补丁（pendingPatch），该需求在列表页的“待我处理”过滤视图下必须能被筛选出来。"
+    },
+    {
+      "id": "AC-15",
+      "text": "支持高版本徽章悬停查看演进摘要：当需求当前正式版本高于 v1（如 v2、v3）时，鼠标悬停在版本号徽章上应显示最近一次需求收敛的简要说明。"
+    },
+    {
+      "id": "AC-06",
+      "text": "对版本高于 v1 的需求，需求列表中的版本号徽章保留悬停显示版本摘要的现有行为。"
+    },
+    {
+      "id": "AC-07",
+      "text": "点击该版本号徽章后，直接打开对应需求的详情页。"
+    },
+    {
+      "id": "AC-08",
+      "text": "详情页默认切换至“历史记录”页签。"
+    },
+    {
+      "id": "AC-09",
+      "text": "历史记录定位并展示该需求最新一次版本升级对应的版本对比 Diff。"
+    },
+    {
+      "id": "AC-10",
+      "text": "未发生版本升级或不存在可用 Diff 时，点击行为应有明确、可理解的降级反馈，不得错误展示其他版本的 Diff。"
+    }
+  ],
+  "candidate": {
+    "requirement": "REQ-ALM-012",
+    "requirementRevision": 5,
+    "title": "需求列表展示收敛变更状态与版本徽章",
+    "candidateId": "CAND-REQ-ALM-012-005",
+    "treeHash": "1e2751a377834b50fb59419d09f134507e26cded7f3e184c9531ecc66adac4cb",
+    "requirementHash": "7bd58832dab54a0c016a4eb39e66448961c734a91773d07512af7f91cdb2eca8",
+    "acceptance": {
+      "file": "D:\\DSH\\.alm\\acceptance\\REQ-ALM-012\\64ec15e67af862334c0b04f3b0b9b4b354859b20.json",
+      "hash": "329c3bbed8cd52b4f5151c8575f2b40ea1bfb0f77787bd3ea624291ac83ae462",
+      "result": "pass",
+      "finishedAt": "2026-11-11T05:52:20.803Z"
+    },
+    "humanSignoff": {
+      "actor": "human:local",
+      "at": "2026-11-11T06:15:03.144Z"
+    },
+    "acceptedAt": null
+  },
+  "signoff": {
+    "actor": "human:local",
+    "subject": {
+      "id": "human:local",
+      "kind": "human",
+      "source": "host-authenticated"
+    },
+    "decision": "approve",
+    "at": "2026-11-11T06:15:03.144Z",
+    "headSha": "64ec15e67af862334c0b04f3b0b9b4b354859b20",
+    "contentHash": "7bd58832dab54a0c016a4eb39e66448961c734a91773d07512af7f91cdb2eca8",
+    "requirementHash": "7bd58832dab54a0c016a4eb39e66448961c734a91773d07512af7f91cdb2eca8",
+    "testRevision": "73676cbde28338d647a16b47e6346694c363072343153005cd57332bf0ca08a3",
+    "evidenceHash": "25a02ab0b1e94096dc73c0a641f759dd95475fc1480de62c5aac0676292e80fb",
+    "candidateId": "CAND-REQ-ALM-012-005",
+    "candidateHash": "1e2751a377834b50fb59419d09f134507e26cded7f3e184c9531ecc66adac4cb",
+    "valid": true
+  },
+  "releaseNotes": {
+    "title": "REQ-ALM-012 发布归档",
+    "summary": "需求列表展示收敛变更状态与版本徽章 已完成人工验收并归档。",
+    "highlights": [
+      "交付候选 undefined 已通过当前验证并完成签收。",
+      "AC-11：列表中存在待确认收敛变更的需求，显示醒目的“待确认收敛变更”状态标识；无待确认变更的需求不显示该标识。",
+      "AC-12：每条需求显示清晰、统一的当前正式版本徽章（如 v2）；如存在待确认升级，同时展示候选版本（如 v2 → v3 待确认）。",
+      "AC-13：状态标识和版本徽章在不展开详情的情况下即可理解；悬停或聚焦时提供简短说明，且不挤压、遮挡需求标题及现有关键列表信息。",
+      "AC-14：如果某条需求存在待人工确认的演进补丁（pendingPatch），该需求在列表页的“待我处理”过滤视图下必须能被筛选出来。",
+      "AC-15：支持高版本徽章悬停查看演进摘要：当需求当前正式版本高于 v1（如 v2、v3）时，鼠标悬停在版本号徽章上应显示最近一次需求收敛的简要说明。",
+      "AC-06：对版本高于 v1 的需求，需求列表中的版本号徽章保留悬停显示版本摘要的现有行为。",
+      "AC-07：点击该版本号徽章后，直接打开对应需求的详情页。",
+      "AC-08：详情页默认切换至“历史记录”页签。",
+      "AC-09：历史记录定位并展示该需求最新一次版本升级对应的版本对比 Diff。",
+      "AC-10：未发生版本升级或不存在可用 Diff 时，点击行为应有明确、可理解的降级反馈，不得错误展示其他版本的 Diff。"
+    ]
+  },
+  "archiveHash": "3bfb80cf61e17ec110e6625db530625ba401210849815319ae225b04d46fa7ce"
+}

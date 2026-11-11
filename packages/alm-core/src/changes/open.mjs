@@ -165,7 +165,10 @@ export function openChange({ root, requirementIds, changeId, apply = false, isol
     schema: 'alm.change/v1',
     changeId: plan.changeId,
     baselineSha: plan.baselineSha,
-    branch: plan.branch,
+    branch: plan.isolate ? plan.branch : (git(repo, ['branch', '--show-current']) || null),
+    plannedBranch: plan.branch,
+    isolated: plan.isolate === true,
+    branchCreated: plan.isolate === true,
     createdAt: new Date().toISOString(),
     status: 'open',
   }

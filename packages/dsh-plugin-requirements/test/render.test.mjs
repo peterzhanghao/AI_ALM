@@ -84,42 +84,35 @@ const payload = {
   summary: { requirements: 1, gaps: 1 },
 }
 
-test('requirements page renders the table, decision, coverage and gaps', () => {
+test('requirements page renders the compact list, next step and gaps', () => {
   const html = renderRequirementsPage(payload)
   assert.match(html, /^<!doctype html>/)
   assert.match(html, /REQ-PAY-001/)
   assert.match(html, /ORDER|支持订单部分退款/)
-  assert.match(html, /TEST-PAY-001/)
-  assert.match(html, /已关联/)
+  assert.match(html, /运行评审/)
+  assert.match(html, /待细化/)
   assert.match(html, /COV-001/)
   assert.match(html, /href="\/api\/alm\/requirements"/)
   assert.match(html, /check pass/)
 })
 
-test('decision state and next step are always rendered as text', () => {
+test('compact list exposes the next action without presenting unchecked review as a pass', () => {
   const html = renderRequirementsPage(payload)
-  assert.match(html, /未检查/)
-  assert.match(html, /尚未运行并保存评审/)
   assert.match(html, /运行评审/)
-  // Unchecked must never read like a pass: no green tick or signoff wording.
   assert.ok(!html.includes('✓'))
   assert.ok(!html.includes('已签收'))
   assert.ok(!html.includes('可进入人工确认'))
 })
 
-test('acceptance shows provenance and flags incomplete evidence', () => {
+test('compact list does not expose internal acceptance provenance', () => {
   const html = renderRequirementsPage(payload)
-  assert.match(html, /需求修订/)
-  assert.match(html, /0123456789ab/)
-  assert.match(html, /实现提交/)
-  assert.match(html, /abcdef123456/)
-  assert.match(html, /测试修订/)
-  assert.match(html, /fedcba987654/)
-  assert.match(html, /来源或版本不完整/)
-  assert.match(html, /environment/)
+  assert.ok(!html.includes('0123456789ab'))
+  assert.ok(!html.includes('abcdef123456'))
+  assert.ok(!html.includes('fedcba987654'))
+  assert.ok(!html.includes('来源或版本不完整'))
 })
 
-test('complete acceptance evidence does not warn about incomplete provenance', () => {
+test('compact list keeps technical acceptance details out of the list regardless of evidence state', () => {
   const item = payload.requirements[0]
   const html = renderRequirementsPage({
     ...payload,
@@ -140,20 +133,44 @@ test('complete acceptance evidence does not warn about incomplete provenance', (
       },
     ],
   })
-  assert.match(html, /可进入人工确认/)
-  assert.match(html, /local-runner/)
+  assert.match(html, /运行评审/)
+  assert.ok(!html.includes('local-runner'))
   assert.ok(!html.includes('来源或版本不完整'))
 })
 
-test('unexecuted acceptance never reads as a pass', () => {
+test('unexecuted acceptance never reads as a pass in the compact list', () => {
   const item = payload.requirements[0]
   const html = renderRequirementsPage({
     ...payload,
     requirements: [{ ...item, decision: { ...item.decision, topGap: null }, acceptance: { registered: false, commandCount: 0, latest: null } }],
   })
-  assert.match(html, /验收尚未执行/)
+  assert.match(html, /待细化/)
   assert.ok(!html.includes('验证通过'))
   assert.ok(!html.includes('✓'))
+})
+
+test('convergence history only renders incremental requirements and acceptance changes', () => {
+  const item = {
+    ...payload.requirements[0],
+    specConvergences: [{
+      at: '2026-11-11T08:00:00.000Z',
+      beforeRevision: 4,
+      revision: 5,
+      evolutionNote: '主对话定稿',
+      sourceSession: 'requirements-version-badge-feedback',
+      acceptanceCriteria: {
+        before: [{ id: 'AC-01', text: '未变更规则。' }],
+        after: [{ id: 'AC-01', text: '未变更规则。' }, { id: 'AC-05', text: '支持高版本徽章悬停查看演进摘要。' }],
+      },
+      diff: { added: [{ kind: 'acceptance', id: 'AC-05', label: '支持高版本徽章悬停查看演进摘要。' }], modified: [], removed: [] },
+    }],
+  }
+  const html = renderRequirementsPage({ ...payload, requirements: [item] })
+  assert.match(html, /v4 → v5/)
+  assert.match(html, /新增 1 项验收标准（AC-05: 支持高版本徽章悬停查看演进摘要。）/)
+  assert.match(html, /\+ 新增 AC-05/)
+  assert.doesNotMatch(html, /查看完整验收标准对比/)
+  assert.equal((html.match(/未变更规则。/g) ?? []).length, 0)
 })
 
 test('anomalies render in their own block and keep both records', () => {

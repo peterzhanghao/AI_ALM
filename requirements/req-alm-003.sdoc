@@ -1,0 +1,16 @@
+[DOCUMENT]
+TITLE: 决策请求中的内容过于技术化，对于不懂代码和不需要知道具体开发过程用户来说，决策请求应该给出明确的决策项，让我决策即可，不要给出那么多的无关指令信息，优化决策请求
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-003
+TITLE: 决策请求中的内容过于技术化，对于不懂代码和不需要知道具体开发过程用户来说，决策请求应该给出明确的决策项，让我决策即可，不要给出那么多的无关指令信息，优化决策请求
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P1
+CATEGORY: functional
+REVISION: 2
+BRIEF: requirements/briefs/REQ-ALM-003.md
+SOURCE: feedback

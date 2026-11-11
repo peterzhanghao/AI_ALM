@@ -1,0 +1,16 @@
+[DOCUMENT]
+TITLE: 需求列表长标题自动提炼与主操作按钮语义优化
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-011
+TITLE: 需求列表长标题自动提炼与主操作按钮语义优化
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P1
+CATEGORY: functional
+REVISION: 2
+BRIEF: requirements/briefs/REQ-ALM-011.md
+SOURCE: chat

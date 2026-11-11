@@ -7,7 +7,8 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkReport, indexReport } from '../../alm-core/src/commands.mjs'
 import { runAcceptance } from '../../alm-core/src/acceptance/acceptance.mjs'
-import { acceptReview, readReviewReport, runReview } from '../../alm-core/src/review/executor.mjs'
+import { signRequirement } from '../../alm-core/src/requirements/signoff.mjs'
+import { createCandidate } from '../../alm-core/src/requirements/candidate.mjs'
 import { requirements } from '../query.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -142,12 +143,12 @@ test('a dangling relation is visible in the anomaly queue but not mixed into gap
     const visible = item.anomalies.find((entry) => entry.kind === 'dangling-relation')
     assert.ok(visible)
     assert.equal(visible.ref, item.occurrenceKey)
-    // REL-001 is a blocking architecture rule, so the review blocker outranks
-    // the anomaly; the anomaly is still listed separately for clarification.
-    assert.equal(item.decision.state, 'blocked')
-    assert.equal(item.nextAction, 'fix-blockers')
-    assert.equal(item.decision.topGap.code, 'blockers')
-    assert.match(item.decision.topGap.message, /REL-001|悬空|dangling/)
+    // AI suggestions are advisory. The dangling relation remains a first-class
+    // data anomaly and therefore asks for clarification directly.
+    assert.equal(item.decision.state, 'needs-clarification')
+    assert.equal(item.nextAction, 'fix-anomaly')
+    assert.equal(item.decision.topGap.code, 'dangling-relation')
+    assert.match(item.decision.topGap.message, /MOD-NOPE|悬空|dangling/)
     // Tracking gaps stay exactly COV-001/COV-002; anomalies are a separate list.
     assert.ok(payload.gaps.every((gap) => gap.rule === 'COV-001' || gap.rule === 'COV-002'))
     assert.ok(!payload.gaps.some((gap) => gap.kind === 'dangling-relation'))
@@ -156,33 +157,17 @@ test('a dangling relation is visible in the anomaly queue but not mixed into gap
   }
 })
 
-test('decision: no stored review is unchecked with a review gap', () => {
+test('decision: no stored review proceeds directly to executable acceptance evidence', () => {
   const item = itemOf(requirements(fixture), 'REQ-PAY-001')
   assert.equal(item.decision.state, 'unchecked')
   assert.equal(item.decision.label, '未检查')
   assert.equal(item.decision.tone, 'neutral')
-  assert.equal(item.decision.topGap.code, 'review-not-run')
-  assert.equal(item.decision.nextStep.action, 'run-review')
-  assert.equal(item.nextAction, 'run-review')
+  assert.equal(item.decision.topGap.code, 'acceptance-missing')
+  assert.equal(item.decision.nextStep.action, 'run-acceptance')
+  assert.equal(item.nextAction, 'run-acceptance')
   assert.equal(item.decision.signoff.allowed, false)
-  assert.equal(item.decision.policy.risk, 'high')
-  assert.equal(item.decision.coverage.rolesRequired, 5)
-  assert.deepEqual(item.decision.coverage.missingRoles, [])
-})
-
-test('decision: stored review without acceptance registration asks for an acceptance run', () => {
-  const dir = tempFixture('alm-decision-review-')
-  try {
-    const context = reviewContext(dir, 'REQ-PAY-001')
-    runReview({ root: dir, ...context, apply: true })
-    const item = itemOf(requirements(dir), 'REQ-PAY-001')
-    assert.equal(item.review.stored, true)
-    assert.equal(item.decision.state, 'unchecked')
-    assert.equal(item.decision.topGap.code, 'acceptance-missing')
-    assert.equal(item.nextAction, 'run-acceptance')
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
+  assert.equal('review' in item, false)
+  assert.equal(item.humanAcceptance.signoff, null)
 })
 
 test('decision: legacy/incomplete acceptance evidence is stale, never a pass', () => {
@@ -242,13 +227,12 @@ test('decision: a failing acceptance run is failed, never a pass', () => {
   }
 })
 
-test('decision: complete passing evidence still waits for AI review adoption, then verifies', () => {
+test('decision: complete passing evidence skips optional review adoption and waits for candidate then human', () => {
   const dir = tempFixture('alm-decision-ready-')
   try {
     gitInit(dir)
     writeAcceptanceConfig(dir, 'REQ-PAY-001', 0)
     const context = reviewContext(dir, 'REQ-PAY-001')
-    runReview({ root: dir, ...context, apply: true })
     const run = runAcceptance({
       root: dir,
       requirementId: 'REQ-PAY-001',
@@ -262,17 +246,37 @@ test('decision: complete passing evidence still waits for AI review adoption, th
     assert.equal(ready.acceptance.latest.current, true)
     assert.equal(ready.decision.state, 'unchecked')
     assert.equal(ready.decision.label, '未检查')
-    assert.equal(ready.decision.topGap.code, 'review-not-accepted')
-    assert.equal(ready.nextAction, 'ai-review')
+    assert.equal(ready.decision.topGap.code, 'candidate-missing')
+    assert.equal(ready.nextAction, 'create-candidate')
+    assert.equal(ready.decision.signoff.allowed, false)
 
-    // Adopting the AI review records acceptance; no separate human sign-off.
-    const accepted = acceptReview({ root: dir, asset: context.asset, report: readReviewReport(dir, 'REQ-PAY-001') })
-    assert.equal(accepted.accepted, true)
+    assert.equal(ready.decision.humanAccepted, false)
+
+    // The candidate binds the content the acceptance evidence was produced
+    // against; only then does the requirement become 待验收.
+    createCandidate({ root: dir, asset: context.asset, acceptance: ready.acceptance, actor: 'ai:adopted' })
+    const candidate = itemOf(requirements(dir), 'REQ-PAY-001')
+    assert.equal(candidate.decision.candidate.current, true)
+    assert.equal(candidate.decision.state, 'ready-for-human')
+    assert.equal(candidate.decision.label, '待验收')
+    assert.equal(candidate.decision.signoff.allowed, true, 'the human decision is now the next step')
+
+    // Only an explicit human sign-off turns the candidate into 已验收.
+    const signed = signRequirement({
+      root: dir,
+      asset: context.asset,
+      actor: 'human:local',
+      subject: { id: 'human:local', kind: 'human', source: 'local-session' },
+      apply: true,
+    })
+    assert.equal(signed.applied, true)
     const verified = itemOf(requirements(dir), 'REQ-PAY-001')
     assert.equal(verified.decision.state, 'verified')
-    assert.equal(verified.decision.label, '已签收')
-    assert.equal(verified.nextAction, 'done')
-    assert.equal(verified.decision.signoff.allowed, false, 'already signed needs no second sign-off')
+    assert.equal(verified.decision.label, '已验收')
+    assert.equal(verified.decision.humanAccepted, true)
+    assert.equal(verified.nextAction, 'release', 'accepted delivery still needs a release decision')
+    assert.equal(verified.nextActionLabel, '决定发布')
+    assert.equal(verified.decision.signoff.allowed, false, 'already accepted needs no second sign-off')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

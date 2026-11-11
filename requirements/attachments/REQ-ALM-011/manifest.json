@@ -1,0 +1,12 @@
+{
+  "requirement": "REQ-ALM-011",
+  "files": [
+    {
+      "path": "investigation-evidence.json",
+      "sha256": "89fe39ac7ae562bfce1916f6424cad3dc98d29b633cc7fbce66fc546a0a57cdc",
+      "kind": "investigation",
+      "capturedAt": "2026-11-09T05:54:32.038Z",
+      "addedBy": "human:local"
+    }
+  ]
+}

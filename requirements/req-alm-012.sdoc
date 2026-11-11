@@ -1,0 +1,16 @@
+[DOCUMENT]
+TITLE: 需求列表展示收敛变更状态与版本徽章
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-012
+TITLE: 需求列表展示收敛变更状态与版本徽章
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P1
+CATEGORY: functional
+REVISION: 5
+BRIEF: requirements/briefs/REQ-ALM-012.md
+SOURCE: chat

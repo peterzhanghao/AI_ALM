@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { indexReport } from '../commands.mjs'
 import { relationSnapshotHash, requirementContentHash } from '../model/content-hash.mjs'
+import { isClosed, writeClosure } from './delivery.mjs'
 
 export const ARCHIVE_SCHEMA = 'alm.requirement.archive/v1'
 export const ARCHIVE_STATUS = 'archived'
@@ -101,6 +102,8 @@ function rewriteArchived({ content, id, status, revision }) {
   let hasRevision = false
   for (let index = range.start; index < range.end; index += 1) {
     if (/^STATUS\s*:/.test(lines[index].trim())) {
+      // Legacy mirror only: records created after the status cut-over carry no
+      // STATUS, and the closure record is the source of truth either way.
       lines[index] = `STATUS: ${status}`
       hasStatus = true
     } else if (/^REVISION\s*:/.test(lines[index].trim())) {
@@ -108,9 +111,10 @@ function rewriteArchived({ content, id, status, revision }) {
       hasRevision = true
     }
   }
-  if (!hasStatus) throw new ArchiveError(`[REQUIREMENT] ${id} has no STATUS field`, { code: 'file-invalid', status: 409 })
   if (!hasRevision) {
-    const at = lines.findIndex((line, index) => index >= range.start && index < range.end && /^STATUS\s*:/.test(line.trim()))
+    const at = hasStatus
+      ? lines.findIndex((line, index) => index >= range.start && index < range.end && /^STATUS\s*:/.test(line.trim()))
+      : lines.findIndex((line, index) => index >= range.start && index < range.end && /^UID\s*:/.test(line.trim()))
     lines.splice(at + 1, 0, `REVISION: ${revision}`)
   }
   return lines.join('\n')
@@ -125,10 +129,12 @@ export function planArchive({ root, asset, reason }) {
   if (!asset || typeof asset !== 'object' || typeof asset.id !== 'string' || asset.id === '') {
     throw new ArchiveError('requirement asset is required', { code: 'unknown-requirement', status: 404 })
   }
-  if (asset.status === ARCHIVE_STATUS) {
-    throw new ArchiveError(`${asset.id} 已归档，无需重复关闭`, { code: 'already-archived', status: 409 })
+  if (isClosed({ root: repo, asset })) {
+    throw new ArchiveError(`${asset.id} 已关闭，无需重复关闭`, { code: 'already-archived', status: 409 })
   }
-  if (!ARCHIVABLE_STATUSES.includes(asset.status)) {
+  // `status` is legacy: only a terminal historical status blocks closing. A
+  // record without a status (all new records) is always closeable.
+  if (asset.status && !ARCHIVABLE_STATUSES.includes(asset.status)) {
     throw new ArchiveError(`当前状态 ${asset.status} 不能关闭归档（仅活跃需求）`, { code: 'invalid-status', status: 409 })
   }
   const file = asset.source?.path
@@ -266,16 +272,20 @@ export function applyArchive({ root, asset, expectedBaseline, actor, reason, ide
   if (replay) return { ...replay, applied: true, idempotent: true }
 
   const current = freshRequirement(repo, asset)
-  if (current.status === ARCHIVE_STATUS) {
-    throw new ArchiveError(`${asset.id} 已归档，无需重复关闭`, { code: 'already-archived', status: 409 })
+  if (isClosed({ root: repo, asset: current })) {
+    throw new ArchiveError(`${asset.id} 已关闭，无需重复关闭`, { code: 'already-archived', status: 409 })
   }
   const plan = planArchive({ root: repo, asset: current, reason })
   const baseline = assertBaseline({ root: repo, asset: current, expectedBaseline })
   const at = new Date().toISOString()
   const auditFile = writeAudit({ repo, plan, actor: actorId, baseline, at, key })
   const absolute = safeRelative(repo, plan.file)
+  let closure = null
   try {
     atomicWrite(absolute, plan.after.content, writeFile)
+    // The closure record is what makes a record 已关闭; the STATUS rewrite above
+    // is only a legacy mirror for records that still carry the field.
+    closure = writeClosure({ root: repo, requirementId: plan.requirement, reason: plan.reason, actor: actorId, mode: 'close' })
   } catch (error) {
     try {
       writeFile(absolute, plan.before.content, 'utf8')
@@ -298,6 +308,8 @@ export function applyArchive({ root, asset, expectedBaseline, actor, reason, ide
     idempotent: false,
     file: plan.file,
     status: plan.status,
+    closure,
+    delivery: { key: 'closed', label: '已关闭', source: 'closure' },
     revision: plan.revision,
     reason: plan.reason,
     baseline,

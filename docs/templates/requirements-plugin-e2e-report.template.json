@@ -1,0 +1,190 @@
+{
+  "schema": "dsh.requirements.e2e-report/v1",
+  "template": true,
+  "templateNote": "模板示例，非运行结果。执行时设 template=false，填充真实值；null 与空数组不得被解释为通过。",
+  "runId": null,
+  "timezone": "Asia/Shanghai",
+  "startedAt": null,
+  "finishedAt": null,
+  "packageRoot": null,
+  "finalRoundId": null,
+  "summary": {
+    "technicalE2E": "unverified",
+    "extendedCoverage": "unverified",
+    "humanAcceptance": "pending_human",
+    "release": "not_requested",
+    "releasePreview": "unverified",
+    "counts": {
+      "totalScenarios": 0,
+      "passed": 0,
+      "failed": 0,
+      "partial": 0,
+      "blocked": 0,
+      "unverified": 0,
+      "not_applicable": 0
+    },
+    "requiredScenarioIds": [],
+    "acceptanceCriterionIds": [],
+    "attemptCounts": { "total": 0, "failed": 0, "retried": 0 },
+    "criticalIssueIds": [],
+    "limitations": []
+  },
+  "environments": [
+    {
+      "id": "ENV-001",
+      "roundId": null,
+      "repositoryRoot": null,
+      "businessProjectRoot": null,
+      "executorWorkspaceRoot": null,
+      "git": {
+        "head": null,
+        "branch": null,
+        "dirty": null,
+        "statusEvidenceId": null,
+        "diffEvidenceId": null,
+        "untrackedSourceEvidenceId": null
+      },
+      "sourceFingerprint": [],
+      "dsh": {
+        "version": null,
+        "profile": null,
+        "pluginLoadedPath": null,
+        "hostProcessId": null,
+        "hostStartedAt": null,
+        "redactedBaseUrl": null,
+        "clientBuild": null,
+        "serverBuild": null,
+        "loadedCodeVerificationEvidenceIds": []
+      },
+      "runtime": { "node": null, "packageManager": null, "browser": null },
+      "model": { "provider": null, "name": null, "realCalls": null }
+    }
+  ],
+  "domainLinks": [
+    {
+      "scenarioId": "E2E-01",
+      "intentId": null,
+      "requirementId": null,
+      "requirementRevision": null,
+      "requirementHash": null,
+      "changeId": null,
+      "executionRunId": null,
+      "sessionId": null,
+      "candidateId": null,
+      "implementationHash": null,
+      "testRevision": null,
+      "acceptanceEvidenceIds": [],
+      "humanDecisionEvidenceId": null
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "E2E-01",
+      "title": "项目入口",
+      "required": true,
+      "roundId": null,
+      "environmentId": "ENV-001",
+      "status": "unverified",
+      "executionContext": "not_run",
+      "evidenceLevel": null,
+      "usesRealHost": null,
+      "usesRealModel": null,
+      "usesRealExecutor": null,
+      "usesMocks": null,
+      "mockedComponents": [],
+      "preconditions": [],
+      "steps": [],
+      "expected": null,
+      "actual": null,
+      "attempts": [],
+      "evidenceIds": [],
+      "issueIds": [],
+      "missingChecks": [],
+      "notApplicableReason": null,
+      "repro": { "workingDirectory": null, "commandArgs": [], "instructions": null }
+    }
+  ],
+  "acceptanceCriteria": [
+    {
+      "id": "AC-01",
+      "description": "输入部分标题，仅显示匹配任务；清空后恢复",
+      "fixedAt": null,
+      "inputDataEvidenceId": null,
+      "expected": null,
+      "actual": null,
+      "status": "unverified",
+      "beforeImplementation": { "status": "unverified", "evidenceIds": [] },
+      "afterImplementation": { "status": "unverified", "evidenceIds": [] },
+      "scenarioIds": [],
+      "evidenceIds": []
+    }
+  ],
+  "pages": [
+    {
+      "id": "PAGE-001",
+      "title": null,
+      "roundId": null,
+      "scenarioId": "E2E-01",
+      "stepId": null,
+      "capturedAt": null,
+      "redactedUrl": null,
+      "objectIds": [],
+      "surface": null,
+      "screenshotEvidenceId": null,
+      "domEvidenceId": null,
+      "missingReason": null
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EV-001",
+      "roundId": null,
+      "path": null,
+      "kind": null,
+      "capturedAt": null,
+      "environmentId": "ENV-001",
+      "sha256": null,
+      "redacted": null,
+      "description": null
+    }
+  ],
+  "issues": [
+    {
+      "id": "ISSUE-001",
+      "title": null,
+      "priority": null,
+      "category": null,
+      "status": "unconfirmed",
+      "firstSeenRoundId": null,
+      "scenarioIds": [],
+      "userImpact": null,
+      "reproduction": [],
+      "expected": null,
+      "actual": null,
+      "evidenceIds": [],
+      "sourceLocations": [],
+      "rootCause": { "hypothesis": null, "confidence": null, "missingEvidence": [] },
+      "suggestedFix": null,
+      "regressionScenarioIds": [],
+      "fixedInRoundId": null,
+      "retestStatus": "unverified"
+    }
+  ],
+  "rounds": [],
+  "humanActions": [],
+  "budget": {
+    "mainFlowMinutes": 30,
+    "maxExternalRetries": 2,
+    "maxNoProgressAttempts": 3,
+    "maxFixRounds": 2,
+    "actualElapsedMinutes": null,
+    "modelCalls": null,
+    "adjustments": []
+  },
+  "artifacts": {
+    "html": "index.html",
+    "markdown": "report.md",
+    "manifest": "manifest.json",
+    "codexHandoff": "codex-handoff.md"
+  }
+}

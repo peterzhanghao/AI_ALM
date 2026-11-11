@@ -1,0 +1,16 @@
+[DOCUMENT]
+TITLE: 修复只读调查证据消息预算分配导致源码片段丢失
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-007
+TITLE: 修复只读调查证据消息预算分配导致源码片段丢失
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P2
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-ALM-007.md
+SOURCE: chat

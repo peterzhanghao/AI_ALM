@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -94,6 +94,60 @@ function assertIntentError(fn, code, status) {
   assert.fail(`expected IntentError ${code}, but call succeeded`)
 }
 
+test('confirmation refuses a persisted answer awaiting analysis without creating artifacts', (t) => {
+  const { root, context, session } = stage(t, { items: [makeItem()] })
+  saveSession({ root, session: { ...session, answerAnalysisRequired: true } })
+  const before = requirementFiles(root)
+  const error = assertIntentError(() => confirmIntent({ root, sessionId: session.sessionId, confirmation: confirmationFor(session, context), actor: 'human:tester', idempotencyKey: 'pending-analysis-key' }), 'not-ready')
+  assert.ok(error.details?.reasons?.some(reason => reason.code === 'analysis-pending'))
+  assert.deepEqual(requirementFiles(root), before)
+})
+
+test('confirmation refuses a persisted unfinished reanalysis without an active process', (t) => {
+  const { root, context, session } = stage(t, { items: [makeItem()] })
+  saveSession({ root, session: { ...session, analysisRetryRequired: true } })
+  const before = requirementFiles(root)
+  const error = assertIntentError(() => confirmIntent({ root, sessionId: session.sessionId, confirmation: confirmationFor(session, context), actor: 'human:tester', idempotencyKey: 'retry-analysis-key' }), 'not-ready')
+  assert.ok(error.details?.reasons?.some(reason => reason.code === 'analysis-pending'))
+  assert.deepEqual(requirementFiles(root), before)
+})
+
+test('confirmation rechecks investigation citations from the working tree', (t) => {
+  const description = '需要核对现有实现'
+  const { root, context, session } = stage(t, { items: [makeItem({ unknowns: [{ description, blocking: true, resolution: 'investigate' }] })] })
+  const source = join(root, 'investigation-evidence.txt')
+  writeFileSync(source, 'verified original evidence\n')
+  const record = { investigationId: 'INV-20261107000000-abcdef', adoptedBy: 'human:tester', adoptedAt: '2026-11-07T00:00:00.000Z', sessionId: session.sessionId, inputRevision: session.input.inputRevision, itemIds: ['ITM-1'], unknownDescription: description, verdict: 'answered', source: 'observed_evidence', findings: [{ refs: [{ path: 'investigation-evidence.txt', line: 1, quote: 'verified original evidence', verified: true }] }] }
+  saveSession({ root, session: { ...session, investigationEvidence: [record] } })
+  const before = requirementFiles(root)
+  writeFileSync(source, 'changed evidence\n')
+  const error = assertIntentError(() => confirmIntent({ root, sessionId: session.sessionId, confirmation: confirmationFor(session, context), idempotencyKey: 'changed-evidence' }), 'not-ready')
+  assert.ok(error.details?.reasons?.some(reason => reason.code === 'investigation-evidence-incomplete'))
+  assert.deepEqual(requirementFiles(root), before)
+  writeFileSync(source, 'verified original evidence\n')
+  const result = confirmIntent({ root, sessionId: session.sessionId, confirmation: confirmationFor(session, context), idempotencyKey: 'current-evidence' })
+  assert.ok(result.artifacts.some(entry => entry.kind === 'requirement'))
+  const [adoption] = result.receipt.decision.investigations
+  assert.equal(adoption.investigationId, record.investigationId)
+  assert.equal(adoption.adoptedBy, record.adoptedBy)
+  assert.equal(adoption.unknownDescription, description)
+  assert.match(adoption.findingsHash, /^[a-f0-9]{64}$/)
+  assert.doesNotMatch(JSON.stringify(adoption), /verified original evidence/)
+})
+
+test('receipt includes investigation evidence only for item routes that use it', (t) => {
+  const description = '需要核对现有实现'
+  const unknown = { description, blocking: true, resolution: 'investigate' }
+  const { root, context, session } = stage(t, { items: [makeItem({ unknowns: [unknown] }), makeItem({ itemId: 'ITM-2', recommendedRoute: 'investigate', unknowns: [unknown] })] })
+  writeFileSync(join(root, 'evidence.txt'), 'verified original evidence\n')
+  const record = { adoptedBy: 'human:tester', sessionId: session.sessionId, inputRevision: session.input.inputRevision, unknownDescription: description, verdict: 'answered', source: 'observed_evidence', findings: [{ refs: [{ path: 'evidence.txt', line: 1, quote: 'verified original evidence', verified: true }] }] }
+  saveSession({ root, session: { ...session, investigationEvidence: [{ ...record, investigationId: 'INV-1', itemIds: ['ITM-1'] }, { ...record, investigationId: 'INV-2', itemIds: ['ITM-2'] }] } })
+  const confirmation = confirmationFor(session, context, { items: [{ itemId: 'ITM-1', route: 'create' }, { itemId: 'ITM-2', route: 'investigate', question: '需要核对现有实现' }] })
+  const result = confirmIntent({ root, sessionId: session.sessionId, confirmation, idempotencyKey: 'mixed-routes' })
+  assert.deepEqual(result.receipt.decision.investigations.map(entry => entry.investigationId), ['INV-1'])
+  assert.deepEqual(result.receipt.decision.investigations[0].itemIds, ['ITM-1'])
+})
+
 test('create 去向：写需求草稿、回执与审计，会话提交', (t) => {
   const { root, context, session } = stage(t, { items: [makeItem()] })
   const result = confirmIntent({
@@ -119,7 +173,8 @@ test('create 去向：写需求草稿、回执与审计，会话提交', (t) => 
   assert.ok(existsSync(join(root, requirement.path)))
   assert.ok(existsSync(join(root, 'requirements/briefs/REQ-PAY-005.md')))
   const sdoc = readFileSync(join(root, requirement.path), 'utf8')
-  assert.match(sdoc, /STATUS: proposed/)
+  // STATUS is legacy: the delivery lifecycle is derived, not filed.
+  assert.doesNotMatch(sdoc, /^STATUS:/m)
   assert.match(sdoc, /PRIORITY: P1/)
   assert.ok(result.artifacts.some((entry) => entry.kind === 'receipt'))
 
@@ -298,6 +353,44 @@ test('幂等：同键同负载重放回执，同键不同负载 409', (t) => {
   )
 })
 
+test('confirm 跳过孤立 brief/附件，同键重试原回执且既有记录字节不变', (t) => {
+  const { root, context, session } = stage(t, { items: [makeItem()] })
+  mkdirSync(join(root, 'requirements/briefs'), { recursive: true })
+  mkdirSync(join(root, 'requirements/attachments/REQ-PAY-006'), { recursive: true })
+  const briefPath = join(root, 'requirements/briefs/REQ-PAY-005.md')
+  const attachmentPath = join(root, 'requirements/attachments/REQ-PAY-006/original.txt')
+  writeFileSync(briefPath, '孤立brief，不代表确认\r\n')
+  writeFileSync(attachmentPath, '保留附件\r\n')
+  const preserved = [briefPath, attachmentPath, join(root, 'requirements/refund-idempotent.sdoc')]
+  const original = preserved.map((path) => readFileSync(path))
+  const input = { root, sessionId: session.sessionId, confirmation: confirmationFor(session, context), idempotencyKey: 'key-orphan-retry' }
+  const first = confirmIntent(input)
+  const created = first.artifacts.find((entry) => entry.kind === 'requirement')
+  assert.equal(created.id, 'REQ-PAY-007')
+  assert.equal(existsSync(join(root, 'requirements/req-pay-005.sdoc')), false)
+  assert.equal(existsSync(join(root, 'requirements/req-pay-006.sdoc')), false)
+  const records = [
+    join(root, created.path),
+    join(root, 'requirements/briefs/REQ-PAY-007.md'),
+    join(root, `.alm/intents/receipts/${first.receipt.receiptId}.json`),
+    join(root, `.alm/intents/sessions/${session.sessionId}.json`),
+    join(root, `.alm/audit/intents/${first.receipt.receiptId}.json`),
+    ...readdirSync(join(root, '.alm/intents/idempotency')).map((name) => join(root, '.alm/intents/idempotency', name)),
+    ...readdirSync(join(root, '.alm/intents/journal')).map((name) => join(root, '.alm/intents/journal', name)),
+  ]
+  const beforeRetry = records.map((path) => readFileSync(path))
+  const beforeRequirements = requirementFiles(root)
+  const replay = confirmIntent(input)
+  assert.equal(replay.replayed, true)
+  // Replay reads the persisted receipt; the first in-memory response additionally
+  // appends its own receipt artifact after persistence.
+  assert.deepEqual(replay.receipt, JSON.parse(beforeRetry[2].toString('utf8')))
+  assert.equal(replay.receipt.receiptId, first.receipt.receiptId)
+  assert.deepEqual(requirementFiles(root), beforeRequirements)
+  records.forEach((path, index) => assert.deepEqual(readFileSync(path), beforeRetry[index]))
+  preserved.forEach((path, index) => assert.deepEqual(readFileSync(path), original[index]))
+})
+
 test('陈旧输入/陈旧上下文被拒绝（409），且不写产物', (t) => {
   const { root, context, session } = stage(t, { items: [makeItem()] })
   const staleInput = assertIntentError(
@@ -344,6 +437,79 @@ test('未就绪（缺少用户显式优先级）时 422 not-ready 且不写产�
   assert.ok(!existsSync(join(root, 'requirements/req-pay-005.sdoc')))
 })
 
+test('open 阻塞决定由统一门禁拒绝，补 P2 仍保持零写入', (t) => {
+  const item = makeItem({
+    unknowns: [{ description: '需要决定默认筛选状态', blocking: true, resolution: 'clarify', blockingFor: 'confirmation' }],
+  })
+  const { root, context, session } = stage(t, { items: [item], explicit: { priority: 'P2' } })
+  saveSession({
+    root,
+    session: {
+      ...session,
+      state: 'needs_input',
+      questionGroup: {
+        groupId: 'QG-blocking',
+        questions: [
+          {
+            questionId: 'Q-blocking',
+            decisionId: 'D-blocking',
+            itemIds: ['ITM-1'],
+            text: '默认筛选状态是什么？',
+            status: 'open',
+          },
+        ],
+      },
+    },
+  })
+  const beforeRequirements = requirementFiles(root)
+  const beforeIntentFiles = Object.fromEntries(
+    ['receipts', 'idempotency', 'journal'].map((dir) => {
+      const path = join(root, '.alm/intents', dir)
+      return [dir, existsSync(path) ? readdirSync(path).sort() : []]
+    }),
+  )
+  const error = assertIntentError(
+    () =>
+      confirmIntent({
+        root,
+        sessionId: session.sessionId,
+        confirmation: confirmationFor(session, context, { priority: 'P2' }),
+        actor: 'human:tester',
+        idempotencyKey: 'key-blocking-decision',
+      }),
+    'not-ready',
+    422,
+  )
+  assert.ok(error.details.reasons.some((reason) => reason.code === 'unresolved-blocking-decision'))
+  assert.deepEqual(requirementFiles(root), beforeRequirements)
+  for (const [dir, before] of Object.entries(beforeIntentFiles)) {
+    const path = join(root, '.alm/intents', dir)
+    assert.deepEqual(existsSync(path) ? readdirSync(path).sort() : [], before, `${dir} must remain unchanged`)
+  }
+  assert.equal(loadSession({ root, sessionId: session.sessionId }).state, 'needs_input')
+})
+
+test('analysis pending 由 confirm 稳定拒绝且零写入', (t) => {
+  const { root, context, session } = stage(t, { items: [makeItem()] })
+  saveSession({ root, session: { ...session, state: 'analyzing' } })
+  const error = assertIntentError(
+    () =>
+      confirmIntent({
+        root,
+        sessionId: session.sessionId,
+        confirmation: confirmationFor(session, context),
+        actor: 'human:tester',
+        idempotencyKey: 'key-analysis-pending',
+      }),
+    'not-ready',
+    422,
+  )
+  assert.ok(error.details.reasons.some((reason) => reason.code === 'analysis-pending'))
+  assert.ok(!existsSync(join(root, 'requirements/req-pay-005.sdoc')))
+  assert.equal(existsSync(join(root, '.alm/intents/idempotency')), false)
+  assert.equal(existsSync(join(root, '.alm/intents/journal')), false)
+})
+
 test('写入失败返回 appliedArtifacts + journal；同键重试可恢复且不重复建需求', (t) => {
   const { root, context, session } = stage(t, { items: [makeItem()] })
   const receiptsDir = join(root, '.alm/intents')
@@ -368,6 +534,8 @@ test('写入失败返回 appliedArtifacts + journal；同键重试可恢复且�
   assert.ok(journal.artifacts.length >= 1)
   assert.equal(loadSession({ root, sessionId: session.sessionId }).state, 'failed')
 
+  const createdPaths = [join(root, 'requirements/req-pay-005.sdoc'), join(root, 'requirements/briefs/REQ-PAY-005.md')]
+  const createdBytes = createdPaths.map((path) => readFileSync(path))
   rmSync(join(receiptsDir, 'receipts'))
   const recovered = confirmIntent({
     root,
@@ -380,5 +548,7 @@ test('写入失败返回 appliedArtifacts + journal；同键重试可恢复且�
   assert.ok(existsSync(join(root, '.alm/intents/receipts', `${recovered.receipt.receiptId}.json`)))
   const created = requirementFiles(root).filter((name) => name === 'req-pay-005.sdoc')
   assert.equal(created.length, 1)
+  assert.equal(existsSync(join(root, 'requirements/req-pay-006.sdoc')), false)
+  createdPaths.forEach((path, index) => assert.deepEqual(readFileSync(path), createdBytes[index]))
   assert.equal(loadSession({ root, sessionId: session.sessionId }).state, 'committed')
 })

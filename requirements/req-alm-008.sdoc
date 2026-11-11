@@ -1,0 +1,16 @@
+[DOCUMENT]
+TITLE: 移除需求交付视图五视角强制评审残留并保持真实门禁
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-008
+TITLE: 移除需求交付视图五视角强制评审残留并保持真实门禁
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P2
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-ALM-008.md
+SOURCE: chat

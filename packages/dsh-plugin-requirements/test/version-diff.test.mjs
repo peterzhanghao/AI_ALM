@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -94,6 +94,19 @@ test('diffRequirementVersions compares a commit against the worktree by default'
   const diff = diffRequirementVersions({ root, file: 'requirements/demo.sdoc', assetId: 'REQ-DIFF-001', from: base })
   assert.equal(diff.to, 'worktree')
   assert.deepEqual(diff.fields.map((field) => field.field), ['STATUS'])
+})
+
+test('diffRequirementVersions reads the old path before a committed rename', () => {
+  const root = makeRepo()
+  writeSdoc(root, { title: '原始标题' })
+  commit(root, 'before rename')
+  const before = head(root)
+  execFileSync('git', ['mv', 'requirements/demo.sdoc', 'requirements/renamed file.sdoc'], { cwd: root })
+  commit(root, 'rename')
+  const file = join(root, 'requirements', 'renamed file.sdoc')
+  writeFileSync(file, readFileSync(file, 'utf8').replace('原始标题', '新标题'))
+  const diff = diffRequirementVersions({ root, file: 'requirements/renamed file.sdoc', assetId: 'REQ-DIFF-001', from: before })
+  assert.deepEqual(diff.fields.find(field => field.field === 'TITLE'), { field: 'TITLE', from: '原始标题', to: '新标题' })
 })
 
 test('diffRequirementVersions rejects bad refs and unknown assets', () => {

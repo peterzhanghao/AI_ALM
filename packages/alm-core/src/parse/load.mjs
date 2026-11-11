@@ -6,7 +6,18 @@ import { parseSdocAsset } from './sdoc.mjs'
 import { parseYamlAsset } from './yaml.mjs'
 
 const ASSET_EXTENSIONS = new Set(['.yml', '.yaml', '.sdoc', '.md'])
-const IGNORED_DIRS = new Set(['node_modules', '.git', '.alm', 'tmp', 'changes', 'briefs', 'attachments'])
+const IGNORED_DIRS = new Set(['node_modules', '.git', '.alm', 'tmp', 'changes', 'briefs', 'attachments', 'artifacts'])
+
+const ignoredDirectory = (name) => name.startsWith('.') || IGNORED_DIRS.has(name.toLowerCase())
+
+/** Apply the same source boundary to working-tree and Git-ref enumeration. */
+export function isAssetSourcePath(file) {
+  const parts = file.replaceAll('\\', '/').split('/')
+  if (parts.slice(0, -1).some(ignoredDirectory)) return false
+  const name = parts.at(-1)
+  const dot = name.lastIndexOf('.')
+  return ASSET_EXTENSIONS.has(dot === -1 ? '' : name.slice(dot).toLowerCase())
+}
 
 /** Recursively collect asset files under `root`, in stable path order. */
 export function findAssetFiles(root) {
@@ -14,15 +25,12 @@ export function findAssetFiles(root) {
   const visit = (dir) => {
     const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
     for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.isDirectory()) continue
       const absolute = join(dir, entry.name)
       if (entry.isDirectory()) {
-        if (!IGNORED_DIRS.has(entry.name)) visit(absolute)
+        if (!ignoredDirectory(entry.name)) visit(absolute)
         continue
       }
-      const dot = entry.name.lastIndexOf('.')
-      const extension = dot === -1 ? '' : entry.name.slice(dot).toLowerCase()
-      if (ASSET_EXTENSIONS.has(extension)) files.push(absolute)
+      if (isAssetSourcePath(entry.name)) files.push(absolute)
     }
   }
   visit(root)

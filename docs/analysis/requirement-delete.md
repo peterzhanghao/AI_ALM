@@ -23,15 +23,16 @@
   - 删除前把删除前全文、基线、原因、幂等键写入 `.alm/audit/requirements/<REQ>-<stamp>-remove-<key>.json`（`kind: remove`，可据此恢复）。
   - 单一需求文件整文件删除；一个 sdoc 里有多条需求时只删除目标 `[REQUIREMENT]` 块，保留其余记录。
 - `packages/dsh-plugin-requirements/index.js`：新增 `POST /api/alm/requirements/remove`，预览/落地复用 `archiveContext` 精确定位文件。
-- 客户端入口（抽屉/列表行「删除」、`RemoveModal`）随后续 UI PR 接入；本 PR 先提供可用的 API 与审计语义。
+- `packages/dsh-plugin-requirements/client.js`：抽屉与列表行新增「删除」，`RemoveModal` 显示文件/方式/可恢复说明，必须勾选确认才能提交；成功后刷新列表。
 
 ## 验证
 
 - `packages/alm-core/test/unit/requirement-remove.test.mjs` 5/5：共享 sdoc 只删目标块、单文件删除、审计写入、`stale-preview`、缺 actor 拒绝。
 - `packages/dsh-plugin-requirements/test/remove-http.test.mjs` 3/3：HTTP 预览不落盘、apply 删除并写审计、stale 409、未知需求 404。
-- 本次 PR 提交前：`node --test --test-isolation=none` 相关子集 36/36。
-- 客户端探针（`tmp/ui-harness/ui-remove.mjs` 12/12、真实端到端 `tmp/ui-remove-e2e.mjs` 11/11）随 UI PR 验证。
+- 全量 `node --test --test-isolation=none "packages/*/test/**/*.test.mjs"` 431/431（插件包 138/138）。
+- 浏览器探针 `tmp/ui-harness/ui-remove.mjs` 12/12：删除入口、确认勾选、CAS 基线、结果与审计路径、无页面错误；截图 `tmp/ui-shots/remove-01-preview.png`、`remove-02-result.png`。
+- 真实端到端 `tmp/ui-remove-e2e.mjs` 11/11：真实服务 + 真实 `RequirementsService`（临时仓库拷贝 `fixtures/order-refund`），列表点删除 → 预览 → 勾选确认 → 文件移除、列表刷新、审计写入、其他需求保留、无页面错误；截图 `tmp/ui-shots/remove-e2e-01-preview.png`、`remove-e2e-02-result.png`。
 
 ## 生效条件
 
-`query.mjs` 与 `index.js` 属于宿主已加载模块，需重启 DSH 宿主（仅刷新页面不够）。重启后 `D:/DSH` 列表只剩 `requirements/` 下的 `REQ-ALM-001`，fixture 记录不再出现；删除接口已可用，客户端「删除」入口随 UI PR 出现。
+`query.mjs` 与 `index.js` 属于宿主已加载模块，需重启 DSH 宿主（仅刷新页面不够）。重启后 `D:/DSH` 列表只剩 `requirements/` 下的 `REQ-ALM-001`，fixture 记录不再出现，并可用「删除」真正移除。

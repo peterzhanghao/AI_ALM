@@ -1,0 +1,51 @@
+{
+  "schema": "alm.release/v1",
+  "id": "REL-002",
+  "status": "released",
+  "target": "requirement-archive",
+  "version": "v5",
+  "contentHash": "538a3e27ee785ff579f1a7dad2bdecd810d0758c3d03c98b6f96e5eb3732dc42",
+  "deliveries": [
+    {
+      "requirement": "REQ-ALM-012",
+      "requirementRevision": 5,
+      "title": "需求列表展示收敛变更状态与版本徽章",
+      "candidateId": "CAND-REQ-ALM-012-005",
+      "treeHash": "1e2751a377834b50fb59419d09f134507e26cded7f3e184c9531ecc66adac4cb",
+      "requirementHash": "7bd58832dab54a0c016a4eb39e66448961c734a91773d07512af7f91cdb2eca8",
+      "acceptance": {
+        "file": "D:\\DSH\\.alm\\acceptance\\REQ-ALM-012\\64ec15e67af862334c0b04f3b0b9b4b354859b20.json",
+        "hash": "329c3bbed8cd52b4f5151c8575f2b40ea1bfb0f77787bd3ea624291ac83ae462",
+        "result": "pass",
+        "finishedAt": "2026-11-11T05:52:20.803Z"
+      },
+      "humanSignoff": {
+        "actor": "human:local",
+        "at": "2026-11-11T06:15:03.144Z"
+      },
+      "acceptedAt": null
+    }
+  ],
+  "createdBy": "human:local",
+  "createdAt": "2026-11-11T06:15:15.790Z",
+  "authorization": {
+    "actor": "human:local",
+    "subject": {
+      "id": "human:local",
+      "kind": "human",
+      "source": "host-authenticated"
+    },
+    "at": "2026-11-11T06:15:15.798Z",
+    "contentHash": "538a3e27ee785ff579f1a7dad2bdecd810d0758c3d03c98b6f96e5eb3732dc42"
+  },
+  "executions": [
+    {
+      "result": "released",
+      "note": "已生成需求发布归档",
+      "actor": "human:local",
+      "at": "2026-11-11T06:15:15.806Z",
+      "archiveOnly": true
+    }
+  ],
+  "archiveOnly": true
+}

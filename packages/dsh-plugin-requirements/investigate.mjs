@@ -393,17 +393,26 @@ export function collectEvidence({ root, question, focus = [], limits = {} } = {}
 // ---------------------------------------------------------------------------
 
 export function buildInvestigationMessages({ question, evidence, session } = {}) {
+  // Exported builder callers need not originate from collectEvidence. Reject
+  // invalid inherited metadata rather than serializing unbounded values or
+  // silently converting strings/non-finite numbers into plausible counts.
+  for (const key of ['maxFiles', 'maxSnippets', 'scannedFiles']) {
+    const value = evidence?.boundary?.[key]
+    if (value === undefined || (value === null && key !== 'scannedFiles')) continue
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new InvestigationError('invalid-request', `boundary.${key} must be a non-negative safe integer`, { status: 400 })
+    }
+  }
+  const collectionTruncated = evidence?.boundary?.truncated ?? false
+  if (evidence?.boundary?.truncated !== undefined && typeof evidence.boundary.truncated !== 'boolean') {
+    throw new InvestigationError('invalid-request', 'boundary.truncated must be a boolean', { status: 400 })
+  }
   const evidencePack = {
-    question: evidence?.question ?? question,
-    keywords: evidence?.keywords ?? [],
-    repo: { projectId: session?.project?.id ?? null, tree: evidence?.tree ?? [] },
-    files: evidence?.files ?? [],
-    snippets: (evidence?.snippets ?? []).map((snippet) => ({
-      path: snippet.path,
-      line: snippet.line,
-      endLine: snippet.endLine,
-      text: snippet.text,
-    })),
+    question: truncated(String(evidence?.question ?? question ?? ''), 2000),
+    keywords: (evidence?.keywords ?? []).slice(0, 24).map((word) => truncated(String(word), 100)),
+    repo: { projectId: session?.project?.id == null ? null : truncated(String(session.project.id), 100), tree: [] },
+    files: [],
+    snippets: [],
     boundary: {
       maxFiles: evidence?.boundary?.maxFiles ?? null,
       maxSnippets: evidence?.boundary?.maxSnippets ?? null,
@@ -423,11 +432,56 @@ export function buildInvestigationMessages({ question, evidence, session } = {})
     '用户问题：',
     truncated(String(question ?? evidence?.question ?? ''), 2000),
   ].join('\n')
-  const userText = [
-    '证据包（只读采集，路径均相对当前仓库根）：',
-    truncated(JSON.stringify(evidencePack, null, 2), 24_000),
-    '请基于以上证据回答用户问题，严格遵守 JSON 契约。',
-  ].join('\n\n')
+  const prefix = '证据包（只读采集，路径均相对当前仓库根）：\n\n'
+  const suffix = '\n\n请基于以上证据回答用户问题，严格遵守 JSON 契约。'
+  const originals = {
+    snippets: evidence?.snippets ?? [],
+    files: evidence?.files ?? [],
+    tree: evidence?.tree ?? [],
+  }
+  const budget = evidencePack.boundary.messageBudget = {
+    limitCharacters: 25_000,
+    systemCharacters: system.length,
+    userCharacters: 0,
+    totalCharacters: 0,
+    counts: {},
+  }
+  // Size the actual serialized message, including omission metadata and the
+  // decimal lengths themselves. Never slice the JSON or source quotations.
+  function serialize() {
+    for (const key of Object.keys(originals)) {
+      const retained = key === 'tree' ? evidencePack.repo.tree.length : evidencePack[key].length
+      budget.counts[key] = { original: originals[key].length, retained, omitted: originals[key].length - retained }
+    }
+    evidencePack.boundary.truncated = collectionTruncated ||
+      Object.values(budget.counts).some(({ omitted }) => omitted > 0)
+    let text
+    for (;;) {
+      text = prefix + JSON.stringify(evidencePack) + suffix
+      const total = system.length + text.length
+      if (budget.userCharacters === text.length && budget.totalCharacters === total) return text
+      budget.userCharacters = text.length
+      budget.totalCharacters = total
+    }
+  }
+  let userText = serialize()
+  for (const key of ['snippets', 'files', 'tree']) {
+    const target = key === 'tree' ? evidencePack.repo.tree : evidencePack[key]
+    for (const entry of originals[key]) {
+      target.push(key === 'snippets' ? {
+        path: entry.path, line: entry.line, endLine: entry.endLine, text: entry.text,
+      } : entry)
+      const candidate = serialize()
+      if (system.length + candidate.length <= budget.limitCharacters) userText = candidate
+      else {
+        target.pop()
+        userText = serialize()
+      }
+    }
+  }
+  if (system.length + userText.length > budget.limitCharacters) {
+    throw new InvestigationError('invalid-request', 'Investigation message exceeds character budget', { status: 400 })
+  }
   return { system, user: [{ type: 'text', text: userText }] }
 }
 
@@ -526,6 +580,29 @@ function verifyRef({ rootReal, ref, cache }) {
     quote: ref.quote,
     verified: true,
   }
+}
+
+/** Re-check persisted citations against the current working tree before reuse. */
+export function revalidateInvestigation(root, investigation) {
+  const rootReal = assertRoot(root)
+  if (!isPlainObject(investigation)) return null
+  const cache = new Map()
+  if (!Array.isArray(investigation.findings)) return null
+  const findings = []
+  for (const finding of investigation.findings) {
+    if (!isPlainObject(finding) || !Array.isArray(finding.refs) || finding.refs.length === 0) return null
+    const refs = []
+    for (const ref of finding.refs) {
+      const normalized = requireFindingRef(ref)
+      if (!normalized || ref.verified !== true) return null
+      const checked = verifyRef({ rootReal, ref: normalized, cache })
+      if (!checked) return null
+      refs.push(checked)
+    }
+    findings.push({ ...finding, refs })
+  }
+  if (findings.length === 0 && (investigation.source !== 'hypothesis' || investigation.verdict !== 'not-determined')) return null
+  return { ...investigation, findings }
 }
 
 /**
@@ -628,7 +705,7 @@ function streamText(aiStream, options) {
   })()
 }
 
-export async function runInvestigation({ aiStream, provider, model, root, session, question, focus = [] } = {}) {
+export async function runInvestigation({ aiStream, provider, model, reasoningEffort, root, session, question, focus = [] } = {}) {
   if (typeof aiStream !== 'function') {
     throw new InvestigationError('no-model', '未配置可用的模型，无法调查', { status: 503 })
   }
@@ -651,6 +728,7 @@ export async function runInvestigation({ aiStream, provider, model, root, sessio
       for await (const chunk of streamText(aiStream, {
         provider,
         model,
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         system,
         messages,
         temperature: 0.2,
@@ -814,7 +892,7 @@ export function listInvestigations(root, { sessionId = null, limit = 20 } = {}) 
 
 export function buildEvidenceNote(investigations, { maxChars = 8000 } = {}) {
   const lines = [
-    '以下是本轮澄清中已经做过的只读现场调查（observed_evidence）。这些是观察证据，引用可核对；不得扩大为已确认决定，也不得据此直接确认或执行。',
+    '以下是本轮澄清中已经做过的只读现场调查。请区分观察证据与尚未确定的假设，核对引用，不得扩大为已确认决定，也不得据此直接确认或执行。',
   ]
   for (const investigation of Array.isArray(investigations) ? investigations.slice(0, 5) : []) {
     lines.push('')

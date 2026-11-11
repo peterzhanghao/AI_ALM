@@ -19,7 +19,10 @@ export const READINESS_CODES = [
   'needs-acceptance',
   'needs-priority',
   'invalid-priority',
+  'analysis-pending',
+  'unresolved-blocking-decision',
   'unresolved-blocking-unknown',
+  'investigation-evidence-incomplete',
   'invalid-change-base',
   'unresolved-source',
   'unverified-context',
@@ -41,7 +44,10 @@ const REASON_TEXT = {
   'needs-acceptance': '缺少可判定的验收条件',
   'needs-priority': '优先级需要人工选择，不能由模型猜测',
   'invalid-priority': '优先级无效（允许 P0/P1/P2）',
+  'analysis-pending': '分析仍在进行，当前修订尚不稳定',
+  'unresolved-blocking-decision': '存在未处理或已过期的阻塞决定',
   'unresolved-blocking-unknown': '存在未解决的阻塞性未知项',
+  'investigation-evidence-incomplete': '调查路线尚无完成且可核对的证据',
   'invalid-change-base': '变更缺少可核对的基线（需求 uid/revision/内容哈希）',
   'unresolved-source': '缺少可核对的来源引用或可复用需求',
   'unverified-context': '需求检索未成功，相关需求尚未核对',
@@ -119,6 +125,65 @@ function effectivePriority({ session, confirmation }) {
 }
 
 /**
+ * Reasons that only block *confirmation*, not saving a draft. A draft may be
+ * generated with an unselected priority or without a checked requirement set;
+ * a human confirmation still must not proceed on those gaps.
+ */
+const DRAFT_IGNORED = new Set([
+  'needs-priority',
+  'invalid-priority',
+  'analysis-pending',
+  'not-confirmed',
+  'unverified-context',
+  'investigate-needs-question',
+])
+
+const COMPLETED_RESOLUTIONS = new Set(['exclude'])
+
+function unknownBlocks(unknown, { draft = false } = {}) {
+  if (unknown?.blocking !== true) return false
+  if (COMPLETED_RESOLUTIONS.has(unknown.resolution)) return false
+  const blockingFor = unknown.blockingFor ?? 'confirmation'
+  if (blockingFor === 'none') return false
+  return blockingFor === 'understanding' || !draft
+}
+
+function linkedBlockingItems(session, question, { draft = false } = {}) {
+  const ids = new Set(Array.isArray(question?.itemIds) ? question.itemIds : [])
+  if (ids.size === 0) return []
+  return (session.items ?? []).filter(
+    (item) =>
+      item &&
+      item.excluded !== true &&
+      ids.has(item.itemId) &&
+      (item.unknowns ?? []).some(
+        (unknown) =>
+          unknownBlocks(unknown, { draft }) &&
+          !(unknown.resolution === 'investigate' && investigationEvidenceComplete(session, item, unknown)),
+      ),
+  )
+}
+
+function investigationEvidenceComplete(session, item, unknown) {
+  const records = Array.isArray(session.investigationEvidence)
+    ? session.investigationEvidence
+    : Array.isArray(session.investigations)
+      ? session.investigations
+      : []
+  return records.some((entry) => {
+    if (!entry || entry.sessionId !== session.sessionId) return false
+    if (!Number.isSafeInteger(entry.inputRevision) || entry.inputRevision !== session.input?.inputRevision) return false
+    const itemIds = Array.isArray(entry.itemIds) ? entry.itemIds : []
+    if (!itemIds.includes(item.itemId)) return false
+    if (typeof unknown.description !== 'string' || !unknown.description.trim() || entry.unknownDescription !== unknown.description) return false
+    const completed = entry.status === 'completed' || entry.verdict === 'answered'
+    const verified = entry.source === 'observed_evidence' && (entry.findings ?? []).some((finding) => (finding.refs ?? []).some((ref) => ref.verified === true))
+    return completed && verified
+  })
+}
+
+/**
+ * @param {{session: object, contextNow?: object|null, project?: string|null, confirmation?: object|null, requireConfirmation?: boolean, expectedInputRevision?: number, mode?: 'confirm'|'draft'}} options
  * @returns {{ready: boolean, reasons: object[], warnings: string[]}}
  */
 export function evaluateReadiness({
@@ -128,8 +193,10 @@ export function evaluateReadiness({
   confirmation,
   requireConfirmation = true,
   expectedInputRevision,
+  mode = 'confirm',
 } = {}) {
   if (!session || typeof session !== 'object') throw intentError('invalid-request', 'evaluateReadiness 需要 session')
+  const draft = mode === 'draft'
   const warnings = []
   const reasons = []
   const add = (code, message, itemId) => {
@@ -139,6 +206,28 @@ export function evaluateReadiness({
 
   const context = contextNow ?? session.context ?? null
   if (!contextNow) warnings.push('context-not-rechecked: 使用会话中缓存的上下文评估，确认前需重新核对')
+
+  const analysisStatus = session.analysisStatus?.status ?? session.analysisStatus ?? null
+  if (session.state === 'analyzing' || analysisStatus === 'running' || analysisStatus === 'pending') {
+    add('analysis-pending', '分析仍在进行，当前候选修订尚不稳定，不能确认')
+  }
+  if (session.answerAnalysisRequired === true) {
+    add('analysis-pending', '回答尚未纳入成功的分析，请重新分析后确认')
+  }
+  if (session.analysisRetryRequired === true) {
+    add('analysis-pending', '重新分析尚未成功完成，请重新分析后确认')
+  }
+
+  const pendingQuestions = (session.questionGroup?.questions ?? []).filter((question) => ['open', 'stale'].includes(question?.status))
+  for (const question of pendingQuestions) {
+    for (const item of linkedBlockingItems(session, question, { draft })) {
+      add(
+        'unresolved-blocking-decision',
+        `条目 ${item.itemId} 仍有${question.status === 'stale' ? '已过期' : '未处理'}的阻塞决定：${question.text}`,
+        item.itemId,
+      )
+    }
+  }
 
   const currentRevision = session.input?.inputRevision ?? 1
   const declaredRevision = confirmation?.expectedInputRevision ?? expectedInputRevision ?? session.confirmation?.inputRevision
@@ -179,9 +268,19 @@ export function evaluateReadiness({
     }
     const candidate = effectiveCandidate(item)
     const unknowns = Array.isArray(item.unknowns) ? item.unknowns : []
-    const blocking = unknowns.filter(
-      (unknown) => unknown?.blocking === true && (!unknown.resolution || unknown.resolution === 'pending'),
-    )
+    const blocking = unknowns.filter((unknown) => {
+      if (!unknownBlocks(unknown, { draft })) return false
+      if (unknown.resolution !== 'investigate') return true
+      return !investigationEvidenceComplete(session, item, unknown)
+    })
+    const incompleteInvestigations = blocking.filter((unknown) => unknown.resolution === 'investigate')
+    if (route !== 'investigate' && route !== 'decline' && route !== 'answer' && incompleteInvestigations.length > 0) {
+      add(
+        'investigation-evidence-incomplete',
+        `条目 ${itemId} 的调查尚无完成且可核对的证据：${incompleteInvestigations.map((entry) => entry.description).join('；')}`,
+        itemId,
+      )
+    }
     if (route !== 'investigate' && route !== 'decline' && route !== 'answer' && blocking.length > 0) {
       add(
         'unresolved-blocking-unknown',
@@ -262,7 +361,7 @@ export function evaluateReadiness({
     }
 
     if (route === 'answer') {
-      const answer = confirmationItem?.answer ?? confirmation?.answer ?? session.answers?.at(-1)?.text ?? null
+      const answer = confirmationItem?.answer ?? confirmation?.answer ?? session.answers?.findLast(entry => entry?.supersededBy == null && entry.inputRevision === currentRevision)?.text ?? null
       if (!answer || String(answer).trim() === '') add('missing-answer', `条目 ${itemId} 的回答为空`, itemId)
     }
   }
@@ -271,7 +370,14 @@ export function evaluateReadiness({
     add('not-confirmed', '尚未执行人工确认（AI 建议不等于确认）')
   }
 
-  return { ready: reasons.length === 0, reasons, warnings }
+  if (!draft) return { ready: reasons.length === 0, reasons, warnings }
+  const draftReasons = reasons.filter((entry) => !DRAFT_IGNORED.has(entry.code))
+  return { ready: draftReasons.length === 0, reasons: draftReasons, warnings }
+}
+
+/** Draft-mode readiness: what a human may save, before the confirmation gates. */
+export function evaluateDraftReadiness(options = {}) {
+  return evaluateReadiness({ ...options, mode: 'draft' })
 }
 
 export { effectiveValue, REASON_TEXT }

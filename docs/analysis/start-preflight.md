@@ -52,8 +52,6 @@
   - `PreflightModal`：挂载即执行 preflight（`apply:true`）；完成后展示逐步骤状态、carry-over、`question` 选项；无问题时自动调用 `start`（apply:true）并展示变更 / 任务卡 / worktree 与审计路径；
   - `primaryActionFor` 不再给“运行门禁检查 / 查看并处理阻塞 / 运行验收”等手动门禁入口，非绿需求统一给“开始开发（AI 先处理）”。
 
-> 本次 PR 只包含后端与编排层；`client.js` 正被同一工作树的并行改动重构（详情页 `renderRich` 等），客户端接入放在紧随其后的 UI PR，避免把无关改动带进本 PR。
-
 ## 4. 验证
 
 | 项 | 结果 |
@@ -73,4 +71,4 @@
 
 ## 6. 状态
 
-后端与编排层随本 PR 提交；`client.js` 的接入（`PreflightModal`、按钮移除）随后续 UI PR 提交（同一工作树的详情页重构尚未提交，混入会污染本 PR）。
+未提交（与并行 ALM-09.16 归档 WIP 同工作树）。

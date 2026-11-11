@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { buildIndex } from './index/index.mjs'
 import { buildGraph, impactOf, traceOf } from './index/closure.mjs'
 import { diffAssets } from './diff/diff.mjs'
-import { loadRepo as loadParserRepo, parseAssetFile } from './parse/load.mjs'
+import { loadRepo as loadParserRepo, parseAssetFile, isAssetSourcePath } from './parse/load.mjs'
 import { runGates } from './gates/run.mjs'
 
 const PACK = JSON.parse(readFileSync(new URL('./gates/pack.json', import.meta.url), 'utf8'))
@@ -39,7 +39,7 @@ export function loadBaseAssets(root, ref) {
     })
     const assets = []
     for (const file of listing.split('\n').map((line) => line.trim()).filter(Boolean)) {
-      if (!/\.(yml|yaml|sdoc|md)$/i.test(file)) continue
+      if (!isAssetSourcePath(file)) continue
       if (/^readme\.md$/i.test(file) || /\/readme\.md$/i.test(file)) continue
       try {
         const text = execFileSync('git', ['-C', root, 'show', `${ref}:${file}`], {
@@ -58,8 +58,8 @@ export function loadBaseAssets(root, ref) {
   }
 }
 
-export function indexReport(root) {
-  const loaded = loadRepo(root)
+export function indexReport(root, context = {}) {
+  const loaded = context.loaded ?? loadRepo(root)
   if (!loaded.ok) return loaded
   return {
     schema: 'alm.index/v1',
@@ -69,8 +69,8 @@ export function indexReport(root) {
   }
 }
 
-export function checkReport(root, options = {}) {
-  const loaded = loadRepo(root)
+export function checkReport(root, options = {}, context = {}) {
+  const loaded = context.loaded ?? loadRepo(root)
   if (!loaded.ok) return loaded
 
   const index = buildIndex(loaded.assets)

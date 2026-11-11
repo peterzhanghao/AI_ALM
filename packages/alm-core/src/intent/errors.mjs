@@ -10,6 +10,7 @@
 export const INTENT_SCHEMA = 'alm.intent-session/v1'
 export const INTENT_SCHEMA_VERSION = 1
 export const ANALYSIS_SCHEMA = 'intent-review.v1'
+export const ANALYSIS_SCHEMA_V2 = 'intent-review.v2'
 export const CHANGE_DRAFT_SCHEMA = 'alm.intent.change-draft/v1'
 export const INVESTIGATION_SCHEMA = 'alm.intent.investigation/v1'
 export const RECEIPT_SCHEMA = 'alm.intent.receipt/v1'
@@ -39,6 +40,26 @@ export const MATCHES = ['covered', 'related', 'conflict', 'uncertain']
 
 export const RESOLUTIONS = ['clarify', 'investigate', 'exclude', 'pending']
 
+/**
+ * Classification of a model-reported unknown. It decides whether the unknown
+ * may be asked about, investigated by the agent, or simply recorded.
+ */
+export const UNKNOWN_KINDS = [
+  'user-decision',
+  'project-fact',
+  'implementation-choice',
+  'high-impact-assumption',
+  'low-impact-suggestion',
+  'value-conflict',
+]
+
+/**
+ * What an unresolved blocking unknown actually blocks:
+ * `understanding` also blocks draft readiness, `confirmation` only blocks the
+ * final write, `none` never blocks.
+ */
+export const BLOCKING_FOR = ['understanding', 'confirmation', 'none']
+
 export const MAX_EXTRACTED_TEXT = 20000
 export const MAX_TITLE = 200
 export const MAX_LIMIT = 50
@@ -63,6 +84,9 @@ export const ERROR_STATUS = {
   'context-mismatch': 409,
   'stale-input': 409,
   'stale-context': 409,
+  'stale-session': 409,
+  'draft-changed': 409,
+  'answer-not-in-group': 422,
   'already-committed': 409,
   'idempotency-conflict': 409,
   'project-mismatch': 409,

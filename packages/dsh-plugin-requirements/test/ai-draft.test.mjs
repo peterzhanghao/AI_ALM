@@ -28,14 +28,17 @@ const CANDIDATE = {
 }
 
 test('runAiDraft returns a candidate draft without formal priority or owner', async () => {
+  let options
   const draft = await runAiDraft({
-    stream: fakeStream(CANDIDATE),
+    stream: value => { options = value; return fakeStream(CANDIDATE)() },
     provider: 'fake',
     model: 'fake',
+    reasoningEffort: 'low',
     intent: '退款老是重复退，财务对账很麻烦，要保证同一笔订单只退一次',
     extractedText: EXTRACTED,
     projectName: '支付平台',
   })
+  assert.equal(options.reasoningEffort, 'low')
   assert.equal(draft.schema, 'alm.ai-draft/v1')
   assert.equal(draft.candidate, true)
   assert.equal(draft.requiresHumanConfirmation, true)

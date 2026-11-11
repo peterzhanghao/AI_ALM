@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 
 export const AI_REVIEW_SCHEMA = 'alm.ai-review/v1'
@@ -44,6 +45,32 @@ export function writeAiReview(root, report) {
   return file
 }
 
+// Each invocation has its own receipt. It deliberately contains neither the
+// prompt nor model output, and does not claim to include hidden provider retries.
+export function writeAiReviewUsage(root, { requirement, provider, model, startedAt, status, usage = null, errorCode = null }) {
+  const dir = join(resolve(root), AI_REVIEW_DIR, 'usage', requirement)
+  mkdirSync(dir, { recursive: true })
+  const receipt = { schema: 'alm.ai-review-usage/v1', id: randomUUID(), requirement, provider: provider ?? null, model: model ?? null,
+    startedAt, finishedAt: new Date().toISOString(), status, usage, errorCode, complete: false }
+  writeFileSync(join(dir, `${startedAt.replace(/\D/g, '')}-${receipt.id}.json`), `${JSON.stringify(receipt, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+  return receipt
+}
+
+export function recentAiReviewUsage(root, requirementId) {
+  const dir = join(resolve(root), AI_REVIEW_DIR, 'usage', requirementId)
+  let names
+  try { names = readdirSync(dir).filter(name => /^\d+-[0-9a-f-]+\.json$/i.test(name)).sort().reverse().slice(0, 20) } catch (error) { if (error.code === 'ENOENT') return []; throw error }
+  return names.map(name => {
+    try {
+      const row = JSON.parse(readFileSync(join(dir, name), 'utf8'))
+      if (row.schema !== 'alm.ai-review-usage/v1' || row.requirement !== requirementId || !['completed', 'failed'].includes(row.status) || typeof row.id !== 'string') throw new Error('invalid receipt')
+      return row
+    } catch {
+      throw Object.assign(new Error('评审用量记录无法完整读取'), { code: 'review-usage-unavailable', status: 503 })
+    }
+  })
+}
+
 export function aiReviewSummary(root, requirementId) {
   const stored = readAiReview(root, requirementId)
   if (!stored) return { stored: false }
@@ -53,6 +80,8 @@ export function aiReviewSummary(root, requirementId) {
     generatedAt: stored.generatedAt ?? null,
     provider: stored.provider ?? null,
     model: stored.model ?? null,
+    usage: stored.usage ?? null,
+    ...(stored.usageReceiptStored === false ? { usageReceiptStored: false } : {}),
     verdict: stored.verdict ?? 'warn',
     summary: stored.summary ?? '',
     findings: (stored.findings ?? []).length,
@@ -193,16 +222,18 @@ function normalizeReview(payload) {
 }
 
 /** One AI call over an injected model stream; returns a normalized review. */
-export async function runAiReview({ stream, provider, model, asset, item, check, briefText }) {
+export async function runAiReview({ stream, provider, model, reasoningEffort, asset, item, check, briefText }) {
   if (typeof stream !== 'function') throw new AiReviewError('AI 模型不可用（缺少 llm stream）', { code: 'ai-unavailable', status: 503 })
   const prompt = buildAiReviewPrompt({ asset, item, check, briefText })
   let text = ''
   const seen = []
   let finishKind = null
+  let usage = null
   try {
     for await (const chunk of stream({
       provider,
       model,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       system: prompt.system,
       messages: prompt.messages,
       temperature: 0.2,
@@ -210,33 +241,44 @@ export async function runAiReview({ stream, provider, model, asset, item, check,
     })) {
       if (chunk?.type) seen.push(chunk.type)
       if (chunk?.type === 'text-delta') text += chunk.text ?? ''
+      if (chunk?.type === 'usage' && chunk.usage && typeof chunk.usage === 'object') {
+        const fields = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
+        const sample = Object.fromEntries(fields.map(key => [key, Number.isSafeInteger(chunk.usage[key]) && chunk.usage[key] >= 0 ? chunk.usage[key] : null]))
+        usage = fields.some(key => sample[key] !== null) ? sample : null
+      }
       if (chunk?.type === 'finish') finishKind = chunk.reason?.kind ?? null
       if (chunk?.type === 'finish' && chunk.reason?.kind === 'error') {
         throw new AiReviewError(chunk.reason.failure?.message ?? 'AI 调用失败', { code: 'ai-call-failed', status: 502 })
       }
     }
   } catch (error) {
-    if (error instanceof AiReviewError) throw error
-    throw new AiReviewError(`AI 调用失败: ${error?.message ?? String(error)}`, { code: 'ai-call-failed', status: 502 })
+    const failure = error instanceof AiReviewError ? error : new AiReviewError(`AI 调用失败: ${error?.message ?? String(error)}`, { code: 'ai-call-failed', status: 502 })
+    failure.usage = usage
+    throw failure
   }
   if (text.trim() === '') {
-    throw new AiReviewError(
+    const error = new AiReviewError(
       `AI 返回为空（${provider}/${model}；chunks: ${seen.join(',') || 'none'}；finish: ${finishKind ?? 'none'}）`,
       { code: 'ai-empty', status: 502 },
     )
+    error.usage = usage
+    throw error
   }
+  let review
+  try { review = normalizeReview(extractJson(text)) } catch (error) { error.usage = usage; throw error }
   return {
     schema: AI_REVIEW_SCHEMA,
     requirement: asset.id,
     provider,
     model,
     generatedAt: new Date().toISOString(),
-    ...normalizeReview(extractJson(text)),
+    usage,
+    ...review,
     adopted: null,
   }
 }
 
-const ADOPT_HEADING = '## AI 评审建议（已采纳'
+const ADOPT_HEADING = '## AI 优化建议（已采纳'
 
 /**
  * Split a brief into its authored body and the previously adopted AI section.
@@ -244,7 +286,7 @@ const ADOPT_HEADING = '## AI 评审建议（已采纳'
  * is enough: everything from that heading on is replaced, never accumulated.
  */
 function splitAdoptedSection(text) {
-  const index = text.search(/^## AI 评审建议（已采纳/m)
+  const index = text.search(/^## AI (?:评审|优化)建议（已采纳/m)
   if (index < 0) return { base: text.replace(/\s+$/, ''), hadSection: false }
   // Slice the original text instead of rebuilding it line by line: rebuilding
   // would rewrite the authored body's line endings on every adoption and make
@@ -261,19 +303,11 @@ export function adoptAiReview({ root, asset, report, selectedSuggestionIds = [] 
   const wanted = [...new Set((selectedSuggestionIds ?? []).map((id) => String(id)))]
   const suggestions = Array.isArray(report.suggestions) ? report.suggestions : []
   const selected = suggestions.filter((suggestion) => wanted.includes(String(suggestion.id)))
-  // Accepting a review without picking suggestions is valid: adoption then
-  // records the acceptance only and leaves the authored brief untouched.
+  // With nothing selected this action is a pure skip: it must not rewrite the
+  // brief or create an adoption record that another layer could mistake for an
+  // approval gate.
   if (selected.length === 0) {
-    const adopted = {
-      at: new Date().toISOString(),
-      suggestionIds: [],
-      includeBrief: false,
-      sectionReplaced: false,
-      noSuggestions: true,
-    }
-    const next = { ...report, adopted }
-    writeAiReview(root, next)
-    return { ...next, changed: false }
+    return { ...report, applied: false, skipped: true, changed: false }
   }
   const file = briefPath(root, asset)
   const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''

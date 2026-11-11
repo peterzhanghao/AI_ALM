@@ -296,6 +296,17 @@ test('GET /api/alm/requirements/version serves a committed snapshot and rejects 
     const bad = await fetch(`${base}/api/alm/requirements/version?asset=REQ-PAY-001&sha=zzz`)
     assert.equal(bad.status, 400)
     assert.equal((await bad.json()).error.code, 'invalid-sha')
+    const history = await fetch(`${base}/api/alm/requirements/version?mode=history&asset=REQ-PAY-001`)
+    const page = await history.json()
+    assert.equal(history.status, 200)
+    assert.equal(page.schema, 'alm.version.history/v1')
+    assert.ok(page.versions.length > 0)
+    assert.match(page.head, /^[0-9a-f]{40,64}$/)
+    const badOffset = await fetch(`${base}/api/alm/requirements/version?mode=history&asset=REQ-PAY-001&offset=20`)
+    assert.equal(badOffset.status, 400)
+    assert.equal((await badOffset.json()).error.code, 'invalid-head')
+    const wrongMethod = await fetch(`${base}/api/alm/requirements/version?mode=history&asset=REQ-PAY-001`, { method: 'POST' })
+    assert.equal(wrongMethod.status, 405)
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }
@@ -306,6 +317,9 @@ async function withWriteServer(root, run, extra = {}) {
   const ctx = {
     effect(callback) {
       callback()
+    },
+    get(name) {
+      return extra.services?.[name]
     },
     webServer: {
       register(route) {
@@ -331,6 +345,45 @@ async function withWriteServer(root, run, extra = {}) {
     await new Promise((resolve) => server.close(resolve))
   }
 }
+
+test('trusted human subject prefers Connection admission and rejects failed authentication', () => {
+  const routes = new Map()
+  const connection = {
+    admit({ headers }) {
+      assert.equal(headers.authorization, 'Bearer host-proof')
+      return { peer: { principal: { id: 'human:alice', kind: 'human' } } }
+    },
+  }
+  const service = new RequirementsService(
+    {
+      effect(callback) {
+        callback()
+      },
+      get(name) {
+        return name === 'connection' ? connection : undefined
+      },
+      webServer: {
+        register(route) {
+          routes.set(route.path, route.handler)
+          return () => routes.delete(route.path)
+        },
+      },
+      tools: { register: () => () => {} },
+    },
+    { root: fixture },
+  )
+  assert.deepEqual(service.humanSubjectFor({ headers: { authorization: 'Bearer host-proof' } }), {
+    id: 'human:alice',
+    kind: 'human',
+    source: 'host-authenticated',
+  })
+
+  connection.admit = () => ({ rejection: 401 })
+  assert.throws(
+    () => service.humanSubjectFor({ headers: {} }),
+    (error) => error.code === 'unauthenticated-subject' && error.status === 401,
+  )
+})
 
 test('POST /api/alm/requirements/start previews without writing', async () => {
   await withWriteServer(fixture, async (base) => {
@@ -397,6 +450,26 @@ test('write endpoints reject non-POST and broken roots', async () => {
       })
       assert.equal(accept.status, 400)
       assert.equal((await accept.json()).error.code, 'write-failed')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+test('a write uses the workspace named in its body, not only the query string', async () => {
+  await withWriteServer(fixture, async (base) => {
+    const dir = mkdtempSync(join(tmpdir(), 'alm-root-body-'))
+    try {
+      cpSync(fixture, dir, { recursive: true })
+      const response = await fetch(`${base}/api/alm/requirements/archive`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ root: dir, requirementId: 'REQ-PAY-001' }),
+      })
+      assert.equal(response.status, 200)
+      const payload = await response.json()
+      assert.equal(payload.requirement, 'REQ-PAY-001')
+      assert.equal(payload.applied, false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -595,7 +668,7 @@ test('GET /api/alm/requirements/diff compares a commit against the worktree', as
   }
 })
 
-test('POST /api/alm/requirements/review and signoff persist a human review', async () => {
+test('POST /api/alm/requirements/signoff persists independent human acceptance', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'alm-review-http-'))
   try {
     cpSync(fixture, dir, { recursive: true })
@@ -605,40 +678,20 @@ test('POST /api/alm/requirements/review and signoff persist a human review', asy
       cwd: dir,
     })
     await withWriteServer(dir, async (base) => {
-      const preview = await fetch(`${base}/api/alm/requirements/review?root=${encodeURIComponent(dir)}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ requirementId: 'REQ-PAY-001' }),
-      })
-      const plan = await preview.json()
-      assert.equal(preview.status, 200)
-      assert.equal(plan.schema, 'alm.review/v1')
-      assert.equal(plan.source, 'executor')
-      assert.equal(plan.applied, false)
-      assert.ok(!existsSync(join(dir, '.alm', 'reviews', 'REQ-PAY-001.json')))
+      assert.ok(!existsSync(join(dir, '.alm', 'signoffs', 'REQ-PAY-001.json')))
 
-      const applied = await fetch(`${base}/api/alm/requirements/review?root=${encodeURIComponent(dir)}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true }),
-      })
-      const reviewed = await applied.json()
-      assert.equal(reviewed.applied, true)
-      assert.ok(existsSync(join(dir, '.alm', 'reviews', 'REQ-PAY-001.json')))
-
-      const badActor = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ requirementId: 'REQ-PAY-001', actor: 'agent:bot' }),
-      })
-      assert.equal(badActor.status, 400)
-      assert.equal((await badActor.json()).error.code, 'invalid-actor')
-
-      // Backend hard gate: no acceptance evidence, no sign-off.
+      // Request JSON cannot select the signer. With no Connection service this
+      // test server is the explicit local single-user boundary, so even forged
+      // actor/subject fields reach the ordinary acceptance gate as human:local.
       const gate = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ requirementId: 'REQ-PAY-001', actor: 'human:tester', apply: true }),
+        body: JSON.stringify({
+          requirementId: 'REQ-PAY-001',
+          actor: 'human:mallory',
+          subject: { id: 'human:mallory', kind: 'human', source: 'host-authenticated' },
+          apply: true,
+        }),
       })
       assert.equal(gate.status, 409)
       assert.equal((await gate.json()).error.code, 'acceptance-missing')
@@ -660,6 +713,26 @@ test('POST /api/alm/requirements/review and signoff persist a human review', asy
       })
       assert.equal((await run.json()).result, 'pass')
 
+      // Human acceptance binds a delivery candidate: no candidate, no sign-off.
+      const noCandidate = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', actor: 'human:tester', apply: true }),
+      })
+      assert.equal(noCandidate.status, 409)
+      assert.equal((await noCandidate.json()).error.code, 'candidate-missing')
+
+      const made = await fetch(`${base}/api/alm/requirements/candidate?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', actor: 'ai:adopted' }),
+      })
+      const candidate = await made.json()
+      assert.equal(made.status, 200)
+      assert.equal(candidate.created, true)
+      assert.ok(candidate.candidate.id.startsWith('CAND-REQ-PAY-001-'))
+      assert.ok(candidate.candidate.treeHash)
+
       const signed = await fetch(`${base}/api/alm/requirements/signoff?root=${encodeURIComponent(dir)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -667,16 +740,49 @@ test('POST /api/alm/requirements/review and signoff persist a human review', asy
       })
       const signoff = await signed.json()
       assert.equal(signed.status, 200)
-      assert.equal(signoff.applied, true)
-      assert.equal(signoff.signoff.actor, 'human:tester')
+      assert.equal(signoff.applied, true, JSON.stringify(signoff))
+      assert.equal(signoff.signoff.actor, 'human:local')
+      assert.deepEqual(signoff.signoff.subject, { id: 'human:local', kind: 'human', source: 'local-session' })
 
       const payload = await (await fetch(`${base}/api/alm/requirements?root=${encodeURIComponent(dir)}`)).json()
       const item = payload.requirements.find((entry) => entry.id === 'REQ-PAY-001')
-      assert.equal(item.review.stored, true)
-      assert.equal(item.review.signoffValid, true)
-      assert.equal(item.review.signoff.actor, 'human:tester')
-      assert.equal(item.review.evidenceBound, true)
+      assert.equal('review' in item, false)
+      assert.equal(item.humanAcceptance.signoffValid, true)
+      assert.equal(item.humanAcceptance.signoff.actor, 'human:local')
+      assert.deepEqual(item.humanAcceptance.signoff.subject, { id: 'human:local', kind: 'human', source: 'local-session' })
+      assert.equal(item.humanAcceptance.evidenceBound, true)
+      assert.ok(existsSync(join(dir, '.alm', 'signoffs', 'REQ-PAY-001.json')))
+      assert.ok(!existsSync(join(dir, '.alm', 'reviews', 'REQ-PAY-001.json')))
       assert.equal(item.decision.state, 'verified')
+
+      const createdRelease = await fetch(`${base}/api/alm/requirements/release?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'create', requirementIds: ['REQ-PAY-001'] }),
+      })
+      const releaseDraft = await createdRelease.json()
+      assert.equal(createdRelease.status, 200)
+      assert.equal(releaseDraft.release.status, 'draft')
+
+      const authorizedRelease = await fetch(`${base}/api/alm/requirements/release?root=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'authorize',
+          releaseId: releaseDraft.release.id,
+          actor: 'human:mallory',
+          subject: { id: 'human:mallory', kind: 'human', source: 'host-authenticated' },
+          apply: true,
+        }),
+      })
+      const authorization = await authorizedRelease.json()
+      assert.equal(authorizedRelease.status, 200)
+      assert.equal(authorization.release.authorization.actor, 'human:local')
+      assert.deepEqual(authorization.release.authorization.subject, {
+        id: 'human:local',
+        kind: 'human',
+        source: 'local-session',
+      })
     })
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -698,17 +804,26 @@ test('POST /api/alm/requirements/intake parses chat and runs local OCR adapter',
 
     const dir = mkdtempSync(join(tmpdir(), 'alm-ocr-http-'))
     const script = join(dir, 'fake-ocr.py')
-    writeFileSync(script, `console.log(JSON.stringify({ engine: 'ppocrv5', lines: [{ text: '本地 OCR 文本', confidence: 0.9 }], blocks: [] }))`)
+    writeFileSync(script, `setTimeout(() => console.log(JSON.stringify({ engine: 'ppocrv5', lines: [{ text: '本地 OCR 文本', confidence: 0.9 }], blocks: [] })), 1000)`)
     const previousPython = process.env.DSH_OCR_PYTHON
     const previousScript = process.env.DSH_OCR_SCRIPT
     process.env.DSH_OCR_PYTHON = process.execPath
     process.env.DSH_OCR_SCRIPT = script
     try {
-      const ocr = await fetch(`${base}/api/alm/requirements/intake?root=${encodeURIComponent(fixture)}`, {
+      let ocrFinished = false
+      const pendingOcr = fetch(`${base}/api/alm/requirements/intake?root=${encodeURIComponent(fixture)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ mode: 'ocr', filename: 'shot.png', imageBase64: Buffer.from('fake-image').toString('base64') }),
+      }).then(response => { ocrFinished = true; return response })
+      await new Promise(resolve => setTimeout(resolve, 200))
+      const concurrentChat = await fetch(`${base}/api/alm/requirements/intake?root=${encodeURIComponent(fixture)}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'chat', markdown: '10:12 张三：并发检查' }),
       })
+      assert.equal(concurrentChat.status, 200)
+      assert.equal(ocrFinished, false)
+      const ocr = await pendingOcr
       const ocrPayload = await ocr.json()
       assert.equal(ocr.status, 200)
       assert.equal(ocrPayload.schema, 'alm.ocr/v1')
@@ -722,6 +837,45 @@ test('POST /api/alm/requirements/intake parses chat and runs local OCR adapter',
       rmSync(dir, { recursive: true, force: true })
     }
   })
+})
+
+test('disconnecting an OCR request terminates its process and cleans its image', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'alm-ocr-cancel-http-'))
+  const script = join(dir, 'slow.cjs'), marker = join(dir, 'started.json')
+  writeFileSync(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({pid:process.pid,image:process.argv[2]})); setTimeout(() => {}, 60000)`)
+  const previousPython = process.env.DSH_OCR_PYTHON, previousScript = process.env.DSH_OCR_SCRIPT
+  process.env.DSH_OCR_PYTHON = process.execPath
+  process.env.DSH_OCR_SCRIPT = script
+  try {
+    await withWriteServer(fixture, async base => {
+      const controller = new AbortController()
+      const pending = fetch(`${base}/api/alm/requirements/intake?root=${encodeURIComponent(fixture)}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, signal: controller.signal,
+        body: JSON.stringify({ mode: 'ocr', filename: 'shot.png', imageBase64: Buffer.from('image').toString('base64') }),
+      })
+      try {
+        for (let i = 0; i < 100 && !existsSync(marker); i++) await new Promise(resolve => setTimeout(resolve, 20))
+        assert.equal(existsSync(marker), true)
+        const { pid, image } = JSON.parse(readFileSync(marker, 'utf8'))
+        controller.abort()
+        await assert.rejects(pending, { name: 'AbortError' })
+        let exited = false
+        for (let i = 0; i < 100; i++) {
+          try { process.kill(pid, 0) } catch (error) { if (error.code === 'ESRCH') { exited = true; break } throw error }
+          await new Promise(resolve => setTimeout(resolve, 20))
+        }
+        assert.equal(exited, true)
+        for (let i = 0; i < 100 && existsSync(image); i++) await new Promise(resolve => setTimeout(resolve, 20))
+        assert.equal(existsSync(image), false)
+      } finally { controller.abort(); await pending.catch(() => {}) }
+    })
+  } finally {
+    if (previousPython === undefined) delete process.env.DSH_OCR_PYTHON
+    else process.env.DSH_OCR_PYTHON = previousPython
+    if (previousScript === undefined) delete process.env.DSH_OCR_SCRIPT
+    else process.env.DSH_OCR_SCRIPT = previousScript
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('POST /api/alm/requirements/create persists attachments and manifest', async () => {
@@ -766,7 +920,7 @@ test('POST /api/alm/requirements/ai-review generates, loads and adopts AI sugges
       type: 'text-delta',
       index: 0,
       text: JSON.stringify({
-        verdict: 'warn',
+        verdict: 'block',
         summary: '目标清楚，但验收场景不足。',
         findings: [{ title: '验收不足', severity: 'warn', detail: '缺少并发场景说明。', ref: 'COV-001' }],
         suggestions: [
@@ -803,6 +957,17 @@ test('POST /api/alm/requirements/ai-review generates, loads and adopts AI sugges
         })
         assert.equal((await loaded.json()).summary, '目标清楚，但验收场景不足。')
 
+        const skipped = await fetch(`${base}/api/alm/requirements/ai-review?root=${encodeURIComponent(dir)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true, selectedSuggestionIds: [] }),
+        })
+        const skippedPayload = await skipped.json()
+        assert.equal(skipped.status, 200)
+        assert.equal(skippedPayload.applied, false)
+        assert.equal(skippedPayload.skipped, true)
+        assert.equal(skippedPayload.adopted, null)
+
         const adopted = await fetch(`${base}/api/alm/requirements/ai-review?root=${encodeURIComponent(dir)}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -810,9 +975,11 @@ test('POST /api/alm/requirements/ai-review generates, loads and adopts AI sugges
         })
         const adoptedPayload = await adopted.json()
         assert.equal(adopted.status, 200)
+        assert.equal(adoptedPayload.aiVerdict, 'block')
+        assert.equal(adoptedPayload.applied, true)
         assert.deepEqual(adoptedPayload.adopted.suggestionIds, ['S1'])
         const brief = readFileSync(join(dir, 'requirements/briefs/REQ-PAY-001.md'), 'utf8')
-        assert.match(brief, /AI 评审建议（已采纳/)
+        assert.match(brief, /AI 优化建议（已采纳/)
         assert.match(brief, /补充并发验收/)
         assert.doesNotMatch(brief, /补充边界/)
 
