@@ -534,7 +534,8 @@ function summarizeRelease(item) {
     githubVerified: release.githubVerified === true,
     github: release.github ?? null,
     sourceControl: release.sourceControl ?? null,
-    mainMerged: release.mainMerged === true,
+    mainMerged: release.mainMerged === true ||
+      (release.sourceControl?.pushedToMain === true && Boolean(release.sourceControl?.mainMergeCommitSha)),
   }
 }
 
