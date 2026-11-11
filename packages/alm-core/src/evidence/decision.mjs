@@ -22,8 +22,8 @@ const LABELS = {
   blocked: '阻塞',
   failed: '执行失败',
   stale: '证据过期',
-  'ready-for-human': '可进入人工确认',
-  verified: '已签收',
+  'ready-for-human': '待验收',
+  verified: '已验收',
   archived: '已归档',
 }
 
@@ -163,7 +163,7 @@ function nextStepFor(state, topGap) {
   if (state === 'needs-clarification') return { label: '处理数据异常', action: 'fix-anomaly' }
   if (state === 'failed') return { label: '修复后重新执行验收', action: 'run-acceptance' }
   if (state === 'stale') return { label: '重新执行验收', action: 'run-acceptance' }
-  if (state === 'ready-for-human') return { label: '采纳 AI 评审', action: 'ai-review' }
+  if (state === 'ready-for-human') return { label: '确认签收', action: 'signoff' }
   if (state === 'verified') return { label: '已通过，无需操作', action: 'none' }
   const code = topGap?.code
   if (code === 'review-not-run') return { label: '运行并保存评审', action: 'run-review' }
@@ -195,12 +195,14 @@ function signoffFor(state, gaps) {
  * Priority is strict: blockers > ambiguity > failed > stale > review > coverage
  * > acceptance registration > acceptance run > signed.
  */
-export function decideEvidence({ asset, review = null, acceptance = null, anomalies = [], legacyHumanSignoff = false } = {}) {
+export function decideEvidence({ asset, review = null, acceptance = null, candidate = null, humanAcceptance = null, anomalies = [], legacyHumanSignoff = false } = {}) {
   const policy = requirementPolicy(asset)
   const coverage = coverageOf(policy, review)
   const blockers = Number(review?.summary?.blockers ?? 0)
   const relatedAnomalies = anomalyFor(asset, anomalies)
   const latest = acceptance?.latest ?? null
+  const currentCandidate = candidate?.current === true
+  const trustedHumanSignoff = humanAcceptance?.signoff?.valid === true
 
   // A closed requirement is deliberately out of the delivery funnel. Its old
   // evidence may be incomplete; reporting that as a gap would keep asking for
@@ -244,6 +246,32 @@ export function decideEvidence({ asset, review = null, acceptance = null, anomal
   } else if (latest && (!latest.complete || !latest.current)) {
     state = 'stale'
     gaps = [staleGap(latest)]
+  } else if (trustedHumanSignoff) {
+    state = 'verified'
+    gaps = []
+  } else if (currentCandidate) {
+    // A Candidate is the immutable object the human signs. Once it binds the
+    // current passing evidence, optional AI review cannot hide the signoff.
+    state = 'ready-for-human'
+    gaps = []
+  } else if (candidate && latest?.current === true && latest.result === 'pass') {
+    state = 'unchecked'
+    gaps = [{
+      code: 'candidate-missing',
+      message: '验收已通过，尚未生成绑定当前交付内容的候选',
+      fix: '生成交付候选后进入人工签收',
+      severity: 'warn',
+    }]
+  } else if (!acceptance?.registered) {
+    state = 'unchecked'
+    gaps = [
+      {
+        code: 'acceptance-missing',
+        message: '未登记验收命令',
+        fix: '登记可执行的验收命令',
+        severity: 'warn',
+      },
+    ]
   } else if (!review?.stored) {
     state = 'unchecked'
     gaps = [
@@ -261,16 +289,6 @@ export function decideEvidence({ asset, review = null, acceptance = null, anomal
         code: 'coverage-incomplete',
         message: `评审视角未覆盖：${coverage.missingRoles.join('、')}`,
         fix: '补齐必需评审视角后重新运行评审',
-        severity: 'warn',
-      },
-    ]
-  } else if (!acceptance?.registered) {
-    state = 'unchecked'
-    gaps = [
-      {
-        code: 'acceptance-missing',
-        message: '未登记验收命令',
-        fix: '登记可执行的验收命令',
         severity: 'warn',
       },
     ]
@@ -319,6 +337,10 @@ export function decideEvidence({ asset, review = null, acceptance = null, anomal
     gaps,
     nextStep: nextStepFor(state, topGap),
     signoff: signoffFor(state, gaps),
+    candidate: candidate && typeof candidate === 'object'
+      ? { exists: candidate.exists === true, current: candidate.current === true, id: candidate.id ?? null }
+      : null,
+    humanAccepted: trustedHumanSignoff,
     policy,
     coverage,
   }

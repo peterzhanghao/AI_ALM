@@ -15982,7 +15982,7 @@ function nextStepFor(state, topGap) {
   if (state === "needs-clarification") return { label: "\u5904\u7406\u6570\u636E\u5F02\u5E38", action: "fix-anomaly" };
   if (state === "failed") return { label: "\u4FEE\u590D\u540E\u91CD\u65B0\u6267\u884C\u9A8C\u6536", action: "run-acceptance" };
   if (state === "stale") return { label: "\u91CD\u65B0\u6267\u884C\u9A8C\u6536", action: "run-acceptance" };
-  if (state === "ready-for-human") return { label: "\u91C7\u7EB3 AI \u8BC4\u5BA1", action: "ai-review" };
+  if (state === "ready-for-human") return { label: "\u786E\u8BA4\u7B7E\u6536", action: "signoff" };
   if (state === "verified") return { label: "\u5DF2\u901A\u8FC7\uFF0C\u65E0\u9700\u64CD\u4F5C", action: "none" };
   const code = topGap?.code;
   if (code === "review-not-run") return { label: "\u8FD0\u884C\u5E76\u4FDD\u5B58\u8BC4\u5BA1", action: "run-review" };
@@ -16000,12 +16000,14 @@ function signoffFor(state, gaps) {
     reasons: gaps.map((gap) => ({ code: state === "unchecked" ? gap.code : code, message: gap.message }))
   };
 }
-function decideEvidence({ asset, review = null, acceptance = null, anomalies = [], legacyHumanSignoff = false } = {}) {
+function decideEvidence({ asset, review = null, acceptance = null, candidate = null, humanAcceptance = null, anomalies = [], legacyHumanSignoff = false } = {}) {
   const policy = requirementPolicy(asset);
   const coverage = coverageOf(policy, review);
   const blockers = Number(review?.summary?.blockers ?? 0);
   const relatedAnomalies = anomalyFor(asset, anomalies);
   const latest = acceptance?.latest ?? null;
+  const currentCandidate = candidate?.current === true;
+  const trustedHumanSignoff = humanAcceptance?.signoff?.valid === true;
   if (asset?.status === "archived") {
     return {
       schema: EVIDENCE_SCHEMA,
@@ -16044,6 +16046,30 @@ function decideEvidence({ asset, review = null, acceptance = null, anomalies = [
   } else if (latest && (!latest.complete || !latest.current)) {
     state = "stale";
     gaps = [staleGap(latest)];
+  } else if (trustedHumanSignoff) {
+    state = "verified";
+    gaps = [];
+  } else if (currentCandidate) {
+    state = "ready-for-human";
+    gaps = [];
+  } else if (candidate && latest?.current === true && latest.result === "pass") {
+    state = "unchecked";
+    gaps = [{
+      code: "candidate-missing",
+      message: "\u9A8C\u6536\u5DF2\u901A\u8FC7\uFF0C\u5C1A\u672A\u751F\u6210\u7ED1\u5B9A\u5F53\u524D\u4EA4\u4ED8\u5185\u5BB9\u7684\u5019\u9009",
+      fix: "\u751F\u6210\u4EA4\u4ED8\u5019\u9009\u540E\u8FDB\u5165\u4EBA\u5DE5\u7B7E\u6536",
+      severity: "warn"
+    }];
+  } else if (!acceptance?.registered) {
+    state = "unchecked";
+    gaps = [
+      {
+        code: "acceptance-missing",
+        message: "\u672A\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4",
+        fix: "\u767B\u8BB0\u53EF\u6267\u884C\u7684\u9A8C\u6536\u547D\u4EE4",
+        severity: "warn"
+      }
+    ];
   } else if (!review?.stored) {
     state = "unchecked";
     gaps = [
@@ -16061,16 +16087,6 @@ function decideEvidence({ asset, review = null, acceptance = null, anomalies = [
         code: "coverage-incomplete",
         message: `\u8BC4\u5BA1\u89C6\u89D2\u672A\u8986\u76D6\uFF1A${coverage.missingRoles.join("\u3001")}`,
         fix: "\u8865\u9F50\u5FC5\u9700\u8BC4\u5BA1\u89C6\u89D2\u540E\u91CD\u65B0\u8FD0\u884C\u8BC4\u5BA1",
-        severity: "warn"
-      }
-    ];
-  } else if (!acceptance?.registered) {
-    state = "unchecked";
-    gaps = [
-      {
-        code: "acceptance-missing",
-        message: "\u672A\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4",
-        fix: "\u767B\u8BB0\u53EF\u6267\u884C\u7684\u9A8C\u6536\u547D\u4EE4",
         severity: "warn"
       }
     ];
@@ -16113,6 +16129,8 @@ function decideEvidence({ asset, review = null, acceptance = null, anomalies = [
     gaps,
     nextStep: nextStepFor(state, topGap),
     signoff: signoffFor(state, gaps),
+    candidate: candidate && typeof candidate === "object" ? { exists: candidate.exists === true, current: candidate.current === true, id: candidate.id ?? null } : null,
+    humanAccepted: trustedHumanSignoff,
     policy,
     coverage
   };
@@ -16131,8 +16149,8 @@ var init_decision2 = __esm({
       blocked: "\u963B\u585E",
       failed: "\u6267\u884C\u5931\u8D25",
       stale: "\u8BC1\u636E\u8FC7\u671F",
-      "ready-for-human": "\u53EF\u8FDB\u5165\u4EBA\u5DE5\u786E\u8BA4",
-      verified: "\u5DF2\u7B7E\u6536",
+      "ready-for-human": "\u5F85\u9A8C\u6536",
+      verified: "\u5DF2\u9A8C\u6536",
       archived: "\u5DF2\u5F52\u6863"
     };
     TONES = {

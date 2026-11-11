@@ -146,7 +146,7 @@ test('a valid sign-off turns the decision into verified', () => {
     acceptance: acceptanceOf({ latest: latestEvidence() }),
   })
   assert.equal(decision.state, 'verified')
-  assert.equal(decision.label, '已签收')
+  assert.equal(decision.label, '已验收')
   assert.equal(decision.tone, 'success')
   assert.equal(decision.signoff.allowed, false)
   assert.equal(decision.topGap, null)
