@@ -37,7 +37,15 @@ export function syncDevelopmentBranch({ root, requirementId, revision, candidate
   const uncovered = changedImplementation.filter(path => !selected.includes(path))
   if (uncovered.length) return { ...base, reason: `发现未归属到 ${requirementId} 的实现改动（${uncovered.slice(0, 3).join('、')}），未自动提交` }
   const toStage = selected.filter(path => existsSync(join(repo, path)) && dirty.includes(path))
-  if (!toStage.length) return { ...base, reason: '没有可提交的需求相关改动' }
+  if (!toStage.length) {
+    const devCommitSha = git(repo, ['rev-parse', 'HEAD'], { allowFailure: true })
+    const remoteHead = git(repo, ['ls-remote', '--heads', remote, `refs/heads/${branch}`], { allowFailure: true })
+      ?.split(/\s+/)[0] ?? null
+    if (devCommitSha && remoteHead === devCommitSha) {
+      return { ...base, devCommitSha, pushedToRemoteDev: true }
+    }
+    return { ...base, devCommitSha, reason: remoteHead ? `当前 HEAD 尚未同步至 ${remote}/${branch}` : '没有可提交的需求相关改动' }
+  }
   git(repo, ['add', '--', ...toStage])
   const subject = String(title ?? requirementId).replace(/[\r\n]+/g, ' ').trim().slice(0, 72)
   try {

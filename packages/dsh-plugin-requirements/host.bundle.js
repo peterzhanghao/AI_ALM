@@ -10351,7 +10351,14 @@ function syncDevelopmentBranch({ root, requirementId, revision, candidateId, tit
   const uncovered = changedImplementation.filter((path) => !selected.includes(path));
   if (uncovered.length) return { ...base, reason: `\u53D1\u73B0\u672A\u5F52\u5C5E\u5230 ${requirementId} \u7684\u5B9E\u73B0\u6539\u52A8\uFF08${uncovered.slice(0, 3).join("\u3001")}\uFF09\uFF0C\u672A\u81EA\u52A8\u63D0\u4EA4` };
   const toStage = selected.filter((path) => existsSync15(join15(repo, path)) && dirty.includes(path));
-  if (!toStage.length) return { ...base, reason: "\u6CA1\u6709\u53EF\u63D0\u4EA4\u7684\u9700\u6C42\u76F8\u5173\u6539\u52A8" };
+  if (!toStage.length) {
+    const devCommitSha = git2(repo, ["rev-parse", "HEAD"], { allowFailure: true });
+    const remoteHead = git2(repo, ["ls-remote", "--heads", remote, `refs/heads/${branch}`], { allowFailure: true })?.split(/\s+/)[0] ?? null;
+    if (devCommitSha && remoteHead === devCommitSha) {
+      return { ...base, devCommitSha, pushedToRemoteDev: true };
+    }
+    return { ...base, devCommitSha, reason: remoteHead ? `\u5F53\u524D HEAD \u5C1A\u672A\u540C\u6B65\u81F3 ${remote}/${branch}` : "\u6CA1\u6709\u53EF\u63D0\u4EA4\u7684\u9700\u6C42\u76F8\u5173\u6539\u52A8" };
+  }
   git2(repo, ["add", "--", ...toStage]);
   const subject = String(title ?? requirementId).replace(/[\r\n]+/g, " ").trim().slice(0, 72);
   try {
