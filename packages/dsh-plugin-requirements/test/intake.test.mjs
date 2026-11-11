@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { extractChat, extractOcr } from '../intake.mjs'
+import { extractChat, extractOcr, extractOcrAsync } from '../intake.mjs'
 
 const dirs = []
 
@@ -69,4 +69,57 @@ test('extractOcr rejects missing or oversized images', () => {
   assert.throws(() => extractOcr({}), (error) => error.code === 'image-required')
   const big = Buffer.alloc(9 * 1024 * 1024).toString('base64')
   assert.throws(() => extractOcr({ imageBase64: big, filename: 'big.png' }), (error) => error.code === 'image-too-large')
+})
+
+test('extractOcr uses a safe temporary filename and cleans up after engine failure', () => {
+  const dir = tempDir()
+  const script = join(dir, 'fake-ocr.py')
+  writeFileSync(script, '')
+  let imagePath
+  assert.throws(() => extractOcr({
+    imageBase64: Buffer.from('fake-image').toString('base64'),
+    filename: '..',
+    runtime: { python: 'node', script },
+    run: (_python, args) => {
+      imagePath = args[1]
+      assert.equal(existsSync(imagePath), true)
+      assert.equal(imagePath.endsWith('image.png'), true)
+      return { status: 1, stderr: 'failed' }
+    },
+  }), { code: 'ocr-failed' })
+  assert.equal(existsSync(imagePath), false)
+  assert.equal(existsSync(join(imagePath, '..')), false)
+})
+
+test('cancelled asynchronous OCR terminates and removes its temporary image', async () => {
+  const dir = tempDir()
+  const script = join(dir, 'slow-ocr.cjs')
+  const marker = join(dir, 'started.json')
+  writeFileSync(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({pid:process.pid,image:process.argv[2]})); setTimeout(() => {}, 60000)`)
+  const controller = new AbortController()
+  const pending = extractOcrAsync({ imageBase64: Buffer.from('image').toString('base64'), runtime: { python: process.execPath, script }, signal: controller.signal })
+  try {
+    for (let i = 0; i < 100 && !existsSync(marker); i++) await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(existsSync(marker), true)
+    const { pid, image } = JSON.parse(readFileSync(marker, 'utf8'))
+    controller.abort()
+    await assert.rejects(pending, { name: 'AbortError' })
+    assert.equal(existsSync(image), false)
+    for (let i = 0; i < 100; i++) {
+      try { process.kill(pid, 0) } catch (error) { if (error.code === 'ESRCH') return; throw error }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.fail('OCR process remained alive after cancellation')
+  } finally { controller.abort(); await pending.catch(() => {}) }
+})
+
+test('asynchronous OCR settles on spawn failure and pre-aborted signal', async () => {
+  const dir = tempDir()
+  const script = join(dir, 'ocr.cjs')
+  writeFileSync(script, '')
+  const imageBase64 = Buffer.from('image').toString('base64')
+  await assert.rejects(extractOcrAsync({ imageBase64, runtime: { python: join(dir, 'missing-executable'), script } }), { code: 'ocr-failed' })
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(extractOcrAsync({ imageBase64, runtime: { python: process.execPath, script }, signal: controller.signal }), { name: 'AbortError' })
 })

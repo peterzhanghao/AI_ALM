@@ -1,0 +1,34 @@
+{
+  "name": "@ai-alm/dsh-plugin-acceptance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Plugin acceptance bench: run observable UI checks, capture screenshots, and record per-check review decisions",
+  "exports": {
+    ".": "./index.js",
+    "./engine": "./engine/index.mjs",
+    "./engine/scenarios": "./engine/scenarios.mjs",
+    "./engine/rounds": "./engine/rounds.mjs",
+    "./engine/report": "./engine/report.mjs",
+    "./engine/fingerprint": "./engine/fingerprint.mjs",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "engine/*.mjs",
+    "bin/*.mjs",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "bin": {
+    "alm-acceptance": "./bin/acceptance.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

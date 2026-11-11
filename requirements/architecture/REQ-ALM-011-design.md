@@ -1,0 +1,27 @@
+# REQ-ALM-011 架构与数据模型交付档案
+
+## 需求与版本基线
+- 需求：REQ-ALM-011 · v2 · 需求列表长标题自动提炼与主操作按钮语义优化
+- 核心业务目标：解决需求列表第一列因直接展示用户长篇口语原话导致排版臃肿，以及“未登记验收命令 / 登记验收”对非技术用户认知负担过重的问题。
+
+## 架构与模块变更
+- `requirements/briefs/REQ-ALM-011.md`：需求规格与工程资产
+- `packages/dsh-plugin-requirements/intent.mjs`：DSH 插件接口与用户视图
+- `packages/dsh-plugin-requirements/render.mjs`：DSH 插件接口与用户视图
+- `packages/dsh-plugin-requirements/client-source.js`：DSH 插件接口与用户视图
+- `packages/dsh-plugin-requirements/test/clarification-ui.test.mjs`：DSH 插件接口与用户视图
+- `packages/dsh-plugin-requirements/test/intent-http.test.mjs`：DSH 插件接口与用户视图
+
+调用关系：需求规格与验收标准 → 领域实现与插件交互 → 定向验证证据 → 交付候选。
+
+## 数据模型与接口契约
+- 本次未检测到独立 Schema 迁移；沿用现有数据与接口契约。
+- 运行态证据、候选和签收仍存放于 `.alm/`，不改变既有读取兼容性。
+
+## 验证与证据摘要
+- AC-01：意图提取或新建需求时，若原始输入超过 28 个字符，自动提炼简明短标题，完整原话保留在需求正文中。
+- AC-02：列表页标题超过单行宽度时支持优雅截断，悬停显示全文。
+- AC-03：将列表操作列文案优化为符合当前阶段的状态动作，隐藏非必要的底层命令术语。
+- AC-04：用户手动修改需求标题后，触发 AI 自动提炼、重新解析原始输入或其他自动标题生成流程，标题不得被自动内容覆盖。
+- AC-05：未手动修改标题的需求，仍可在创建或意图提取时按超过 28 个字符自动提炼标题的规则正常生成短标题。
+- 最近验证：通过

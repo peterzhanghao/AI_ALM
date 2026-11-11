@@ -1,0 +1,19 @@
+{
+  "requirement": "REQ-ALM-013",
+  "files": [
+    {
+      "path": "investigation-evidence.json",
+      "sha256": "d21ca5bf86590586013f42f32e85fe0f8f9225eca2f7ce2a015bc8b1ed16ddb1",
+      "kind": "investigation",
+      "capturedAt": "2026-11-10T04:37:39.875Z",
+      "addedBy": "human:local"
+    },
+    {
+      "path": "source-session.json",
+      "sha256": "36d169830abea50bf8dbe196d0e9308d491e4cfdfaa62cccb367308f1f79cc05",
+      "kind": "source-session",
+      "capturedAt": "2026-11-10T04:37:39.876Z",
+      "addedBy": "human:local"
+    }
+  ]
+}

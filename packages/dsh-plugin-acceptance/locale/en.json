@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Acceptance Bench",
+    "description": "Run UI acceptance rounds for a plugin, review the captured evidence and sign or send back each check."
+  }
+}

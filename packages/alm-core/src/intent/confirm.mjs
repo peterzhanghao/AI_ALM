@@ -20,6 +20,7 @@ import { buildGraph } from '../index/closure.mjs'
 import { requirementContentHash } from '../model/content-hash.mjs'
 import { previewRehearsal } from '../rehearsal/rehearsal.mjs'
 import { createRequirement, planRequirement, RequirementCreateError } from '../requirements/create.mjs'
+import { DOC_SCHEMA, docHashOf, normalizeDoc, renderDoc } from '../requirements/doc.mjs'
 import { effectiveCandidate, effectiveRoute } from './analysis.mjs'
 import { buildIntentContext } from './context.mjs'
 import {
@@ -36,10 +37,12 @@ import {
   isIntentError,
 } from './errors.mjs'
 import { evaluateReadiness, resolveChangeBase } from './readiness.mjs'
+import { currentInvestigationEvidence } from './investigation-evidence.mjs'
 import { loadSession, saveSession } from './session.mjs'
 import {
   asString,
   canonicalJson,
+  clone,
   ensureDir,
   fileExists,
   intentRoot,
@@ -133,6 +136,18 @@ function normalizeConfirmation(confirmation) {
   if (priority && !['P0', 'P1', 'P2', 'P3'].includes(priority)) {
     throw intentError('invalid-confirmation', `无效优先级：${priority}（允许 P0-P3）`)
   }
+  const draftRevisionRaw = confirmation.draftRevision
+  const draftRevision = draftRevisionRaw === undefined || draftRevisionRaw === null ? null : Number(draftRevisionRaw)
+  if (draftRevision !== null && (!Number.isInteger(draftRevision) || draftRevision < 0)) {
+    throw intentError('invalid-confirmation', `无效草稿版本 draftRevision：${String(draftRevisionRaw)}（需要非负整数）`)
+  }
+  const expectedSessionRevisionRaw = confirmation.expectedSessionRevision
+  const expectedSessionRevision = expectedSessionRevisionRaw === undefined || expectedSessionRevisionRaw === null
+    ? null
+    : Number(expectedSessionRevisionRaw)
+  if (expectedSessionRevision !== null && (!Number.isInteger(expectedSessionRevision) || expectedSessionRevision < 1)) {
+    throw intentError('invalid-confirmation', `无效会话版本 expectedSessionRevision：${String(expectedSessionRevisionRaw)}（需要正整数）`)
+  }
   return {
     route,
     items,
@@ -143,6 +158,9 @@ function normalizeConfirmation(confirmation) {
     answer: asString(confirmation.answer, 4000).trim() || null,
     question: asString(confirmation.question, 1000).trim() || null,
     expectedInputRevision: Number.isInteger(expectedInputRevision) && expectedInputRevision > 0 ? expectedInputRevision : null,
+    expectedSessionRevision,
+    draftRevision,
+    docHash: asString(confirmation.docHash, 120).trim() || null,
     contextSnapshotId: asString(confirmation.contextSnapshotId, 120).trim() || null,
     contentHash: asString(confirmation.contentHash, 128).trim() || null,
   }
@@ -214,6 +232,24 @@ function candidateMarkdown(candidate) {
   return lines.join('\n').trim()
 }
 
+/** Render the current human draft as a canonical document. The draft predates
+ * the id assignment, so the requirement id/title are bound only here. */
+function confirmedDocument({ session, requirementId = null, title = null, revision = null, at = null }) {
+  const draft = session?.docDraft
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return null
+  return normalizeDoc(
+    {
+      ...clone(draft),
+      schema: DOC_SCHEMA,
+      requirementId: requirementId ?? draft.requirementId ?? null,
+      title: title ?? draft.title ?? '',
+      revision: revision ?? draft.revision ?? null,
+      meta: { ...(draft.meta ?? {}), confirmedAt: at ?? draft.meta?.confirmedAt ?? null },
+    },
+    {},
+  )
+}
+
 function impactForChange({ root, base, proposedBrief }) {
   const fallback = () => {
     try {
@@ -274,7 +310,7 @@ function selectItemForRoute(session, confirmation) {
   return matching ?? items[0] ?? null
 }
 
-function plannedArtifactsFor({ root, session, confirmation, context, now }) {
+function plannedArtifactsFor({ root, session, confirmation, context, now, at = nowIso(now) }) {
   const item = selectItemForRoute(session, confirmation)
   if (!item) return []
   const candidate = effectiveCandidate(item)
@@ -288,19 +324,23 @@ function plannedArtifactsFor({ root, session, confirmation, context, now }) {
   }
 
   if (route === 'create') {
-    const title = candidate?.title ?? ROUTE_DEFAULT_TITLE.create
-    const brief = candidateMarkdown(candidate)
+    const docDraft = session.docDraft && typeof session.docDraft === 'object' ? session.docDraft : null
+    const title = candidate?.title ?? docDraft?.title ?? ROUTE_DEFAULT_TITLE.create
     const goal = candidate?.goal ?? ''
     const priority = confirmation.priority ?? session.input?.explicit?.priority ?? null
     const owner = confirmation.owner ?? session.input?.explicit?.owner ?? null
     const plan = planRequirement({
       root,
       title,
-      brief,
+      brief: docDraft ? '' : candidateMarkdown(candidate),
       goal,
       priority,
       owner: owner ?? undefined,
       project,
+      doc: docDraft,
+      originalInput: session.input?.rawText ?? session.input?.text ?? null,
+      titleWasManuallyEdited: Boolean(item?.fields?.['candidate.title']?.source === 'human'),
+      confirmedAt: at,
     })
     return [
       {
@@ -308,14 +348,17 @@ function plannedArtifactsFor({ root, session, confirmation, context, now }) {
         requirementId: plan.requirementId,
         file: plan.file,
         briefFile: plan.briefFile,
-        title,
-        brief,
-        goal,
+        title: plan.title ?? title,
+        brief: plan.briefContent,
+        goal: plan.doc?.goal ?? goal,
         priority,
         owner: plan.owner,
         ownerRequested: owner,
         ownerSource: owner ? 'user-explicit' : 'project-default',
         project,
+        document: plan.doc ?? null,
+        documentHash: plan.docHash ?? null,
+        confirmedAt: plan.doc?.meta?.confirmedAt ?? at,
         check: null,
       },
     ]
@@ -330,13 +373,35 @@ function plannedArtifactsFor({ root, session, confirmation, context, now }) {
       })
     }
     const changeId = intentEntityId({ root, dir: INTENT_DIRS.changes, prefix: 'CHG', projectId: project, now })
-    const proposed = {
-      title: candidate?.title ?? base.title ?? '',
-      brief: candidateMarkdown(candidate),
-      goal: candidate?.goal ?? '',
-      acceptance: candidate?.acceptance ?? [],
-      inScope: candidate?.inScope ?? [],
-      outOfScope: candidate?.outOfScope ?? [],
+    const docDraft = session.docDraft && typeof session.docDraft === 'object' ? session.docDraft : null
+    let document = null
+    let proposed
+    if (docDraft) {
+      document = confirmedDocument({
+        session,
+        requirementId: base.uid,
+        title: candidate?.title ?? base.title ?? ROUTE_DEFAULT_TITLE.change,
+        revision: docDraft.revision ?? base.revision ?? null,
+        at,
+      })
+      const brief = renderDoc(document)
+      proposed = {
+        title: document.title || base.title || '',
+        brief,
+        goal: document.goal,
+        acceptance: document.acceptance,
+        inScope: document.scope,
+        outOfScope: document.outOfScope,
+      }
+    } else {
+      proposed = {
+        title: candidate?.title ?? base.title ?? '',
+        brief: candidateMarkdown(candidate),
+        goal: candidate?.goal ?? '',
+        acceptance: candidate?.acceptance ?? [],
+        inScope: candidate?.inScope ?? [],
+        outOfScope: candidate?.outOfScope ?? [],
+      }
     }
     const draft = {
       schema: CHANGE_DRAFT_SCHEMA,
@@ -364,7 +429,16 @@ function plannedArtifactsFor({ root, session, confirmation, context, now }) {
       createdAt: nowIso(now),
       decision: baseDecision,
     }
-    return [{ kind: 'change-draft', changeId, file: `${INTENT_DIRS.changes}/${changeId}.json`, draft }]
+    return [
+      {
+        kind: 'change-draft',
+        changeId,
+        file: `${INTENT_DIRS.changes}/${changeId}.json`,
+        draft,
+        document,
+        documentHash: document ? docHashOf(proposed.brief) : null,
+      },
+    ]
   }
 
   if (route === 'investigate') {
@@ -473,6 +547,8 @@ function materializeArtifact({ root, planned, at }) {
         priority: planned.priority,
         owner: planned.owner,
         project: planned.project,
+        doc: planned.document ?? null,
+        confirmedAt: planned.confirmedAt ?? at,
         apply: true,
       })
     }
@@ -522,8 +598,19 @@ function writeJournal({ root, receiptId, journal }) {
   }
 }
 
-function buildReceipt({ session, confirmation, context, artifacts, baseRevisions, contentHash, actor, receiptId, at, warnings }) {
+function buildReceipt({ session, confirmation, context, artifacts, baseRevisions, contentHash, actor, receiptId, at, warnings, investigationEvidence = [], document = null, documentHash = null }) {
   const decision = { route: confirmation.route }
+  const confirmationItems = new Map((confirmation.items ?? []).filter(entry => entry?.itemId).map(entry => [entry.itemId, entry]))
+  const adoptedInvestigations = investigationEvidence.flatMap((entry) => {
+    if (!entry?.investigationId || !entry.adoptedBy || entry.sessionId !== session.sessionId || entry.inputRevision !== session.input?.inputRevision || entry.verdict !== 'answered' || entry.source !== 'observed_evidence') return []
+    const itemIds = (session.items ?? []).filter(item => {
+      if (!item || item.excluded === true || !entry.itemIds?.includes(item.itemId)) return false
+      const route = confirmationItems.get(item.itemId)?.route ?? effectiveRoute(item)
+      return ['create', 'change', 'reuse'].includes(route) && (item.unknowns ?? []).some(unknown => unknown?.blocking === true && unknown.blockingFor !== 'none' && unknown.resolution === 'investigate' && unknown.description === entry.unknownDescription)
+    }).map(item => item.itemId)
+    return itemIds.length ? [{ investigationId: entry.investigationId, itemIds, unknownDescription: entry.unknownDescription, inputRevision: entry.inputRevision, adoptedBy: entry.adoptedBy, adoptedAt: entry.adoptedAt ?? null, findingsHash: sha256Hex(entry.findings) }] : []
+  })
+  if (adoptedInvestigations.length) decision.investigations = adoptedInvestigations
   if (confirmation.route === 'decline') {
     decision.decline = {
       reason: confirmation.reason,
@@ -551,6 +638,13 @@ function buildReceipt({ session, confirmation, context, artifacts, baseRevisions
     contextSnapshotId: context?.contextSnapshotId ?? null,
     queryStatus: context?.queryStatus ?? null,
     contentHash,
+    docHash: documentHash ?? (document ? docHashOf(renderDoc(document)) : null),
+    revision: document?.revision ?? (confirmation.route === 'create' ? 1 : null),
+    clauseIds: {
+      features: (document?.features ?? []).map((entry) => entry.id).filter(Boolean),
+      acceptance: (document?.acceptance ?? []).map((entry) => entry.id).filter(Boolean),
+    },
+    confirmedAt: document?.meta?.confirmedAt ?? at,
     baseRevisions,
     artifacts,
     warnings,
@@ -611,6 +705,46 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
     })
   }
 
+  // Validation order is a contract: input revision, then the decision version,
+  // then the exact draft the human saw, and only then the external context.
+  if (expectedInputRevision !== session.input.inputRevision) {
+    throw intentError(
+      'stale-input',
+      `确认针对输入版本 ${expectedInputRevision}，当前已是 ${session.input.inputRevision}；迟到结果不能覆盖新输入`,
+      { expected: session.input.inputRevision, received: expectedInputRevision },
+    )
+  }
+  const currentSessionRevision = Number.isInteger(session.sessionRevision) && session.sessionRevision > 0
+    ? session.sessionRevision
+    : 1
+  if (normalized.expectedSessionRevision !== null && normalized.expectedSessionRevision !== currentSessionRevision) {
+    throw intentError(
+      'stale-session',
+      `会话决定已更新（当前版本 ${currentSessionRevision}，请求版本 ${normalized.expectedSessionRevision}）；请刷新后重试`,
+      { expected: currentSessionRevision, received: normalized.expectedSessionRevision },
+    )
+  }
+  const currentDraft = session.docDraft ?? null
+  const currentDraftRevision = Number.isInteger(session.draftRevision)
+    ? session.draftRevision
+    : (Number.isInteger(currentDraft?.draftRevision) ? currentDraft.draftRevision : 0)
+  const currentDocHash = currentDraft
+    ? (typeof currentDraft.docHash === 'string' && currentDraft.docHash !== ''
+        ? currentDraft.docHash
+        : docHashOf(renderDoc(currentDraft)))
+    : null
+  const docChanged = (normalized.docHash !== null && normalized.docHash !== currentDocHash)
+    || (normalized.draftRevision !== null && normalized.draftRevision !== currentDraftRevision)
+  if (docChanged) {
+    throw intentError('draft-changed', '需求正文草稿已更新；请核对最新草稿后再确认', {
+      latest: { docDraft: currentDraft, docHash: currentDocHash, draftRevision: currentDraftRevision },
+      // The session keeps only the current draft, not the snapshot the client
+      // rendered, so a truthful clause diff cannot be produced here.
+      diff: null,
+      expected: { docHash: normalized.docHash, draftRevision: normalized.draftRevision },
+    })
+  }
+
   // Recompute the context from the real index: the confirmation must be bound
   // to the requirement state the human actually saw.
   let contextNow
@@ -648,13 +782,6 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
       retryRecomputedContextSnapshotId: contextNow.contextSnapshotId,
     }
   }
-  if (expectedInputRevision !== session.input.inputRevision) {
-    throw intentError(
-      'stale-input',
-      `确认针对输入版本 ${expectedInputRevision}，当前已是 ${session.input.inputRevision}；迟到结果不能覆盖新输入`,
-      { expected: session.input.inputRevision, received: expectedInputRevision },
-    )
-  }
   if (contextNow.queryStatus !== 'success' && ['create', 'change', 'reuse'].includes(normalized.route)) {
     throw intentError(
       'stale-context',
@@ -663,8 +790,9 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
     )
   }
 
+  const checkedInvestigationEvidence = currentInvestigationEvidence(root, session)
   const readiness = evaluateReadiness({
-    session,
+    session: { ...session, investigationEvidence: checkedInvestigationEvidence, investigations: [] },
     contextNow,
     project: session.project?.id ?? null,
     confirmation: normalized,
@@ -676,11 +804,15 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
   const contentHash = normalized.contentHash ?? computeConfirmationContentHash({ sessionId, confirmation: normalized })
   let planned
   try {
-    planned = previous?.planned?.length ? previous.planned : plannedArtifactsFor({ root, session, confirmation: normalized, context: contextNow, now })
+    planned = previous?.planned?.length ? previous.planned : plannedArtifactsFor({ root, session, confirmation: normalized, context: contextNow, now, at })
   } catch (error) {
     if (isIntentError(error)) throw error
     throw mapCreateError(error)
   }
+
+  const confirmedArtifact = planned.find((entry) => entry?.kind === 'requirement' || entry?.kind === 'change-draft') ?? null
+  const confirmedDoc = confirmedArtifact?.document ?? null
+  const confirmedDocHash = confirmedArtifact?.documentHash ?? (confirmedDoc ? docHashOf(renderDoc(confirmedDoc)) : null)
 
   const baseRevisions = {}
   for (const entry of planned) {
@@ -750,6 +882,9 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
       receiptId,
       at,
       warnings,
+      investigationEvidence: checkedInvestigationEvidence,
+      document: confirmedDoc,
+      documentHash: confirmedDocHash,
     })
     const receiptFile = `${INTENT_DIRS.receipts}/${receiptId}.json`
     writeJsonAtomic(receiptPath(root, receiptId), receipt)
@@ -781,6 +916,9 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
         inputRevision: session.input.inputRevision,
         contextSnapshotId: contextNow.contextSnapshotId,
         contentHash,
+        docHash: confirmedDocHash,
+        revision: confirmedDoc?.revision ?? (normalized.route === 'create' ? 1 : null),
+        draftRevision: Number.isInteger(session.draftRevision) ? session.draftRevision : null,
         model: session.analysisMeta ? { provider: session.analysisMeta.provider, model: session.analysisMeta.model } : null,
         at,
         actor,

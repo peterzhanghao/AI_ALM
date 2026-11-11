@@ -4,6 +4,49 @@
 - 日期：2026-10-23
 - 依据：[产品蓝图](../product/ai-native-alm-mvp.md)、[需求评审](../analysis/alm-mvp-requirements-review.md)、[ADR 0003](../adr/0003-alm-mvp-engineering.md)
 
+## 原生意图编辑与确认衔接（2026-11-04）
+
+- 本地验收字段编辑不得被旧服务端 readiness 永久禁用保存入口；进入最终表单前须串行保存本地编辑，再依据最新服务端结果判断真实缺失/未知/过期条件。表单入口与最终写入是不同阶段，优先级可在最终页补齐，人工确认本身只能由真实提交产生。
+- 最终确认仍由 core 重算完整门禁并校验 revision/context/hash/幂等键；客户端不伪造 confirmation，不将本地草稿当作已确认。保存失败保留本地字段，不创建需求；并行点击、在途保存与旧响应必须隔离。
+
+## 验收执行证据迁移（2026-11-04）
+
+- `alm.acceptance/v3`（summary/v3）将验收绑定到执行前后完整且稳定的 worktree 快照、HEAD、requirementHash、testRevision 和规范化命令注册 configHash（含 timeout）；命令 id/argv 与实际结果须一致。独立 `contracts/acceptance.schema.json` 描述执行回执，不替换门禁 `alm.evidence/v1`。单测执行该 schema 的全部已用关键词，并由 binding 检查跨字段一致性。
+- v1/v2 回执只读保留，不隐式升级；其 current=false、staleReason=worktree-unbound。必须针对当前内容真实重跑才生成 v3。相同 HEAD 重跑将不同旧回执原始字节以 SHA256 内容地址归档，包括损坏 JSON，不覆盖历史。
+- 新 candidate/v2 的 current 必须验证实际回执文件 SHA、真实 pass、完整 provenance、命令结果、稳定工作树、需求/测试/注册绑定；只拿旧摘要不能给新 dirty 内容洗成已验证。旧 candidate/v1 和未验证 draft 保留但不 current，不阻止创建新 draft；已发布历史事实仍独立，不因迁移回滚。
+- worktreeSnapshot 无 DSH 依赖，git 失败、HEAD 不可用、超限、超大文件、非普通文件、读取失败一律 complete=false，不以文件大小充当内容哈希。既定 `.git/.alm/node_modules/dist/tmp` 排除范围不变。
+- query 可在单次同步读取共享惰性 worktreeSnapshot 与已索引 assets；无 TTL/跨请求缓存。候选、签收等写门禁默认重新读取快照与测试资产，不复用 query 缓存。此证据证明命令运行内容一致，不声称覆盖每条业务 AC，也不新增自动签收/发布权限。
+
+## REQ-ALM-006 交换设计（2026-11-04，实施前设计）
+
+- 冻结领域入口 `requirements/exchange.mjs`：exportRequirements({root,format:'json'}) 直接返回 `alm.requirements.exchange/v1`；previewRequirementsImport({root,payload}) 返回 ok/conflicts/localHash/changes；applyRequirementsImport({root,payload,expectedLocalHash}) 返回 applied/idempotent。JSON 导出与预览不写文件。
+- payload 含 exportId/projectId/records；record 含 uid/projectId/base/baseHash/values/attachments。只准四个字段 title/brief/priority/owner。使用规范键顺序 SHA256，导出基线及身份另以本地项目密钥HMAC签章：显式 initializeRequirementsExchange({root}) 在项目内持久化随机256-bit密钥（幂等、不轮换已有key）；createRequirement 的真实创建路径初始化，旧项目经独立HTTP initialize动作及UI「初始化交换」按钮初始化。export/preview仅读取key，未初始化时返回exchange-uninitialized，绝不隐式写盘或使用进程内临时key。相同项目的独立进程读取同一持久key，首次导出即支持跨进程回导；无改导入仍不写。不可仅重新计算外部自带 hash 就信任伪造基线。
+- 三向逻辑：E=B 保留 L；L=B 或 L=E 接受 E；否则冲突。缺行不删除。预览 hash 绑定当前源文件字节；确认须 CAS。先验证/规划全批，再在同项目锁下暂存并原子替换文件；写失败回滚，进程崩溃恢复与外部不合作写入的限制需明确留证。
+- XLSX 适配独立于 UI，保留完整元数据/基线并验证不可编辑列；拒绝公式、外部关系、宏、损坏 ZIP、超大展开内容。工程限制：单文件 8 MiB、至多 1000 记录、brief 1 MiB、title 200 字符、owner 120 字符、附件仅相对安全 manifest；超过限制明确失败，不截断。priority 采用现有更新支持的 P0-P3，owner 支持空字符串代表未分配（缺失/非字符串仍拒绝）；asset/v1 schema同步做兼容性输入放宽，不改版本或删字段。XLSX的Requirements表F-I是可编辑四字段，Brief表C列保存长正文续块，record/chunk只读；不截断长正文。普通外部编辑器可在原记录块末尾后追加显式create行：A=create/B空UID/C唯一clientId/D当前project/E空baseHash/F-I四值，attachments为空；既有槽位身份不许改成create。新增brief限单格32767字符，超长新建请用JSON，不静默截断。
+- HTTP 复用插件工作区路由与权限边界，不允许文件 payload 指定本机根路径。POST exchange 按 initialize/export/preview/apply 分派，文件通过有界 base64 传输，导出返回 MIME/filename/content；前端使用 Blob 下载与 input[type=file]，预览确认后提交同一文件和 localHash。错误需返回明确 4xx，冲突/CAS 为 409。
+- 下载修复设计：支持 File System Access 的浏览器在用户点击的同步调用栈内打开保存选择器（不得先 await export 丢失用户激活），再经既有认证 POST 取文件、校验字节数并 write/close；只有 close 成功才显示已保存。用户取消不降级为另一次下载；写失败中止 writable 并明确报错。其他浏览器仍用 Blob 下载，但锚点和 URL 同时保留60秒再清理，不立即 remove；浏览器无完成回执，因此仅显示「已发起下载，请检查浏览器下载记录」，不得显示已保存。此设计不更改 HTTP/认证/交换领域协议；真实落盘仍须 Desktop 独立验证。
+- 不修改冻结观察员、不修调查证据序列化/ID 分配独立缺陷，不伪造签收。实际实现偏差及构建/HTTP/Desktop 证据登记 RUN-007。
+
+## REQ-ALM-007 调查消息预算（2026-11-04，实施前设计）
+
+- 仅修改插件 `investigate.mjs` 的消息序列化；采集、根路径隔离、逐字引用核对、只读权限及结果降级保持原样。冻结 observer 脚本不改，生成任务卡的 verified_by 模板不执行，以已授权正文为准。
+- 总 system + user 文本限制 25000 个 JavaScript UTF-16 字符（比冻结门禁仅检查 user 更严格）。保持原消息 parts 形状。先计固定提示与结构 JSON，再逐条尝试完整 snippet（path/line/endLine/text 原样），然后文件元数据，最后 tree；不能容纳的整条遗漏，继续尝试后续较小条目。不切源码 quote，不整体截断 JSON，不提高预算。
+- boundary.messageBudget 显式记录 limitCharacters、systemCharacters、userCharacters、totalCharacters，以及 snippets/files/tree 原始、保留、遗漏条数；每次试装均包含最新计数及字符数，自洽后才判定是否容纳。collection boundary.truncated 与预算遗漏分别记录，并在任一发生时标记 truncated。question 使用既有 2000 字符限制，keywords/project 上下文有界。
+- 导出 builder 对继承 boundary 元数据 fail closed：maxFiles/maxSnippets 为非负安全整数或 null/缺失，scannedFiles 为非负安全整数或缺失，truncated 为布尔值或缺失；字符串、非有限数、负数、非整数及不安全整数明确返回 invalid-request/400，不进行隐式类型转换。返回前复核总字符硬预算，超限明确拒绝，不返回超限消息。这是导出函数健壮性，不宣称正常 collector 或 HTTP 已存在外部利用。
+- 没有 snippet 可容纳时输出完整空数组与遗漏计数；保留既有 not-determined/unknowns 指令，不能为测试制造 finding。真实 Desktop 构建重载和原第一次问题重放另留证，不以序列化单测替代 AC-03。
+
+## 原生需求确认编号占用（2026-11-04，bootstrap 修复）
+
+- 自动编号从当前项目已索引 UID 的最大序号之后开始，依次跳过已占用的标准目标路径：`requirements/<小写UID>.sdoc`、`requirements/briefs/<UID>.md`、`requirements/attachments/<UID>`。孤立文件或目录同样占号，无附件输入也不得复用已有附件目录；规划仅读取，不清理、覆盖或认领孤立材料。
+- 显式 UID 若已索引或任一目标路径被占用，返回 `already-exists`/409，不自动换号、不写入。编号修复不处理历史意图记录，不改确认去向、就绪校验或任何人工门禁。
+- 确认沿用既有同键同负载回执重放与失败计划恢复；已分配 UID 不在重试时重新分配，同键不同负载仍拒绝。临时根测试核对孤立材料、既有需求和回执原始字节不变；不以此代替 Desktop 确认、人工签收或自主交付。
+
+## 需求项目上下文隔离（2026-11-04，bootstrap 修复）
+
+- 未明确选择项目/root 时，不调用需求列表的默认 fixture root，不把样例记录展示为当前工作区需求。允许真实项目目录加载；没有可信宿主上下文时明确提示选择，不猜测项目。
+- 列表请求绑定 root/project scope 和请求代次；scope 改变立即隔离旧 rows、统计和错误，丢弃迟到的旧响应；同 scope 刷新可保留已有数据但只允许最新请求提交结果。项目响应不得把其他 scope 的 project 写回当前选择。
+- 持久有效 root/项目与全部项目聚合路径保留；切换到新项目不得继续操作旧项目的选中需求。此为可见性基础修复，不补造历史意图或运行成功，不计两轮插件交付。
+
 ## 1. 目标与非目标
 
 **目标**：在一个仓库内交付可独立测试的 ALM core、两个 DSH 业务插件、一套 AI 技能与部分退款样例，跑通“改资产 → 门禁 → PR → 基线”的端到端回路。

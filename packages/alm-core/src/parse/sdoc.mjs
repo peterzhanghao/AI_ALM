@@ -108,7 +108,11 @@ export function parseSdocAsset(text, file) {
           id: requirement.fields.UID,
           type: typeOf(requirement.fields.UID),
           title: requirement.fields.TITLE,
-          status: STATUS_ALIASES[requirement.fields.STATUS] ?? requirement.fields.STATUS ?? 'proposed',
+          // `STATUS` is a legacy field: the delivery lifecycle is derived from the
+          // candidate + evidence decision, so a record without it is normal.
+          status: requirement.fields.STATUS
+            ? (STATUS_ALIASES[requirement.fields.STATUS] ?? requirement.fields.STATUS)
+            : null,
           owner: requirement.fields.OWNER,
           ...(requirement.fields.REVISION ? { revision: Number(requirement.fields.REVISION) } : {}),
           ...(requirement.fields.PRIORITY ? { priority: requirement.fields.PRIORITY } : {}),

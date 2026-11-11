@@ -64,6 +64,16 @@ function rolesById(review) {
   return map
 }
 
+/**
+ * Adopting an AI review is the review decision: the five perspective roles are
+ * no longer a separate gate once the reviewer accepted the AI's report, so the
+ * missing-role coverage check only applies to reviews nobody has accepted yet.
+ */
+function aiAdoptedReview(review) {
+  const valid = review?.signoffValid === true || review?.signoff?.valid === true
+  return valid && String(review?.signoff?.actor ?? '').startsWith('ai:')
+}
+
 function coverageOf(policy, review) {
   const byId = rolesById(review)
   const missingRoles = []
@@ -244,7 +254,7 @@ export function decideEvidence({ asset, review = null, acceptance = null, anomal
         severity: 'warn',
       },
     ]
-  } else if (coverage.missingRoles.length > 0) {
+  } else if (coverage.missingRoles.length > 0 && !aiAdoptedReview(review)) {
     state = 'unchecked'
     gaps = [
       {

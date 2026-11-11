@@ -1,0 +1,17 @@
+[DOCUMENT]
+TITLE: 验收命令失败 缺陷回归验收
+
+[SECTION]
+TITLE: 失败命令的可解释证据
+
+[REQUIREMENT]
+UID: TEST-ALM-005
+TITLE: 验收命令 spawn 失败（EPERM）或超时时，证据仍记录 exitCode/timedOut/spawnFailed/error 并判定为失败
+STATUS: proposed
+OWNER: team-qa
+
+[REQUIREMENT]
+UID: TEST-ALM-006
+TITLE: 验收失败事件写入真实证据（失败命令诊断、证据文件路径、headSha、失败命令快照）并生成待确认缺陷
+STATUS: proposed
+OWNER: team-qa

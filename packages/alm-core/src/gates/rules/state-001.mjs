@@ -1,40 +1,24 @@
 /**
- * STATE-001: status transitions must move forward. With no `--base` ref the
- * rule reports `skip` instead of pretending the check passed.
+ * STATE-001 (legacy, retired): status transitions are no longer a gate.
+ *
+ * `asset.status` used to be the delivery lifecycle, which forced every real
+ * decision through an enum that could drift from the evidence. The lifecycle is
+ * now derived from the delivery candidate + evidence decision + execution run
+ * (packages/alm-core/src/requirements/delivery.mjs). New records do not carry a
+ * status at all, and a historical value is read-only.
+ *
+ * The rule id stays registered so existing gate configurations and reports keep
+ * resolving; it reports `skip` with the downgrade reason instead of pretending
+ * to validate a field that no longer governs anything.
  */
 export const id = 'STATE-001'
 export const level = 'block'
+export const legacy = true
 
-const ALLOWED = {
-  proposed: ['accepted', 'deprecated', 'superseded', 'archived'],
-  accepted: ['in-progress', 'deprecated', 'superseded', 'archived'],
-  'in-progress': ['implemented', 'accepted', 'deprecated', 'archived'],
-  implemented: ['verified', 'in-progress', 'deprecated', 'archived'],
-  verified: ['in-progress', 'deprecated', 'archived'],
-  deprecated: [],
-  superseded: [],
-  archived: [],
-}
-
-export function check({ assets, baseAssets }) {
-  if (!baseAssets) {
-    return { status: 'skip', findings: [], message: 'no --base ref; status transitions not checked' }
+export function check() {
+  return {
+    status: 'skip',
+    findings: [],
+    message: 'STATUS 已下线（legacy 只读）；交付状态由 candidate + evidence + run 派生（STATE-001 保留为空规则）',
   }
-
-  const before = new Map(baseAssets.map((asset) => [asset.id, asset]))
-  const findings = []
-
-  for (const asset of assets) {
-    const previous = before.get(asset.id)
-    if (!previous || previous.status === asset.status) continue
-    if ((ALLOWED[previous.status] ?? []).includes(asset.status)) continue
-    findings.push({
-      assetId: asset.id,
-      file: asset.source.path,
-      line: asset.source.line,
-      message: `illegal status transition ${previous.status} -> ${asset.status}`,
-    })
-  }
-
-  return findings
 }

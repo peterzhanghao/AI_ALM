@@ -269,6 +269,24 @@ test('applyAnalysis 按 itemId 合并，人工编辑优先并记录冲突', (t) 
   assert.equal(next.state, 'ready_for_confirmation')
 })
 
+test('applyAnalysis preserves a human title in the document draft', (t) => {
+  const root = makeRepo(t)
+  const { session, context } = makeSession(root)
+  const { analysis } = normalizeAnalysis(rawAnalysis(context, [{
+    itemId: 'ITM-1', recommendedRoute: 'create', candidate: { title: '模型标题', problem: '问题', acceptance: [] },
+  }]), { session, context })
+  analysis.docDraft = { ...analysis.docDraft, title: '模型草稿标题' }
+  const base = {
+    ...session,
+    items: [{ itemId: 'ITM-1', recommendedRoute: 'create', candidate: { title: '人工标题' }, fields: {
+      'candidate.title': { value: '人工标题', source: 'human', at: '2026-11-10T00:00:00.000Z' },
+    } }],
+  }
+  const next = applyAnalysis({ session: base, analysis, inputRevision: base.input.inputRevision })
+  assert.equal(next.docDraft.title, '人工标题')
+  assert.ok(next.analysisMeta.warnings.some((warning) => warning.includes('人工编辑标题已保留')))
+})
+
 test('applyAnalysis 拒绝陈旧输入与陈旧上下文', (t) => {
   const root = makeRepo(t)
   const { session, context } = makeSession(root)

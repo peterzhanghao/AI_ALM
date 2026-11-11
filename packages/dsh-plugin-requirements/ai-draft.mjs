@@ -152,7 +152,7 @@ const SYSTEM_PROMPT = [
 ].join('\n')
 
 /** Turn a colloquial intent (plus chat/OCR text) into a structured candidate draft. */
-export async function runAiDraft({ stream, provider, model, intent, extractedText = '', projectName = '', source = 'text' }) {
+export async function runAiDraft({ stream, provider, model, reasoningEffort, intent, extractedText = '', projectName = '', source = 'text' }) {
   const value = String(intent ?? '').trim()
   if (value === '') throw new AiDraftError('需求意图不能为空', { code: 'intent-required' })
   if (typeof stream !== 'function') throw new AiDraftError('AI 模型不可用（缺少 llm stream）', { code: 'ai-unavailable', status: 503 })
@@ -171,6 +171,7 @@ export async function runAiDraft({ stream, provider, model, intent, extractedTex
     for await (const chunk of stream({
       provider,
       model,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: [{ type: 'text', text: `${details}\n\n请输出需求草稿 JSON。` }] }],
       temperature: 0.2,

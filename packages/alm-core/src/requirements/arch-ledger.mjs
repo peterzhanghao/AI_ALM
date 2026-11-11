@@ -1,0 +1,89 @@
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
+
+export const ARCHITECTURE_DIR = 'requirements/architecture'
+
+const normalizePath = value => String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '').trim()
+const unique = values => [...new Set(values.map(normalizePath).filter(Boolean))]
+const sha256 = value => createHash('sha256').update(value).digest('hex')
+
+function text(value) { return typeof value === 'string' ? value.trim() : '' }
+
+function criteriaOf(requirement, asset) {
+  const fromDoc = asset?.doc?.acceptance ?? requirement?.doc?.acceptance ?? []
+  if (Array.isArray(fromDoc) && fromDoc.length) return fromDoc.map((entry, index) => ({ id: entry?.id ?? `AC-${String(index + 1).padStart(2, '0')}`, text: text(entry?.text ?? entry?.expected) })).filter(entry => entry.text)
+  return String(requirement?.briefText ?? '').split(/\r?\n/).flatMap((line, index) => {
+    const match = /^\s*[-*]?\s*(AC-\d+)\s*[:：.、\s-]*(.+?)\s*$/.exec(line)
+    return match ? [{ id: match[1], text: match[2] }] : []
+  })
+}
+
+function moduleRole(path) {
+  if (/^packages\/alm-core\//.test(path)) return '需求领域模型、验证与交付状态'
+  if (/^packages\/dsh-plugin-/.test(path)) return 'DSH 插件接口与用户视图'
+  if (/(?:^|\/)(?:test|tests)\//.test(path)) return '专项自动化验证'
+  if (/^requirements\//.test(path)) return '需求规格与工程资产'
+  return '本需求交付涉及的实现模块'
+}
+
+function schemaRole(path) {
+  if (/\.alm\//.test(path)) return 'ALM 运行证据与交付记录（兼容既有 JSON 账本）'
+  if (/(?:schema|model|contract|\.json$)/i.test(path)) return '数据结构或接口契约定义（保持向后兼容）'
+  return null
+}
+
+/** Persist a human-readable delivery record; no hidden AI rationale is stored. */
+export function writeArchitectureLedger({ root, asset, requirement = null, acceptance = null, implementationPaths = [] } = {}) {
+  const repo = resolve(root)
+  const requirementId = text(requirement?.id ?? asset?.id)
+  if (!requirementId) throw new Error('requirement id is required for architecture ledger')
+  const revision = Number(requirement?.revision ?? asset?.extra?.revision ?? 1) || 1
+  const title = text(requirement?.title ?? asset?.title) || requirementId
+  const goal = text(requirement?.doc?.goal ?? asset?.doc?.goal) || text(String(requirement?.briefText ?? '').match(/^##\s*目标\s*\n+([^#]+)/m)?.[1]) || '按已确认需求完成交付'
+  const criteria = criteriaOf(requirement, asset)
+  const paths = unique([
+    asset?.source?.path,
+    asset?.extra?.brief,
+    ...implementationPaths,
+  ])
+  const modules = paths.filter(path => !path.startsWith('.alm/'))
+  const schemas = paths.map(schemaRole).filter(Boolean)
+  const evidence = acceptance?.latest ?? null
+  const relativeFile = `${ARCHITECTURE_DIR}/${requirementId}-design.md`
+  const file = join(repo, relativeFile)
+  mkdirSync(join(repo, ARCHITECTURE_DIR), { recursive: true })
+  const body = [
+    `# ${requirementId} 架构与数据模型交付档案`,
+    '',
+    '## 需求与版本基线',
+    `- 需求：${requirementId} · v${revision} · ${title}`,
+    `- 核心业务目标：${goal.replace(/\s+/g, ' ')}`,
+    '',
+    '## 架构与模块变更',
+    ...(modules.length ? modules.map(path => `- \`${path}\`：${moduleRole(path)}`) : ['- 未记录到可归属的代码模块；本次档案保留需求与验证基线。']),
+    '',
+    '调用关系：需求规格与验收标准 → 领域实现与插件交互 → 定向验证证据 → 交付候选。',
+    '',
+    '## 数据模型与接口契约',
+    ...(schemas.length ? [...new Set(schemas)].map(item => `- ${item}`) : ['- 本次未检测到独立 Schema 迁移；沿用现有数据与接口契约。']),
+    '- 运行态证据、候选和签收仍存放于 `.alm/`，不改变既有读取兼容性。',
+    '',
+    '## 验证与证据摘要',
+    ...(criteria.length ? criteria.map(entry => `- ${entry.id}：${entry.text}`) : ['- 未解析到结构化验收标准。']),
+    `- 最近验证：${evidence?.result === 'pass' ? '通过' : evidence?.result ?? '未执行'}${evidence?.file ? ` · 证据：\`${normalizePath(relative(repo, evidence.file))}\`` : ''}`,
+    ...(Array.isArray(evidence?.commands) ? evidence.commands.filter(entry => entry?.exitCode === 0).map(entry => `- 通过命令：\`${(entry.command ?? []).join(' ')}\``) : []),
+    '',
+  ].join('\n')
+  writeFileSync(file, body, 'utf8')
+
+  const indexPath = join(repo, ARCHITECTURE_DIR, 'ARCHITECTURE-LEDGER.md')
+  const row = `| ${requirementId} | v${revision} | [${title}](${requirementId}-design.md) |`
+  const heading = '# 架构与数据模型交付档案索引\n\n| 需求 | 版本 | 交付档案 |\n| --- | --- | --- |\n'
+  const existing = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : heading
+  const rows = existing.split(/\r?\n/).filter(line => !line.startsWith(`| ${requirementId} |`))
+  if (!rows.some(line => line.startsWith('| ---'))) rows.splice(3, 0, '| --- | --- | --- |')
+  rows.push(row, '')
+  writeFileSync(indexPath, rows.join('\n'), 'utf8')
+  return { path: relativeFile, indexPath: `${ARCHITECTURE_DIR}/ARCHITECTURE-LEDGER.md`, hash: sha256(body), implementationPaths: paths }
+}

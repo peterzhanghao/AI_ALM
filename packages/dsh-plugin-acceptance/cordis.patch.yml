@@ -1,0 +1,3 @@
+- insert:
+    - id: alm-acceptance
+      name: '@ai-alm/dsh-plugin-acceptance'

@@ -35,7 +35,7 @@ export const STATUS_ALIASES = Object.fromEntries(Object.entries(STATUS_LABELS).m
 
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3']
 export const CATEGORIES = ['functional', 'non-functional', 'constraint', 'quality']
-export const SOURCE_KINDS = ['chat', 'meeting', 'doc', 'screenshot', 'email']
+export const SOURCE_KINDS = ['chat', 'meeting', 'doc', 'screenshot', 'email', 'defect', 'feedback']
 
 export const LINK_TYPES = [
   'satisfies',
@@ -98,15 +98,18 @@ export function normalizeAsset(raw, source) {
   const id = requireString(raw, 'id', where)
   const type = requireString(raw, 'type', where)
   const title = requireString(raw, 'title', where)
-  const status = requireString(raw, 'status', where)
-  const owner = requireString(raw, 'owner', where)
+  // Legacy field. Delivery progress is derived (see requirements/delivery.mjs),
+  // so a new record carries no status; historical values are still validated.
+  const status = raw.status === undefined || raw.status === null ? null : requireString(raw, 'status', where)
+  if (typeof raw.owner !== 'string') throw new AssetError('missing or invalid field: owner', where)
+  const owner = raw.owner
 
   if (raw.schema_version !== undefined && raw.schema_version !== 1) {
     throw new AssetError(`unsupported schema_version: ${String(raw.schema_version)}`, where)
   }
   if (!ASSET_TYPES.includes(type)) throw new AssetError(`unknown asset type: ${type}`, where)
   if (!ID_PATTERN.test(id)) throw new AssetError(`invalid asset id: ${id}`, where)
-  if (!ASSET_STATUSES.includes(status)) throw new AssetError(`unknown status: ${status}`, where)
+  if (status !== null && !ASSET_STATUSES.includes(status)) throw new AssetError(`unknown status: ${status}`, where)
   if (raw.project !== undefined && !/^[A-Z][A-Z0-9]{1,7}$/.test(String(raw.project))) {
     throw new AssetError(`invalid project id: ${String(raw.project)}`, where)
   }

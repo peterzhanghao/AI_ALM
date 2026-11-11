@@ -9,6 +9,14 @@
 | [`development/gitea-adapter.md`](development/gitea-adapter.md) | Gitea SCM 适配器：PR/检查/评论/合并的接口与错误语义 |
 | [`planning/architecture.md`](planning/architecture.md) | ALM MVP 模块边界、契约、命令面与门禁规则 |
 | [`planning/verification-report.md`](planning/verification-report.md) | 验证报告：版本、命令矩阵、演练与 UI 证据、缺口 |
+| [`planning/requirements-plugin-e2e-execution-brief.md`](planning/requirements-plugin-e2e-execution-brief.md) | 给 DSH 的真实意图到开发交付验证指令、页面证据与报告包要求 |
+| [`planning/requirements-plugin-e2e-codex-analysis-brief.md`](planning/requirements-plugin-e2e-codex-analysis-brief.md) | 给 Codex 的报告可信度检查、问题定位与下一轮优化指令 |
+| [`planning/requirement-detail-v3-direct-action-brief.md`](planning/requirement-detail-v3-direct-action-brief.md) | 需求详情 v3 重构指令：插件内完整页面、布局规格、原地决策与交互示意 |
+| [`planning/requirement-detail-v4-first-principles-brief.md`](planning/requirement-detail-v4-first-principles-brief.md) | 需求详情 v4 第一性原理重构指令：删除流程接力、授权内自动闭环、结果与必要决定优先、真实 E2E 证据 |
+| [`planning/requirement-description-v5-intent-to-detail-brief.md`](planning/requirement-description-v5-intent-to-detail-brief.md) | 需求描述 v5 专项指令：澄清生成详细正文、确认落盘、详情完整展示与执行版本一致 |
+| [`analysis/requirements-plugin-agent-loop-feasibility.md`](analysis/requirements-plugin-agent-loop-feasibility.md) | DSH Desktop 多智能体迭代可行性：真实能力、隔离和验证边界、有界试验、单/多 agent 价值对照与停止条件 |
+| [`design/requirement-detail-v3-layout-reference.html`](design/requirement-detail-v3-layout-reference.html) | 需求详情交互布局参考：五种状态与深浅主题（示例数据，非产品实测） |
+| [`templates/requirements-plugin-e2e-report.template.json`](templates/requirements-plugin-e2e-report.template.json) | 端到端报告结构模板（不是实测结果） |
 | [`analysis/requirements-plugin-evaluation.md`](analysis/requirements-plugin-evaluation.md) | 需求插件选型评估：SpecFlow / TeamFlow 实测与六维评分 |
 | [`adr/0004-requirements-workbench-composition.md`](adr/0004-requirements-workbench-composition.md) | 需求工作台的组合式决策与分工 |
 | [`planning/issue-register.md`](planning/issue-register.md) | 规划键、GitHub 编号、状态与同步台账 |

@@ -1,0 +1,24 @@
+[
+  {
+    "schema": "alm.intent-investigation/v1",
+    "investigationId": "INV-20261109104639-62b6de",
+    "source": "observed_evidence",
+    "verdict": "answered",
+    "question": "标题：需求列表展示收敛变更状态与版本徽章\n目标：让用户在需求列表页无需进入详情，即可快速识别哪些需求已有待确认的收敛变更，并清楚了解该需求当前的正式版本与是否存在候选升级版本。\n问题现状：需求在开发、反馈或澄清过程中可能从 v1 收敛升级至 v2、v3，或形成尚待确认的收敛补丁；但列表页目前缺少醒目的状态提示，版本信息辨识度也不足。用户必须逐条进入详情才能判断是否存在待确认变更，难以快速安排确认和推进。\n验收标准：\n- 列表中存在待确认收敛变更的需求，显示醒目的“待确认收敛变更”状态标识；无待确认变更的需求不显示该标识。\n- 每条需求显示清晰、统一的当前正式版本徽章（如 v2）；如存在待确认升级，同时展示候选版本（如 v2 → v3 待确认）。\n- 状态标识和版本徽章在不展开详情的情况下即可理解；悬停或聚焦时提供简短说明，且不挤压、遮挡需求标题及现有关键列表信息。\n- 如果某条需求存在待人工确认的演进补丁（pendingPatch），该需求在列表页的“待我处理”过滤视图下必须能被筛选出来。\r\n",
+    "findings": [
+      {
+        "claim": "检索命中的代码原文，相关性待人工核对",
+        "refs": [
+          {
+            "path": "packages/dsh-plugin-requirements/intent.mjs",
+            "line": 1818,
+            "endLine": 1818,
+            "quote": "if (structured && creatingSession && !selectedRequirementId) return withIntentSessionLock(root, session.sessionId, async () => localIntentDraft({ root, session: await requireSession(root, session.sessionId), draft: localDraft, structured: true, now }))",
+            "verified": true
+          }
+        ]
+      }
+    ],
+    "createdAt": "2026-11-09T10:46:39.551Z"
+  }
+]

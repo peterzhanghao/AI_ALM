@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "alm.acceptance/v3",
+  "type": "object",
+  "required": ["schema", "revision", "requirement", "requirementHash", "testRevision", "headSha", "configHash", "worktree", "result", "commands", "startedAt", "finishedAt", "environment", "source"],
+  "properties": {
+    "schema": {"const": "alm.acceptance/v3"},
+    "revision": {"const": 3},
+    "requirement": {"type": "string", "minLength": 1},
+    "requirementHash": {"type": ["string", "null"]},
+    "testRevision": {"type": ["string", "null"]},
+    "headSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "configHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "result": {"enum": ["pass", "fail"]},
+    "startedAt": {"type": "string"},
+    "finishedAt": {"type": "string"},
+    "environment": {"type": "object"},
+    "source": {"type": "string"},
+    "worktree": {
+      "type": "object", "required": ["before", "after", "stable"],
+      "properties": {"before": {"$ref": "#/definitions/snapshot"}, "after": {"$ref": "#/definitions/snapshot"}, "stable": {"type": "boolean"}}
+    },
+    "commands": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "command", "exitCode", "timedOut"], "properties": {"id": {"type": "string"}, "command": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "exitCode": {"type": ["integer", "null"]}, "timedOut": {"type": "boolean"}}}}
+  },
+  "definitions": {
+    "snapshot": {"type": "object", "required": ["headSha", "treeHash", "complete"], "properties": {"headSha": {"type": ["string", "null"]}, "treeHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "complete": {"type": "boolean"}}}
+  }
+}

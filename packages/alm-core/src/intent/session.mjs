@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { applyAnalysis } from './analysis.mjs'
+import { applyAnalysis, normalizeDocDraft } from './analysis.mjs'
 import {
   ANALYSIS_SCHEMA,
   INTENT_SCHEMA,
@@ -26,6 +26,7 @@ import {
   clone,
   dateFrom,
   listJsonFiles,
+  normalizeStringList,
   nowIso,
   readJsonFile,
   safeRepoPath,
@@ -40,6 +41,15 @@ import {
 export const SESSIONS_DIR = '.alm/intents/sessions'
 const MAX_INPUT_TEXT = 200000
 const PRIORITIES = new Set(['P0', 'P1', 'P2', 'P3'])
+const MAX_ANSWERS_PER_BATCH = 3
+const MAX_GROUP_QUESTIONS = 12
+const QUESTION_STATUSES = ['open', 'answered', 'stale']
+const TIMING_KEYS = ['totalMs', 'contextMs', 'modelMs', 'firstTokenMs', 'parseMs', 'persistMs', 'queueMs', 'calls', 'retries']
+const DEFAULT_ANSWER_SUBMISSION_BUDGET = 3
+/** Draft schema is owned by requirements/doc.mjs; kept in sync as a string here. */
+const DOC_DRAFT_SCHEMA = 'alm.requirement.doc.draft/v1'
+const LOCKED_CLAUSE_KINDS = new Set(['feature', 'acceptance', 'goal', 'scope'])
+const MAX_LOCKED_CLAUSES = 200
 
 export function sessionsDir(root) {
   return join(root, SESSIONS_DIR)
@@ -55,6 +65,191 @@ export function newSessionId(now) {
 
 export function newEntityId(prefix, now) {
   return `${prefix}-${stamp(dateFrom(now))}-${randomHex(3)}`
+}
+
+/** Derive the stable decision id for a question (same formula as analysis.mjs). */
+function derivedDecisionId(questionId, text) {
+  return `DEC-${sha256Hex(`${questionId}|${text}`).slice(0, 10)}`
+}
+
+/** Pure: bump `sessionRevision` by one (1-based; missing/invalid treated as 0). */
+export function bumpSessionRevision(session) {
+  const next = clone(session)
+  const current = Number.isInteger(next.sessionRevision) && next.sessionRevision > 0 ? next.sessionRevision : 0
+  next.sessionRevision = current + 1
+  return next
+}
+
+/** Only finite, non-negative integer durations survive; unknown keys are dropped. */
+function normalizeTiming(timing) {
+  if (!timing || typeof timing !== 'object' || Array.isArray(timing)) return null
+  const out = {}
+  for (const key of TIMING_KEYS) {
+    const value = timing[key]
+    if (Number.isInteger(value) && value >= 0) out[key] = value
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+function normalizeStoredOptions(options) {
+  if (!Array.isArray(options)) return []
+  const out = []
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index]
+    if (!option || typeof option !== 'object' || Array.isArray(option)) continue
+    const label = cleanLine(option.label, { max: 500, field: 'option.label' })
+    if (label === '') continue
+    out.push({
+      id: cleanLine(option.id, { max: 120, field: 'option.id' }) || `OPT-${index + 1}`,
+      label,
+      impact: cleanLine(option.impact, { max: 500, field: 'option.impact' }) || null,
+    })
+    if (out.length >= 3) break
+  }
+  return out
+}
+
+function normalizeStoredQuestion(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const text = cleanLine(raw.text, { max: 4000, field: 'question.text' })
+  const questionId = cleanLine(raw.questionId, { max: 120, field: 'question.questionId' })
+  if (text === '' || questionId === '') return null
+  return {
+    questionId,
+    decisionId: cleanLine(raw.decisionId, { max: 120, field: 'question.decisionId' }) || derivedDecisionId(questionId, text),
+    itemIds: normalizeStringList(raw.itemIds ?? [], { max: 20, maxLength: 120 }),
+    text,
+    whyNow: cleanLine(raw.whyNow, { max: 1000, field: 'question.whyNow' }) || null,
+    impact: cleanLine(raw.impact, { max: 500, field: 'question.impact' }) || null,
+    materiality: raw.materiality === 'reversible' ? 'reversible' : 'major',
+    recommendedOptionId: cleanLine(raw.recommendedOptionId, { max: 120, field: 'question.recommendedOptionId' }) || null,
+    options: normalizeStoredOptions(raw.options),
+    allowFreeText: raw.allowFreeText !== false,
+    dependsOn: normalizeStringList(raw.dependsOn ?? [], { max: 8, maxLength: 120 }),
+    status: QUESTION_STATUSES.includes(raw.status) ? raw.status : 'open',
+    staleReason: cleanLine(raw.staleReason, { max: 500, field: 'question.staleReason' }) || null,
+    analysisRunId: cleanLine(raw.analysisRunId, { max: 120, field: 'question.analysisRunId' }) || null,
+  }
+}
+
+/**
+ * Normalize a stored question group. `dependsOn` keeps only references to
+ * decisions that actually exist in the group (excluding self); ordering is not
+ * enforced here because answered history is appended after current questions.
+ */
+function normalizeStoredQuestionGroup(group) {
+  if (!group || typeof group !== 'object' || Array.isArray(group)) return null
+  const questions = (Array.isArray(group.questions) ? group.questions : []).map(normalizeStoredQuestion).filter(Boolean)
+  const recommendations = (Array.isArray(group.recommendations) ? group.recommendations : [])
+    .map((raw) => {
+      const question = normalizeStoredQuestion(raw)
+      if (!question) return null
+      return { ...question, status: raw?.status === 'answered' ? 'answered' : 'suggested' }
+    })
+    .filter(Boolean)
+  const decisionIds = new Set(questions.map((question) => question.decisionId))
+  for (const question of questions) {
+    question.dependsOn = question.dependsOn.filter((id) => id !== question.decisionId && decisionIds.has(id))
+  }
+  return {
+    groupId:
+      cleanLine(group.groupId, { max: 120, field: 'questionGroup.groupId' }) ||
+      `QG-${sha256Hex(questions.map((question) => question.decisionId).join('|')).slice(0, 10)}`,
+    analysisRunId: cleanLine(group.analysisRunId, { max: 120, field: 'questionGroup.analysisRunId' }) || null,
+    createdAt: cleanLine(group.createdAt, { max: 40, field: 'questionGroup.createdAt' }) || null,
+    updatedAt: cleanLine(group.updatedAt, { max: 40, field: 'questionGroup.updatedAt' }) || null,
+    questions,
+    recommendations,
+  }
+}
+
+function normalizeStoredAnswer(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const answerId = cleanLine(raw.answerId, { max: 120, field: 'answer.answerId' }) || null
+  const questionId = cleanLine(raw.questionId, { max: 120, field: 'answer.questionId' }) || null
+  if (answerId === null && questionId === null) return null
+  return {
+    answerId,
+    itemId: cleanLine(raw.itemId, { max: 120, field: 'answer.itemId' }) || null,
+    questionId,
+    decisionId: cleanLine(raw.decisionId, { max: 120, field: 'answer.decisionId' }) || null,
+    optionId: cleanLine(raw.optionId, { max: 120, field: 'answer.optionId' }) || null,
+    optionLabel: cleanLine(raw.optionLabel, { max: 500, field: 'answer.optionLabel' }) || null,
+    text: cleanLine(raw.text, { max: 2000, field: 'answer.text' }) || null,
+    questionText: cleanLine(raw.questionText, { max: 4000, field: 'answer.questionText' }) || null,
+    options: raw.options === undefined ? null : normalizeStoredOptions(raw.options),
+    at: cleanLine(raw.at, { max: 40, field: 'answer.at' }) || null,
+    inputRevision: Number.isInteger(raw.inputRevision) ? raw.inputRevision : null,
+    sessionRevision: Number.isInteger(raw.sessionRevision) ? raw.sessionRevision : null,
+    supersededBy: cleanLine(raw.supersededBy, { max: 120, field: 'answer.supersededBy' }) || null,
+    supersededAt: cleanLine(raw.supersededAt, { max: 40, field: 'answer.supersededAt' }) || null,
+  }
+}
+
+/** Derive the legacy-shaped `nextQuestion` from the question group. */
+function nextQuestionFromGroup(group) {
+  const questions = group?.questions ?? []
+  const question = questions.find((entry) => entry.status === 'open') ?? questions.find((entry) => entry.status === 'stale') ?? null
+  if (!question) return null
+  return {
+    questionId: question.questionId,
+    itemIds: [...question.itemIds],
+    text: question.text,
+    whyNow: question.whyNow,
+    options: clone(question.options),
+    allowFreeText: question.allowFreeText,
+  }
+}
+
+/** Progress counters for the review UI: "待决定 N / 已处理 M / 待重新核对 S". */
+export function questionProgress(session) {
+  const questions = session?.questionGroup?.questions ?? []
+  const progress = { total: questions.length, open: 0, answered: 0, stale: 0, pending: 0 }
+  for (const question of questions) {
+    if (question.status === 'answered') progress.answered += 1
+    else if (question.status === 'stale') progress.stale += 1
+    else progress.open += 1
+  }
+  progress.pending = progress.open + progress.stale
+  return progress
+}
+
+function normalizeConvergence(raw, questionGroup = null) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  const nonNegative = (value) => (Number.isInteger(value) && value >= 0 ? value : 0)
+  const seenDecisionIds = normalizeStringList(source.seenDecisionIds ?? [], { max: 200, maxLength: 120 })
+  const resolvedDecisionIds = normalizeStringList(source.resolvedDecisionIds ?? [], { max: 200, maxLength: 120 })
+  const timing = {}
+  for (const key of TIMING_KEYS) timing[key] = nonNegative(source.timing?.[key])
+  const progress = questionProgress({ questionGroup })
+  const answerSubmissions = nonNegative(source.answerSubmissions)
+  return {
+    answerSubmissions,
+    analysisRuns: nonNegative(source.analysisRuns),
+    proposedDecisions: nonNegative(source.proposedDecisions),
+    newDecisions: nonNegative(source.newDecisions),
+    resolvedDecisions: resolvedDecisionIds.length,
+    pendingDecisions: progress.pending,
+    recommendedDefaults: Array.isArray(questionGroup?.recommendations) ? questionGroup.recommendations.length : 0,
+    seenDecisionIds,
+    resolvedDecisionIds,
+    timing,
+    budget: {
+      maxAnswerSubmissions: DEFAULT_ANSWER_SUBMISSION_BUDGET,
+      remainingAnswerSubmissions: Math.max(0, DEFAULT_ANSWER_SUBMISSION_BUDGET - answerSubmissions),
+      exhausted: answerSubmissions >= DEFAULT_ANSWER_SUBMISSION_BUDGET,
+    },
+  }
+}
+
+function activeAnswerFor(answers, questionId, inputRevision) {
+  for (let index = answers.length - 1; index >= 0; index -= 1) {
+    const answer = answers[index]
+    if (answer?.questionId === questionId && answer.inputRevision === inputRevision && (answer.supersededBy === undefined || answer.supersededBy === null)) {
+      return answer
+    }
+  }
+  return null
 }
 
 function defaultExplicit(value) {
@@ -136,6 +331,58 @@ function normalizeProject(project) {
   throw intentError('invalid-request', 'createSession 需要 project（项目 id 或 {id,name}）')
 }
 
+/**
+ * A stored draft is trusted to be structurally complete but re-normalized so a
+ * hand-edited or forward-versioned session file cannot crash rendering.
+ */
+function normalizeStoredDocDraft(draft) {
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return null
+  const out = clone(draft)
+  out.schema = DOC_DRAFT_SCHEMA
+  out.docHash = cleanLine(out.docHash, { max: 120, field: 'docDraft.docHash' }) || null
+  out.draftRevision = Number.isInteger(out.draftRevision) && out.draftRevision > 0 ? out.draftRevision : 1
+  out.basedOnInputRevision = Number.isInteger(out.basedOnInputRevision) ? out.basedOnInputRevision : null
+  out.basedOnSessionRevision = Number.isInteger(out.basedOnSessionRevision) ? out.basedOnSessionRevision : null
+  out.goal = typeof out.goal === 'string' ? out.goal : ''
+  out.problem = typeof out.problem === 'string' ? out.problem : ''
+  out.features = Array.isArray(out.features) ? out.features : []
+  out.scope = Array.isArray(out.scope) ? out.scope : []
+  out.outOfScope = Array.isArray(out.outOfScope) ? out.outOfScope : []
+  out.acceptance = Array.isArray(out.acceptance) ? out.acceptance : []
+  out.constraints = Array.isArray(out.constraints) ? out.constraints : []
+  out.pending = Array.isArray(out.pending) ? out.pending : []
+  out.meta = out.meta && typeof out.meta === 'object' && !Array.isArray(out.meta)
+    ? out.meta
+    : { nextFr: 1, nextAc: 1, confirmedAt: null }
+  out.legacy = out.legacy === true
+  return out
+}
+
+function normalizeLockedClauses(value) {
+  if (!Array.isArray(value)) return []
+  const out = []
+  const seen = new Set()
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const kind = LOCKED_CLAUSE_KINDS.has(entry.kind) ? entry.kind : null
+    if (kind === null) continue
+    const id = cleanLine(entry.id, { max: 20, field: 'lockedClauses.id' }) || null
+    const key = `${kind}:${id ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ kind, id })
+    if (out.length >= MAX_LOCKED_CLAUSES) break
+  }
+  return out
+}
+
+function normalizeClauseRefs(value) {
+  if (!Array.isArray(value)) throw intentError('invalid-request', 'clauses 必须是数组', { path: 'clauses' })
+  const normalized = normalizeLockedClauses(value)
+  if (normalized.length === 0) throw intentError('invalid-request', 'clauses 需要至少一个有效条款引用', { path: 'clauses' })
+  return normalized
+}
+
 export function normalizeSession(session) {
   if (!session || typeof session !== 'object' || Array.isArray(session)) {
     throw intentError('invalid-session', 'session 必须是对象')
@@ -152,12 +399,23 @@ export function normalizeSession(session) {
       : makeInput({ text: '（历史会话缺少输入文本，已恢复为待补充状态）', source: 'text' })
   out.input.explicit = out.input.explicit ?? { owner: null, priority: null }
   out.input.inputRevision = Number.isInteger(out.input.inputRevision) ? out.input.inputRevision : 1
-  out.answers = Array.isArray(out.answers) ? out.answers : []
+  out.sessionRevision = Number.isInteger(out.sessionRevision) && out.sessionRevision > 0 ? out.sessionRevision : 1
+  out.questionGroup = normalizeStoredQuestionGroup(out.questionGroup)
+  out.convergence = normalizeConvergence(out.convergence, out.questionGroup)
+  out.docDraft = normalizeStoredDocDraft(out.docDraft)
+  out.draftRevision = Number.isInteger(out.draftRevision) && out.draftRevision >= 0
+    ? out.draftRevision
+    : out.docDraft?.draftRevision ?? 0
+  if (out.docDraft && out.draftRevision > out.docDraft.draftRevision) out.docDraft.draftRevision = out.draftRevision
+  out.lockedClauses = normalizeLockedClauses(out.lockedClauses)
+  out.answers = Array.isArray(out.answers) ? out.answers.map(normalizeStoredAnswer).filter(Boolean) : []
   out.runs = Array.isArray(out.runs) ? out.runs : []
   out.items = Array.isArray(out.items) ? out.items : []
   out.artifacts = Array.isArray(out.artifacts) ? out.artifacts : []
   out.context = out.context && typeof out.context === 'object' ? out.context : emptyContext(out.project?.id)
-  out.nextQuestion = out.nextQuestion ?? null
+  // The legacy single-question view is always derived from the group once one
+  // exists; old sessions (questionGroup === null) keep their stored value.
+  out.nextQuestion = out.questionGroup ? nextQuestionFromGroup(out.questionGroup) : (out.nextQuestion ?? null)
   out.confirmation = out.confirmation ?? null
   out.receipt = out.receipt ?? null
   out.error = out.error ?? null
@@ -180,6 +438,12 @@ export function createSession({ root, project, actor = 'human:local', input, con
     actor: cleanLine(actor, { max: 120, field: 'actor' }) || 'human:local',
     state: 'editing',
     input: makeInput({ ...input, inputRevision: 1 }),
+    sessionRevision: 1,
+    questionGroup: null,
+    docDraft: null,
+    draftRevision: 0,
+    lockedClauses: [],
+    convergence: normalizeConvergence(null),
     answers: [],
     runs: [],
     context: context ?? emptyContext(projectRef.id),
@@ -266,36 +530,207 @@ export function setInput({ root, session, input, now } = {}) {
   next.input = makeInput({ ...input, explicit: input?.explicit ?? session.input?.explicit, inputRevision: nextRevision })
   next.items = []
   next.nextQuestion = null
+  next.questionGroup = null
+  next.docDraft = null
+  next.answerAnalysisRequired = false
+  next.analysisRetryRequired = false
+  next.draftRevision = 0
+  next.lockedClauses = []
+  next.convergence = normalizeConvergence(null)
   next.confirmation = null
   next.artifacts = []
   next.receipt = null
   next.error = null
   next.state = 'editing'
+  next.sessionRevision = (Number.isInteger(session.sessionRevision) && session.sessionRevision > 0 ? session.sessionRevision : 1) + 1
   next.updatedAt = nowIso(now)
   if (root) return saveSession({ root, session: next })
   return normalizeSession(next)
 }
 
-/** Record one answer to the previous single question. */
+/**
+ * Record 1..3 answers atomically.
+ *
+ * - Idempotent: an identical `{optionId,text}` for the active answer changes
+ *   nothing and does not bump `sessionRevision`.
+ * - Re-answering keeps the previous record and marks it `supersededBy`.
+ * - When a question group exists, changing a decision marks answered
+ *   dependents `stale` (answers are kept, they just stop counting as resolved).
+ * - Sessions without a question group keep the old single-question semantics.
+ */
+export function recordAnswers({ root, session, answers, expectedSessionRevision, now } = {}) {
+  if (!session) throw intentError('invalid-request', 'recordAnswers 需要 session')
+  assertMutable(session)
+  const batch = Array.isArray(answers) ? answers : []
+  if (batch.length === 0 || batch.length > MAX_ANSWERS_PER_BATCH) {
+    throw intentError('invalid-request', `answers 需要 1-${MAX_ANSWERS_PER_BATCH} 条回答`, { count: batch.length })
+  }
+  if (expectedSessionRevision !== undefined && expectedSessionRevision !== null) {
+    const expected = Number(expectedSessionRevision)
+    const current = session.sessionRevision ?? 1
+    if (!Number.isInteger(expected) || expected !== current) {
+      throw intentError(
+        'stale-session',
+        `会话决定已更新（当前版本 ${current}，请求版本 ${expected}），请刷新后重试`,
+        { expected: current, received: Number.isFinite(expected) ? expected : null },
+      )
+    }
+  }
+  const group = session.questionGroup ?? null
+  const normalized = []
+  const seen = new Set()
+  for (let index = 0; index < batch.length; index += 1) {
+    const raw = batch[index]
+    const questionId = cleanLine(raw?.questionId, { max: 120, field: `answers[${index}].questionId` })
+    if (questionId === '') throw intentError('invalid-request', `answers[${index}].questionId 不能为空`)
+    if (seen.has(questionId)) throw intentError('invalid-request', `answers 中问题 ${questionId} 重复`)
+    seen.add(questionId)
+    const optionId = cleanLine(raw?.optionId, { max: 120, field: `answers[${index}].optionId` }) || null
+    const text = cleanLine(raw?.text, { max: 2000, field: `answers[${index}].text` }) || null
+    if (optionId === null && text === null) {
+      throw intentError('invalid-request', `answers[${index}] 需要 optionId 或 text`)
+    }
+    let question = null
+    if (group) {
+      question =
+        group.questions.find((entry) => entry.questionId === questionId) ??
+        (group.recommendations ?? []).find((entry) => entry.questionId === questionId) ??
+        null
+      if (!question) {
+        throw intentError('answer-not-in-group', `问题 ${questionId} 不在当前问题组中，请刷新后重试`, {
+          questionId,
+          groupId: group.groupId ?? null,
+        })
+      }
+      if (optionId !== null && !question.options.some((option) => option.id === optionId)) {
+        throw intentError('invalid-request', `选项 ${optionId} 不在问题 ${questionId} 的选项中`, { questionId, optionId })
+      }
+    } else if (session.nextQuestion?.questionId === questionId) {
+      // Legacy single-question session: snapshot the question shown at the time.
+      question = {
+        questionId,
+        decisionId: null,
+        text: session.nextQuestion.text ?? null,
+        options: Array.isArray(session.nextQuestion.options) ? session.nextQuestion.options : [],
+      }
+    }
+    normalized.push({ questionId, optionId, text, question })
+  }
+
+  let next = clone(session)
+  next.answers = Array.isArray(next.answers) ? next.answers : []
+  const saved = []
+  const newAnswerIds = new Set()
+  const changedQuestions = []
+  for (const entry of normalized) {
+    const active = activeAnswerFor(next.answers, entry.questionId, next.input?.inputRevision)
+    if (active && active.optionId === entry.optionId && (active.text ?? null) === entry.text) continue
+    const at = nowIso(now)
+    const answerId = newEntityId('ANS', now)
+    if (active) {
+      active.supersededBy = answerId
+      active.supersededAt = at
+    }
+    const question = entry.question
+    const option = entry.optionId ? (question?.options ?? []).find((candidate) => candidate.id === entry.optionId) ?? null : null
+    next.answers.push({
+      answerId,
+      itemId: null,
+      questionId: entry.questionId,
+      decisionId: question?.decisionId ?? null,
+      optionId: entry.optionId,
+      optionLabel: option?.label ?? null,
+      text: entry.text,
+      questionText: question?.text ?? null,
+      options: question ? clone(question.options ?? []) : null,
+      at,
+      inputRevision: next.input?.inputRevision ?? 1,
+      sessionRevision: null,
+      supersededBy: null,
+      supersededAt: null,
+    })
+    saved.push({ questionId: entry.questionId, answerId })
+    newAnswerIds.add(answerId)
+    changedQuestions.push({ questionId: entry.questionId, decisionId: question?.decisionId ?? null })
+  }
+
+  if (saved.length === 0) {
+    return { session: normalizeSession(session), changed: false, saved: [], stale: [], progress: questionProgress(session) }
+  }
+
+  next.sessionRevision = (Number.isInteger(session.sessionRevision) && session.sessionRevision > 0 ? session.sessionRevision : 1) + 1
+  next.answerAnalysisRequired = true
+  next.convergence = normalizeConvergence(next.convergence, next.questionGroup)
+  const blockingSubmission = changedQuestions.some(({ questionId }) => group?.questions?.some((question) => question.questionId === questionId))
+  if (blockingSubmission || !group) next.convergence.answerSubmissions += 1
+  next.convergence.budget.remainingAnswerSubmissions = Math.max(
+    0,
+    next.convergence.budget.maxAnswerSubmissions - next.convergence.answerSubmissions,
+  )
+  next.convergence.budget.exhausted = next.convergence.answerSubmissions >= next.convergence.budget.maxAnswerSubmissions
+  for (const answer of next.answers) {
+    if (newAnswerIds.has(answer.answerId)) answer.sessionRevision = next.sessionRevision
+  }
+
+  const stale = []
+  if (group) {
+    const changedIds = new Set(changedQuestions.map((entry) => entry.questionId))
+    const changedDecisionIds = new Set(changedQuestions.map((entry) => entry.decisionId).filter(Boolean))
+    for (const question of group.questions) {
+      if (changedIds.has(question.questionId)) {
+        question.status = 'answered'
+        question.staleReason = null
+      }
+    }
+    for (const recommendation of group.recommendations ?? []) {
+      if (changedIds.has(recommendation.questionId)) {
+        recommendation.status = 'answered'
+        recommendation.staleReason = null
+      }
+    }
+    for (const question of group.questions) {
+      if (changedIds.has(question.questionId)) continue
+      if (question.status !== 'answered') continue
+      const dependency = (question.dependsOn ?? []).find((decisionId) => changedDecisionIds.has(decisionId))
+      if (!dependency) continue
+      question.status = 'stale'
+      question.staleReason = `依赖的决定 ${dependency} 已更改，需重新核对`
+      stale.push(question.decisionId)
+    }
+    group.updatedAt = nowIso(now)
+    next.questionGroup = group
+    next.nextQuestion = nextQuestionFromGroup(group)
+    const questions = group.questions
+    const resolved = questions.every((question) => question.status === 'answered')
+    next.state = resolved ? 'ready_for_confirmation' : 'needs_input'
+  } else {
+    next.state = 'editing'
+  }
+  const resolvedIds = new Set(next.convergence.resolvedDecisionIds)
+  for (const question of next.questionGroup?.questions ?? []) {
+    if (question.status === 'answered') resolvedIds.add(question.decisionId)
+    else resolvedIds.delete(question.decisionId)
+  }
+  next.convergence.resolvedDecisionIds = [...resolvedIds]
+  next.convergence.resolvedDecisions = next.convergence.resolvedDecisionIds.length
+  next.convergence.pendingDecisions = questionProgress(next).pending
+  // An answer invalidates the draft: the next analysis must fold the decision
+  // in, so the old draft text may not be confirmed any more.
+  if (next.docDraft) {
+    next.draftRevision = (Number.isInteger(next.docDraft.draftRevision) ? next.docDraft.draftRevision : 0) + 1
+    next.docDraft.draftRevision = next.draftRevision
+  }
+  next.updatedAt = nowIso(now)
+
+  const result = root ? saveSession({ root, session: next }) : normalizeSession(next)
+  return { session: result, changed: true, saved, stale, progress: questionProgress(result) }
+}
+
+/** Backward-compatible wrapper: record one answer and return the session. */
 export function recordAnswer({ root, session, answer, now } = {}) {
   if (!session) throw intentError('invalid-request', 'recordAnswer 需要 session')
-  assertMutable(session)
-  const questionId = cleanLine(answer?.questionId, { max: 120, field: 'answer.questionId' })
-  if (questionId === '') throw intentError('invalid-request', 'answer.questionId 不能为空')
-  const next = clone(session)
-  next.answers.push({
-    answerId: newEntityId('ANS', now),
-    itemId: cleanLine(answer?.itemId, { max: 120, field: 'answer.itemId' }) || null,
-    questionId,
-    optionId: cleanLine(answer?.optionId, { max: 120, field: 'answer.optionId' }) || null,
-    text: cleanLine(answer?.text, { max: 2000, field: 'answer.text' }) || null,
-    at: nowIso(now),
-    inputRevision: next.input.inputRevision,
-  })
-  next.state = 'editing'
-  next.updatedAt = nowIso(now)
-  if (root) return saveSession({ root, session: next })
-  return normalizeSession(next)
+  const result = recordAnswers({ root, session, answers: answer ? [answer] : [], now })
+  return result.session
 }
 
 /** Store human edits as `item.fields[field] = { value, source: 'human' }`. */
@@ -314,9 +749,91 @@ export function setEdits({ root, session, edits, now } = {}) {
     item.fields = item.fields && typeof item.fields === 'object' ? item.fields : {}
     item.fields[field] = { value: edit.value ?? null, source: 'human', at: nowIso(now) }
   }
+  next.sessionRevision = (Number.isInteger(session.sessionRevision) && session.sessionRevision > 0 ? session.sessionRevision : 1) + 1
   next.updatedAt = nowIso(now)
   if (root) return saveSession({ root, session: next })
   return normalizeSession(next)
+}
+
+const DOC_DRAFT_PATCH_KEYS = ['title', 'goal', 'problem', 'features', 'scope', 'outOfScope', 'acceptance', 'constraints', 'pending']
+
+/**
+ * Apply a human edit to the requirement draft. `patch` (default) shallow-merges
+ * the supplied fields over the current draft (arrays replace wholesale), then
+ * normalizes + re-hashes and bumps `draftRevision` and `sessionRevision`.
+ * Human edits are never reverted by locks (a lock only protects against the
+ * model), so the lock list is not enforced here.
+ */
+export function setDocDraft({ root, session, docDraft, patch = true, now } = {}) {
+  if (!session) throw intentError('invalid-request', 'setDocDraft 需要 session')
+  assertMutable(session)
+  if (!docDraft || typeof docDraft !== 'object' || Array.isArray(docDraft)) {
+    throw intentError('invalid-request', 'docDraft 必须是对象', { path: 'docDraft' })
+  }
+  const current = normalizeStoredDocDraft(session.docDraft)
+  let merged = {}
+  if (patch !== false && current) {
+    merged = clone(current)
+    for (const key of DOC_DRAFT_PATCH_KEYS) {
+      if (docDraft[key] !== undefined) merged[key] = clone(docDraft[key])
+    }
+  } else {
+    for (const key of DOC_DRAFT_PATCH_KEYS) {
+      if (docDraft[key] !== undefined) merged[key] = clone(docDraft[key])
+    }
+  }
+  const nextRevision = (Number.isInteger(session.draftRevision) ? session.draftRevision : 0) + 1
+  const draft = normalizeDocDraft(merged, {
+    previous: current,
+    warnings: [],
+    lockedClauses: [],
+    requirementId: session.project?.requirementId ?? null,
+    inputRevision: session.input?.inputRevision ?? null,
+    sessionRevision: Number.isInteger(session.sessionRevision) ? session.sessionRevision : 1,
+    draftRevision: nextRevision,
+    legacy: false,
+  })
+  const next = clone(session)
+  next.docDraft = draft
+  next.draftRevision = draft.draftRevision
+  next.sessionRevision = bumpSessionRevision(session).sessionRevision
+  next.updatedAt = nowIso(now)
+  const result = root ? saveSession({ root, session: next }) : normalizeSession(next)
+  return result
+}
+
+/** Lock clauses so a later analysis may not overwrite them. Idempotent. */
+export function lockClauses({ root, session, clauses, now } = {}) {
+  if (!session) throw intentError('invalid-request', 'lockClauses 需要 session')
+  assertMutable(session)
+  const incoming = normalizeClauseRefs(clauses)
+  const current = normalizeLockedClauses(session.lockedClauses)
+  const existing = new Set(current.map((entry) => `${entry.kind}:${entry.id ?? ''}`))
+  const added = incoming.filter((entry) => !existing.has(`${entry.kind}:${entry.id ?? ''}`))
+  if (added.length === 0) return session
+  const next = clone(session)
+  next.lockedClauses = [...current, ...added]
+  next.sessionRevision = bumpSessionRevision(session).sessionRevision
+  next.updatedAt = nowIso(now)
+  const result = root ? saveSession({ root, session: next }) : normalizeSession(next)
+  return result
+}
+
+/** Unlock clauses previously locked by a human. Idempotent. */
+export function unlockClauses({ root, session, clauses, now } = {}) {
+  if (!session) throw intentError('invalid-request', 'unlockClauses 需要 session')
+  assertMutable(session)
+  const incoming = normalizeClauseRefs(clauses)
+  const remove = new Set(incoming.map((entry) => `${entry.kind}:${entry.id ?? ''}`))
+  const current = normalizeLockedClauses(session.lockedClauses)
+  const kept = current.filter((entry) => !remove.has(`${entry.kind}:${entry.id ?? ''}`))
+  if (kept.length === current.length) return session
+  const next = clone(session)
+  next.lockedClauses = kept
+  next.sessionRevision = bumpSessionRevision(session).sessionRevision
+  next.updatedAt = nowIso(now)
+  const result = root ? saveSession({ root, session: next }) : normalizeSession(next)
+  return result
 }
 
 export function cancelSession({ root, session, reason, now } = {}) {
@@ -353,6 +870,8 @@ export function recordAnalysis({
   model,
   runId,
   inputRevision,
+  baseSessionRevision,
+  timing,
   startedAt,
   finishedAt,
   status,
@@ -361,6 +880,17 @@ export function recordAnalysis({
 } = {}) {
   if (!session) throw intentError('invalid-request', 'recordAnalysis 需要 session')
   assertMutable(session)
+  if (baseSessionRevision !== undefined && baseSessionRevision !== null) {
+    const expected = Number(baseSessionRevision)
+    const current = session.sessionRevision ?? 1
+    if (!Number.isInteger(expected) || expected !== current) {
+      throw intentError(
+        'stale-session',
+        `分析结果基于会话版本 ${expected}，当前已是 ${current}；迟到结果不能覆盖更新的决定`,
+        { expected: current, received: Number.isFinite(expected) ? expected : null },
+      )
+    }
+  }
   const revision = inputRevision ?? session.input.inputRevision
   if (revision !== session.input.inputRevision) {
     throw intentError(
@@ -370,6 +900,7 @@ export function recordAnalysis({
     )
   }
   let next = clone(session)
+  next.convergence = normalizeConvergence(next.convergence, next.questionGroup)
   if (context) next = attachContext({ session: next, context })
   const at = nowIso(now)
   const run = {
@@ -381,9 +912,31 @@ export function recordAnalysis({
     model: cleanLine(model?.model, { max: 120, field: 'model.model' }) || null,
   }
   if (errorCode) run.errorCode = cleanLine(errorCode, { max: 80, field: 'errorCode' })
+  const normalizedTiming = normalizeTiming(timing)
+  if (normalizedTiming) run.timing = normalizedTiming
   next.runs.push(run)
+  next.convergence.analysisRuns += 1
+  for (const key of TIMING_KEYS) {
+    next.convergence.timing[key] += normalizedTiming?.[key] ?? 0
+  }
   if (analysis) {
     next = applyAnalysis({ session: next, analysis, model, runId: run.analysisRunId, inputRevision: revision, now })
+    next.answerAnalysisRequired = false
+    next.analysisRetryRequired = false
+    const decisionIds = (next.questionGroup?.questions ?? [])
+      .concat(next.questionGroup?.recommendations ?? [])
+      .map((question) => question.decisionId)
+      .filter(Boolean)
+    const seen = new Set(next.convergence.seenDecisionIds)
+    const before = seen.size
+    for (const decisionId of decisionIds) seen.add(decisionId)
+    next.convergence.seenDecisionIds = [...seen]
+    next.convergence.proposedDecisions += decisionIds.length
+    next.convergence.newDecisions += seen.size - before
+    next.convergence.pendingDecisions = questionProgress(next).pending
+    next.convergence.recommendedDefaults = next.questionGroup?.recommendations?.length ?? 0
+    // A successful apply changes decision state, so the session revision moves.
+    next.sessionRevision = (Number.isInteger(session.sessionRevision) && session.sessionRevision > 0 ? session.sessionRevision : 1) + 1
   } else {
     next.updatedAt = at
     if (status === 'error' || status === 'timeout') {

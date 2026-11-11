@@ -1,0 +1,16 @@
+[DOCUMENT]
+TITLE: 需求页未选项目的未加载语义与原生项目选择引导
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-010
+TITLE: 需求页未选项目的未加载语义与原生项目选择引导
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P1
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-ALM-010.md
+SOURCE: chat

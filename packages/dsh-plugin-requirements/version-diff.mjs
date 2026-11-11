@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { parseSdocAsset } from '../alm-core/src/parse/sdoc.mjs'
+import { versionPath } from './version-path.mjs'
 
 export class VersionDiffError extends Error {
   constructor(message, { code = 'version-diff', status = 400 } = {}) {
@@ -16,19 +17,14 @@ function git(root, args) {
   return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 
-function repoPath(root, file) {
-  const top = git(root, ['rev-parse', '--show-toplevel'])
-  return { top, path: relative(top, resolve(root, file)).replace(/\\/g, '/') }
-}
-
 function readVersion(root, file, ref) {
   if (ref === 'worktree') return readFileSync(join(root, file), 'utf8')
   if (!/^[0-9a-f]{7,40}$/.test(ref)) throw new VersionDiffError(`invalid ref: ${ref}`, { code: 'invalid-ref' })
-  const { top, path } = repoPath(root, file)
   try {
+    const { top, path } = versionPath(root, file, ref)
     return git(top, ['show', `${ref}:${path}`])
   } catch {
-    throw new VersionDiffError(`cannot read ${ref}:${path}`, { code: 'ref-unavailable', status: 404 })
+    throw new VersionDiffError(`cannot read ${ref}:${file}`, { code: 'ref-unavailable', status: 404 })
   }
 }
 

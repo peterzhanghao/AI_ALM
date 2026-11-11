@@ -1,0 +1,3 @@
+- insert:
+    - id: alm-native-delivery
+      name: '@ai-alm/dsh-plugin-native-delivery'

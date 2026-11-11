@@ -112,7 +112,7 @@ test('applyArchive rejects a stale baseline and leaves the file untouched', () =
 })
 
 test('archived requirements are out of the delivery funnel even with old gaps', () => {
-  const decision = decideEvidence({
+  const decision = decideEvidence({ candidate: { exists: true, current: true, id: 'CAND-1', treeHash: 'x', reasons: [] },
     asset: { id: 'REQ-X', type: 'requirement', status: 'archived', extra: { priority: 'P0' }, links: [] },
     review: null,
     acceptance: null,

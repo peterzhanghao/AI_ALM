@@ -126,28 +126,19 @@ test('BRIEF-001 reports a missing brief and accepts the sample', () => {
   assert.ok(findings.some((finding) => finding.message.includes('brief not found')))
 })
 
-test('parent_of is a legal requirement relation and STATE-001 allows the new transitions', () => {
+test('parent_of is a legal requirement relation and STATE-001 is retired', () => {
   const parent = assetWith({ id: 'REQ-X-001' })
   const child = assetWith({ id: 'REQ-X-002', links: [{ type: 'parent_of', target: 'REQ-X-003' }] })
   const index = buildIndex([parent, child, assetWith({ id: 'REQ-X-003' })])
   assert.deepEqual(rel002.check({ assets: [child], index }), [])
 
-  const base = assetWith({ status: 'accepted' })
-  const allowed = [
-    ['accepted', 'in-progress'],
-    ['in-progress', 'implemented'],
-    ['implemented', 'verified'],
-    ['verified', 'in-progress'],
-  ]
-  for (const [from, to] of allowed) {
-    const before = assetWith({ status: from })
-    const after = assetWith({ status: to })
-    assert.deepEqual(
-      state001.check({ assets: [after], baseAssets: [before] }),
-      [],
-      `${from} -> ${to} should be allowed`,
-    )
-  }
-  const illegal = state001.check({ assets: [assetWith({ status: 'verified' })], baseAssets: [assetWith({ status: 'proposed' })] })
-  assert.equal(illegal.length, 1)
+  // STATUS is legacy: transition rules no longer gate the worktree, the
+  // delivery lifecycle is derived from candidate + evidence + run instead.
+  const report = state001.check({
+    assets: [assetWith({ status: 'verified' })],
+    baseAssets: [assetWith({ status: 'proposed' })],
+  })
+  assert.equal(report.status, 'skip')
+  assert.deepEqual(report.findings, [])
+  assert.match(report.message, /已下线/)
 })

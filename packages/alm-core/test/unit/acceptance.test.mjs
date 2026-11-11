@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
+import { createCandidate, candidateStatus, worktreeSnapshot } from '../../src/requirements/candidate.mjs'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
 import {
   ACCEPTANCE_SCHEMA,
+  acceptanceBinding,
   acceptanceSummary,
   readAcceptanceEvidence,
   runAcceptance,
@@ -14,6 +16,22 @@ import { gitHead } from '../../src/approvals/approval.mjs'
 import { requirementContentHash, testRevisionHash } from '../../src/model/content-hash.mjs'
 
 const dirs = []
+const receiptSchema = JSON.parse(readFileSync(new URL('../../src/contracts/acceptance.schema.json', import.meta.url), 'utf8'))
+// Dependency-free executable validator for every keyword used by this contract.
+function validateReceipt(value, schema = receiptSchema) {
+  if (schema.$ref) return validateReceipt(value, receiptSchema.definitions[schema.$ref.split('/').at(-1)])
+  if ('const' in schema && value !== schema.const) return false
+  if (schema.enum && !schema.enum.includes(value)) return false
+  const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
+  if (schema.type && ![].concat(schema.type).some(t => t === type || (t === 'integer' && Number.isInteger(value)))) return false
+  if (schema.pattern && !new RegExp(schema.pattern).test(value)) return false
+  if (schema.minLength && value.length < schema.minLength) return false
+  if (schema.minItems && value.length < schema.minItems) return false
+  if (schema.required?.some(key => !Object.hasOwn(value, key))) return false
+  if (schema.properties && Object.entries(schema.properties).some(([key, s]) => Object.hasOwn(value, key) && !validateReceipt(value[key], s))) return false
+  if (schema.items && value.some(item => !validateReceipt(item, schema.items))) return false
+  return true
+}
 
 function makeRepo() {
   const root = mkdtempSync(join(tmpdir(), 'alm-acceptance-'))
@@ -77,6 +95,67 @@ after(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
 })
 
+test('v3 binds dirty content and prevents candidate laundering of an older pass', () => {
+  const root = makeRepo(), asset = requirementAsset(), context = contextOf(asset)
+  writeConfig(root, asset.id, passCommand())
+  writeFileSync(join(root, 'business.txt'), 'A')
+  const run = runAcceptance({ root, requirementId: asset.id, apply: true, context })
+  assert.equal(validateReceipt(run.evidence), true, JSON.stringify(validateReceipt.errors))
+  const summary = acceptanceSummary(root, asset.id, run.headSha, context)
+  const candidate = createCandidate({ root, asset, acceptance: summary })
+  assert.equal(candidateStatus({ root, asset, assets: context.assets, candidate }).current, true)
+  writeFileSync(join(root, 'business.txt'), 'B')
+  assert.equal(acceptanceSummary(root, asset.id, run.headSha, context).latest.current, false)
+  const laundered = createCandidate({ root, asset, acceptance: summary })
+  assert.equal(candidateStatus({ root, asset, assets: context.assets, candidate: laundered }).current, false)
+  assert.ok(candidateStatus({ root, asset, assets: context.assets, candidate: laundered }).reasons.some(r => r.code === 'candidate-unverified'))
+  const fresh = runAcceptance({ root, requirementId: asset.id, apply: true, context })
+  const rebound = createCandidate({ root, asset, acceptance: acceptanceSummary(root, asset.id, fresh.headSha, context) })
+  assert.equal(candidateStatus({ root, asset, assets: context.assets, candidate: rebound }).current, true)
+  assert.equal(candidateStatus({ root, asset, assets: [asset, testAsset({ title: 'changed' })], candidate: rebound }).current, false)
+  for (const mutate of [e => { e.requirement = 'REQ-OTHER' }, e => { e.commands[0].command = ['node', '-e', 'wrong'] }, e => { e.worktree.before.headSha = 'f'.repeat(40) }, e => { e.commands[0].exitCode = 1 }, e => { delete e.environment }, e => { e.commands[0].timedOut = true }]) {
+    const forged = structuredClone(fresh.evidence); mutate(forged)
+    assert.equal(acceptanceBinding({ root, evidence: forged, asset, assets: context.assets }).current, false)
+  }
+})
+
+test('execution mutations and configuration changes fail closed, legacy v2 remains read-only', () => {
+  const root = makeRepo(), asset = requirementAsset(), context = contextOf(asset)
+  writeConfig(root, asset.id, passCommand())
+  const run = runAcceptance({ root, requirementId: asset.id, apply: true, context, exec: () => { writeFileSync(join(root, 'changed.txt'), 'during command'); return { status: 0 } } })
+  assert.equal(run.result, 'pass')
+  assert.equal(run.evidence.worktree.stable, false)
+  assert.equal(acceptanceSummary(root, asset.id, run.headSha, context).latest.current, false)
+  const good = runAcceptance({ root, requirementId: asset.id, apply: true, context })
+  writeConfig(root, asset.id, [{ ...passCommand()[0], timeoutMs: 42 }])
+  assert.equal(acceptanceSummary(root, asset.id, good.headSha, context).latest.staleReason, 'config')
+  const target = join(root, '.alm/acceptance', asset.id, `${good.headSha}.json`)
+  const legacy = { ...good.evidence, schema: 'alm.acceptance/v2', revision: 2 }; delete legacy.worktree; delete legacy.configHash
+  const bytes = JSON.stringify(legacy); writeFileSync(target, bytes)
+  assert.equal(acceptanceSummary(root, asset.id, good.headSha, context).latest.staleReason, 'worktree-unbound')
+  assert.equal(readFileSync(target, 'utf8'), bytes)
+  assert.equal(validateReceipt(legacy), false)
+})
+
+test('history preserves corrupt and same timestamp distinct receipt bytes without overwrites', () => {
+  const root = makeRepo(), asset = requirementAsset(), context = contextOf(asset)
+  writeConfig(root, asset.id, passCommand())
+  const first = runAcceptance({ root, requirementId: asset.id, apply: true, context })
+  const target = join(root, '.alm/acceptance', asset.id, `${first.headSha}.json`)
+  const history = join(root, '.alm/acceptance', asset.id, 'history')
+  const originals = ['{malformed', JSON.stringify({ ...first.evidence, marker: 1 }), JSON.stringify({ ...first.evidence, marker: 2 })]
+  for (const bytes of originals) { writeFileSync(target, bytes); runAcceptance({ root, requirementId: asset.id, apply: true, context }) }
+  const archived = readdirSync(history).map(name => readFileSync(join(history, name), 'utf8'))
+  for (const bytes of originals) assert.ok(archived.includes(bytes))
+  for (const mutate of [e => { delete e.worktree }, e => { e.configHash = 'bad' }, e => { e.commands = [] }]) {
+    const bad = structuredClone(first.evidence); mutate(bad); assert.equal(validateReceipt(bad), false)
+  }
+  let calls = 0, cached
+  const readContext = { worktreeSnapshot: () => { calls++; return cached ??= worktreeSnapshot(root) } }
+  acceptanceSummary(root, asset.id, first.headSha, { ...context, readContext })
+  assert.equal(calls, 1)
+})
+
 test('planAcceptance previews commands without writing evidence', () => {
   const root = makeRepo()
   writeConfig(root, 'REQ-X-001', [{ id: 'smoke', command: ['node', '-e', 'process.exit(0)'] }])
@@ -97,8 +176,8 @@ test('runAcceptance archives pass/fail evidence keyed by HEAD', () => {
   assert.equal(pass.evidence.commands[0].exitCode, 0)
   const evidence = readAcceptanceEvidence(root, 'REQ-X-001')
   assert.equal(evidence.schema, ACCEPTANCE_SCHEMA)
-  assert.equal(evidence.schema, 'alm.acceptance/v2')
-  assert.equal(evidence.revision, 2)
+  assert.equal(evidence.schema, 'alm.acceptance/v3')
+  assert.equal(evidence.revision, 3)
   assert.equal(evidence.result, 'pass')
   assert.equal(evidence.headSha, pass.headSha)
   assert.equal(evidence.environment.runner, 'alm-core/acceptance')
@@ -129,7 +208,7 @@ test('acceptanceSummary exposes registration and latest evidence', () => {
   assert.equal(run.evidence.requirementHash, requirementContentHash({ root, asset }))
   assert.equal(run.evidence.testRevision, testRevisionHash({ asset, assets: [asset, testAsset()] }))
   const summary = acceptanceSummary(root, 'REQ-X-001', run.headSha, contextOf(asset))
-  assert.equal(summary.schema, 'alm.acceptance.summary/v2')
+  assert.equal(summary.schema, 'alm.acceptance.summary/v3')
   assert.equal(summary.latest.result, 'pass')
   assert.equal(summary.latest.current, true)
   assert.equal(summary.latest.commands, 1)
@@ -140,6 +219,30 @@ test('acceptanceSummary exposes registration and latest evidence', () => {
   assert.equal(summary.latest.testRevision, testRevisionHash({ asset, assets: [asset, testAsset()] }))
   assert.equal(summary.latest.environment.runner, 'alm-core/acceptance')
   assert.equal(summary.latest.source, 'local-runner')
+})
+
+test('acceptance rejects legacy unscoped Node discovery before spawning', () => {
+  const root = makeRepo()
+  writeConfig(root, 'REQ-X-001', [{ id: 'unsafe', command: ['node', '--test'], timeoutMs: 120000 }])
+  let calls = 0
+  assert.throws(
+    () => runAcceptance({ root, requirementId: 'REQ-X-001', apply: true, exec: () => { calls += 1; return { status: 0 } } }),
+    (error) => error.code === 'test-scope-required',
+  )
+  assert.equal(calls, 0)
+})
+
+test('explicit Node test scope runs without discovering a failing tmp copy', () => {
+  const root = makeRepo()
+  mkdirSync(join(root, 'test'), { recursive: true })
+  mkdirSync(join(root, 'tmp'), { recursive: true })
+  writeFileSync(join(root, 'test', 'requirement.test.mjs'), "import test from 'node:test'; test('requirement', () => {})\n")
+  writeFileSync(join(root, 'tmp', 'copied.test.mjs'), "import test from 'node:test'; test('copied', () => { throw new Error('must not run') })\n")
+  writeConfig(root, 'REQ-X-001', [{ id: 'scoped', command: ['node', '--test', 'test/requirement.test.mjs'] }])
+  const run = runAcceptance({ root, requirementId: 'REQ-X-001', apply: true })
+  assert.equal(run.result, 'pass')
+  assert.deepEqual(run.evidence.commands[0].command, ['node', '--test', 'test/requirement.test.mjs'])
+  assert.doesNotMatch(run.evidence.commands[0].stdout, /must not run/)
 })
 
 test('acceptance rejects non-whitelisted binaries and missing config', () => {
@@ -235,10 +338,28 @@ test('v1 evidence is read only compatible and marked incomplete, never migrated'
   const summary = acceptanceSummary(root, 'REQ-X-001', headSha, contextOf())
   assert.equal(summary.latest.complete, false)
   assert.equal(summary.latest.current, false)
-  assert.deepEqual(summary.latest.missing, ['requirementHash', 'testRevision', 'environment', 'source'])
-  assert.equal(summary.latest.staleReason, 'incomplete')
+  assert.deepEqual(summary.latest.missing, ['requirementHash', 'testRevision', 'environment', 'source', 'worktree', 'configHash'])
+  assert.equal(summary.latest.staleReason, 'worktree-unbound')
 
   // The old file is preserved verbatim: no migration, no deletion.
   assert.ok(existsSync(v1File))
   assert.equal(JSON.parse(readFileSync(v1File, 'utf8')).schema, 'alm.acceptance/v1')
+})
+
+test('acceptance summary exposes a redacted diagnostic for a failed command', () => {
+  const root = makeRepo()
+  const asset = requirementAsset()
+  writeConfig(root, 'REQ-X-001', [{ id: 'focused', command: ['node', '--test', 'focused.test.mjs'] }])
+  const run = runAcceptance({
+    root,
+    requirementId: 'REQ-X-001',
+    apply: true,
+    context: contextOf(asset),
+    exec: () => ({ status: 1, stderr: 'not ok 1 - preserves title\nAssertionError: expected retained title\ntoken=secret-value' }),
+  })
+  const diagnostic = acceptanceSummary(root, 'REQ-X-001', run.headSha, contextOf(asset)).latest.diagnostic
+  assert.equal(diagnostic.title, '验证检查未通过')
+  assert.match(diagnostic.summary, /exit 1.*not ok 1/)
+  assert.match(diagnostic.log, /not ok 1/)
+  assert.doesNotMatch(diagnostic.log, /secret-value/)
 })

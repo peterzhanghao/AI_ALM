@@ -1,0 +1,23 @@
+[DOCUMENT]
+TITLE: REQ-ALM-006 JSON与Excel需求交换验收
+
+[SECTION]
+TITLE: 安全交换与验证环境
+
+[REQUIREMENT]
+UID: TEST-ALM-REQ006-EXCHANGE
+TITLE: JSON及Excel中文多行空值往返、四字段三向合并、稳定身份、CAS、幂等和批次失败回滚
+STATUS: proposed
+OWNER: team-qa
+
+[REQUIREMENT]
+UID: TEST-ALM-REQ006-SECURITY
+TITLE: 错误项目版本类型、只读元数据、公式外链损坏ZIP、路径越界和可信权力伪造均拒绝
+STATUS: proposed
+OWNER: team-qa
+
+[REQUIREMENT]
+UID: TEST-ALM-REQ006-DESKTOP
+TITLE: 真实Desktop完成JSON及Excel导出、文件选择、预览、确认和结果回执；构建和实际URL验证待解除权限限制
+STATUS: proposed
+OWNER: team-qa

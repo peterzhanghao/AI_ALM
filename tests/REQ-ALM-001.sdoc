@@ -1,0 +1,32 @@
+[DOCUMENT]
+TITLE: 需求查询条件和列表优化 验收
+
+[SECTION]
+TITLE: 列表排序与新建置顶
+
+[REQUIREMENT]
+UID: TEST-ALM-001
+TITLE: 列表按创建时间降序，创建时间相同时按需求 ID 降序
+STATUS: proposed
+OWNER: team-qa
+
+[REQUIREMENT]
+UID: TEST-ALM-002
+TITLE: 新建需求后无需刷新即出现在列表首位
+STATUS: proposed
+OWNER: team-qa
+
+[SECTION]
+TITLE: 列表容器与查询条件
+
+[REQUIREMENT]
+UID: TEST-ALM-003
+TITLE: 列表容器固定高度，内容溢出时出现纵向滚动条，表头吸顶
+STATUS: proposed
+OWNER: team-qa
+
+[REQUIREMENT]
+UID: TEST-ALM-004
+TITLE: 查询条件不超过 3 个、默认值明确、支持一键重置并在空结果时给出指引
+STATUS: proposed
+OWNER: team-qa

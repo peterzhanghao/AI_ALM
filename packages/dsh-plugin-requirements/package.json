@@ -3,18 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./host.bundle.js",
   "description": "Requirements domain page and read-only tools for the AI Native ALM MVP",
   "exports": {
-    ".": "./index.js",
+    ".": "./host.bundle.js",
     "./query": "./query.mjs",
     "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
+  "scripts": {
+    "build:host": "node build-host.mjs"
+  },
   "files": [
+    "host.bundle.js",
+    "build-host.mjs",
     "index.js",
     "query.mjs",
     "client.js",
+    "client-source.js",
+    "client.bundle.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",

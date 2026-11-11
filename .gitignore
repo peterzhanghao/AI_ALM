@@ -21,3 +21,7 @@ node_modules/
 # Local agent state
 .dsh/*.local.*
 .dsh/cache/
+
+# Standalone task-list validation project (owns its Git and ALM history).
+# It is not part of the DSH plugin deliverable; keep other validation files visible.
+/validation/requirements-plugin-clean/

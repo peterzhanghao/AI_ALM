@@ -1,0 +1,46 @@
+{
+  "schema": "alm.release/v1",
+  "id": "REL-001",
+  "status": "released",
+  "target": "staging",
+  "version": "V0.0.1",
+  "contentHash": "4328a4aa8de1aebcc42f8add3bdc7c0216613ab26728cd72f7024ced03682883",
+  "deliveries": [
+    {
+      "requirement": "REQ-ALM-001",
+      "requirementRevision": 1,
+      "title": "需求查询条件和列表优化",
+      "candidateId": "CAND-REQ-ALM-001-001",
+      "treeHash": "03f3bdc3117b5092cb3e2be1885e656468c6a84e3d850c3ffb76e87da43c72da",
+      "requirementHash": "6dea576c59aaa253734b5098b2471cd284edf7006f940ecbddb1dd6718c6717a",
+      "acceptance": {
+        "file": "D:\\DSH\\.alm\\acceptance\\REQ-ALM-001\\64ec15e67af862334c0b04f3b0b9b4b354859b20.json",
+        "hash": "41d1b9c6491c71705c49fd15200a32fcba2e35817264bec1fca77dd3ffd026ce",
+        "result": "pass",
+        "finishedAt": "2026-11-05T06:52:04.069Z"
+      },
+      "humanSignoff": null,
+      "acceptedAt": null
+    }
+  ],
+  "createdBy": "human:local",
+  "createdAt": "2026-11-05T06:53:05.118Z",
+  "authorization": {
+    "actor": "human:local",
+    "subject": {
+      "id": "human:local",
+      "kind": "human",
+      "source": "host-authenticated"
+    },
+    "at": "2026-11-05T06:53:16.974Z",
+    "contentHash": "4328a4aa8de1aebcc42f8add3bdc7c0216613ab26728cd72f7024ced03682883"
+  },
+  "executions": [
+    {
+      "result": "released",
+      "note": "人工执行发布",
+      "actor": "ai:runner",
+      "at": "2026-11-05T06:53:26.290Z"
+    }
+  ]
+}

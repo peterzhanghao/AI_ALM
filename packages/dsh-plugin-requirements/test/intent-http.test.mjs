@@ -8,14 +8,20 @@
  * real alm-core intent slice.
  */
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { build } from 'esbuild'
+import { chromium } from 'playwright'
 import RequirementsService from '../index.js'
+import { handleIntentRequest } from '../intent.mjs'
+import { evaluateReadiness, saveSession } from '../../alm-core/src/intent/index.mjs'
+import { INVESTIGATION_SCHEMA, writeInvestigation } from '../investigate.mjs'
+import { requirements } from '../query.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 const fixture = join(repoRoot, 'fixtures/order-refund')
@@ -47,6 +53,52 @@ function sessionFiles(root) {
 
 function readSession(root, sessionId) {
   return JSON.parse(readFileSync(join(root, '.alm/intents/sessions', `${sessionId}.json`), 'utf8'))
+}
+
+function spawnIntentEdit({ root, sessionId, expectedInputRevision, expectedSessionRevision, title }) {
+  const intentModule = pathToFileURL(join(repoRoot, 'packages/dsh-plugin-requirements/intent.mjs')).href
+  const source = `
+    import { handleIntentRequest, intentErrorResponse } from ${JSON.stringify(intentModule)};
+    const body = {
+      action: 'edit',
+      root: process.env.INTENT_ROOT,
+      sessionId: process.env.INTENT_SESSION,
+      expectedInputRevision: Number(process.env.INTENT_INPUT_REVISION),
+      expectedSessionRevision: Number(process.env.INTENT_SESSION_REVISION),
+      fields: { title: process.env.INTENT_TITLE },
+    };
+    try {
+      const payload = await handleIntentRequest({ root: body.root, body });
+      console.log(JSON.stringify({ status: 200, payload }));
+    } catch (error) {
+      console.log(JSON.stringify(intentErrorResponse(error)));
+    }
+  `
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        INTENT_ROOT: root,
+        INTENT_SESSION: sessionId,
+        INTENT_INPUT_REVISION: String(expectedInputRevision),
+        INTENT_SESSION_REVISION: String(expectedSessionRevision),
+        INTENT_TITLE: title,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      const line = stdout.trim().split(/\r?\n/).filter(Boolean).at(-1)
+      if (!line) return reject(new Error(`intent child exited ${code}: ${stderr}`))
+      try { resolve(JSON.parse(line)) } catch (error) { reject(new Error(`invalid child output: ${line}\n${stderr}`, { cause: error })) }
+    })
+  })
 }
 
 /** Answering now returns before the background re-analysis lands; wait for it. */
@@ -213,7 +265,7 @@ async function withServer(root, options, run) {
     effect(callback) {
       callback()
     },
-    get: () => undefined,
+    get: name => name === 'agentDefaultModel' && options?.hostSelection ? { currentSelection: () => options.hostSelection } : undefined,
     webServer: {
       register(route) {
         routes.set(route.path, route.handler)
@@ -228,6 +280,11 @@ async function withServer(root, options, run) {
     config.aiModel = options?.aiModel ?? 'fake-model'
   }
   if (options?.ai) config.aiStream = options.ai.stream
+  // GET recovery now requires a registered workspace, not an arbitrary root.
+  const workspaceFile = join(root, '.test-intent-workspaces.json')
+  writeFileSync(workspaceFile, JSON.stringify({ tables: { workspaces: { [options.workspaceId ?? 'intent-test']: { path: root, title: 'Intent HTTP fixture' } } } }))
+  const previousWorkspacesFile = process.env.DSH_WORKSPACES_FILE
+  process.env.DSH_WORKSPACES_FILE = workspaceFile
   new RequirementsService(ctx, config)
 
   const server = createServer((req, res) => {
@@ -240,7 +297,7 @@ async function withServer(root, options, run) {
   })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${server.address().port}`
-  const url = (query = '') => `${base}${INTENT_ROUTE}?root=${encodeURIComponent(root)}${query}`
+  const url = (query = '') => `${base}${INTENT_ROUTE}?project=${encodeURIComponent(options.workspaceId ?? 'intent-test')}&root=${encodeURIComponent(root)}${query}`
   const post = async (body) => {
     const response = await fetch(url(), {
       method: 'POST',
@@ -257,8 +314,43 @@ async function withServer(root, options, run) {
     await run({ base, post, get, ai: options?.ai ?? null })
   } finally {
     await new Promise((resolve) => server.close(resolve))
+    if (previousWorkspacesFile === undefined) delete process.env.DSH_WORKSPACES_FILE
+    else process.env.DSH_WORKSPACES_FILE = previousWorkspacesFile
+    rmSync(workspaceFile, { force: true })
   }
 }
+
+test('crystallize HTTP creation appears first in the requirements list', async () => {
+  const root = tempFixture('intent-chat-crystallize-')
+  try {
+    writeFileSync(join(root, 'source.mjs'), 'export const existingFeature = true\n')
+    const investigationId = 'INV-20260101000000-abcdef'
+    writeInvestigation(root, { schema: INVESTIGATION_SCHEMA, investigationId, source: 'observed_evidence', verdict: 'answered', findings: [{ claim: 'feature', refs: [{ path: 'source.mjs', line: 1, quote: 'export const existingFeature', verified: true }] }] })
+    await withServer(root, {}, async ({ post }) => {
+      const request = { action: 'crystallize', projectId: 'PAY', summary: '标题：新的能力\n目标：改善处理\n问题现状：目前处理困难\n验收标准：\n- 操作后显示成功', investigationIds: [investigationId] }
+      const preview = await post(request)
+      assert.equal(preview.status, 200)
+      const result = await post({ ...request, apply: true, draftHash: preview.payload.draftHash })
+      assert.equal(result.status, 200)
+      assert.equal(result.payload.result.applied, true)
+      assert.equal(requirements(root).requirements[0].id, result.payload.result.requirementId)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('clarification uses the host reasoning setting only with the host default model', async () => {
+  const root = tempFixture('intent-host-selection-')
+  const ai = createAi([readyAnalysis()])
+  try {
+    await withServer(root, { model: false, hostSelection: { provider: 'host', model: 'host-model', reasoningEffort: 'low' }, ai }, async ({ post }) => {
+      assert.equal((await post(analyzeText('退款进度看不到'))).status, 200)
+      assert.deepEqual({ provider: ai.state.calls[0].provider, model: ai.state.calls[0].model, reasoningEffort: ai.state.calls[0].reasoningEffort }, { provider: 'host', model: 'host-model', reasoningEffort: 'low' })
+      assert.equal((await post(analyzeText('退款进度看不到', { provider: 'other', model: 'other-model' }))).status, 200)
+      assert.equal(ai.state.calls[1].provider, 'other')
+      assert.equal(Object.hasOwn(ai.state.calls[1], 'reasoningEffort'), false)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
 
 /** analyze + answer with the default scripted pair and return the ready session. */
 async function prepareReadySession(post, root, { route = 'create', related = [], answers = 'query-only' } = {}) {
@@ -391,6 +483,204 @@ test('analyze → answer → ready → confirm(create) saves one requirement and
   }
 })
 
+test('browser completes clarification against the real HTTP handler and preserves the receipt', async () => {
+  const root = tempFixture('alm-intent-browser-flow-')
+  try {
+    const ai = createAi([needsInputAnalysis(), readyAnalysis('create')])
+    await withServer(root, { ai, workspaceId: 'PAY' }, async ({ base }) => {
+      const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+      const marker = '    return {\n      inject:'
+      assert.ok(source.includes(marker))
+      const entry = `import React from 'react'; import {createRoot} from 'react-dom/client';
+        window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestIntent = IntentModal;\n' + marker)}
+        createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestIntent,{root:${JSON.stringify(root)},project:'PAY',projectId:'PAY',onClose(){},onCreated(){},onOpenRequirement(id){window.openedRequirement=id}}));`
+      const bundle = await build({ stdin: { contents: entry, resolveDir: repoRoot, loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
+      const browser = await chromium.launch({ headless: true })
+      const page = await browser.newPage({ viewport: { width: 600, height: 800 } })
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      await page.route('http://test.local/**', async route => {
+        const url = new URL(route.request().url())
+        if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module" src="/app.js"></script>' })
+        if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0].text })
+        return route.fulfill({ response: await route.fetch({ url: `${base}${url.pathname}${url.search}` }) })
+      })
+      try {
+        const before = requirementFiles(root)
+        await page.goto('http://test.local/')
+        await page.getByRole('textbox', { name: '用你自己的话写下想改变什么' }).fill('退款进度看不到，用户一直问客服')
+        await page.getByRole('button', { name: '分析意图' }).click()
+        await page.getByText('退款进度需要主动通知用户吗？').first().waitFor({ timeout: 6000 }).catch(async error => { throw new Error(`${error.message}\n${await page.locator('body').innerText()}`) })
+        assert.deepEqual(requirementFiles(root), before)
+        await page.getByRole('button', { name: /只需可查/ }).first().click()
+        const groupSubmit = page.getByTestId('intent-submit-group')
+        if (await groupSubmit.count()) await groupSubmit.click()
+        else await page.getByRole('button', { name: '提交回答' }).click()
+        await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.includes('保存并检查，进入最终确认') && !button.disabled), null, { timeout: 10000 })
+        await page.getByRole('button', { name: '保存并检查，进入最终确认' }).click()
+        await page.getByTestId('intent-priority-select').selectOption('P2')
+        const save = page.getByRole('button', { name: '确认并保存这份草案' })
+        await save.click()
+        await page.getByText('已保存草案', { exact: true }).waitFor()
+        assert.equal(requirementFiles(root).length, before.length + 1)
+        assert.equal(await page.getByRole('button', { name: '打开需求详情' }).count(), 1)
+        assert.deepEqual(errors, [])
+      } finally { await browser.close() }
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('browser restores interrupted reanalysis and retries the persisted session', async () => {
+  const root = tempFixture('alm-intent-browser-retry-')
+  try {
+    const ai = createAi([needsInputAnalysis(), readyAnalysis('create'), readyAnalysis('create')])
+    await withServer(root, { ai, workspaceId: 'PAY' }, async ({ base, post, get }) => {
+      const ready = await prepareReadySession(post, root)
+      const deadline = Date.now() + 5000
+      while (Date.now() < deadline && (await get(ready.sessionId)).payload.analysisStatus?.status === 'running') await sleep(30)
+      const current = readSession(root, ready.sessionId)
+      saveSession({ root, session: { ...current, sessionRevision: current.sessionRevision + 1, analysisRetryRequired: true } })
+      const before = requirementFiles(root)
+      const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+      const marker = '    return {\n      inject:'
+      const entry = `import React from 'react'; import {createRoot} from 'react-dom/client';
+        window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestIntent = IntentModal;\n' + marker)}
+        createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestIntent,{root:${JSON.stringify(root)},project:'PAY',projectId:'PAY',onClose(){}}));`
+      const bundle = await build({ stdin: { contents: entry, resolveDir: repoRoot, loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
+      const browser = await chromium.launch({ headless: true })
+      const page = await browser.newPage({ viewport: { width: 600, height: 800 } })
+      await page.route('http://test.local/**', async route => {
+        const url = new URL(route.request().url())
+        if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div><script type="module" src="/app.js"></script>' })
+        if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0].text })
+        return route.fulfill({ response: await route.fetch({ url: `${base}${url.pathname}${url.search}` }) })
+      })
+      try {
+        await page.goto('http://test.local/')
+        await page.getByRole('button', { name: '查看服务端意图历史' }).click()
+        await page.getByRole('button', { name: new RegExp(ready.sessionId) }).click()
+        await page.getByText('重新分析尚未成功完成，请重新分析后确认').first().waitFor()
+        await page.getByText('分析与草案信息').click()
+        const response = page.waitForResponse(response => response.url().includes('/api/alm/requirements/intent') && response.request().method() === 'POST' && response.request().postDataJSON()?.action === 'analyze')
+        await page.getByRole('button', { name: '重新分析', exact: true }).click()
+        assert.equal((await response).status(), 200)
+        await page.getByText('分析与草案信息').waitFor({ timeout: 10000 })
+        assert.equal(await page.getByText('重新分析尚未成功完成，请重新分析后确认').count(), 0)
+        const retried = readSession(root, ready.sessionId)
+        assert.equal(retried.analysisRetryRequired, false)
+        assert.equal(retried.answers.length, current.answers.length)
+        assert.deepEqual(requirementFiles(root), before)
+      } finally { await browser.close() }
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('browser loads older answer history through the real HTTP handler', async () => {
+  const root = tempFixture('alm-intent-browser-answer-history-')
+  try {
+    const ai = createAi([needsInputAnalysis(), readyAnalysis('create')])
+    await withServer(root, { ai, workspaceId: 'PAY' }, async ({ base, post, get }) => {
+      const ready = await prepareReadySession(post, root)
+      const deadline = Date.now() + 5000
+      while (Date.now() < deadline && (await get(ready.sessionId)).payload.analysisStatus?.status === 'running') await sleep(30)
+      const session = readSession(root, ready.sessionId)
+      session.answers.push(...Array.from({ length: 25 }, (_, i) => ({ answerId: `ANS-history-${i}`, questionId: `Q-history-${i}`, questionText: `旧问题 ${i}`, text: `旧答案 ${i}`, inputRevision: 0 })))
+      saveSession({ root, session })
+      const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+      const marker = '    return {\n      inject:'
+      const entry = `import React from 'react'; import {createRoot} from 'react-dom/client'; window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestIntent = IntentModal;\n' + marker)} createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestIntent,{root:${JSON.stringify(root)},project:'PAY',projectId:'PAY',onClose(){}}));`
+      const bundle = await build({ stdin: { contents: entry, resolveDir: repoRoot, loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
+      const browser = await chromium.launch({ headless: true })
+      const page = await browser.newPage({ viewport: { width: 320, height: 640 } })
+      await page.route('http://test.local/**', async route => {
+        const url = new URL(route.request().url())
+        if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module" src="/app.js"></script>' })
+        if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0].text })
+        return route.fulfill({ response: await route.fetch({ url: `${base}${url.pathname}${url.search}` }) })
+      })
+      try {
+        await page.goto('http://test.local/')
+        await page.getByRole('button', { name: '查看服务端意图历史' }).click()
+        await page.getByRole('button', { name: new RegExp(ready.sessionId) }).click()
+        await page.getByText('历史回答（20 条）').click()
+        assert.equal(await page.getByText('旧问题 0', { exact: true }).count(), 0)
+        await page.getByRole('button', { name: '加载较早回答' }).click()
+        await page.getByText('旧问题 0', { exact: true }).waitFor()
+        assert.equal(await page.getByRole('button', { name: '加载较早回答' }).count(), 0)
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true)
+      } finally { await browser.close() }
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('browser restores and monitors a live retry through the HTTP handler', async () => {
+  const root = tempFixture('alm-intent-browser-live-retry-')
+  let release, started
+  const gate = new Promise(resolve => { release = resolve })
+  const startedGate = new Promise(resolve => { started = resolve })
+  try {
+    const ai = createAi([needsInputAnalysis(), readyAnalysis('create'), async () => { started(); await gate; return readyAnalysis('create') }])
+    await withServer(root, { ai, workspaceId: 'PAY' }, async ({ base, post, get }) => {
+      const ready = await prepareReadySession(post, root)
+      const before = requirementFiles(root)
+      const retry = post({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId: ready.sessionId, retryExisting: true, expectedSessionRevision: ready.sessionRevision })
+      await startedGate
+      const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+      const marker = '    return {\n      inject:'
+      const entry = `import React from 'react'; import {createRoot} from 'react-dom/client';
+        window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestIntent = IntentModal;\n' + marker)}
+        createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestIntent,{root:${JSON.stringify(root)},project:'PAY',projectId:'PAY',onClose(){}}));`
+      const bundle = await build({ stdin: { contents: entry, resolveDir: repoRoot, loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
+      const browser = await chromium.launch({ headless: true })
+      const page = await browser.newPage({ viewport: { width: 600, height: 800 } })
+      await page.route('http://test.local/**', async route => {
+        const url = new URL(route.request().url())
+        if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div><script type="module" src="/app.js"></script>' })
+        if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0].text })
+        return route.fulfill({ response: await route.fetch({ url: `${base}${url.pathname}${url.search}` }) })
+      })
+      try {
+        await page.goto('http://test.local/')
+        await page.getByRole('button', { name: '查看服务端意图历史' }).click()
+        await page.getByRole('button', { name: new RegExp(ready.sessionId) }).click()
+        await page.getByText('正在重新分析，完成后自动更新会话。').waitFor()
+        assert.equal((await get(ready.sessionId)).payload.analysisStatus.status, 'running')
+        assert.equal(await page.getByRole('button', { name: '保存并检查，进入最终确认' }).isEnabled(), false)
+        release()
+        assert.equal((await retry).status, 200)
+        await page.getByText('重新分析已完成，会话已更新。').waitFor({ timeout: 10000 })
+        assert.equal((await get(ready.sessionId)).payload.analysisStatus.status, 'done')
+        assert.deepEqual(requirementFiles(root), before)
+      } finally { release(); await retry; await browser.close() }
+    })
+  } finally { release(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('retry retains the selected requirement anchor and rejects changing it', async () => {
+  const root = tempFixture('alm-intent-retry-anchor-')
+  try {
+    const ai = createAi([readyAnalysis('create')])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post({ ...analyzeText('退款进度看不到'), selectedRequirementId: 'REQ-PAY-004' })
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const before = readSession(root, sessionId)
+      assert.equal(before.context.selected.uid, 'REQ-PAY-004')
+      const retryBody = { ...analyzeText('退款进度看不到'), sessionId, retryExisting: true, expectedSessionRevision: before.sessionRevision }
+      const changed = await post({ ...retryBody, selectedRequirementId: 'REQ-PAY-001' })
+      assert.equal(changed.status, 400)
+      const retry = await post(retryBody)
+      assert.equal(retry.status, 200, JSON.stringify(retry.payload))
+      assert.equal(readSession(root, sessionId).context.selected.uid, 'REQ-PAY-004')
+      rmSync(join(root, 'requirements/refund-idempotent.sdoc'))
+      const current = readSession(root, sessionId)
+      const missing = await post({ ...retryBody, expectedSessionRevision: current.sessionRevision })
+      assert.notEqual(missing.status, 200)
+      assert.equal(readSession(root, sessionId).context.selected.uid, 'REQ-PAY-004')
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('answer returns immediately and reports background analysis progress', async () => {
   const root = tempFixture('alm-intent-answer-async-')
   try {
@@ -401,7 +691,7 @@ test('answer returns immediately and reports background analysis progress', asyn
         return readyAnalysis('create')
       },
     ])
-    await withServer(root, { ai }, async ({ post, get }) => {
+    await withServer(root, { ai, workspaceId: 'PAY' }, async ({ post, get, base }) => {
       const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
       assert.equal(first.status, 200, JSON.stringify(first.payload))
       const sessionId = first.payload.session.sessionId
@@ -420,6 +710,11 @@ test('answer returns immediately and reports background analysis progress', asyn
       assert.ok(elapsed < 700, `submit must not wait for the model (took ${elapsed}ms)`)
       assert.equal(answered.payload.pending, true)
       assert.equal(answered.payload.analysisStatus.status, 'running', 'background run is reported')
+      const history = await fetch(`${base}${INTENT_ROUTE}?project=PAY&action=history`)
+      assert.equal(history.status, 200)
+      assert.ok((await history.json()).sessions.some(entry => entry.sessionId === sessionId))
+      assert.ok(answered.payload.readiness.reasons.some(reason => reason.code === 'analysis-pending'))
+      assert.equal(readSession(root, sessionId).answerAnalysisRequired, true)
 
       const deadline = Date.now() + 5000
       let loaded = null
@@ -431,10 +726,273 @@ test('answer returns immediately and reports background analysis progress', asyn
       assert.equal(loaded.status, 200)
       assert.equal(loaded.payload.analysisStatus.status, 'done')
       assert.equal(loaded.payload.session.state, 'ready_for_confirmation')
+      assert.equal(readSession(root, sessionId).answerAnalysisRequired, false)
+      const beforeRetry = readSession(root, sessionId)
+      const staleRetry = await post({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId, retryExisting: true, expectedSessionRevision: beforeRetry.sessionRevision - 1 })
+      assert.equal(staleRetry.status, 409)
+      const retry = await post({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId, retryExisting: true, expectedSessionRevision: beforeRetry.sessionRevision })
+      assert.equal(retry.status, 200, JSON.stringify(retry.payload))
+      const afterRetry = readSession(root, sessionId)
+      assert.equal(afterRetry.input.inputRevision, beforeRetry.input.inputRevision)
+      assert.equal(afterRetry.answers.length, beforeRetry.answers.length)
+      assert.match(JSON.stringify(ai.state.calls.at(-1).messages), /只需可查/)
     })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('background analysis status does not expose unknown model stream data', async () => {
+  const root = tempFixture('alm-intent-status-redaction-')
+  try {
+    const initial = createAi([needsInputAnalysis()])
+    let calls = 0
+    const ai = { stream: options => ++calls === 1 ? initial.stream(options) : (async function* () { yield { type: 'private-secret-token', text: 'private-secret-text' }; yield { type: 'finish', reason: { kind: 'private-secret-finish' } } })() }
+    await withServer(root, { ai }, async ({ post, get }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      const sessionId = first.payload.session.sessionId
+      const session = readSession(root, sessionId)
+      await post({ action: 'answer', sessionId, expectedInputRevision: session.input.inputRevision, questionId: session.nextQuestion.questionId, optionId: 'query-only' })
+      let loaded
+      const deadline = Date.now() + 5000
+      do { loaded = await get(sessionId); if (loaded.payload.analysisStatus?.status === 'error') break; await sleep(30) } while (Date.now() < deadline)
+      assert.equal(loaded.payload.analysisStatus?.status, 'error')
+      assert.equal(loaded.payload.analysisStatus.error.code, 'ai-invalid-output')
+      assert.doesNotMatch(JSON.stringify(loaded.payload), /private-secret/)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('empty synchronous model response does not expose unknown finish reasons', async () => {
+  const root = tempFixture('alm-intent-finish-redaction-')
+  try {
+    const ai = { stream: () => (async function* () { yield { type: 'finish', reason: { kind: 'private-secret-finish' } } })() }
+    await withServer(root, { ai }, async ({ post }) => {
+      const result = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(result.status, 502)
+      assert.doesNotMatch(JSON.stringify(result.payload), /private-secret-finish/)
+      assert.match(result.payload.error.message, /finish=unknown/)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('failed answer analysis and failed retry preserve the answer and confirmation gate', async () => {
+  const root = tempFixture('alm-intent-answer-retry-')
+  try {
+    const ai = createAi([needsInputAnalysis(), streamError, streamError, readyAnalysis('create')])
+    await withServer(root, { ai }, async ({ post, get }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200)
+      const sessionId = first.payload.session.sessionId
+      const initial = readSession(root, sessionId)
+      const answered = await post({ action: 'answer', sessionId, expectedInputRevision: initial.input.inputRevision, questionId: initial.nextQuestion.questionId, optionId: 'query-only' })
+      assert.equal(answered.status, 200)
+      let loaded
+      const deadline = Date.now() + 5000
+      do { loaded = await get(sessionId); if (loaded.payload.analysisStatus?.status !== 'running') break; await sleep(40) } while (Date.now() < deadline)
+      assert.equal(loaded.payload.analysisStatus?.status, 'error')
+      const beforeRetry = readSession(root, sessionId)
+      assert.equal(beforeRetry.answerAnalysisRequired, true)
+      assert.ok(loaded.payload.readiness.reasons.some(reason => reason.code === 'analysis-pending'))
+      const retryBody = { ...analyzeText('退款进度看不到，用户一直问客服'), sessionId, retryExisting: true, expectedSessionRevision: beforeRetry.sessionRevision }
+      const failed = await post(retryBody)
+      assert.equal(failed.status, 502)
+      const afterFailure = readSession(root, sessionId)
+      assert.equal(afterFailure.answerAnalysisRequired, true)
+      assert.equal(afterFailure.analysisRetryRequired, true)
+      assert.equal(afterFailure.input.inputRevision, beforeRetry.input.inputRevision)
+      assert.deepEqual(afterFailure.answers, beforeRetry.answers)
+      const failedStatus = (await get(sessionId)).payload.analysisStatus
+      assert.equal(failedStatus.status, 'error')
+      assert.equal(failedStatus.origin, 'retry')
+      assert.doesNotMatch(JSON.stringify(failedStatus), /secret-key-xyz/)
+      const succeeded = await post({ ...retryBody, expectedSessionRevision: afterFailure.sessionRevision })
+      assert.equal(succeeded.status, 200, JSON.stringify(succeeded.payload))
+      const afterSuccess = readSession(root, sessionId)
+      assert.equal(afterSuccess.answerAnalysisRequired, false)
+      assert.equal(afterSuccess.analysisRetryRequired, false)
+      assert.equal(afterSuccess.input.inputRevision, beforeRetry.input.inputRevision)
+      assert.deepEqual(afterSuccess.answers, beforeRetry.answers)
+      assert.match(JSON.stringify(ai.state.calls.at(-1).messages), /只需可查/)
+      const restored = await get(sessionId)
+      assert.notEqual(restored.payload.analysisStatus?.status, 'error')
+      assert.equal(restored.payload.readiness.reasons.some(reason => reason.code === 'analysis-pending'), false)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('retry supersedes a still-running answer analysis without a late overwrite', async () => {
+  const root = tempFixture('alm-intent-answer-supersede-')
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  try {
+    const ai = createAi([needsInputAnalysis(), async () => { await gate; return readyAnalysis('create') }, readyAnalysis('create')])
+    await withServer(root, { ai }, async ({ post, get }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      const sessionId = first.payload.session.sessionId
+      const initial = readSession(root, sessionId)
+      const answered = await post({ action: 'answer', sessionId, expectedInputRevision: initial.input.inputRevision, questionId: initial.nextQuestion.questionId, optionId: 'query-only' })
+      assert.equal(answered.status, 200)
+      const before = readSession(root, sessionId)
+      const retry = await post({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId, retryExisting: true, expectedSessionRevision: before.sessionRevision })
+      assert.equal(retry.status, 200, JSON.stringify(retry.payload))
+      const completed = readSession(root, sessionId)
+      release()
+      await sleep(200)
+      const after = readSession(root, sessionId)
+      assert.equal(after.sessionRevision, completed.sessionRevision)
+      assert.equal(after.answerAnalysisRequired, false)
+      const status = (await get(sessionId)).payload.analysisStatus
+      assert.equal(status?.status, 'done')
+      assert.equal(status?.origin, 'retry')
+    })
+  } finally { release(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('replacing input supersedes a pending answer analysis and its status', async () => {
+  const root = tempFixture('alm-intent-replace-pending-')
+  let release, started
+  const gate = new Promise(resolve => { release = resolve })
+  const startedGate = new Promise(resolve => { started = resolve })
+  try {
+    const ai = createAi([needsInputAnalysis(), async () => { started(); await gate; return readyAnalysis('create') }, readyAnalysis('create')])
+    await withServer(root, { ai }, async ({ post, get }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      const sessionId = first.payload.session.sessionId
+      const initial = readSession(root, sessionId)
+      await post({ action: 'answer', sessionId, expectedInputRevision: initial.input.inputRevision, questionId: initial.nextQuestion.questionId, optionId: 'query-only' })
+      await startedGate
+      const changed = await post({ ...analyzeText('退款进度看不到，用户一直问客服，新增加筛选'), sessionId })
+      assert.equal(changed.status, 200, JSON.stringify(changed.payload))
+      assert.equal(changed.payload.session.answers.length, 0)
+      assert.doesNotMatch(JSON.stringify(ai.state.calls.at(-1).messages), /只需可查/)
+      assert.equal(changed.payload.session.readiness.reasons.some(reason => reason.code === 'analysis-pending'), false)
+      const current = readSession(root, sessionId)
+      assert.equal((await get(sessionId)).payload.analysisStatus, undefined)
+      release()
+      await sleep(200)
+      assert.equal(readSession(root, sessionId).sessionRevision, current.sessionRevision)
+      assert.equal((await get(sessionId)).payload.analysisStatus, undefined)
+    })
+  } finally { release(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('late model selection cannot supersede a newer input analysis', async () => {
+  const root = tempFixture('alm-intent-selection-race-')
+  let releaseSelection, selectionStarted, releaseModel, modelStarted
+  const selectionGate = new Promise(resolve => { releaseSelection = resolve })
+  const selected = new Promise(resolve => { selectionStarted = resolve })
+  const modelGate = new Promise(resolve => { releaseModel = resolve })
+  const modelRunning = new Promise(resolve => { modelStarted = resolve })
+  let selections = 0
+  const resolveAiSelection = async () => {
+    if (++selections === 2) { selectionStarted(); await selectionGate }
+    return { provider: 'fake', model: 'fake-model' }
+  }
+  const ai = createAi([needsInputAnalysis(), async () => { modelStarted(); await modelGate; return readyAnalysis('create') }])
+  const invoke = body => handleIntentRequest({ root, body, resolveAiSelection, aiStreamFor: () => ai.stream })
+  try {
+    const first = await invoke(analyzeText('退款进度看不到，用户一直问客服'))
+    const old = invoke({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId: first.session.sessionId, retryExisting: true, expectedSessionRevision: first.session.sessionRevision })
+    await selected
+    const newer = invoke({ ...analyzeText('退款进度看不到，用户一直问客服，新增加筛选'), sessionId: first.session.sessionId })
+    await modelRunning
+    releaseSelection()
+    await assert.rejects(old, { code: 'stale-input' })
+    releaseModel()
+    const result = await newer
+    assert.equal(result.session.input.text, '退款进度看不到，用户一直问客服，新增加筛选')
+    assert.equal(ai.state.calls.length, 2)
+  } finally { releaseSelection(); releaseModel(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('late model selection failure cannot seed a manual candidate into newer input', async () => {
+  const root = tempFixture('alm-intent-selection-failure-race-')
+  let rejectSelection, selectionStarted, releaseModel, modelStarted
+  const selectionGate = new Promise((resolve, reject) => { rejectSelection = reject })
+  const selected = new Promise(resolve => { selectionStarted = resolve })
+  const modelGate = new Promise(resolve => { releaseModel = resolve })
+  const modelRunning = new Promise(resolve => { modelStarted = resolve })
+  let selections = 0
+  const resolveAiSelection = async () => {
+    if (++selections === 2) { selectionStarted(); await selectionGate }
+    return { provider: 'fake', model: 'fake-model' }
+  }
+  const ai = createAi([needsInputAnalysis(), async () => { modelStarted(); await modelGate; return readyAnalysis('create') }])
+  const invoke = body => handleIntentRequest({ root, body, resolveAiSelection, aiStreamFor: () => ai.stream })
+  try {
+    const first = await invoke(analyzeText('退款进度看不到，用户一直问客服'))
+    const old = invoke({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId: first.session.sessionId, retryExisting: true, expectedSessionRevision: first.session.sessionRevision })
+    await selected
+    const newer = invoke({ ...analyzeText('退款进度看不到，用户一直问客服，新增加筛选'), sessionId: first.session.sessionId })
+    await modelRunning
+    rejectSelection(new Error('model unavailable'))
+    await assert.rejects(old, { code: 'stale-input' })
+    assert.equal(readSession(root, first.session.sessionId).items.length, 0)
+    releaseModel()
+    assert.equal((await newer).session.input.text, '退款进度看不到，用户一直问客服，新增加筛选')
+  } finally { rejectSelection(new Error('test cleanup')); releaseModel(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('a late repair response cannot overwrite a newer input', async () => {
+  const root = tempFixture('alm-intent-repair-race-')
+  let releaseRepair, repairStarted
+  const gate = new Promise(resolve => { releaseRepair = resolve })
+  const started = new Promise(resolve => { repairStarted = resolve })
+  try {
+    const ai = createAi([needsInputAnalysis(), 'invalid json', async () => { repairStarted(); await gate; return readyAnalysis('create') }, readyAnalysis('create')])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      const sessionId = first.payload.session.sessionId
+      const retry = post({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId, retryExisting: true, expectedSessionRevision: first.payload.session.sessionRevision })
+      await started
+      const newer = await post({ ...analyzeText('退款进度看不到，用户一直问客服，新增加筛选'), sessionId })
+      assert.equal(newer.status, 200, JSON.stringify(newer.payload))
+      const before = readSession(root, sessionId)
+      releaseRepair()
+      const old = await retry
+      assert.equal(old.status, 409)
+      assert.equal(old.payload.error.code, 'stale-input')
+      const after = readSession(root, sessionId)
+      assert.equal(after.sessionRevision, before.sessionRevision)
+      assert.equal(after.input.text, '退款进度看不到，用户一直问客服，新增加筛选')
+    })
+  } finally { releaseRepair(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('confirmation is blocked while an existing ready session is being reanalyzed', async () => {
+  const root = tempFixture('alm-intent-retry-confirm-')
+  let release, started
+  const gate = new Promise(resolve => { release = resolve })
+  const startedGate = new Promise(resolve => { started = resolve })
+  try {
+    const ai = createAi([needsInputAnalysis(), readyAnalysis('create'), async () => { started(); await gate; return readyAnalysis('create') }])
+    await withServer(root, { ai }, async ({ post, get }) => {
+      const ready = await prepareReadySession(post, root)
+      const before = requirementFiles(root)
+      const retry = post({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId: ready.sessionId, retryExisting: true, expectedSessionRevision: ready.sessionRevision })
+      await startedGate
+      const persisted = readSession(root, ready.sessionId)
+      assert.equal(persisted.analysisRetryRequired, true)
+      assert.ok(evaluateReadiness({ session: persisted, contextNow: persisted.context }).reasons.some(reason => reason.code === 'analysis-pending'))
+      const current = await get(ready.sessionId)
+      assert.equal(current.payload.analysisStatus.status, 'running')
+      assert.equal(current.payload.analysisStatus.origin, 'retry')
+      assert.ok(current.payload.readiness.reasons.some(reason => reason.code === 'analysis-pending'))
+      const confirm = await post(confirmBody(ready, { idempotencyKey: 'retry-in-progress-key' }))
+      assert.equal(confirm.status, 409)
+      assert.equal(confirm.payload.error.code, 'analysis-pending')
+      assert.deepEqual(requirementFiles(root), before)
+      release()
+      const finished = await retry
+      assert.equal(finished.status, 200, JSON.stringify(finished.payload))
+      assert.equal(readSession(root, ready.sessionId).analysisRetryRequired, false)
+      assert.equal(finished.payload.session.readiness.reasons.some(reason => reason.code === 'analysis-pending'), false)
+      const loaded = await get(ready.sessionId)
+      assert.equal(loaded.payload.analysisStatus.status, 'done')
+      assert.equal(loaded.payload.analysisStatus.origin, 'retry')
+    })
+  } finally { release(); rmSync(root, { recursive: true, force: true }) }
 })
 
 test('confirm with a changed context or input revision is rejected as stale', async () => {
@@ -594,6 +1152,143 @@ test('no model configured returns 503 no-model with manualFallback and a saved s
   }
 })
 
+test('invalid unknown resolution does not partially persist candidate edits', async () => {
+  const root = tempFixture('alm-intent-edit-atomic-')
+  try {
+    await withServer(root, { ai: createAi([needsInputAnalysis()]) }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200)
+      const sessionId = first.payload.session.sessionId
+      const before = readSession(root, sessionId)
+      const response = await post({ action: 'edit', sessionId, expectedInputRevision: before.input.inputRevision,
+        fields: { title: '不得部分保存', unknownResolutions: [{ itemId: 'missing-item', description: 'missing', resolution: 'exclude' }] } })
+      assert.equal(response.status, 400)
+      assert.deepEqual(readSession(root, sessionId), before)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('same-revision concurrent edits serialize and one is rejected as stale-session', async () => {
+  const root = tempFixture('alm-intent-edit-lock-')
+  try {
+    await withServer(root, { ai: createAi([needsInputAnalysis()]) }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200)
+      const sessionId = first.payload.session.sessionId
+      const stored = readSession(root, sessionId)
+      const body = (title) => ({ action: 'edit', sessionId, expectedInputRevision: stored.input.inputRevision,
+        expectedSessionRevision: stored.sessionRevision, fields: { title } })
+      const results = await Promise.all([post(body('并发甲')), post(body('并发乙'))])
+      assert.deepEqual(results.map(result => result.status).sort(), [200, 409])
+      assert.equal(results.find(result => result.status === 409).payload.error.code, 'stale-session')
+      const saved = readSession(root, sessionId)
+      assert.ok(['并发甲', '并发乙'].includes(saved.items[0].fields['candidate.title'].value))
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('same-revision edits from separate Node processes serialize on the session lock', async () => {
+  const root = tempFixture('alm-intent-edit-process-lock-')
+  try {
+    await withServer(root, { ai: createAi([needsInputAnalysis()]) }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const stored = readSession(root, sessionId)
+      const results = await Promise.all([
+        spawnIntentEdit({ root, sessionId, expectedInputRevision: stored.input.inputRevision, expectedSessionRevision: stored.sessionRevision, title: '子进程甲' }),
+        spawnIntentEdit({ root, sessionId, expectedInputRevision: stored.input.inputRevision, expectedSessionRevision: stored.sessionRevision, title: '子进程乙' }),
+      ])
+      assert.deepEqual(results.map((result) => result.status).sort(), [200, 409])
+      assert.equal(results.find((result) => result.status === 409).payload.error.code, 'stale-session')
+      const saved = readSession(root, sessionId)
+      assert.ok(['子进程甲', '子进程乙'].includes(saved.items[0].fields['candidate.title'].value))
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('intent session lock contention fails closed without mutating the session', async () => {
+  const root = tempFixture('alm-intent-edit-busy-')
+  try {
+    await withServer(root, { ai: createAi([needsInputAnalysis()]) }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200)
+      const sessionId = first.payload.session.sessionId
+      const before = readSession(root, sessionId)
+      const lock = join(root, '.alm', 'intents', 'locks', `${sessionId}.lock`)
+      mkdirSync(lock, { recursive: true })
+      try {
+        const response = await post({ action: 'edit', sessionId, expectedInputRevision: before.input.inputRevision,
+          expectedSessionRevision: before.sessionRevision, fields: { title: '不得写入' } })
+        assert.equal(response.status, 409)
+        assert.equal(response.payload.error.code, 'intent-busy')
+        assert.deepEqual(readSession(root, sessionId), before)
+      } finally { rmSync(lock, { recursive: true, force: true }) }
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('lock owned by an exited process is reclaimed before the next edit', async () => {
+  const root = tempFixture('alm-intent-edit-stale-lock-')
+  try {
+    await withServer(root, { ai: createAi([needsInputAnalysis()]) }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200)
+      const sessionId = first.payload.session.sessionId
+      const before = readSession(root, sessionId)
+      const lock = join(root, '.alm', 'intents', 'locks', `${sessionId}.lock`)
+      mkdirSync(lock, { recursive: true })
+      let exitedPid = null
+      for (let candidate = process.pid + 1000; candidate < process.pid + 100000; candidate += 1) {
+        try { process.kill(candidate, 0) } catch (error) {
+          if (error?.code === 'ESRCH') { exitedPid = candidate; break }
+        }
+      }
+      assert.ok(exitedPid, 'test needs a PID that is not running')
+      writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: exitedPid, hostname: hostname(), startedAt: new Date().toISOString() }))
+      const results = await Promise.all([
+        spawnIntentEdit({ root, sessionId, expectedInputRevision: before.input.inputRevision, expectedSessionRevision: before.sessionRevision, title: '陈旧锁竞争甲' }),
+        spawnIntentEdit({ root, sessionId, expectedInputRevision: before.input.inputRevision, expectedSessionRevision: before.sessionRevision, title: '陈旧锁竞争乙' }),
+      ])
+      assert.deepEqual(results.map((result) => result.status).sort(), [200, 409])
+      assert.equal(results.find((result) => result.status === 409).payload.error.code, 'stale-session')
+      assert.equal(existsSync(lock), false)
+      assert.ok(['陈旧锁竞争甲', '陈旧锁竞争乙'].includes(readSession(root, sessionId).items[0].fields['candidate.title'].value))
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('intent locks with invalid owners or inconclusive process probes remain locked', async () => {
+  const root = tempFixture('alm-intent-lock-uncertain-')
+  const originalKill = process.kill
+  try {
+    await withServer(root, { ai: createAi([needsInputAnalysis()]) }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      const sessionId = first.payload.session.sessionId
+      const before = readSession(root, sessionId)
+      const lock = join(root, '.alm', 'intents', 'locks', `${sessionId}.lock`)
+      mkdirSync(lock, { recursive: true })
+      const unknownPid = 123456789
+      process.kill = (pid, signal) => {
+        if (pid === unknownPid && signal === 0) throw Object.assign(new Error('probe unavailable'), { code: 'EIO' })
+        return originalKill.call(process, pid, signal)
+      }
+      for (const pid of [0, unknownPid]) {
+        writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid, hostname: hostname() }))
+        const response = await post({ action: 'edit', sessionId, expectedInputRevision: before.input.inputRevision,
+          expectedSessionRevision: before.sessionRevision, fields: { title: '不得写入' } })
+        assert.equal(response.status, 409)
+        assert.equal(response.payload.error.code, 'intent-busy')
+        assert.deepEqual(readSession(root, sessionId), before)
+        assert.equal(existsSync(lock), true)
+      }
+    })
+  } finally {
+    process.kill = originalKill
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a provider stream error maps to 502 ai-call-failed without leaking the provider detail', async () => {
   const root = tempFixture('alm-intent-streamfail-')
   try {
@@ -628,6 +1323,13 @@ test('edit stores manual fields without calling the model and re-analysis keeps 
         fields: { title: '人工改定：退款进度可查', priority: 'P2' },
       })
       assert.equal(edited.status, 200, JSON.stringify(edited.payload))
+      assert.equal(readSession(root, sessionId).sessionRevision, stored.sessionRevision + 1)
+      const afterEdit = readSession(root, sessionId)
+      const staleEdit = await post({ action: 'edit', sessionId, expectedInputRevision: stored.input.inputRevision,
+        expectedSessionRevision: stored.sessionRevision, fields: { title: '不应覆盖' } })
+      assert.equal(staleEdit.status, 409)
+      assert.equal(staleEdit.payload.error.code, 'stale-session')
+      assert.deepEqual(readSession(root, sessionId), afterEdit)
       assert.equal(ai.state.index, callsAfterAnalyze, 'edit must not call the model')
       assert.ok(JSON.stringify(edited.payload.session).includes('人工改定：退款进度可查'))
 
@@ -1197,9 +1899,23 @@ test('analyze with investigationIds appends quote-verified evidence to the promp
       assert.equal(investigated.status, 200, JSON.stringify(investigated.payload))
       const investigationId = investigated.payload.investigation.investigationId
 
+      const replacementWithEvidence = await post({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId, investigationIds: [investigationId] })
+      assert.equal(replacementWithEvidence.status, 400)
+
+      const sourceFile = join(root, 'README.md')
+      const originalSource = readFileSync(sourceFile, 'utf8')
+      writeFileSync(sourceFile, 'changed evidence\n')
+      const staleEvidence = await post({ ...analyzeText('退款进度看不到，用户一直问客服'), sessionId, retryExisting: true, expectedSessionRevision: readSession(root, sessionId).sessionRevision, investigationIds: [investigationId] })
+      assert.equal(staleEvidence.status, 422)
+      assert.equal(staleEvidence.payload.error.code, 'invalid-investigation')
+      assert.equal(ai.state.index, 2, 'stale evidence must not invoke the model')
+      writeFileSync(sourceFile, originalSource)
+
       const analyzed = await post({
         ...analyzeText('退款进度看不到，用户一直问客服'),
         sessionId,
+        retryExisting: true,
+        expectedSessionRevision: readSession(root, sessionId).sessionRevision,
         investigationIds: [investigationId],
       })
       assert.equal(analyzed.status, 200, JSON.stringify(analyzed.payload))
@@ -1215,10 +1931,162 @@ test('analyze with investigationIds appends quote-verified evidence to the promp
       assert.ok(text.includes('README.md'))
       assert.equal(analyzed.payload.investigations.length, 1)
       assert.equal(analyzed.payload.investigations[0].investigationId, investigationId)
+      const replaced = await post({ ...analyzeText('退款进度看不到，用户一直问客服，新增加筛选'), sessionId })
+      assert.equal(replaced.status, 200)
+      const stale = await post({ ...analyzeText('退款进度看不到，用户一直问客服，新增加筛选'), sessionId, retryExisting: true, expectedSessionRevision: readSession(root, sessionId).sessionRevision, investigationIds: [investigationId] })
+      assert.equal(stale.status, 422)
+      assert.equal(stale.payload.error.code, 'invalid-investigation')
     })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('session readiness reflects investigation citations that changed on disk', async () => {
+  const root = tempFixture('intent-investigation-readiness-')
+  try {
+    const ai = createAi([readyAnalysis('create')])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到'))
+      const sessionId = first.payload.session.sessionId
+      const stored = readSession(root, sessionId)
+      const description = '需要核对实现'
+      stored.items[0].unknowns = [{ description, blocking: true, resolution: 'investigate' }]
+      const source = join(root, 'evidence.txt')
+      writeFileSync(source, 'verified original evidence\n')
+      stored.investigationEvidence = [{ sessionId, inputRevision: stored.input.inputRevision, itemIds: [stored.items[0].itemId], unknownDescription: description, verdict: 'answered', source: 'observed_evidence', findings: [{ refs: [{ path: 'evidence.txt', line: 1, quote: 'verified original evidence', verified: true }] }] }]
+      saveSession({ root, session: stored })
+      const current = await post({ action: 'load', sessionId })
+      assert.equal(current.payload.readiness.reasons.some(reason => reason.code === 'investigation-evidence-incomplete'), false)
+      writeFileSync(source, 'changed evidence\n')
+      const stale = await post({ action: 'load', sessionId })
+      assert.equal(stale.payload.readiness.reasons.some(reason => reason.code === 'investigation-evidence-incomplete'), true)
+      assert.equal(stale.payload.session.readiness.ready, false)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('explicit adoption binds current investigation to one unknown and rechecks it on confirmation', async () => {
+  const root = tempFixture('intent-adopt-investigation-')
+  try {
+    const analysis = readyAnalysis('create')
+    analysis.items[0].unknowns = [{ description: '需要核对实现', blocking: true, resolution: 'investigate' }]
+    const ai = createAi([analysis, investigationAnalysis(root)])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到'))
+      const sessionId = first.payload.session.sessionId
+      const investigated = await post({ action: 'investigate', sessionId, question: '需要核对实现' })
+      assert.equal(investigated.status, 200)
+      const current = readSession(root, sessionId)
+      const body = { action: 'adopt-investigation', sessionId, expectedInputRevision: current.input.inputRevision, expectedSessionRevision: current.sessionRevision, itemId: 'ITM-1', unknownDescription: '需要核对实现', investigationId: investigated.payload.investigation.investigationId }
+      assert.equal((await post({ ...body, expectedSessionRevision: current.sessionRevision - 1 })).status, 409)
+      assert.equal((await post({ ...body, unknownDescription: '不相关' })).status, 400)
+      const adopted = await post(body)
+      assert.equal(adopted.status, 200, JSON.stringify(adopted.payload))
+      assert.equal(adopted.payload.readiness.reasons.some(reason => reason.code === 'investigation-evidence-incomplete'), false)
+      assert.equal(adopted.payload.session.readiness.investigationAdoptions[0].referencesCurrent, true)
+      const persisted = readSession(root, sessionId)
+      assert.equal(persisted.investigationEvidence[0].adoptedBy, 'human:local')
+      assert.deepEqual(persisted.investigationEvidence[0].itemIds, ['ITM-1'])
+      const changed = await post({ action: 'edit', sessionId, expectedInputRevision: persisted.input.inputRevision, expectedSessionRevision: persisted.sessionRevision, itemId: 'ITM-1', fields: { unknownResolutions: [{ itemId: 'ITM-1', description: '需要核对实现', resolution: 'clarify' }] } })
+      assert.equal(changed.status, 200)
+      assert.deepEqual(readSession(root, sessionId).investigationEvidence, [])
+      const adoptedAgain = await post({ ...body, expectedSessionRevision: readSession(root, sessionId).sessionRevision })
+      assert.equal(adoptedAgain.status, 200)
+      writeFileSync(join(root, 'README.md'), 'changed evidence\n')
+      const stale = await post({ action: 'load', sessionId })
+      assert.ok(stale.payload.readiness.reasons.some(reason => reason.code === 'investigation-evidence-incomplete'))
+      assert.equal(stale.payload.session.readiness.investigationAdoptions[0].referencesCurrent, false)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('browser adopts investigation and confirms through the real HTTP handler', async () => {
+  const root = tempFixture('intent-browser-adoption-')
+  try {
+    const analysis = readyAnalysis('create')
+    analysis.items[0].unknowns = [{ description: '需要核对实现', blocking: true, resolution: 'investigate' }]
+    const ai = createAi([analysis, investigationAnalysis(root)])
+    await withServer(root, { ai, workspaceId: 'PAY' }, async ({ base, post }) => {
+      const first = await post(analyzeText('退款进度看不到'))
+      const sessionId = first.payload.session.sessionId
+      const investigation = await post({ action: 'investigate', sessionId, question: '需要核对实现' })
+      assert.equal(investigation.status, 200)
+      const before = requirementFiles(root)
+      const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+      const marker = '    return {\n      inject:'
+      const entry = `import React from 'react'; import {createRoot} from 'react-dom/client'; window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestIntent = IntentModal;\n' + marker)} createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestIntent,{root:${JSON.stringify(root)},project:'PAY',projectId:'PAY',onClose(){},onCreated(){},onOpenRequirement(){}}));`
+      const bundle = await build({ stdin: { contents: entry, resolveDir: repoRoot, loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
+      const browser = await chromium.launch({ headless: true })
+      const page = await browser.newPage({ viewport: { width: 600, height: 800 } })
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      await page.route('http://test.local/**', async route => {
+        const url = new URL(route.request().url())
+        if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module" src="/app.js"></script>' })
+        if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0].text })
+        return route.fulfill({ response: await route.fetch({ url: `${base}${url.pathname}${url.search}` }) })
+      })
+      try {
+        await page.goto('http://test.local/')
+        await page.getByRole('button', { name: '查看服务端意图历史' }).click()
+        await page.getByRole('button', { name: new RegExp(sessionId) }).click()
+        await page.getByText('采纳调查证据', { exact: true }).click()
+        await page.getByRole('button', { name: '采纳用于此未知项' }).click()
+        await page.getByText(/引用本次读取时有效/).waitFor()
+        assert.deepEqual(requirementFiles(root), before)
+        await page.getByRole('button', { name: '保存并检查，进入最终确认' }).click()
+        await page.getByTestId('intent-priority-select').selectOption('P2')
+        await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === '确认并保存这份草案' && !button.disabled), null, { timeout: 5000 })
+        const evidence = join(root, 'README.md')
+        const original = readFileSync(evidence, 'utf8')
+        writeFileSync(evidence, 'changed evidence\n')
+        await page.getByRole('button', { name: '确认并保存这份草案' }).click({ timeout: 5000 }).catch(async error => { throw new Error(`${error.message}\n${await page.locator('body').innerText()}`) })
+        await page.getByText(/调查尚无完成且可核对的证据/).first().waitFor()
+        assert.equal(await page.getByText(/在“分析与草案信息”中重新加载会话并核对调查/).isVisible(), true)
+        assert.deepEqual(requirementFiles(root), before)
+        writeFileSync(evidence, original)
+        await page.getByRole('button', { name: '返回修改' }).click()
+        await page.getByText('分析与草案信息', { exact: false }).first().click()
+        await page.getByRole('button', { name: '重新加载会话' }).click()
+        await page.getByText(/引用本次读取时有效/).waitFor()
+        await page.getByRole('button', { name: '保存并检查，进入最终确认' }).click()
+        await page.getByRole('button', { name: '确认并保存这份草案' }).click()
+        await page.getByText('已保存草案', { exact: true }).waitFor()
+        assert.equal(requirementFiles(root).length, before.length + 1)
+        const committed = readSession(root, sessionId)
+        const receipt = JSON.parse(readFileSync(join(root, committed.receipt.file), 'utf8'))
+        assert.equal(receipt.decision.investigations[0].investigationId, investigation.payload.investigation.investigationId)
+        assert.equal(receipt.decision.investigations[0].unknownDescription, '需要核对实现')
+        assert.deepEqual(errors, [])
+      } finally { await browser.close() }
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('evidence changed during model selection is rejected before calling the model', async () => {
+  const root = tempFixture('intent-investigate-selection-')
+  let releaseSelection, selectionStarted
+  const gate = new Promise(resolve => { releaseSelection = resolve })
+  const started = new Promise(resolve => { selectionStarted = resolve })
+  let selections = 0
+  const ai = createAi([needsInputAnalysis(), investigationAnalysis(root), needsInputAnalysis()])
+  const resolveAiSelection = async () => {
+    if (++selections === 3) { selectionStarted(); await gate }
+    return { provider: 'fake', model: 'fake-model' }
+  }
+  const invoke = body => handleIntentRequest({ root, body, resolveAiSelection, aiStreamFor: () => ai.stream })
+  try {
+    const first = await invoke(analyzeText('退款进度看不到'))
+    const sessionId = first.session.sessionId
+    const investigated = await invoke({ action: 'investigate', sessionId })
+    const pending = invoke({ ...analyzeText('退款进度看不到'), sessionId, retryExisting: true, expectedSessionRevision: readSession(root, sessionId).sessionRevision, investigationIds: [investigated.investigation.investigationId] })
+    await started
+    writeFileSync(join(root, 'README.md'), 'changed during model selection\n')
+    releaseSelection()
+    await assert.rejects(pending, error => error.code === 'invalid-investigation')
+    assert.equal(ai.state.index, 2)
+  } finally { releaseSelection(); rmSync(root, { recursive: true, force: true }) }
 })
 
 test('investigate without a model is a 503 no-model with the editable session', async () => {
@@ -1240,6 +2108,670 @@ test('investigate without a model is a 503 no-model with the editable session', 
       assert.equal(result.payload.error.code, 'no-model')
       assert.equal(result.payload.manualFallback, true)
       assert.equal(result.payload.session.sessionId, sessionId)
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Contract §6.2: batch answers, idempotent replays, session-revision CAS,
+// dependent-question staleness and real run timing (v2 question group).
+// ---------------------------------------------------------------------------
+
+function v2Question(overrides = {}) {
+  return {
+    questionId: 'Q-1',
+    decisionId: 'DEC-SCOPE',
+    itemIds: ['ITM-1'],
+    text: '退款进度需要主动通知用户吗？',
+    whyNow: '决定范围是否包含通知能力',
+    impact: '通知能力是否进入范围',
+    options: [
+      { id: 'notify', label: '需要主动通知', impact: '范围增加通知渠道' },
+      { id: 'query-only', label: '只需可查', impact: '范围保持不变' },
+    ],
+    allowFreeText: true,
+    dependsOn: [],
+    ...overrides,
+  }
+}
+
+function v2Analysis(questions, { items } = {}) {
+  return {
+    schemaVersion: 'intent-review.v2',
+    items: items ?? [baseItem({ recommendedRoute: null, routeRationale: null })],
+    questions,
+    nextQuestion: null,
+  }
+}
+
+test('answer accepts a batch (1..3) atomically, answers immediately and lets the background run update items', async () => {
+  const root = tempFixture('intent-answer-batch-')
+  try {
+    const ai = createAi([
+      v2Analysis([
+        v2Question(),
+        v2Question({
+          questionId: 'Q-2',
+          decisionId: 'DEC-CHANNEL',
+          text: '通知走哪个渠道？',
+          options: [
+            { id: 'sms', label: '短信', impact: '需要短信通道' },
+            { id: 'inapp', label: '站内信', impact: '复用已有站内信' },
+          ],
+        }),
+      ]),
+      readyAnalysis(),
+    ])
+    await withServer(root, { ai }, async ({ post, get }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const analyzed = readSession(root, sessionId)
+      assert.equal(analyzed.questionGroup.questions.length, 2)
+      assert.equal(analyzed.items[0].recommendedRoute, null, 'the v2 fixture leaves the route undecided')
+      assert.equal(ai.state.index, 1)
+
+      const startedAt = Date.now()
+      const answered = await post({
+        action: 'answer',
+        sessionId,
+        expectedInputRevision: analyzed.input.inputRevision,
+        expectedSessionRevision: analyzed.sessionRevision,
+        answers: [
+          { questionId: 'Q-1', optionId: 'notify' },
+          { questionId: 'Q-2', optionId: 'inapp' },
+        ],
+      })
+      const elapsedMs = Date.now() - startedAt
+      assert.equal(answered.status, 200, JSON.stringify(answered.payload))
+      assert.equal(answered.payload.ok, true)
+      assert.equal(answered.payload.changed, true)
+      assert.equal(answered.payload.pending, true)
+      assert.equal(answered.payload.saved.length, 2, 'both answers are reported saved')
+      assert.ok(elapsedMs < 700, `answer must not await the model (${elapsedMs}ms)`)
+
+      // The answer snapshot is already on disk before the analysis returns.
+      const stored = readSession(root, sessionId)
+      const active = stored.answers.filter((entry) => !entry.supersededBy)
+      assert.deepEqual(active.map((entry) => entry.questionId).sort(), ['Q-1', 'Q-2'])
+      assert.equal(stored.input.inputRevision, analyzed.input.inputRevision, 'answering never bumps inputRevision')
+      assert.ok(stored.sessionRevision > analyzed.sessionRevision)
+      assert.equal(stored.questionGroup.questions.every((question) => question.status === 'answered'), true)
+
+      const done = await waitForSession(root, sessionId, (session) => session.runs.some((run) => run.status === 'success'))
+      assert.equal(done.state, 'ready_for_confirmation')
+      assert.equal(done.answers.filter((entry) => !entry.supersededBy).length, 2)
+      assert.equal(done.items[0].recommendedRoute, 'create', 'the background analysis updates the items')
+
+      const loaded = await get(sessionId)
+      assert.equal(loaded.status, 200)
+      assert.equal(loaded.payload.analysisStatus.status, 'done')
+      assert.equal(typeof loaded.payload.analysisStatus.elapsedMs, 'number')
+      assert.ok(loaded.payload.analysisStatus.elapsedMs >= 0)
+      assert.equal(typeof loaded.payload.analysisStatus.finishedAt, 'string')
+      assert.equal(loaded.payload.analysisStatus.sessionRevision, stored.sessionRevision)
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a repeated identical answer is idempotent: changed:false without a second model call', async () => {
+  const root = tempFixture('intent-answer-idempotent-')
+  try {
+    const ai = createAi([v2Analysis([v2Question()]), readyAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const analyzed = readSession(root, sessionId)
+      const answer = {
+        action: 'answer',
+        sessionId,
+        answers: [{ questionId: 'Q-1', optionId: 'notify' }],
+      }
+
+      const accepted = await post(answer)
+      assert.equal(accepted.status, 200, JSON.stringify(accepted.payload))
+      assert.equal(accepted.payload.changed, true)
+      const settled = await waitForSession(root, sessionId, (session) =>
+        session.runs.some((run) => run.status === 'success'),
+      )
+      const activeBefore = settled.answers.filter((entry) => !entry.supersededBy).length
+      const callsBefore = ai.state.index
+      assert.equal(activeBefore, 1)
+
+      const replay = await post(answer)
+      assert.equal(replay.status, 200, JSON.stringify(replay.payload))
+      assert.equal(replay.payload.changed, false)
+      assert.equal(replay.payload.pending, false)
+      assert.deepEqual(replay.payload.saved, [])
+      assert.equal(replay.payload.analysisStatus.status, 'done', 'the settled status is reported as-is')
+
+      const after = readSession(root, sessionId)
+      assert.equal(after.answers.filter((entry) => !entry.supersededBy).length, activeBefore)
+      assert.equal(after.sessionRevision, settled.sessionRevision, 'an idempotent replay does not bump the revision')
+      await sleep(200)
+      assert.equal(ai.state.index, callsBefore, 'an idempotent replay must not call the model again')
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('background analysis does not overwrite an edit made while the model is running', async () => {
+  const root = tempFixture('intent-answer-concurrent-edit-')
+  let releaseModel
+  const pending = new Promise(resolve => { releaseModel = resolve })
+  try {
+    const ai = createAi([v2Analysis([v2Question()]), async () => { await pending; return readyAnalysis() }])
+    await withServer(root, { ai }, async ({ post, get }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200)
+      const sessionId = first.payload.session.sessionId
+      const analyzed = readSession(root, sessionId)
+      const answer = await post({ action: 'answer', sessionId, expectedSessionRevision: analyzed.sessionRevision,
+        answers: [{ questionId: 'Q-1', optionId: 'notify' }] })
+      assert.equal(answer.status, 200)
+      const beforeEdit = readSession(root, sessionId)
+      const edited = await post({ action: 'edit', sessionId, expectedInputRevision: beforeEdit.input.inputRevision,
+        expectedSessionRevision: beforeEdit.sessionRevision, fields: { title: '人工保留标题' } })
+      assert.equal(edited.status, 200, JSON.stringify(edited.payload))
+      releaseModel()
+      let loaded
+      for (let attempt = 0; attempt < 100; attempt++) {
+        loaded = await get(sessionId)
+        if (loaded.payload.analysisStatus?.status === 'error') break
+        await sleep(20)
+      }
+      assert.equal(loaded.payload.analysisStatus.status, 'error')
+      assert.equal(loaded.payload.analysisStatus.error.code, 'stale-session')
+      assert.equal(readSession(root, sessionId).items[0].fields['candidate.title'].value, '人工保留标题')
+    })
+  } finally { releaseModel?.(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('a late provider failure does not overwrite a newer human edit', async () => {
+  const root = tempFixture('intent-answer-late-failure-')
+  let releaseModel
+  const pending = new Promise(resolve => { releaseModel = resolve })
+  try {
+    const ai = createAi([v2Analysis([v2Question()]), async () => { await pending; return streamError }])
+    await withServer(root, { ai }, async ({ post, get }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200)
+      const sessionId = first.payload.session.sessionId
+      const analyzed = readSession(root, sessionId)
+      const answer = await post({ action: 'answer', sessionId, expectedSessionRevision: analyzed.sessionRevision,
+        answers: [{ questionId: 'Q-1', optionId: 'notify' }] })
+      assert.equal(answer.status, 200)
+      const beforeEdit = readSession(root, sessionId)
+      const edited = await post({ action: 'edit', sessionId, expectedInputRevision: beforeEdit.input.inputRevision,
+        expectedSessionRevision: beforeEdit.sessionRevision, fields: { title: '保留人工修改' } })
+      assert.equal(edited.status, 200)
+      const saved = readSession(root, sessionId)
+      releaseModel()
+      let loaded
+      for (let attempt = 0; attempt < 100; attempt++) {
+        loaded = await get(sessionId)
+        if (loaded.payload.analysisStatus?.status === 'error') break
+        await sleep(20)
+      }
+      assert.equal(loaded.payload.analysisStatus.status, 'error')
+      assert.equal(loaded.payload.analysisStatus.error.code, 'stale-session')
+      assert.deepEqual(readSession(root, sessionId), saved)
+    })
+  } finally { releaseModel?.(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('answer enforces expectedSessionRevision and still honours the legacy expectedInputRevision', async () => {
+  const root = tempFixture('intent-answer-revision-')
+  try {
+    const ai = createAi([v2Analysis([v2Question()]), readyAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const stored = readSession(root, sessionId)
+
+      const staleSession = await post({
+        action: 'answer',
+        sessionId,
+        expectedSessionRevision: stored.sessionRevision + 99,
+        answers: [{ questionId: 'Q-1', optionId: 'notify' }],
+      })
+      assert.equal(staleSession.status, 409, JSON.stringify(staleSession.payload))
+      assert.equal(staleSession.payload.error.code, 'stale-session')
+
+      const staleInput = await post({
+        action: 'answer',
+        sessionId,
+        expectedInputRevision: stored.input.inputRevision + 99,
+        answers: [{ questionId: 'Q-1', optionId: 'notify' }],
+      })
+      assert.equal(staleInput.status, 409, JSON.stringify(staleInput.payload))
+      assert.equal(staleInput.payload.error.code, 'stale-input')
+
+      // Neither rejected request recorded anything.
+      assert.equal(readSession(root, sessionId).answers.length, 0)
+
+      const accepted = await post({
+        action: 'answer',
+        sessionId,
+        expectedInputRevision: stored.input.inputRevision,
+        expectedSessionRevision: stored.sessionRevision,
+        answers: [{ questionId: 'Q-1', optionId: 'notify' }],
+      })
+      assert.equal(accepted.status, 200, JSON.stringify(accepted.payload))
+      assert.equal(accepted.payload.changed, true)
+      const settled = await waitForSession(root, sessionId, (session) => session.state === 'ready_for_confirmation')
+      assert.equal(settled.answers.filter((entry) => !entry.supersededBy).length, 1)
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('changing an upstream answer marks a dependent answered question stale and keeps its answer', async () => {
+  const root = tempFixture('intent-answer-dependent-')
+  try {
+    const dependent = v2Question({
+      questionId: 'Q-2',
+      decisionId: 'DEC-CHANNEL',
+      text: '通知走哪个渠道？',
+      dependsOn: ['DEC-SCOPE'],
+      options: [
+        { id: 'sms', label: '短信', impact: '需要短信通道' },
+        { id: 'inapp', label: '站内信', impact: '复用已有站内信' },
+      ],
+    })
+    const slowReady = async () => {
+      await sleep(300)
+      return readyAnalysis()
+    }
+    const ai = createAi([v2Analysis([v2Question(), dependent]), readyAnalysis(), slowReady])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const analyzed = readSession(root, sessionId)
+      assert.deepEqual(
+        analyzed.questionGroup.questions.find((question) => question.questionId === 'Q-2').dependsOn,
+        ['DEC-SCOPE'],
+      )
+
+      const batch = await post({
+        action: 'answer',
+        sessionId,
+        expectedInputRevision: analyzed.input.inputRevision,
+        expectedSessionRevision: analyzed.sessionRevision,
+        answers: [
+          { questionId: 'Q-1', optionId: 'query-only' },
+          { questionId: 'Q-2', optionId: 'inapp' },
+        ],
+      })
+      assert.equal(batch.status, 200, JSON.stringify(batch.payload))
+      assert.equal(batch.payload.changed, true)
+      const settled = await waitForSession(root, sessionId, (session) =>
+        session.runs.some((run) => run.status === 'success'),
+      )
+      assert.equal(settled.state, 'ready_for_confirmation')
+      assert.equal(settled.answers.filter((entry) => !entry.supersededBy).length, 2)
+
+      // Re-answering Q1 invalidates the decision Q2 depended on: Q2 becomes
+      // stale, but its recorded answer is preserved (history, not a delete).
+      const changed = await post({
+        action: 'answer',
+        sessionId,
+        expectedInputRevision: settled.input.inputRevision,
+        expectedSessionRevision: settled.sessionRevision,
+        answers: [{ questionId: 'Q-1', optionId: 'notify' }],
+      })
+      assert.equal(changed.status, 200, JSON.stringify(changed.payload))
+      assert.equal(changed.payload.changed, true)
+      assert.deepEqual(changed.payload.stale, ['DEC-CHANNEL'])
+
+      const immediate = readSession(root, sessionId)
+      const group = immediate.questionGroup.questions
+      assert.equal(group.find((question) => question.questionId === 'Q-1').status, 'answered')
+      const q2 = group.find((question) => question.questionId === 'Q-2')
+      assert.equal(q2.status, 'stale')
+      assert.ok(typeof q2.staleReason === 'string' && q2.staleReason.includes('DEC-SCOPE'))
+      assert.equal(immediate.state, 'needs_input')
+      assert.equal(immediate.nextQuestion.questionId, 'Q-2')
+      const q2Answers = immediate.answers.filter((entry) => entry.questionId === 'Q-2' && !entry.supersededBy)
+      assert.equal(q2Answers.length, 1, 'the answered record is kept for audit')
+      assert.equal(q2Answers[0].optionId, 'inapp')
+
+      // The late background result must not resurrect the stale question.
+      const final = await waitForSession(
+        root,
+        sessionId,
+        (session) => session.runs.filter((run) => run.status === 'success').length >= 2,
+      )
+      assert.equal(
+        final.questionGroup.questions.find((question) => question.questionId === 'Q-2').status,
+        'stale',
+      )
+      assert.equal(final.answers.filter((entry) => !entry.supersededBy).length, 2)
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('successful and failed runs both persist server-measured timing (no fabricated values)', async () => {
+  const successRoot = tempFixture('intent-timing-success-')
+  try {
+    const ai = createAi([needsInputAnalysis()])
+    await withServer(successRoot, { ai }, async ({ post }) => {
+      const created = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(created.status, 200, JSON.stringify(created.payload))
+      const stored = readSession(successRoot, created.payload.session.sessionId)
+      assert.equal(stored.runs.length, 1)
+      const timing = stored.runs[0].timing
+      assert.ok(timing, 'a successful run carries measured timing')
+      for (const key of ['totalMs', 'contextMs', 'modelMs']) {
+        assert.equal(Number.isInteger(timing[key]) && timing[key] >= 0, true, `${key} is a real measurement`)
+      }
+      assert.ok(timing.calls >= 1)
+      if (timing.firstTokenMs !== undefined) assert.ok(timing.firstTokenMs >= 0)
+      if (timing.persistMs !== undefined) assert.ok(timing.persistMs >= 0)
+      for (const [key, value] of Object.entries(timing)) {
+        assert.equal(Number.isInteger(value) && value >= 0, true, `timing.${key} must be a finite non-negative integer`)
+      }
+    })
+  } finally {
+    rmSync(successRoot, { recursive: true, force: true })
+  }
+
+  const failureRoot = tempFixture('intent-timing-failure-')
+  try {
+    const ai = createAi(['这不是 JSON：<html>oops</html>', '仍然不是 JSON：<div>second</div>', needsInputAnalysis()])
+    await withServer(failureRoot, { ai }, async ({ post }) => {
+      const failed = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(failed.status, 502, JSON.stringify(failed.payload))
+      const stored = readSession(failureRoot, failed.payload.session.sessionId)
+      assert.equal(stored.runs.length, 2)
+      for (const run of stored.runs) {
+        assert.equal(run.status, 'error')
+        const timing = run.timing
+        assert.ok(timing, 'a failed run still records the time it really spent')
+        assert.equal(Number.isInteger(timing.totalMs) && timing.totalMs >= 0, true)
+        assert.equal(Number.isInteger(timing.modelMs) && timing.modelMs >= 0, true)
+        assert.ok(timing.calls >= 1)
+        for (const [key, value] of Object.entries(timing)) {
+          assert.equal(Number.isInteger(value) && value >= 0, true, `timing.${key} must be a finite non-negative integer`)
+        }
+      }
+      assert.equal(stored.runs[1].timing.retries, 1, 'the repair retry is counted once')
+    })
+  } finally {
+    rmSync(failureRoot, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Requirement draft HTTP channel (v5 contract §2.3, §4, §5).
+// ---------------------------------------------------------------------------
+
+function v3DraftAnalysis(document = {}, { questions = [], items } = {}) {
+  return {
+    schemaVersion: 'intent-review.v3',
+    items: items ?? [baseItem({ recommendedRoute: null, routeRationale: null })],
+    questions,
+    nextQuestion: null,
+    docDraft: {
+      goal: '让用户能自助查询退款进度',
+      problem: '退款进度不可见，用户反复咨询客服',
+      features: [
+        {
+          id: 'FR-01',
+          title: '退款进度查询',
+          behavior: '用户可在订单页查看退款进度',
+          preconditions: ['订单已退款'],
+          response: '展示当前退款状态',
+          boundaries: ['仅本人订单'],
+          sources: ['user-input#L1'],
+          provenance: 'user-stated',
+        },
+      ],
+      scope: ['退款进度查询'],
+      outOfScope: ['主动通知'],
+      acceptance: [
+        {
+          id: 'AC-01',
+          featureIds: ['FR-01'],
+          text: '查询退款进度',
+          precondition: '订单已退款',
+          action: '打开订单详情',
+          expected: '展示退款状态',
+          judgement: '接口断言',
+          sources: ['user-input#L1'],
+          provenance: 'user-stated',
+        },
+      ],
+      constraints: [],
+      pending: [],
+      ...document,
+    },
+  }
+}
+
+test('set-doc-draft patches the requirement draft and reports changes without calling the model', async () => {
+  const root = tempFixture('intent-doc-draft-http-')
+  try {
+    const ai = createAi([v3DraftAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const analyzed = readSession(root, sessionId)
+      assert.equal(analyzed.docDraft.schema, 'alm.requirement.doc.draft/v1')
+      assert.match(analyzed.docDraft.docHash, /^sha256:[0-9a-f]{64}$/)
+      assert.equal(analyzed.draftRevision, 1)
+
+      const callsBefore = ai.state.index
+      const patched = await post({
+        action: 'set-doc-draft',
+        sessionId,
+        expectedSessionRevision: analyzed.sessionRevision,
+        docDraft: {
+          goal: '让用户自助查询退款进度',
+          pending: [{ id: 'Q-01', text: '是否需要主动通知', status: 'open' }],
+        },
+      })
+      assert.equal(patched.status, 200, JSON.stringify(patched.payload))
+      assert.equal(patched.payload.changed, true)
+      assert.deepEqual(patched.payload.changes.map((entry) => entry.kind).sort(), ['goal', 'pending'])
+      assert.notEqual(patched.payload.docHash, analyzed.docDraft.docHash)
+      assert.match(patched.payload.docHash, /^sha256:[0-9a-f]{64}$/)
+      assert.equal(patched.payload.draftRevision, 2)
+      assert.equal(patched.payload.session.draftRevision, 2)
+      assert.equal(patched.payload.session.docDraft.goal, '让用户自助查询退款进度')
+      assert.equal(ai.state.index, callsBefore, 'draft edits never call the model')
+
+      const stored = readSession(root, sessionId)
+      assert.equal(stored.docDraft.goal, '让用户自助查询退款进度')
+      assert.equal(stored.draftRevision, 2)
+      assert.ok(stored.sessionRevision > analyzed.sessionRevision)
+
+      // Replaying the identical patch is a no-op: no write and no revision bump.
+      const replayed = await post({
+        action: 'set-doc-draft',
+        sessionId,
+        docDraft: {
+          goal: '让用户自助查询退款进度',
+          pending: [{ id: 'Q-01', text: '是否需要主动通知', status: 'open' }],
+        },
+      })
+      assert.equal(replayed.status, 200, JSON.stringify(replayed.payload))
+      assert.equal(replayed.payload.changed, false)
+      assert.deepEqual(replayed.payload.changes, [])
+      assert.equal(replayed.payload.draftRevision, 2)
+      assert.equal(replayed.payload.session.draftRevision, 2)
+      const afterReplay = readSession(root, sessionId)
+      assert.equal(afterReplay.draftRevision, 2)
+      assert.equal(afterReplay.sessionRevision, stored.sessionRevision)
+      assert.equal(ai.state.index, callsBefore)
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('set-doc-draft rejects a stale expectedSessionRevision with the latest draft binding', async () => {
+  const root = tempFixture('intent-doc-draft-stale-')
+  try {
+    const ai = createAi([v3DraftAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const stored = readSession(root, sessionId)
+
+      const rejected = await post({
+        action: 'set-doc-draft',
+        sessionId,
+        expectedSessionRevision: stored.sessionRevision + 99,
+        docDraft: { goal: '让用户自助查询退款进度' },
+      })
+      assert.equal(rejected.status, 409, JSON.stringify(rejected.payload))
+      assert.equal(rejected.payload.error.code, 'stale-session')
+      assert.equal(rejected.payload.error.details.sessionRevision, stored.sessionRevision)
+      assert.equal(rejected.payload.error.details.latest.docHash, stored.docDraft.docHash)
+      assert.equal(rejected.payload.error.details.latest.draftRevision, stored.draftRevision)
+
+      const unchanged = readSession(root, sessionId)
+      assert.equal(unchanged.docDraft.goal, stored.docDraft.goal)
+      assert.equal(unchanged.draftRevision, stored.draftRevision)
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('lock-clauses/unlock-clauses protect a human decision and only bump the revision on real changes', async () => {
+  const root = tempFixture('intent-doc-draft-lock-')
+  try {
+    const ai = createAi([v3DraftAnalysis({}, { questions: [v2Question()] })])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const analyzed = readSession(root, sessionId)
+      assert.equal(first.payload.session.state, 'needs_input')
+
+      const locked = await post({
+        action: 'lock-clauses',
+        sessionId,
+        expectedSessionRevision: analyzed.sessionRevision,
+        clauses: [{ kind: 'goal' }],
+      })
+      assert.equal(locked.status, 200, JSON.stringify(locked.payload))
+      assert.equal(locked.payload.changed, true)
+      assert.equal(locked.payload.lockedClauses.length, 1)
+      assert.equal(locked.payload.lockedClauses[0].kind, 'goal')
+      const lockedRevision = locked.payload.session.sessionRevision
+
+      const relocked = await post({
+        action: 'lock-clauses',
+        sessionId,
+        clauses: [{ kind: 'goal' }],
+      })
+      assert.equal(relocked.status, 200, JSON.stringify(relocked.payload))
+      assert.equal(relocked.payload.changed, false)
+      assert.equal(relocked.payload.session.sessionRevision, lockedRevision)
+
+      const unlocked = await post({
+        action: 'unlock-clauses',
+        sessionId,
+        clauses: [{ kind: 'goal' }],
+      })
+      assert.equal(unlocked.status, 200, JSON.stringify(unlocked.payload))
+      assert.equal(unlocked.payload.changed, true)
+      assert.deepEqual(unlocked.payload.lockedClauses, [])
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a locked clause survives the next analysis pass and the answer response carries the draft binding', async () => {
+  const root = tempFixture('intent-doc-draft-lock-analysis-')
+  try {
+    const ai = createAi([
+      v3DraftAnalysis({}, { questions: [v2Question()] }),
+      v3DraftAnalysis({ goal: '模型改写后的目标', problem: '模型改写' }),
+    ])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const analyzed = readSession(root, sessionId)
+      const goalBefore = analyzed.docDraft.goal
+
+      const locked = await post({
+        action: 'lock-clauses',
+        sessionId,
+        expectedSessionRevision: analyzed.sessionRevision,
+        clauses: [{ kind: 'goal' }],
+      })
+      assert.equal(locked.status, 200, JSON.stringify(locked.payload))
+
+      const answered = await post({
+        action: 'answer',
+        sessionId,
+        answers: [{ questionId: 'Q-1', optionId: 'notify' }],
+      })
+      assert.equal(answered.status, 200, JSON.stringify(answered.payload))
+      assert.equal(answered.payload.changed, true)
+      assert.equal(typeof answered.payload.docHash, 'string')
+      assert.equal(typeof answered.payload.draftRevision, 'number')
+      assert.ok(answered.payload.docDraft, 'the answer response exposes the current draft')
+
+      const settled = await waitForSession(
+        root,
+        sessionId,
+        (session) => session.runs.length >= 2 && session.runs.some((run) => run.status === 'success'),
+      )
+      assert.equal(settled.docDraft.goal, goalBefore, 'the locked goal is not overwritten by the analysis')
+      assert.equal(settled.lockedClauses.length, 1)
+      assert.ok(settled.draftRevision > 2, 'the draft revision keeps moving as answers/analyses land')
+      assert.equal(settled.state, 'ready_for_confirmation')
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('confirm with a stale docHash returns 409 draft-changed with the latest binding and a null diff', async () => {
+  const root = tempFixture('intent-confirm-draft-')
+  try {
+    const ai = createAi([v3DraftAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      const sessionId = first.payload.session.sessionId
+      const stored = readSession(root, sessionId)
+      assert.equal(stored.state, 'ready_for_confirmation')
+
+      const wrongHash = `sha256:${'0'.repeat(64)}`
+      const rejected = await post({
+        ...confirmBody(stored, { idempotencyKey: 'confirm-draft-changed-1' }),
+        expectedSessionRevision: stored.sessionRevision,
+        docHash: wrongHash,
+        draftRevision: stored.draftRevision,
+      })
+      assert.equal(rejected.status, 409, JSON.stringify(rejected.payload))
+      assert.equal(rejected.payload.error.code, 'draft-changed')
+      const details = rejected.payload.error.details
+      assert.equal(details.latest.docHash, stored.docDraft.docHash)
+      assert.equal(details.latest.draftRevision, stored.draftRevision)
+      assert.equal(details.expected.docHash, wrongHash)
+      assert.equal(details.diff, null)
     })
   } finally {
     rmSync(root, { recursive: true, force: true })

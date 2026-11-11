@@ -1,0 +1,33 @@
+[DOCUMENT]
+TITLE: 需求查询条件和列表优化
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-001
+TITLE: 需求查询条件和列表优化
+STATUS: proposed
+OWNER: 张浩
+PROJECT: ALM
+PRIORITY: P1
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-ALM-001.md
+SOURCE: chat
+
+[RELATION]
+Type: verified_by
+Value: TEST-ALM-001
+
+[RELATION]
+Type: verified_by
+Value: TEST-ALM-002
+
+[RELATION]
+Type: verified_by
+Value: TEST-ALM-003
+
+[RELATION]
+Type: verified_by
+Value: TEST-ALM-004

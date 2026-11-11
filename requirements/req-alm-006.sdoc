@@ -1,0 +1,28 @@
+[DOCUMENT]
+TITLE: DSH需求插件跨智能体JSON与Excel安全导入导出
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-006
+TITLE: DSH需求插件跨智能体JSON与Excel安全导入导出
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P2
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-ALM-006.md
+SOURCE: chat
+
+[RELATION]
+Type: verified_by
+Value: TEST-ALM-REQ006-EXCHANGE
+
+[RELATION]
+Type: verified_by
+Value: TEST-ALM-REQ006-SECURITY
+
+[RELATION]
+Type: verified_by
+Value: TEST-ALM-REQ006-DESKTOP

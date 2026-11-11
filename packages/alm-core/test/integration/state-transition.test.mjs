@@ -48,7 +48,7 @@ async function invoke(argv) {
   return { code, out: out.text, err: err.text }
 }
 
-test('STATE-001 compares the worktree against --base', async () => {
+test('STATE-001 is retired: STATUS no longer gates the worktree', async () => {
   const root = mkdtempSync(join(tmpdir(), 'alm-state-'))
   const file = join(root, 'adr/ADR-ST-001.md')
   try {
@@ -61,23 +61,23 @@ test('STATE-001 compares the worktree against --base', async () => {
     let result = await invoke(['check', '--root', root, '--base', 'HEAD', '--json'])
     assert.equal(result.code, 0)
     let payload = JSON.parse(result.out)
-    assert.equal(payload.checks.find((check) => check.id === 'STATE-001').status, 'pass')
+    let state = payload.checks.find((check) => check.id === 'STATE-001')
+    assert.equal(state.status, 'skip')
+    assert.match(state.message, /已下线/)
 
+    // A legacy transition is history, not a gate: the check stays green.
     writeFileSync(file, ADR('accepted'), 'utf8')
-    result = await invoke(['check', '--root', root, '--base', 'HEAD', '--json'])
-    assert.equal(result.code, 0)
-
     git(root, 'add', '-A')
     commit(root, 'accept')
-
     writeFileSync(file, ADR('proposed'), 'utf8')
+
     result = await invoke(['check', '--root', root, '--base', 'HEAD', '--json'])
-    assert.equal(result.code, 1)
+    assert.equal(result.code, 0)
     payload = JSON.parse(result.out)
-    assert.equal(payload.result, 'fail')
-    const state = payload.checks.find((check) => check.id === 'STATE-001')
-    assert.equal(state.status, 'fail')
-    assert.match(state.findings[0].message, /accepted -> proposed/)
+    assert.equal(payload.result, 'pass')
+    state = payload.checks.find((check) => check.id === 'STATE-001')
+    assert.equal(state.status, 'skip')
+    assert.match(state.message, /candidate/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -94,7 +94,7 @@ test('STATE-001 is skipped when no base ref is given', async () => {
     const payload = JSON.parse(out)
     const state = payload.checks.find((check) => check.id === 'STATE-001')
     assert.equal(state.status, 'skip')
-    assert.match(state.message, /no --base/)
+    assert.match(state.message, /已下线/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

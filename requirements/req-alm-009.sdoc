@@ -1,0 +1,16 @@
+[DOCUMENT]
+TITLE: 原生意图服务端历史发现与同 session 安全恢复
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-009
+TITLE: 原生意图服务端历史发现与同 session 安全恢复
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P2
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-ALM-009.md
+SOURCE: chat

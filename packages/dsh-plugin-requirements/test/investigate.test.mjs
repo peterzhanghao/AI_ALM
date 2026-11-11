@@ -21,9 +21,28 @@ import {
   listInvestigations,
   normalizeInvestigation,
   readInvestigation,
+  revalidateInvestigation,
   runInvestigation,
   writeInvestigation,
 } from '../investigate.mjs'
+
+test('persisted investigation references must still exist and match', () => {
+  const root = mkdtempSync(join(tmpdir(), 'investigation-recheck-'))
+  try {
+    const file = join(root, 'evidence.txt')
+    writeFileSync(file, 'a verifiable quote\n')
+    const record = { source: 'observed_evidence', verdict: 'answered', findings: [{ claim: 'fact', refs: [{ path: 'evidence.txt', line: 1, quote: 'verifiable quote', verified: true }] }] }
+    assert.ok(revalidateInvestigation(root, record))
+    assert.equal(revalidateInvestigation(root, { ...record, findings: [{ ...record.findings[0], refs: [{ ...record.findings[0].refs[0], line: 0 }] }] }), null)
+    rmSync(file)
+    assert.equal(revalidateInvestigation(root, record), null)
+    const hypothesis = { source: 'hypothesis', verdict: 'not-determined', findings: [] }
+    assert.deepEqual(revalidateInvestigation(root, hypothesis), hypothesis)
+    assert.equal(revalidateInvestigation(root, { ...hypothesis, source: 'observed_evidence' }), null)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Temp repository with relevant matches, runtime noise, oversize/binary files,
@@ -164,6 +183,88 @@ test('buildInvestigationMessages returns a string system prompt and array conten
 // normalizeInvestigation: quote verification and degradation
 // ---------------------------------------------------------------------------
 
+function parseBudgetMessage(evidence, question = '调查') {
+  const messages = buildInvestigationMessages({ question, evidence, session: { project: { id: 'ALM' } } })
+  const text = messages.user[0].text
+  const pack = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1))
+  const budget = pack.boundary.messageBudget
+  assert.ok(messages.system.length + text.length <= 25000)
+  assert.equal(budget.systemCharacters, messages.system.length)
+  assert.equal(budget.userCharacters, text.length)
+  assert.equal(budget.totalCharacters, messages.system.length + text.length)
+  for (const key of ['snippets', 'files', 'tree']) {
+    const retained = key === 'tree' ? pack.repo.tree.length : pack[key].length
+    assert.deepEqual(budget.counts[key], { original: (evidence[key] ?? []).length, retained,
+      omitted: (evidence[key] ?? []).length - retained })
+  }
+  return pack
+}
+
+test('budget prioritizes verbatim snippets over oversized tree and file metadata without mutating input', () => {
+  const snippets = Array.from({ length: 60 }, (_, index) => ({ path: `src/f${index}.mjs`, line: 3, endLine: 3,
+    text: `const source${index} = "逐字\\n引号\\t😀";` }))
+  const evidence = { snippets, files: [{ path: 'x'.repeat(26000) }],
+    tree: Array.from({ length: 800 }, (_, i) => `${i}/${'directory/'.repeat(25)}`) }
+  const before = JSON.stringify(evidence)
+  const pack = parseBudgetMessage(evidence)
+  assert.deepEqual(pack.snippets, snippets)
+  assert.equal(pack.files.length, 0)
+  assert.ok(pack.repo.tree.length < 800)
+  assert.equal(pack.boundary.truncated, true)
+  assert.equal(JSON.stringify(evidence), before)
+})
+
+test('budget omits whole oversized quotes, continues later snippets and honestly handles empty evidence', () => {
+  const small = { path: 'src/small.mjs', line: 8, endLine: 9, text: 'const x = 1;\nconst y = 2;' }
+  const evidence = { snippets: [{ path: 'src/large.mjs', line: 1, endLine: 1, text: 'x'.repeat(25000) }, small] }
+  const pack = parseBudgetMessage(evidence, '问'.repeat(4000))
+  assert.deepEqual(pack.snippets, [small])
+  assert.equal(pack.boundary.messageBudget.counts.snippets.omitted, 1)
+  const empty = parseBudgetMessage({ boundary: { truncated: true } })
+  assert.deepEqual(empty.snippets, [])
+  assert.equal(empty.boundary.truncated, true)
+})
+
+test('budget accounts for JSON escaping and large context in both messages', () => {
+  const evidence = { question: '问'.repeat(10000), keywords: Array(60).fill('k'.repeat(3000)),
+    snippets: Array.from({ length: 60 }, (_, i) => ({ path: `src/${i}.mjs`, line: 1, endLine: 1,
+      text: '"\\\\\t😀'.repeat(400) })) }
+  const pack = parseBudgetMessage(evidence, '问'.repeat(10000))
+  assert.ok(pack.snippets.length > 0)
+  assert.ok(pack.snippets.length < 60)
+  for (const snippet of pack.snippets) assert.deepEqual(snippet, evidence.snippets.find(s => s.path === snippet.path))
+})
+
+test('budget rejects malformed inherited counts rather than overflowing even with empty evidence', () => {
+  for (const key of ['maxFiles', 'maxSnippets', 'scannedFiles']) {
+    for (const value of ['x'.repeat(30000), '40', Infinity, -Infinity, NaN, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, {}, [], true]) {
+      assert.throws(() => buildInvestigationMessages({ evidence: {
+        boundary: { [key]: value }, tree: [], files: [], snippets: [],
+      } }), error => error instanceof InvestigationError && error.code === 'invalid-request' &&
+        error.status === 400 && error.message.includes(`boundary.${key}`))
+    }
+  }
+  assert.throws(() => buildInvestigationMessages({ evidence: { boundary: { scannedFiles: null } } }),
+    error => error.code === 'invalid-request' && error.status === 400)
+  for (const value of [null, 'false', 'x'.repeat(30000), 0, 1, {}, []]) {
+    assert.throws(() => buildInvestigationMessages({ evidence: { boundary: { truncated: value } } }),
+      error => error.code === 'invalid-request' && error.status === 400)
+  }
+})
+
+test('budget accepts canonical boundary values without coercing or changing collector metadata', () => {
+  for (const boundary of [{}, { maxFiles: null, maxSnippets: null },
+    { maxFiles: 0, maxSnippets: 0, scannedFiles: 0, truncated: false },
+    { maxFiles: 40, maxSnippets: 60, scannedFiles: 4000, truncated: true },
+    { maxFiles: Number.MAX_SAFE_INTEGER, maxSnippets: Number.MAX_SAFE_INTEGER, scannedFiles: Number.MAX_SAFE_INTEGER }]) {
+    const pack = parseBudgetMessage({ boundary })
+    assert.equal(pack.boundary.maxFiles, boundary.maxFiles ?? null)
+    assert.equal(pack.boundary.maxSnippets, boundary.maxSnippets ?? null)
+    assert.equal(pack.boundary.scannedFiles, boundary.scannedFiles ?? 0)
+    assert.equal(pack.boundary.truncated, boundary.truncated ?? false)
+  }
+})
+
 function investigationJson({ quote, path = 'src/list.mjs', line = 2, verdict = 'answered', extra = {} } = {}) {
   return JSON.stringify({
     verdict,
@@ -296,6 +397,7 @@ test('runInvestigation writes the store + audit and leaves repository files unto
     aiStream: fakeStream(lines, calls),
     provider: 'fake',
     model: 'fake-model',
+    reasoningEffort: 'low',
     root,
     session,
     question: '列表加载慢',
@@ -306,6 +408,7 @@ test('runInvestigation writes the store + audit and leaves repository files unto
   assert.equal(investigation.verdict, 'answered')
   assert.equal(investigation.source, 'observed_evidence')
   assert.equal(calls.length, 1)
+  assert.equal(calls[0].reasoningEffort, 'low')
   assert.equal(typeof calls[0].system, 'string')
   assert.ok(Array.isArray(calls[0].messages[0].content))
   assert.equal(calls[0].messages[0].content[0].type, 'text')

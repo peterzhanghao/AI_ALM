@@ -9,7 +9,9 @@
  */
 export {
   ANALYSIS_SCHEMA,
+  ANALYSIS_SCHEMA_V2,
   AUDIT_SCHEMA,
+  BLOCKING_FOR,
   CHANGE_DRAFT_SCHEMA,
   CONTEXT_POLICY,
   DEFAULT_LIMIT,
@@ -30,6 +32,7 @@ export {
   RESOLUTIONS,
   ROUTES,
   SESSION_STATES,
+  UNKNOWN_KINDS,
   IntentError,
   intentError,
   isIntentError,
@@ -65,10 +68,12 @@ export {
 } from './util.mjs'
 
 export { buildIntentContext, readBrief, tokensOf } from './context.mjs'
+export { currentInvestigationEvidence } from './investigation-evidence.mjs'
 
 export {
   SESSIONS_DIR,
   attachContext,
+  bumpSessionRevision,
   cancelSession,
   contextOrDefault,
   createSession,
@@ -79,22 +84,40 @@ export {
   newEntityId,
   newSessionId,
   normalizeSession,
+  questionProgress,
   recordAnalysis,
   recordAnswer,
+  recordAnswers,
   routeOfSession,
   saveSession,
   sessionFile,
   sessionsDir,
+  setDocDraft,
   setEdits,
   setInput,
+  lockClauses,
+  unlockClauses,
 } from './session.mjs'
 
-export { applyAnalysis, effectiveCandidate, effectiveRoute, effectiveValue, normalizeAnalysis } from './analysis.mjs'
+export {
+  ANALYSIS_SCHEMA_V3,
+  DOC_DRAFT_SCHEMA,
+  applyAnalysis,
+  effectiveCandidate,
+  effectiveRoute,
+  effectiveValue,
+  mergeQuestionGroup,
+  normalizeAnalysis,
+  normalizeDocDraft,
+  normalizeQuestions,
+  synthesizeLegacyDocDraft,
+} from './analysis.mjs'
 
 export {
   READINESS_CODES,
   REASON_TEXT,
   candidateOf,
+  evaluateDraftReadiness,
   evaluateReadiness,
   lookupContextEntry,
   resolveChangeBase,
@@ -112,6 +135,6 @@ export {
   receiptPath,
 } from './confirm.mjs'
 
-export { SESSION_VIEW_SCHEMA, renderSessionView } from './view.mjs'
+export { SESSION_VIEW_SCHEMA, renderSessionView, historicalAnswerPage } from './view.mjs'
 
 export { migrateIntentStore } from './migrate.mjs'
