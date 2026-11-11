@@ -45,6 +45,12 @@ test('candidate writes architecture ledger and commits then pushes its scoped de
   assert.match(readFileSync(join(root, 'requirements/architecture/ARCHITECTURE-LEDGER.md'), 'utf8'), /REQ-DEV-001/)
   assert.match(git(root, ['log', '-1', '--format=%s']), /feat\(REQ-DEV-001\): 同步需求开发分支 \[v5 \/ CAND-REQ-DEV-001-001\]/)
   assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/develop']), candidate.development.devCommitSha)
+  const repeated = createCandidate({
+    root, asset, actor: 'system:test', source: 'test',
+    development: { enabled: true, branch: 'develop', remote: 'origin', requirement: { id: asset.id, title: asset.title, revision: 5, doc: asset.doc }, paths: ['implementation.mjs', asset.extra.brief] },
+  })
+  assert.equal(repeated.id, candidate.id)
+  assert.equal(git(root, ['rev-parse', 'HEAD']), candidate.development.devCommitSha)
 })
 
 test('candidate preserves unrelated work and records why development sync was skipped', (t) => {

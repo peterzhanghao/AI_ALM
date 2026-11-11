@@ -112,11 +112,15 @@ export function writeArchitectureLedger({ root, asset, requirement = null, accep
     '',
     '## 验证与证据摘要',
     ...(criteria.length ? criteria.map(entry => `- ${entry.id}：${entry.text}`) : ['- 未解析到结构化验收标准。']),
-    `- 最近验证：${evidence?.result === 'pass' ? '通过' : evidence?.result ?? '未执行'}${evidence?.file ? ` · 证据：\`${normalizePath(relative(repo, evidence.file))}\`` : ''}`,
+    // The Candidate JSON binds the exact evidence file and hash. Keeping that
+    // volatile SHA-derived path out of the repository asset prevents a fresh
+    // verification from creating a new Git commit and invalidating itself.
+    `- 最近验证：${evidence?.result === 'pass' ? '通过' : evidence?.result ?? '未执行'}`,
     ...(Array.isArray(evidence?.commands) ? evidence.commands.filter(entry => entry?.exitCode === 0).map(entry => `- 通过命令：\`${(entry.command ?? []).join(' ')}\``) : []),
     '',
   ].join('\n')
-  writeFileSync(file, body, 'utf8')
+  const existingBody = existsSync(file) ? readFileSync(file, 'utf8') : null
+  if (existingBody !== body) writeFileSync(file, body, 'utf8')
 
   const indexPath = join(repo, ARCHITECTURE_DIR, 'ARCHITECTURE-LEDGER.md')
   const row = `| ${requirementId} | v${revision} | [${title}](${requirementId}-design.md) |`
@@ -124,7 +128,10 @@ export function writeArchitectureLedger({ root, asset, requirement = null, accep
   const existing = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : heading
   const rows = existing.split(/\r?\n/).filter(line => !line.startsWith(`| ${requirementId} |`))
   if (!rows.some(line => line.startsWith('| ---'))) rows.splice(3, 0, '| --- | --- | --- |')
-  rows.push(row, '')
-  writeFileSync(indexPath, rows.join('\n'), 'utf8')
+  while (rows.at(-1) === '') rows.pop()
+  rows.push(row)
+  const index = `${rows.join('\n')}\n`
+  const existingIndex = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : null
+  if (existingIndex !== index) writeFileSync(indexPath, index, 'utf8')
   return { path: relativeFile, indexPath: `${ARCHITECTURE_DIR}/ARCHITECTURE-LEDGER.md`, hash: sha256(body), implementationPaths: paths }
 }

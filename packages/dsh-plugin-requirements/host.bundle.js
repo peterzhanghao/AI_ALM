@@ -10301,19 +10301,27 @@ function writeArchitectureLedger({ root, asset, requirement = null, acceptance =
     "",
     "## \u9A8C\u8BC1\u4E0E\u8BC1\u636E\u6458\u8981",
     ...criteria.length ? criteria.map((entry) => `- ${entry.id}\uFF1A${entry.text}`) : ["- \u672A\u89E3\u6790\u5230\u7ED3\u6784\u5316\u9A8C\u6536\u6807\u51C6\u3002"],
-    `- \u6700\u8FD1\u9A8C\u8BC1\uFF1A${evidence?.result === "pass" ? "\u901A\u8FC7" : evidence?.result ?? "\u672A\u6267\u884C"}${evidence?.file ? ` \xB7 \u8BC1\u636E\uFF1A\`${normalizePath(relative8(repo, evidence.file))}\`` : ""}`,
+    // The Candidate JSON binds the exact evidence file and hash. Keeping that
+    // volatile SHA-derived path out of the repository asset prevents a fresh
+    // verification from creating a new Git commit and invalidating itself.
+    `- \u6700\u8FD1\u9A8C\u8BC1\uFF1A${evidence?.result === "pass" ? "\u901A\u8FC7" : evidence?.result ?? "\u672A\u6267\u884C"}`,
     ...Array.isArray(evidence?.commands) ? evidence.commands.filter((entry) => entry?.exitCode === 0).map((entry) => `- \u901A\u8FC7\u547D\u4EE4\uFF1A\`${(entry.command ?? []).join(" ")}\``) : [],
     ""
   ].join("\n");
-  writeFileSync6(file, body, "utf8");
+  const existingBody = existsSync14(file) ? readFileSync17(file, "utf8") : null;
+  if (existingBody !== body) writeFileSync6(file, body, "utf8");
   const indexPath = join14(repo, ARCHITECTURE_DIR, "ARCHITECTURE-LEDGER.md");
   const row = `| ${requirementId} | v${revision} | [${title}](${requirementId}-design.md) |`;
   const heading = "# \u67B6\u6784\u4E0E\u6570\u636E\u6A21\u578B\u4EA4\u4ED8\u6863\u6848\u7D22\u5F15\n\n| \u9700\u6C42 | \u7248\u672C | \u4EA4\u4ED8\u6863\u6848 |\n| --- | --- | --- |\n";
   const existing = existsSync14(indexPath) ? readFileSync17(indexPath, "utf8") : heading;
   const rows2 = existing.split(/\r?\n/).filter((line) => !line.startsWith(`| ${requirementId} |`));
   if (!rows2.some((line) => line.startsWith("| ---"))) rows2.splice(3, 0, "| --- | --- | --- |");
-  rows2.push(row, "");
-  writeFileSync6(indexPath, rows2.join("\n"), "utf8");
+  while (rows2.at(-1) === "") rows2.pop();
+  rows2.push(row);
+  const index = `${rows2.join("\n")}
+`;
+  const existingIndex = existsSync14(indexPath) ? readFileSync17(indexPath, "utf8") : null;
+  if (existingIndex !== index) writeFileSync6(indexPath, index, "utf8");
   return { path: relativeFile, indexPath: `${ARCHITECTURE_DIR}/ARCHITECTURE-LEDGER.md`, hash: sha2564(body), implementationPaths: paths };
 }
 var ARCHITECTURE_DIR, normalizePath, unique, sha2564;
