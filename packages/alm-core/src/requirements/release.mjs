@@ -39,7 +39,11 @@ function git(root, args, { allowFailure = false } = {}) {
 }
 
 function gitClean(root) {
-  return git(root, ['status', '--porcelain', '--untracked-files=all']) === ''
+  const localRuntime = /^(?:\.alm\/|artifacts\/|validation\/)/
+  return git(root, ['status', '--porcelain', '--untracked-files=all'])
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .every((line) => !localRuntime.test(line.slice(3).replaceAll('\\', '/')))
 }
 
 function gitIntegrationFailure(base, reason) {

@@ -9446,69 +9446,6 @@ function sourcePaths({ investigationEvidence = [], asset = null } = {}) {
   if (asset?.extra?.brief) paths.push(asset.extra.brief);
   return [...new Set(paths.map(normalizedPath).filter(Boolean))];
 }
-function testCandidates(root, source) {
-  const path = insideRoot(root, source);
-  if (!path) return [];
-  const result = [];
-  if (TEST_FILE.test(path)) result.push(path);
-  const extension = extname(path);
-  if (!SOURCE_EXTENSIONS.has(extension)) return result;
-  const stem = basename4(path, extension);
-  const packageRoot = path.startsWith("packages/") ? path.split("/").slice(0, 2).join("/") : null;
-  if (packageRoot) {
-    result.push(`${packageRoot}/test/${stem}.test.mjs`, `${packageRoot}/test/${stem}.test.js`);
-  }
-  result.push(`${dirname3(path)}/test/${stem}.test.mjs`, `${dirname3(path)}/test/${stem}.test.js`);
-  return result.map(normalizedPath);
-}
-function titleMatchedTest(root, sources, asset) {
-  const title = String(asset?.title ?? asset?.doc?.title ?? "").trim();
-  if (!title) return null;
-  const roots = [...new Set(sources.map(normalizedPath).filter((path) => path.startsWith("packages/")).map((path) => path.split("/").slice(0, 2).join("/")))];
-  const terms = /* @__PURE__ */ new Set([title]);
-  for (const text4 of title.match(/[\u4e00-\u9fff]{2,}/g) ?? []) {
-    for (let index = 0; index < text4.length - 1; index += 1) terms.add(text4.slice(index, index + 2));
-  }
-  let best = null;
-  for (const packageRoot of roots) {
-    const testRoot = join12(root, packageRoot, "test");
-    let names = [];
-    try {
-      names = readdirSync5(testRoot);
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      if (!/\.(?:test|spec)\.(?:[cm]?js|tsx?)$/i.test(name)) continue;
-      const path = `${packageRoot}/test/${name}`;
-      let text4 = "";
-      try {
-        text4 = readFileSync15(join12(root, path), "utf8").slice(0, 512 * 1024);
-      } catch {
-        continue;
-      }
-      const score = [...terms].reduce((total, term) => total + (text4.includes(term) ? term.length : 0), 0);
-      if (!best || score > best.score || score === best.score && path < best.path) best = { path, score };
-    }
-  }
-  return best?.score >= Math.max(4, Math.floor(title.length / 4)) ? best.path : null;
-}
-function deriveVerificationCommand({ root, investigationEvidence = [], asset = null } = {}) {
-  const repo = resolve8(root);
-  const sources = sourcePaths({ investigationEvidence, asset });
-  const candidates = sources.flatMap((path) => testCandidates(repo, path));
-  const testFile = [...new Set(candidates)].find((path) => existsSync12(join12(repo, path))) ?? titleMatchedTest(repo, sources, asset);
-  if (!testFile) return null;
-  return {
-    command: ["node", "--test", testFile],
-    // A generated command is part of the handoff path, never a substitute for
-    // a repository-wide suite. Keep it bounded so starting a delivery round
-    // cannot leave the UI blocked behind a slow browser/integration run.
-    timeoutMs: QUICK_VERIFICATION_TIMEOUT_MS,
-    testFiles: [testFile],
-    reason: `\u6839\u636E\u9700\u6C42\u8BC1\u636E\u63A8\u5BFC\u4E13\u9879\u9A8C\u6536\uFF1Anode --test ${testFile}`
-  };
-}
 function layerFor(path) {
   const value = normalizedPath(path).toLowerCase();
   if (/client-source|client\.js$|\.(?:jsx|tsx|css)$/.test(value)) return "frontend";
@@ -9672,7 +9609,7 @@ function verifyTestFileHashes({ root, expected = {} } = {}) {
   }
   return { ok: changed.length === 0, changed };
 }
-var BLUEPRINT_SCHEMA, WORKSPACE_IMPLEMENTATION_AUTHORIZATION, QUICK_VERIFICATION_TIMEOUT_MS, TEST_FILE, SOURCE_EXTENSIONS;
+var BLUEPRINT_SCHEMA, WORKSPACE_IMPLEMENTATION_AUTHORIZATION;
 var init_blueprint_guard = __esm({
   "../alm-core/src/requirements/blueprint-guard.mjs"() {
     BLUEPRINT_SCHEMA = "alm.execution-blueprint/v1";
@@ -9684,9 +9621,6 @@ var init_blueprint_guard = __esm({
       "package.json",
       "pnpm-lock.yaml"
     ]);
-    QUICK_VERIFICATION_TIMEOUT_MS = 3e4;
-    TEST_FILE = /(?:^|\/)(?:test|tests)\/.*\.(?:test|spec)\.(?:[cm]?js|tsx?)$/i;
-    SOURCE_EXTENSIONS = /* @__PURE__ */ new Set([".mjs", ".cjs", ".js", ".jsx", ".ts", ".tsx", ".css"]);
   }
 });
 
@@ -12309,7 +12243,8 @@ function git3(root, args, { allowFailure = false } = {}) {
   }
 }
 function gitClean(root) {
-  return git3(root, ["status", "--porcelain", "--untracked-files=all"]) === "";
+  const localRuntime = /^(?:\.alm\/|artifacts\/|validation\/)/;
+  return git3(root, ["status", "--porcelain", "--untracked-files=all"]).split(/\r?\n/).filter(Boolean).every((line) => !localRuntime.test(line.slice(3).replaceAll("\\", "/")));
 }
 function gitIntegrationFailure(base, reason2) {
   return { ...base, pushedToMain: false, reason: reason2 };
@@ -15892,10 +15827,41 @@ var init_decision_presentation = __esm({
 });
 
 // ../alm-core/src/evidence/decision.mjs
-function trustedHumanAcceptanceValid(humanAcceptance) {
-  const signoff = humanAcceptance?.signoff;
-  const valid = humanAcceptance?.signoffValid === true || signoff?.valid === true;
-  return valid && String(signoff?.actor ?? "").startsWith("human:");
+function riskLevel(asset) {
+  const priority = asset?.extra?.priority ?? asset?.priority ?? null;
+  if (priority === "P0" || priority === "P1") return "high";
+  if (priority === "P2") return "normal";
+  return "low";
+}
+function requirementPolicy(asset) {
+  const risk = riskLevel(asset);
+  let requiredRoles;
+  if (risk === "high") requiredRoles = [...ROLE_IDS];
+  else if (risk === "normal") requiredRoles = [...NORMAL_ROLES];
+  else requiredRoles = [...LOW_ROLES];
+  return { risk, requiredRoles, requiresAcceptance: true };
+}
+function rolesById(review) {
+  const map = /* @__PURE__ */ new Map();
+  for (const role of Array.isArray(review?.roles) ? review.roles : []) {
+    if (role && typeof role.id === "string") map.set(role.id, role);
+  }
+  return map;
+}
+function aiAdoptedReview(review) {
+  const valid = review?.signoffValid === true || review?.signoff?.valid === true;
+  return valid && String(review?.signoff?.actor ?? "").startsWith("ai:");
+}
+function coverageOf(policy, review) {
+  const byId = rolesById(review);
+  const missingRoles = [];
+  let rolesCompleted = 0;
+  for (const roleId of policy.requiredRoles) {
+    const verdict = byId.get(roleId)?.verdict;
+    if (!verdict || verdict === "skip") missingRoles.push(roleId);
+    else rolesCompleted += 1;
+  }
+  return { rolesCompleted, rolesRequired: policy.requiredRoles.length, missingRoles };
 }
 function anomalyFor(asset, anomalies) {
   const id19 = asset?.id;
@@ -15906,6 +15872,22 @@ function anomalyFor(asset, anomalies) {
     return (Array.isArray(entry.occurrences) ? entry.occurrences : []).some(
       (occurrence) => occurrence?.assetId === id19 || occurrence?.uid === id19
     );
+  });
+}
+function findingText(finding) {
+  const where = finding?.file ? `${finding.file}${finding.line ? `:${finding.line}` : ""}` : null;
+  return [finding?.rule, where, finding?.message].filter(Boolean).join(" ");
+}
+function blockingGaps(review) {
+  const roles = (Array.isArray(review?.roles) ? review.roles : []).filter((role) => role?.verdict === "block");
+  return roles.map((role) => {
+    const findings = (Array.isArray(role.findings) ? role.findings : []).map(findingText).filter(Boolean);
+    return {
+      code: "blockers",
+      message: `${role.label ?? role.id}\u8BC4\u5BA1\u5B58\u5728\u963B\u585E\u9879${findings.length > 0 ? `\uFF1A${findings.join("\uFF1B")}` : ""}`,
+      fix: "\u4FEE\u590D\u963B\u585E\u9879\u540E\u91CD\u65B0\u8FD0\u884C\u8BC4\u5BA1\u5E76\u4FDD\u5B58\u62A5\u544A",
+      severity: "block"
+    };
   });
 }
 function anomalyGaps(entries) {
@@ -15938,17 +15920,17 @@ function staleGap(latest) {
   };
 }
 function nextStepFor(state, topGap) {
-  const code = topGap?.code;
   if (state === "archived") return { label: "\u5DF2\u5F52\u6863\uFF0C\u65E0\u9700\u64CD\u4F5C", action: "none" };
-  if (code === "candidate-missing") return { label: "\u751F\u6210\u4EA4\u4ED8\u5019\u9009", action: "create-candidate" };
-  if (["candidate-stale", "candidate-incomplete", "requirement-changed", "head-changed", "worktree-changed"].includes(code)) {
-    return { label: "\u91CD\u65B0\u751F\u6210\u4EA4\u4ED8\u5019\u9009", action: "create-candidate" };
-  }
+  if (state === "blocked") return { label: "\u4FEE\u590D\u963B\u585E\u9879", action: "fix-blockers" };
   if (state === "needs-clarification") return { label: "\u5904\u7406\u6570\u636E\u5F02\u5E38", action: "fix-anomaly" };
   if (state === "failed") return { label: "\u4FEE\u590D\u540E\u91CD\u65B0\u6267\u884C\u9A8C\u6536", action: "run-acceptance" };
   if (state === "stale") return { label: "\u91CD\u65B0\u6267\u884C\u9A8C\u6536", action: "run-acceptance" };
-  if (state === "ready-for-human") return { label: "\u63D0\u4EA4\u4EBA\u5DE5\u9A8C\u6536", action: "human-accept" };
+  if (state === "ready-for-human") return { label: "\u91C7\u7EB3 AI \u8BC4\u5BA1", action: "ai-review" };
   if (state === "verified") return { label: "\u5DF2\u901A\u8FC7\uFF0C\u65E0\u9700\u64CD\u4F5C", action: "none" };
+  const code = topGap?.code;
+  if (code === "review-not-run") return { label: "\u8FD0\u884C\u5E76\u4FDD\u5B58\u8BC4\u5BA1", action: "run-review" };
+  if (code === "review-not-accepted") return { label: "\u8FD0\u884C AI \u8BC4\u5BA1\u5E76\u91C7\u7EB3\u610F\u89C1", action: "ai-review" };
+  if (code === "coverage-incomplete") return { label: "\u8865\u9F50\u8BC4\u5BA1\u89C6\u89D2\u540E\u91CD\u65B0\u8BC4\u5BA1", action: "run-review" };
   if (code === "acceptance-missing") return { label: "\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4", action: "run-acceptance" };
   return { label: "\u6267\u884C\u9A8C\u6536", action: "run-acceptance" };
 }
@@ -15961,10 +15943,13 @@ function signoffFor(state, gaps) {
     reasons: gaps.map((gap) => ({ code: state === "unchecked" ? gap.code : code, message: gap.message }))
   };
 }
-function decideEvidence({ asset, acceptance = null, anomalies = [], candidate = null, humanAcceptance = null, closed = false } = {}) {
+function decideEvidence({ asset, review = null, acceptance = null, anomalies = [], legacyHumanSignoff = false } = {}) {
+  const policy = requirementPolicy(asset);
+  const coverage = coverageOf(policy, review);
+  const blockers = Number(review?.summary?.blockers ?? 0);
   const relatedAnomalies = anomalyFor(asset, anomalies);
   const latest = acceptance?.latest ?? null;
-  if (closed === true || asset?.status === "archived") {
+  if (asset?.status === "archived") {
     return {
       schema: EVIDENCE_SCHEMA,
       state: "archived",
@@ -15974,13 +15959,26 @@ function decideEvidence({ asset, acceptance = null, anomalies = [], candidate = 
       gaps: [],
       nextStep: nextStepFor("archived", null),
       signoff: { allowed: false, reasons: [] },
-      candidate: { exists: false, current: false, id: null, treeHash: null, reasons: [] },
-      humanAccepted: false
+      policy,
+      coverage
     };
   }
   let state;
   let gaps = [];
-  if (relatedAnomalies.length > 0) {
+  if (blockers > 0) {
+    state = "blocked";
+    gaps = blockingGaps(review);
+    if (gaps.length === 0) {
+      gaps = [
+        {
+          code: "blockers",
+          message: `\u5B58\u5728 ${blockers} \u4E2A\u963B\u585E\u9879`,
+          fix: "\u4FEE\u590D\u963B\u585E\u9879\u540E\u91CD\u65B0\u8FD0\u884C\u8BC4\u5BA1\u5E76\u4FDD\u5B58\u62A5\u544A",
+          severity: "block"
+        }
+      ];
+    }
+  } else if (relatedAnomalies.length > 0) {
     state = "needs-clarification";
     gaps = anomalyGaps(relatedAnomalies);
   } else if (latest && latest.current === true && latest.result === "fail") {
@@ -15989,27 +15987,64 @@ function decideEvidence({ asset, acceptance = null, anomalies = [], candidate = 
   } else if (latest && (!latest.complete || !latest.current)) {
     state = "stale";
     gaps = [staleGap(latest)];
+  } else if (!review?.stored) {
+    state = "unchecked";
+    gaps = [
+      {
+        code: "review-not-run",
+        message: "\u5C1A\u672A\u8FD0\u884C\u5E76\u4FDD\u5B58\u8BC4\u5BA1",
+        fix: "\u8FD0\u884C\u8BC4\u5BA1\u5E76\u4FDD\u5B58\u62A5\u544A\u540E\u518D\u5224\u65AD\u8BC1\u636E",
+        severity: "warn"
+      }
+    ];
+  } else if (coverage.missingRoles.length > 0 && !aiAdoptedReview(review)) {
+    state = "unchecked";
+    gaps = [
+      {
+        code: "coverage-incomplete",
+        message: `\u8BC4\u5BA1\u89C6\u89D2\u672A\u8986\u76D6\uFF1A${coverage.missingRoles.join("\u3001")}`,
+        fix: "\u8865\u9F50\u5FC5\u9700\u8BC4\u5BA1\u89C6\u89D2\u540E\u91CD\u65B0\u8FD0\u884C\u8BC4\u5BA1",
+        severity: "warn"
+      }
+    ];
   } else if (!acceptance?.registered) {
     state = "unchecked";
-    gaps = [{ code: "acceptance-missing", message: "\u672A\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4", fix: "\u767B\u8BB0\u53EF\u6267\u884C\u7684\u9A8C\u6536\u547D\u4EE4", severity: "warn" }];
+    gaps = [
+      {
+        code: "acceptance-missing",
+        message: "\u672A\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4",
+        fix: "\u767B\u8BB0\u53EF\u6267\u884C\u7684\u9A8C\u6536\u547D\u4EE4",
+        severity: "warn"
+      }
+    ];
   } else if (!latest) {
     state = "unchecked";
-    gaps = [{ code: "acceptance-not-run", message: "\u9A8C\u6536\u5C1A\u672A\u6267\u884C", fix: "\u6267\u884C\u5DF2\u767B\u8BB0\u7684\u9A8C\u6536\u547D\u4EE4\u5E76\u5F52\u6863\u8BC1\u636E", severity: "warn" }];
-  } else if (!candidate || candidate.exists !== true) {
-    state = "unchecked";
-    gaps = [{ code: "candidate-missing", message: "\u5C1A\u672A\u751F\u6210\u4EA4\u4ED8\u5019\u9009", fix: "\u751F\u6210\u4EA4\u4ED8\u5019\u9009\uFF1B\u5019\u9009\u7ED1\u5B9A\u5F53\u524D\u9700\u6C42\u5185\u5BB9\u4E0E\u5DE5\u4F5C\u533A\u5FEB\u7167", severity: "warn" }];
-  } else if (candidate.current !== true) {
-    state = "stale";
-    gaps = (Array.isArray(candidate.reasons) && candidate.reasons.length > 0 ? candidate.reasons : [{ code: "candidate-stale", message: "\u4EA4\u4ED8\u5019\u9009\u5DF2\u5931\u6548" }]).map((reason2) => ({
-      code: reason2.code ?? "candidate-stale",
-      message: reason2.message ?? "\u4EA4\u4ED8\u5019\u9009\u5DF2\u5931\u6548",
-      fix: "\u91CD\u65B0\u751F\u6210\u4EA4\u4ED8\u5019\u9009\u5E76\u91CD\u8DD1\u9A8C\u6536",
-      severity: "warn"
-    }));
-  } else if (trustedHumanAcceptanceValid(humanAcceptance)) {
+    gaps = [
+      {
+        code: "acceptance-not-run",
+        message: "\u9A8C\u6536\u5C1A\u672A\u6267\u884C",
+        fix: "\u6267\u884C\u5DF2\u767B\u8BB0\u7684\u9A8C\u6536\u547D\u4EE4\u5E76\u5F52\u6863\u8BC1\u636E",
+        severity: "warn"
+      }
+    ];
+  } else if (review?.signoffValid === true || review?.signoff?.valid === true) {
     state = "verified";
+    gaps = [];
   } else {
-    state = "ready-for-human";
+    if (legacyHumanSignoff) {
+      state = "ready-for-human";
+      gaps = [];
+    } else {
+      state = "unchecked";
+      gaps = [
+        {
+          code: "review-not-accepted",
+          message: "AI \u8BC4\u5BA1\u5C1A\u672A\u91C7\u7EB3",
+          fix: "\u8FD0\u884C AI \u8BC4\u5BA1\u5E76\u91C7\u7EB3\u610F\u89C1\uFF1B\u91C7\u7EB3\u5373\u89C6\u4E3A\u8BC4\u5BA1\u901A\u8FC7\uFF0C\u65E0\u9700\u4EBA\u5DE5\u7B7E\u6536",
+          severity: "warn"
+        }
+      ];
+    }
   }
   const topGap = gaps[0] ?? null;
   return {
@@ -16021,33 +16056,32 @@ function decideEvidence({ asset, acceptance = null, anomalies = [], candidate = 
     gaps,
     nextStep: nextStepFor(state, topGap),
     signoff: signoffFor(state, gaps),
-    candidate: candidate ? {
-      exists: candidate.exists === true,
-      current: candidate.current === true,
-      id: candidate.id ?? null,
-      treeHash: candidate.treeHash ?? null,
-      reasons: Array.isArray(candidate.reasons) ? candidate.reasons : []
-    } : { exists: false, current: false, id: null, treeHash: null, reasons: [] },
-    humanAccepted: state === "verified"
+    policy,
+    coverage
   };
 }
-var EVIDENCE_SCHEMA, ANOMALY_KINDS, LABELS, TONES, STALE_REASONS, SIGNOFF_CODES;
+var EVIDENCE_SCHEMA, ROLE_IDS, NORMAL_ROLES, LOW_ROLES, ANOMALY_KINDS, LABELS, TONES, STALE_REASONS, SIGNOFF_CODES;
 var init_decision2 = __esm({
   "../alm-core/src/evidence/decision.mjs"() {
     EVIDENCE_SCHEMA = "alm.evidence.decision/v1";
+    ROLE_IDS = ["business", "architecture", "testing", "security", "delivery"];
+    NORMAL_ROLES = ["business", "architecture", "testing", "delivery"];
+    LOW_ROLES = ["testing", "delivery"];
     ANOMALY_KINDS = /* @__PURE__ */ new Set(["duplicate-id", "dangling-relation", "duplicate-business-id"]);
     LABELS = {
       unchecked: "\u672A\u68C0\u67E5",
       "needs-clarification": "\u9700\u6F84\u6E05",
+      blocked: "\u963B\u585E",
       failed: "\u6267\u884C\u5931\u8D25",
       stale: "\u8BC1\u636E\u8FC7\u671F",
-      "ready-for-human": "\u5F85\u9A8C\u6536",
-      verified: "\u5DF2\u9A8C\u6536",
+      "ready-for-human": "\u53EF\u8FDB\u5165\u4EBA\u5DE5\u786E\u8BA4",
+      verified: "\u5DF2\u7B7E\u6536",
       archived: "\u5DF2\u5F52\u6863"
     };
     TONES = {
       unchecked: "neutral",
       "needs-clarification": "neutral",
+      blocked: "error",
       failed: "error",
       stale: "warn",
       "ready-for-human": "success",
@@ -16061,6 +16095,7 @@ var init_decision2 = __esm({
       tests: "\u9A8C\u6536\u7528\u4F8B\u4FEE\u8BA2\u5DF2\u53D8\u5316"
     };
     SIGNOFF_CODES = {
+      blocked: "blocked",
       "needs-clarification": "needs-clarification",
       failed: "acceptance-failed",
       stale: "acceptance-stale"
@@ -25655,42 +25690,49 @@ ${value}`
 }
 
 // preflight.mjs
-init_blueprint_guard();
 import { existsSync as existsSync39, mkdirSync as mkdirSync25, readFileSync as readFileSync42, writeFileSync as writeFileSync28 } from "node:fs";
 import { join as join44, resolve as resolve35 } from "node:path";
 var PREFLIGHT_SCHEMA = "alm.preflight/v1";
 var PREFLIGHT_DIR = ".alm/preflight";
-function deriveAcceptanceCommand(root, item = null) {
+function deriveAcceptanceCommand(root) {
   const repo = resolve35(root);
-  const scoped = deriveVerificationCommand({
-    root: repo,
-    investigationEvidence: item?.investigationEvidence ?? [],
-    asset: item?.asset ?? (item?.file ? { title: item.title ?? null, source: { path: item.file }, extra: { brief: item.brief ?? null } } : null)
-  });
-  if (scoped) return scoped;
-  return null;
-}
-function quickScopedCommands(commands) {
-  return Array.isArray(commands) && commands.length > 0 && commands.every((entry) => {
-    const command = Array.isArray(entry?.command) ? entry.command : [];
-    const testIndex = command.indexOf("--test");
-    return command[0] === "node" && testIndex >= 0 && command.slice(testIndex + 1).some((part) => part && !part.startsWith("-")) && Number(entry?.timeoutMs) > 0 && Number(entry.timeoutMs) <= QUICK_VERIFICATION_TIMEOUT_MS;
-  });
+  const file = join44(repo, "package.json");
+  if (!existsSync39(file)) return null;
+  let scripts;
+  try {
+    scripts = JSON.parse(readFileSync42(file, "utf8")).scripts ?? {};
+  } catch {
+    return null;
+  }
+  const name = ["test", "ci", "verify"].find((key) => typeof scripts[key] === "string" && scripts[key].trim() !== "");
+  if (!name) return null;
+  const runner = existsSync39(join44(repo, "pnpm-lock.yaml")) ? "pnpm" : existsSync39(join44(repo, "package-lock.json")) ? "npm" : "pnpm";
+  return {
+    name,
+    runner,
+    command: [runner, name],
+    timeoutMs: 10 * 60 * 1e3,
+    reason: `\u4ECE package.json \u7684 scripts.${name} \u63A8\u5BFC\uFF1A${runner} ${name}`
+  };
 }
 function startReadiness(item) {
   const decision = item?.decision ?? null;
+  const review = item?.review ?? null;
   const acceptance = item?.acceptance ?? null;
   const state = decision?.state ?? "unchecked";
   const gaps = Array.isArray(decision?.gaps) ? decision.gaps : [];
   const base = { state, gaps, carryOver: [] };
-  if (item?.closed === true || item?.delivery?.key === "closed" || item?.status === "archived" || state === "archived") {
-    return { ...base, ready: false, code: "archived", label: "\u9700\u6C42\u5DF2\u5173\u95ED", reasons: gaps };
+  if (item?.status === "archived" || state === "archived") {
+    return { ...base, ready: false, code: "archived", label: "\u9700\u6C42\u5DF2\u5F52\u6863", reasons: gaps };
   }
   if (state === "blocked") {
-    return { ...base, ready: false, code: "deterministic-blocked", label: "\u5B58\u5728\u786E\u5B9A\u6027\u963B\u585E\u9879", reasons: gaps };
+    return { ...base, ready: false, code: "review-blocked", label: "\u8BC4\u5BA1\u5B58\u5728\u963B\u585E\u9879", reasons: gaps };
   }
   if (state === "needs-clarification") {
     return { ...base, ready: false, code: "needs-clarification", label: "\u9700\u6C42\u6570\u636E\u5B58\u5728\u6B67\u4E49", reasons: gaps };
+  }
+  if (!review?.stored) {
+    return { ...base, ready: false, code: "review-missing", label: "\u5C1A\u672A\u8FD0\u884C\u8BC4\u5BA1", reasons: gaps };
   }
   if (!acceptance?.registered) {
     return { ...base, ready: false, code: "acceptance-missing", label: "\u672A\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4", reasons: gaps };
@@ -25742,24 +25784,78 @@ async function runPreflight({ root, requirementId, apply = false, deps }) {
   };
   let item = pickItem(deps.inspect(), requirementId);
   if (!item) throw Object.assign(new Error(`requirement not found: ${requirementId}`), { status: 404, code: "requirement-not-found" });
-  if (item.closed === true || item.delivery?.key === "closed" || item.status === "archived") {
+  if (item.status === "archived") {
     return finish({
       apply,
       startedAt,
       requirementId,
-      steps: [push({ code: "archived", status: "skipped", title: "\u9700\u6C42\u5DF2\u5173\u95ED", detail: "\u5DF2\u5173\u95ED\u7684\u9700\u6C42\u4E0D\u8FDB\u5165\u5F00\u53D1\u6D41\u7A0B" })],
+      steps: [push({ code: "archived", status: "skipped", title: "\u9700\u6C42\u5DF2\u5F52\u6863", detail: "\u5F52\u6863\u9700\u6C42\u4E0D\u8FDB\u5165\u5F00\u53D1\u6D41\u7A0B" })],
       item,
       question: null
     });
   }
-  if (!item.acceptance?.registered || !quickScopedCommands(item.acceptance?.commands)) {
-    const derived = deriveAcceptanceCommand(root, item);
+  if (!item.review?.stored) {
+    if (!apply) {
+      push({ code: "review-run", status: "skipped", title: "\u9700\u8981\u8FD0\u884C\u8BC4\u5BA1", detail: "\u9884\u89C8\u6A21\u5F0F\u4E0D\u6539\u5199\u6587\u4EF6\uFF1B\u5F00\u59CB\u5F00\u53D1\u65F6\u4F1A\u81EA\u52A8\u8FD0\u884C\u8BC4\u5BA1" });
+    } else {
+      try {
+        deps.runReview();
+        push({ code: "review-run", status: "fixed", title: "\u8FD0\u884C\u5E76\u4FDD\u5B58\u8BC4\u5BA1", detail: "\u8BC4\u5BA1\u62A5\u544A\u5DF2\u751F\u6210\uFF0C\u4E0D\u518D\u9700\u8981\u624B\u52A8\u8FD0\u884C" });
+        item = pickItem(deps.inspect(), requirementId) ?? item;
+      } catch (error) {
+        push({ code: "review-run", status: "failed", title: "\u8FD0\u884C\u8BC4\u5BA1\u5931\u8D25", detail: error?.message ?? String(error) });
+      }
+    }
+  } else {
+    push({ code: "review-check", status: "checked", title: "\u8BC4\u5BA1\u62A5\u544A\u5DF2\u5B58\u5728", detail: `${item.review.summary?.completed ?? 0}/${item.review.summary?.total ?? 0} \u4E2A\u89C6\u89D2\u5B8C\u6210` });
+  }
+  const reviewGap = decisionOf(item)?.topGap?.code;
+  if (reviewGap === "review-not-accepted" || reviewGap === "coverage-incomplete" || reviewGap === "review-not-run") {
+    let report = deps.readAiReview();
+    if (!report && apply) {
+      try {
+        report = await deps.generateAiReview();
+        push({
+          code: "ai-review-generate",
+          status: "fixed",
+          title: "AI \u8BC4\u5BA1\u9700\u6C42",
+          detail: `\u7ED3\u8BBA ${report?.verdict ?? "warn"} \xB7 ${(report?.suggestions ?? []).length} \u6761\u5EFA\u8BAE`
+        });
+      } catch (error) {
+        push({ code: "ai-review-generate", status: "failed", title: "AI \u8BC4\u5BA1\u5931\u8D25", detail: error?.message ?? String(error) });
+      }
+    }
+    if (report && apply) {
+      try {
+        const adopted = deps.adoptAiReview(report);
+        const accepted = adopted?.accepted?.accepted === true;
+        push({
+          code: "ai-review-adopt",
+          status: accepted ? "fixed" : "needs-decision",
+          title: "\u91C7\u7EB3 AI \u8BC4\u5BA1\u5EFA\u8BAE",
+          detail: accepted ? "\u5DF2\u6309\u5EFA\u8BAE\u4FEE\u8BA2\u9700\u6C42\u5E76\u767B\u8BB0\u8BC4\u5BA1\u901A\u8FC7" : "\u5EFA\u8BAE\u5DF2\u91C7\u7EB3\uFF0C\u4F46\u8BC4\u5BA1\u4ECD\u6807\u8BB0\u4E3A\u963B\u585E\uFF0C\u9700\u8981\u4F60\u51B3\u5B9A"
+        });
+        item = pickItem(deps.inspect(), requirementId) ?? item;
+        try {
+          deps.runReview();
+          item = pickItem(deps.inspect(), requirementId) ?? item;
+        } catch {
+        }
+      } catch (error) {
+        push({ code: "ai-review-adopt", status: "failed", title: "\u91C7\u7EB3 AI \u8BC4\u5BA1\u5931\u8D25", detail: error?.message ?? String(error) });
+      }
+    } else if (report) {
+      push({ code: "ai-review-adopt", status: "skipped", title: "\u5C06\u91C7\u7EB3 AI \u8BC4\u5BA1\u5EFA\u8BAE", detail: "\u9884\u89C8\u6A21\u5F0F\u4E0D\u6539\u5199\u8BC4\u5BA1\u4E0E\u9700\u6C42" });
+    }
+  }
+  if (!item.acceptance?.registered) {
+    const derived = deriveAcceptanceCommand(root);
     if (derived) {
       const commands = [{ id: "cmd-1", command: derived.command, timeoutMs: derived.timeoutMs }];
       try {
         if (apply) {
           deps.applyAcceptanceConfig(commands);
-          push({ code: "acceptance-configure", status: "fixed", title: item.acceptance?.registered ? "\u66FF\u6362\u4E3A\u5FEB\u901F\u4E13\u9879\u9A8C\u6536" : "\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4", detail: derived.reason });
+          push({ code: "acceptance-configure", status: "fixed", title: "\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4", detail: derived.reason });
           item = pickItem(deps.inspect(), requirementId) ?? item;
         } else {
           push({ code: "acceptance-configure", status: "skipped", title: "\u5C06\u767B\u8BB0\u9A8C\u6536\u547D\u4EE4", detail: derived.reason });
@@ -25787,7 +25883,23 @@ async function runPreflight({ root, requirementId, apply = false, deps }) {
       detail: "\u5931\u8D25\u9879\u4F5C\u4E3A\u5F00\u53D1\u4EFB\u52A1\u5E26\u5165\uFF0C\u5F00\u53D1\u5B8C\u6210\u540E\u81EA\u52A8\u91CD\u65B0\u9A8C\u6536"
     });
   } else if (needsRun) {
-    push({ code: "acceptance-run", status: "carry-over", title: "\u9A8C\u8BC1\u5C06\u5728 AI \u5B8C\u6210\u672C\u8F6E\u540E\u6267\u884C", detail: "\u542F\u52A8\u4EC5\u505A\u5FEB\u901F\u914D\u7F6E\u4E0E\u84DD\u56FE\u68C0\u67E5\uFF0C\u4E0D\u540C\u6B65\u6267\u884C\u9A8C\u6536\u547D\u4EE4" });
+    if (!apply) {
+      push({ code: "acceptance-run", status: "skipped", title: "\u9700\u8981\u6267\u884C\u9A8C\u6536", detail: "\u9884\u89C8\u6A21\u5F0F\u4E0D\u6267\u884C\u547D\u4EE4" });
+    } else {
+      try {
+        const run = deps.runAcceptance();
+        const passed = run?.result === "pass" || run?.evidence?.result === "pass";
+        push({
+          code: "acceptance-run",
+          status: passed ? "fixed" : "carry-over",
+          title: passed ? "\u6267\u884C\u9A8C\u6536\u5E76\u901A\u8FC7" : "\u6267\u884C\u9A8C\u6536\u672A\u901A\u8FC7",
+          detail: passed ? `${run?.evidence?.commands?.length ?? 0} \u6761\u547D\u4EE4\u901A\u8FC7\uFF0C\u8BC1\u636E ${run?.evidence?.file ?? ""}`.trim() : "\u5931\u8D25\u9879\u4F1A\u4F5C\u4E3A\u5F00\u53D1\u4EFB\u52A1\u5E26\u5165\uFF0C\u5F00\u53D1\u5B8C\u6210\u540E\u81EA\u52A8\u91CD\u65B0\u9A8C\u6536"
+        });
+        item = pickItem(deps.inspect(), requirementId) ?? item;
+      } catch (error) {
+        push({ code: "acceptance-run", status: "failed", title: "\u6267\u884C\u9A8C\u6536\u5931\u8D25", detail: error?.message ?? String(error) });
+      }
+    }
   } else if (latest) {
     push({
       code: "acceptance-check",
@@ -25802,7 +25914,10 @@ async function runPreflight({ root, requirementId, apply = false, deps }) {
     question = {
       code: readiness.code,
       message: `${readiness.label}\uFF1A${readiness.reasons?.[0]?.message ?? "\u7F3A\u5C11\u5FC5\u8981\u8BC1\u636E"}`,
-      options: [{ id: "cancel", label: "\u5148\u4E0D\u5F00\u59CB", detail: "\u56DE\u5230\u9700\u6C42\u5217\u8868\uFF0C\u4FEE\u590D\u786C\u95E8\u540E\u518D\u8BD5" }]
+      options: [
+        { id: "proceed", label: "\u5E26\u7740\u95EE\u9898\u5F00\u59CB\u5F00\u53D1", detail: "\u7F3A\u53E3\u8BB0\u5165\u5BA1\u8BA1\uFF0CAI \u5728\u5F00\u53D1\u8FC7\u7A0B\u4E2D\u7EE7\u7EED\u5904\u7406" },
+        { id: "cancel", label: "\u5148\u4E0D\u5F00\u59CB", detail: "\u56DE\u5230\u9700\u6C42\u5217\u8868\uFF0C\u8865\u9F50\u540E\u518D\u8BD5" }
+      ]
     };
   }
   return finish({ apply, startedAt, requirementId, steps, item, readiness, question });
