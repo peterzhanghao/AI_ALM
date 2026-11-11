@@ -1253,6 +1253,16 @@ export function deriveDetailView(item, options = {}) {
       timelineFingerprint: timeline.length > 50 ? timelineHash(timeline) : null,
       relations,
       github: buildGithub(source),
+      architecture: source.architectureLedger && typeof source.architectureLedger === 'object'
+        ? {
+            path: textOrNull(source.architectureLedger.path),
+            title: textOrNull(source.architectureLedger.title),
+            baseline: asArray(source.architectureLedger.baseline).map(textOrNull).filter(Boolean),
+            modules: asArray(source.architectureLedger.modules).map(entry => ({ path: textOrNull(entry?.path), role: textOrNull(entry?.role) })).filter(entry => entry.path),
+            contracts: asArray(source.architectureLedger.contracts).map(textOrNull).filter(Boolean),
+            verification: asArray(source.architectureLedger.verification).map(textOrNull).filter(Boolean),
+          }
+        : null,
       technical: {
         file: textOrNull(source.file),
         brief: textOrNull(source.brief),

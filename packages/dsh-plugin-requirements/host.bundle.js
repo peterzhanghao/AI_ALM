@@ -9423,7 +9423,7 @@ var init_worktree_snapshot = __esm({
     init_content_hash();
     MAX_FILES = 2e3;
     MAX_FILE_BYTES = 4 * 1024 * 1024;
-    EXCLUDED_PREFIXES = [".git/", ".alm/", "node_modules/", "dist/", "tmp/"];
+    EXCLUDED_PREFIXES = [".git/", ".alm/", "node_modules/", "dist/", "tmp/", "artifacts/", "validation/"];
   }
 });
 
@@ -10203,6 +10203,47 @@ import { join as join14, relative as relative8, resolve as resolve10 } from "nod
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
+function cleanInline(value) {
+  return text(value).replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+}
+function parseArchitectureLedger(markdown, { path = null } = {}) {
+  const sections = /* @__PURE__ */ new Map();
+  let current = null;
+  for (const raw of String(markdown ?? "").replace(/\r\n?/g, "\n").split("\n")) {
+    const heading = /^##\s+(.+?)\s*$/.exec(raw);
+    if (heading) {
+      current = cleanInline(heading[1]);
+      sections.set(current, []);
+      continue;
+    }
+    if (current && /^\s*-\s+/.test(raw)) sections.get(current).push(cleanInline(raw.replace(/^\s*-\s+/, "")));
+  }
+  const baseline = sections.get("\u9700\u6C42\u4E0E\u7248\u672C\u57FA\u7EBF") ?? [];
+  const modules = (sections.get("\u67B6\u6784\u4E0E\u6A21\u5757\u53D8\u66F4") ?? []).map((entry) => {
+    const match = /^(.+?)：(.+)$/.exec(entry);
+    return match ? { path: match[1], role: match[2] } : { path: entry, role: null };
+  });
+  return {
+    path: normalizePath(path),
+    title: cleanInline(String(markdown ?? "").match(/^#\s+(.+?)\s*$/m)?.[1] ?? "\u67B6\u6784\u4E0E\u6570\u636E\u6A21\u578B\u4EA4\u4ED8\u6863\u6848"),
+    baseline,
+    modules,
+    contracts: sections.get("\u6570\u636E\u6A21\u578B\u4E0E\u63A5\u53E3\u5951\u7EA6") ?? [],
+    verification: sections.get("\u9A8C\u8BC1\u4E0E\u8BC1\u636E\u6458\u8981") ?? []
+  };
+}
+function readArchitectureLedger({ root, requirementId, path = null } = {}) {
+  const relativeFile = normalizePath(path || `${ARCHITECTURE_DIR}/${requirementId}-design.md`);
+  const expected = `${ARCHITECTURE_DIR}/${requirementId}-design.md`;
+  if (!requirementId || relativeFile !== expected) return null;
+  const file = join14(resolve10(root), relativeFile);
+  if (!existsSync14(file)) return null;
+  try {
+    return parseArchitectureLedger(readFileSync17(file, "utf8"), { path: relativeFile });
+  } catch {
+    return null;
+  }
+}
 function criteriaOf(requirement, asset) {
   const fromDoc = asset?.doc?.acceptance ?? requirement?.doc?.acceptance ?? [];
   if (Array.isArray(fromDoc) && fromDoc.length) return fromDoc.map((entry, index) => ({ id: entry?.id ?? `AC-${String(index + 1).padStart(2, "0")}`, text: text(entry?.text ?? entry?.expected) })).filter((entry) => entry.text);
@@ -10303,9 +10344,9 @@ function syncDevelopmentBranch({ root, requirementId, revision, candidateId, tit
   const dirty = [.../* @__PURE__ */ new Set([
     ...lines(git2(repo, ["diff", "--name-only"])),
     ...lines(git2(repo, ["ls-files", "--others", "--exclude-standard"]))
-  ])];
+  ])].filter((path) => !runtimePath(path));
   const changedImplementation = dirty.filter(
-    (path) => /\.(?:[cm]?js|jsx|tsx?|css|json|ya?ml|sql|prisma)$/i.test(path) && !path.startsWith(".alm/")
+    (path) => /\.(?:[cm]?js|jsx|tsx?|css|json|ya?ml|sql|prisma)$/i.test(path)
   );
   const uncovered = changedImplementation.filter((path) => !selected.includes(path));
   if (uncovered.length) return { ...base, reason: `\u53D1\u73B0\u672A\u5F52\u5C5E\u5230 ${requirementId} \u7684\u5B9E\u73B0\u6539\u52A8\uFF08${uncovered.slice(0, 3).join("\u3001")}\uFF09\uFF0C\u672A\u81EA\u52A8\u63D0\u4EA4` };
@@ -10327,7 +10368,7 @@ function syncDevelopmentBranch({ root, requirementId, revision, candidateId, tit
     return { ...base, devCommitSha: sha, pushedToRemoteDev: false, reason: `\u63D0\u4EA4\u5DF2\u521B\u5EFA\u4F46\u63A8\u9001\u5931\u8D25\uFF1A${error.message}`, stagedPaths: toStage };
   }
 }
-var normalize, safe, git2, lines;
+var normalize, safe, git2, lines, runtimePath;
 var init_dev_branch_sync = __esm({
   "../alm-core/src/requirements/dev-branch-sync.mjs"() {
     normalize = (value) => String(value ?? "").replaceAll("\\", "/").replace(/^\.\//, "").trim();
@@ -10344,6 +10385,7 @@ var init_dev_branch_sync = __esm({
       }
     };
     lines = (value) => String(value ?? "").split(/\r?\n/).map(normalize).filter(Boolean);
+    runtimePath = (path) => /^(?:\.alm\/|artifacts\/|validation\/|tmp\/|\.tmp\/)/.test(path);
   }
 });
 
@@ -12243,7 +12285,7 @@ function git3(root, args, { allowFailure = false } = {}) {
   }
 }
 function gitClean(root) {
-  const localRuntime = /^(?:\.alm\/|artifacts\/|validation\/)/;
+  const localRuntime = /^(?:\.alm\/|artifacts\/|validation\/|tmp\/|\.tmp\/)/;
   return git3(root, ["status", "--porcelain", "--untracked-files=all"]).split(/\r?\n/).filter(Boolean).every((line) => localRuntime.test(line.slice(3).replaceAll("\\", "/")));
 }
 function gitIntegrationFailure(base, reason2) {
@@ -17597,6 +17639,14 @@ function deriveDetailView(item, options = {}) {
       timelineFingerprint: timeline.length > 50 ? timelineHash(timeline) : null,
       relations,
       github: buildGithub(source),
+      architecture: source.architectureLedger && typeof source.architectureLedger === "object" ? {
+        path: textOrNull(source.architectureLedger.path),
+        title: textOrNull(source.architectureLedger.title),
+        baseline: asArray2(source.architectureLedger.baseline).map(textOrNull).filter(Boolean),
+        modules: asArray2(source.architectureLedger.modules).map((entry) => ({ path: textOrNull(entry?.path), role: textOrNull(entry?.role) })).filter((entry) => entry.path),
+        contracts: asArray2(source.architectureLedger.contracts).map(textOrNull).filter(Boolean),
+        verification: asArray2(source.architectureLedger.verification).map(textOrNull).filter(Boolean)
+      } : null,
       technical: {
         file: textOrNull(source.file),
         brief: textOrNull(source.brief),
@@ -18595,6 +18645,11 @@ function requirements(root, { requirementId = null } = {}) {
     }
     item.rejectionReview = item.run.exists && item.run.autoAdvance?.status === "candidate-ready" ? rejectionReview({ root, run: readRun(root, item.run.id), asset, assets, snapshot: readContext.worktreeSnapshot(root) }) : { allowed: false, binding: null };
     item.release = releaseViewFor({ root, requirementId: item.id });
+    item.architectureLedger = readArchitectureLedger({
+      root,
+      requirementId: item.id,
+      path: item.candidate.architecture?.path ?? item.release.sourceControl?.architectureDocPath ?? null
+    });
     item.development = { branch: actualBranch, headSha, dedicated: /^(feature|feat|fix|codex|alm)\//.test(actualBranch ?? ""), repository: projectInfo?.repo ?? null, integrationBranch: project3?.github?.workflow?.integrationBranch ?? "develop", releaseBranch: project3?.defaultBranch ?? "main" };
     item.delivery = deliveryStateFor({
       root,
@@ -18720,6 +18775,7 @@ var init_query = __esm({
     init_candidate();
     init_delivery();
     init_release();
+    init_arch_ledger();
     init_failure();
     init_run2();
     init_convergence();
@@ -33770,7 +33826,7 @@ function startSidebarServer({ port = SIDEBAR_PORT, handler }) {
 // index.js
 var pkg2 = JSON.parse(readFileSync51(new URL("./package.json", new URL("./index.js", import.meta.url).href), "utf8"));
 var NATIVE_SOURCE_BUILD_ID = false ? null : null;
-var NATIVE_CLIENT_BUILD_ID = true ? "7ac848e20e3bed46dcab377b8372ee311d45e415e643ce40d673f24297e95c32" : null;
+var NATIVE_CLIENT_BUILD_ID = true ? "566004fe6ed3d393849079e3c99a60b12f9178e9e49d5f32f67417b281b9fb6b" : null;
 function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null }) {
   const reason2 = promptSafeText(previous?.failure?.message);
   return promptTaskBrief({

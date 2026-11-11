@@ -10,6 +10,47 @@ const sha256 = value => createHash('sha256').update(value).digest('hex')
 
 function text(value) { return typeof value === 'string' ? value.trim() : '' }
 
+function cleanInline(value) {
+  return text(value)
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+}
+
+/** Parse the delivery record into a deliberately small view model for the UI. */
+export function parseArchitectureLedger(markdown, { path = null } = {}) {
+  const sections = new Map()
+  let current = null
+  for (const raw of String(markdown ?? '').replace(/\r\n?/g, '\n').split('\n')) {
+    const heading = /^##\s+(.+?)\s*$/.exec(raw)
+    if (heading) { current = cleanInline(heading[1]); sections.set(current, []); continue }
+    if (current && /^\s*-\s+/.test(raw)) sections.get(current).push(cleanInline(raw.replace(/^\s*-\s+/, '')))
+  }
+  const baseline = sections.get('需求与版本基线') ?? []
+  const modules = (sections.get('架构与模块变更') ?? []).map((entry) => {
+    const match = /^(.+?)：(.+)$/.exec(entry)
+    return match ? { path: match[1], role: match[2] } : { path: entry, role: null }
+  })
+  return {
+    path: normalizePath(path),
+    title: cleanInline(String(markdown ?? '').match(/^#\s+(.+?)\s*$/m)?.[1] ?? '架构与数据模型交付档案'),
+    baseline,
+    modules,
+    contracts: sections.get('数据模型与接口契约') ?? [],
+    verification: sections.get('验证与证据摘要') ?? [],
+  }
+}
+
+/** Read only the conventional, requirement-scoped ledger file. */
+export function readArchitectureLedger({ root, requirementId, path = null } = {}) {
+  const relativeFile = normalizePath(path || `${ARCHITECTURE_DIR}/${requirementId}-design.md`)
+  const expected = `${ARCHITECTURE_DIR}/${requirementId}-design.md`
+  if (!requirementId || relativeFile !== expected) return null
+  const file = join(resolve(root), relativeFile)
+  if (!existsSync(file)) return null
+  try { return parseArchitectureLedger(readFileSync(file, 'utf8'), { path: relativeFile }) } catch { return null }
+}
+
 function criteriaOf(requirement, asset) {
   const fromDoc = asset?.doc?.acceptance ?? requirement?.doc?.acceptance ?? []
   if (Array.isArray(fromDoc) && fromDoc.length) return fromDoc.map((entry, index) => ({ id: entry?.id ?? `AC-${String(index + 1).padStart(2, '0')}`, text: text(entry?.text ?? entry?.expected) })).filter(entry => entry.text)

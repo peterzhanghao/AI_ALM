@@ -6,7 +6,7 @@ import { sha256 } from '../model/content-hash.mjs'
 
 const MAX_FILES = 2000
 const MAX_FILE_BYTES = 4 * 1024 * 1024
-const EXCLUDED_PREFIXES = ['.git/', '.alm/', 'node_modules/', 'dist/', 'tmp/']
+const EXCLUDED_PREFIXES = ['.git/', '.alm/', 'node_modules/', 'dist/', 'tmp/', 'artifacts/', 'validation/']
 
 /** Content scope deliberately excludes generated evidence, dependencies and tmp. */
 export function worktreeSnapshot(root, { exec = execFileSync } = {}) {

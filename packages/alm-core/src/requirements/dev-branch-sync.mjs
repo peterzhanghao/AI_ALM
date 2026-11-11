@@ -14,6 +14,7 @@ const git = (root, args, { allowFailure = false } = {}) => {
   }
 }
 const lines = value => String(value ?? '').split(/\r?\n/).map(normalize).filter(Boolean)
+const runtimePath = path => /^(?:\.alm\/|artifacts\/|validation\/|tmp\/|\.tmp\/)/.test(path)
 
 export function syncDevelopmentBranch({ root, requirementId, revision, candidateId, title, paths = [], branch = 'develop', remote = 'origin' } = {}) {
   const repo = resolve(root)
@@ -29,9 +30,9 @@ export function syncDevelopmentBranch({ root, requirementId, revision, candidate
   const dirty = [...new Set([
     ...lines(git(repo, ['diff', '--name-only'])),
     ...lines(git(repo, ['ls-files', '--others', '--exclude-standard'])),
-  ])]
+  ])].filter(path => !runtimePath(path))
   const changedImplementation = dirty.filter(path =>
-    /\.(?:[cm]?js|jsx|tsx?|css|json|ya?ml|sql|prisma)$/i.test(path) && !path.startsWith('.alm/'),
+    /\.(?:[cm]?js|jsx|tsx?|css|json|ya?ml|sql|prisma)$/i.test(path),
   )
   const uncovered = changedImplementation.filter(path => !selected.includes(path))
   if (uncovered.length) return { ...base, reason: `发现未归属到 ${requirementId} 的实现改动（${uncovered.slice(0, 3).join('、')}），未自动提交` }

@@ -13,6 +13,7 @@ import { acceptanceSummary } from '../alm-core/src/acceptance/acceptance.mjs'
 import { candidateView, worktreeSnapshot } from '../alm-core/src/requirements/candidate.mjs'
 import { DELIVERY_LABELS, deliveryStateFor, isClosed, readClosure } from '../alm-core/src/requirements/delivery.mjs'
 import { releaseViewFor } from '../alm-core/src/requirements/release.mjs'
+import { readArchitectureLedger } from '../alm-core/src/requirements/arch-ledger.mjs'
 import { defectView, failureDiagnosis, listFailures } from '../alm-core/src/requirements/failure.mjs'
 import { runView, readRun } from '../alm-core/src/requirements/run.mjs'
 import { listSpecConvergences, pendingSpecDeltas, readIterationRetry, requirementSpecContext } from '../alm-core/src/requirements/convergence.mjs'
@@ -926,6 +927,11 @@ export function requirements(root, { requirementId = null } = {}) {
         ? rejectionReview({ root, run: readRun(root, item.run.id), asset, assets, snapshot: readContext.worktreeSnapshot(root) })
         : { allowed: false, binding: null }
       item.release = releaseViewFor({ root, requirementId: item.id })
+      item.architectureLedger = readArchitectureLedger({
+        root,
+        requirementId: item.id,
+        path: item.candidate.architecture?.path ?? item.release.sourceControl?.architectureDocPath ?? null,
+      })
       item.development = { branch: actualBranch, headSha, dedicated: /^(feature|feat|fix|codex|alm)\//.test(actualBranch ?? ''), repository: projectInfo?.repo ?? null, integrationBranch: project?.github?.workflow?.integrationBranch ?? 'develop', releaseBranch: project?.defaultBranch ?? 'main' }
       // The canonical rule lives in alm-core's deliveryStateFor: only a round
       // that can actually make progress is 推进中; one parked on a human,

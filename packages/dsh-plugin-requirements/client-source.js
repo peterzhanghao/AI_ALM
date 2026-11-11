@@ -4143,12 +4143,14 @@ window.__ModuleLoader__.load({
       const record = detail.record ?? {}
       const relations = relationRows((record.relations ?? []).length ? record.relations : relationsOf(item, allItems)).filter(entry => entry.ids?.length)
       const github = record.github
+      const architecture = record.architecture
       const defects = detail.summaries?.defects ?? {}
       const hasDefects = defects.own || defects.related?.length || defects.closedHistory?.length
       const evidence = Array.isArray(item.investigationEvidence) ? item.investigationEvidence : []
       const fingerprint = String(item.docMeta?.docHash ?? '').replace(/^sha256:/, '').slice(0, 8)
       return h('div', { 'data-detail-content': 'record', style: { minWidth: 0 } },
         h(CollectedTimeline, { key: `${item.root ?? root}:${item.id}:${record.timelineFingerprint ?? ''}`, root: item.root ?? root, requirementId: item.id, record, onNavigate, onRefresh }),
+        h(ArchitectureLedgerPanel, { architecture, release: detail.summaries?.release }),
         relations.length ? h(DetailBlock, { title: '归属关系', sectionId: 'record-relations' }, relations.map(entry => h(DetailRow, { key: entry.label, label: entry.label }, entry.ids.join('、')))) : null,
         github && (github.issue || github.url || github.board || github.tasks) ? h(DetailBlock, { title: 'GitHub', sectionId: 'record-github' }, github.issue ? h(DetailRow, { label: 'Issue' }, github.issue) : null, github.url ? h(DetailRow, { label: '链接' }, safeHttpHref(github.url) ? h('a', { href: github.url, target: '_blank', rel: 'noreferrer' }, github.url) : github.url) : null, github.board ? h(DetailRow, { label: '看板' }, github.board) : null) : null,
         hasDefects ? h(DetailBlock, { title: '缺陷记录', sectionId: 'record-defects' }, [defects.own, ...(defects.related ?? []), ...(defects.closedHistory ?? [])].filter(Boolean).map((defect, index) => h(DetailRow, { key: index, label: '缺陷' }, `${defect.id ?? defect}${defect.statusLabel ? ' · ' + defect.statusLabel : ''}`))) : null,
@@ -5018,6 +5020,30 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function ArchitectureLedgerPanel({ architecture, release }) {
+      if (!architecture?.path) return null
+      const sourceControl = release?.sourceControl ?? null
+      const short = value => String(value ?? '').slice(0, 7)
+      const file = String(architecture.path).split('/').at(-1)
+      const list = (title, rows, render = value => value) => rows?.length
+        ? h('section', { style: { marginTop: '10px' } },
+          h('h3', { style: { margin: 0, fontSize: '12px', color: T.text } }, title),
+          h('ul', { style: { margin: '5px 0 0', paddingLeft: '18px', fontSize: '12px', color: T.text2, lineHeight: 1.65 } }, rows.map((row, index) => h('li', { key: index }, render(row)))),
+        ) : null
+      return h('details', { 'data-architecture-ledger': 'true', style: { marginTop: '12px', borderTop: `1px solid ${T.line}`, paddingTop: '10px' } },
+        h('summary', { style: { cursor: 'pointer', fontSize: '13px', color: T.text } }, `查看架构与数据模型交付档案 (${file})`),
+        h('div', { style: { marginTop: '10px', padding: '10px 12px', border: `1px solid ${T.line}`, borderRadius: '7px', background: T.layer, overflowWrap: 'anywhere' } },
+          architecture.title ? h('strong', { style: { fontSize: '13px' } }, architecture.title) : null,
+          list('需求与版本基线', architecture.baseline),
+          list('架构与模块变更', architecture.modules, module => module.role ? `${module.path}：${module.role}` : module.path),
+          list('数据模型与接口契约', architecture.contracts),
+          list('验证与证据摘要', architecture.verification),
+          sourceControl?.pushedToRemoteDev ? h('p', { 'data-dev-commit-badge': 'true', style: { margin: '12px 0 0', color: T.ok, fontSize: '12px' } }, `🌿 GitHub 远端已同步 · 开发分支提交 (develop: ${short(sourceControl.devCommitSha)})`) : null,
+          sourceControl?.pushedToMain ? h('p', { 'data-main-commit-badge': 'true', style: { margin: '5px 0 0', color: T.ok, fontSize: '12px' } }, `✅ 主干合并提交 (main: ${short(sourceControl.mainMergeCommitSha)})`) : null,
+        ),
+      )
+    }
+
     function ExecutionProgress({ item, detail, root, handlers, onAcceptance, onRefresh, onOpenSession }) {
       const run = detail.summaries?.run ?? {}
       const acceptance = detail.summaries?.acceptance ?? {}
@@ -5048,6 +5074,7 @@ window.__ModuleLoader__.load({
           released ? h('div', { 'data-release-summary': 'true', style: { marginTop: '12px', padding: '10px 12px', borderLeft: `3px solid ${T.ok}`, background: T.layer2, fontSize: '13px', color: T.text2, lineHeight: 1.6 } },
             h('strong', { style: { color: T.text } }, '发布归档已完成'),
             h('div', { style: { marginTop: '4px' } }, `发布记录 ${release.id ?? '—'} · 交付候选 ${release.candidateId ?? candidate.id ?? '—'}${release.releasedAt ? ` · ${formatLocalStamp(release.releasedAt)}` : ''}`),
+            release.sourceControl?.pushedToRemoteDev ? h('div', { 'data-release-dev-commit': 'true', style: { marginTop: '5px', color: T.ok } }, `🌿 开发分支提交 (develop: ${(release.sourceControl.devCommitSha ?? '').slice(0, 7)}) · GitHub 远端已同步`) : null,
             release.mainMerged ? h('div', { 'data-main-merged': 'true', style: { marginTop: '5px', color: T.ok } }, `✅ 代码与架构档案已合入 GitHub main 分支（Commit: ${(release.sourceControl?.mainMergeCommitSha ?? '').slice(0, 7)} · 分支: ${release.sourceControl?.devBranch ?? 'develop'} → ${release.sourceControl?.mainBranch ?? 'main'}）`) : null,
           ) : null,
           diagnostic ? h('div', { 'data-execution-diagnostic': 'true', style: { marginTop: '12px', padding: '10px 12px', borderLeft: `3px solid ${T.warn}`, background: T.layer2 } },
@@ -5069,6 +5096,7 @@ window.__ModuleLoader__.load({
           acceptance.finishedAt ? h('p', { style: { margin: '5px 0 0', fontSize: '12px', color: T.text2 } }, `最近执行：${formatLocalStamp(acceptance.finishedAt)}`) : null,
           diagnostic?.log ? h('details', { style: { marginTop: '8px', fontSize: '12px', color: T.text2 } }, h('summary', { style: { cursor: 'pointer' } }, '查看具体报错日志与诊断详情'), h('pre', { style: { margin: '8px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit' } }, diagnostic.log)) : null,
           h('p', { style: { margin: '8px 0 0', fontSize: '13px', color: candidateReady || released ? T.ok : T.text2 } }, released ? `交付候选 ${release.candidateId ?? candidate.id ?? '已生成'} 已完成签收与发布归档。` : candidate.exists ? candidateReady ? `交付候选 ${candidate.id ?? '已生成'} 已绑定当前需求与验证证据，等待人工签收。` : `交付候选：${candidate.id ?? '已生成'}，需要重新核验` : '尚未生成交付候选'),
+          h(ArchitectureLedgerPanel, { architecture: detail.record?.architecture, release }),
         ),
       )
     }

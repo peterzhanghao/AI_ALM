@@ -70,6 +70,33 @@ test('idle review-result progress exposes recovery and compact validation contro
   } finally { await browser.close() }
 })
 
+test('delivery progress renders the structured architecture ledger and Git commit badges', async () => {
+  const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+  const marker = '    return {\n      inject:'
+  const item = { id: 'REQ-LEDGER-001', title: '交付档案', closed: true, run: {} }
+  const detail = deriveDetailView({
+    ...item,
+    delivery: { key: 'closed', label: '已关闭', source: 'release' },
+    acceptance: { registered: true, latest: { result: 'pass', current: true, complete: true } },
+    candidate: { exists: true, id: 'CAND-REQ-LEDGER-001', current: true },
+    decision: { state: 'verified' },
+    release: { exists: true, id: 'REL-LEDGER', status: 'released', sourceControl: { devBranch: 'develop', devCommitSha: '1234567890abcdef', mainBranch: 'main', mainMergeCommitSha: 'abcdef0123456789', pushedToRemoteDev: true, pushedToMain: true } },
+    architectureLedger: { path: 'requirements/architecture/REQ-LEDGER-001-design.md', title: 'REQ-LEDGER-001 架构与数据模型交付档案', baseline: ['需求：REQ-LEDGER-001 · v1'], modules: [{ path: 'packages/alm-core/src/requirements/release.mjs', role: '需求领域模型、验证与交付状态' }], contracts: ['沿用既有数据与接口契约。'], verification: ['AC-01：通过'] },
+  })
+  const entry = `import React from 'react'; import {createRoot} from 'react-dom/client'; window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestProgress = ExecutionProgress;\n' + marker)} const item=${JSON.stringify(item)}, detail=${JSON.stringify(detail)}; createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestProgress,{item,detail,root:'D:/test',handlers:{},onRefresh:()=>{}}));`
+  const bundle = await build({ stdin: { contents: entry, resolveDir: fileURLToPath(new URL('../../../', import.meta.url)), loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
+  const browser = await chromium.launch({ headless: true })
+  const page = await browser.newPage()
+  await page.route('http://test.local/**', route => route.fulfill(route.request().url().endsWith('/app.js') ? { contentType: 'text/javascript', body: bundle.outputFiles[0].text } : { contentType: 'text/html', body: '<div id="root"></div><script type="module" src="/app.js"></script>' }))
+  try {
+    await page.goto('http://test.local/')
+    await page.locator('[data-architecture-ledger]').first().getByText(/查看架构与数据模型交付档案/).click()
+    assert.equal(await page.getByText('packages/alm-core/src/requirements/release.mjs：需求领域模型、验证与交付状态').isVisible(), true)
+    assert.equal(await page.locator('[data-dev-commit-badge]').isVisible(), true)
+    assert.equal(await page.locator('[data-main-commit-badge]').isVisible(), true)
+  } finally { await browser.close() }
+})
+
 for (const stalledStage of ['fetch', 'body']) test(`timeline ${stalledStage} timeout permits retry and ignores a late response`, async () => {
   const versions = Array.from({ length: 51 }, (_, index) => ({ date: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(), subject: `event-${index}` }))
   const item = { id: 'REQ-A', versions }

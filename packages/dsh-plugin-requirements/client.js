@@ -3771,6 +3771,7 @@ window.__ModuleLoader__.load({
       const record = detail.record ?? {};
       const relations = relationRows((record.relations ?? []).length ? record.relations : relationsOf(item, allItems)).filter((entry) => entry.ids?.length);
       const github = record.github;
+      const architecture = record.architecture;
       const defects = detail.summaries?.defects ?? {};
       const hasDefects = defects.own || defects.related?.length || defects.closedHistory?.length;
       const evidence = Array.isArray(item.investigationEvidence) ? item.investigationEvidence : [];
@@ -3779,6 +3780,7 @@ window.__ModuleLoader__.load({
         "div",
         { "data-detail-content": "record", style: { minWidth: 0 } },
         h(CollectedTimeline, { key: `${item.root ?? root}:${item.id}:${record.timelineFingerprint ?? ""}`, root: item.root ?? root, requirementId: item.id, record, onNavigate, onRefresh }),
+        h(ArchitectureLedgerPanel, { architecture, release: detail.summaries?.release }),
         relations.length ? h(DetailBlock, { title: "\u5F52\u5C5E\u5173\u7CFB", sectionId: "record-relations" }, relations.map((entry) => h(DetailRow, { key: entry.label, label: entry.label }, entry.ids.join("\u3001")))) : null,
         github && (github.issue || github.url || github.board || github.tasks) ? h(DetailBlock, { title: "GitHub", sectionId: "record-github" }, github.issue ? h(DetailRow, { label: "Issue" }, github.issue) : null, github.url ? h(DetailRow, { label: "\u94FE\u63A5" }, safeHttpHref(github.url) ? h("a", { href: github.url, target: "_blank", rel: "noreferrer" }, github.url) : github.url) : null, github.board ? h(DetailRow, { label: "\u770B\u677F" }, github.board) : null) : null,
         hasDefects ? h(DetailBlock, { title: "\u7F3A\u9677\u8BB0\u5F55", sectionId: "record-defects" }, [defects.own, ...defects.related ?? [], ...defects.closedHistory ?? []].filter(Boolean).map((defect, index) => h(DetailRow, { key: index, label: "\u7F3A\u9677" }, `${defect.id ?? defect}${defect.statusLabel ? " \xB7 " + defect.statusLabel : ""}`))) : null,
@@ -4796,6 +4798,34 @@ ${text}`)) continue;
         )
       );
     }
+    function ArchitectureLedgerPanel({ architecture, release }) {
+      if (!architecture?.path) return null;
+      const sourceControl = release?.sourceControl ?? null;
+      const short = (value) => String(value ?? "").slice(0, 7);
+      const file = String(architecture.path).split("/").at(-1);
+      const list = (title, rows, render = (value) => value) => rows?.length ? h(
+        "section",
+        { style: { marginTop: "10px" } },
+        h("h3", { style: { margin: 0, fontSize: "12px", color: T.text } }, title),
+        h("ul", { style: { margin: "5px 0 0", paddingLeft: "18px", fontSize: "12px", color: T.text2, lineHeight: 1.65 } }, rows.map((row2, index) => h("li", { key: index }, render(row2))))
+      ) : null;
+      return h(
+        "details",
+        { "data-architecture-ledger": "true", style: { marginTop: "12px", borderTop: `1px solid ${T.line}`, paddingTop: "10px" } },
+        h("summary", { style: { cursor: "pointer", fontSize: "13px", color: T.text } }, `\u67E5\u770B\u67B6\u6784\u4E0E\u6570\u636E\u6A21\u578B\u4EA4\u4ED8\u6863\u6848 (${file})`),
+        h(
+          "div",
+          { style: { marginTop: "10px", padding: "10px 12px", border: `1px solid ${T.line}`, borderRadius: "7px", background: T.layer, overflowWrap: "anywhere" } },
+          architecture.title ? h("strong", { style: { fontSize: "13px" } }, architecture.title) : null,
+          list("\u9700\u6C42\u4E0E\u7248\u672C\u57FA\u7EBF", architecture.baseline),
+          list("\u67B6\u6784\u4E0E\u6A21\u5757\u53D8\u66F4", architecture.modules, (module) => module.role ? `${module.path}\uFF1A${module.role}` : module.path),
+          list("\u6570\u636E\u6A21\u578B\u4E0E\u63A5\u53E3\u5951\u7EA6", architecture.contracts),
+          list("\u9A8C\u8BC1\u4E0E\u8BC1\u636E\u6458\u8981", architecture.verification),
+          sourceControl?.pushedToRemoteDev ? h("p", { "data-dev-commit-badge": "true", style: { margin: "12px 0 0", color: T.ok, fontSize: "12px" } }, `\u{1F33F} GitHub \u8FDC\u7AEF\u5DF2\u540C\u6B65 \xB7 \u5F00\u53D1\u5206\u652F\u63D0\u4EA4 (develop: ${short(sourceControl.devCommitSha)})`) : null,
+          sourceControl?.pushedToMain ? h("p", { "data-main-commit-badge": "true", style: { margin: "5px 0 0", color: T.ok, fontSize: "12px" } }, `\u2705 \u4E3B\u5E72\u5408\u5E76\u63D0\u4EA4 (main: ${short(sourceControl.mainMergeCommitSha)})`) : null
+        )
+      );
+    }
     function ExecutionProgress({ item, detail, root, handlers, onAcceptance, onRefresh, onOpenSession }) {
       const run = detail.summaries?.run ?? {};
       const acceptance = detail.summaries?.acceptance ?? {};
@@ -4826,6 +4856,7 @@ ${text}`)) continue;
             { "data-release-summary": "true", style: { marginTop: "12px", padding: "10px 12px", borderLeft: `3px solid ${T.ok}`, background: T.layer2, fontSize: "13px", color: T.text2, lineHeight: 1.6 } },
             h("strong", { style: { color: T.text } }, "\u53D1\u5E03\u5F52\u6863\u5DF2\u5B8C\u6210"),
             h("div", { style: { marginTop: "4px" } }, `\u53D1\u5E03\u8BB0\u5F55 ${release.id ?? "\u2014"} \xB7 \u4EA4\u4ED8\u5019\u9009 ${release.candidateId ?? candidate.id ?? "\u2014"}${release.releasedAt ? ` \xB7 ${formatLocalStamp(release.releasedAt)}` : ""}`),
+            release.sourceControl?.pushedToRemoteDev ? h("div", { "data-release-dev-commit": "true", style: { marginTop: "5px", color: T.ok } }, `\u{1F33F} \u5F00\u53D1\u5206\u652F\u63D0\u4EA4 (develop: ${(release.sourceControl.devCommitSha ?? "").slice(0, 7)}) \xB7 GitHub \u8FDC\u7AEF\u5DF2\u540C\u6B65`) : null,
             release.mainMerged ? h("div", { "data-main-merged": "true", style: { marginTop: "5px", color: T.ok } }, `\u2705 \u4EE3\u7801\u4E0E\u67B6\u6784\u6863\u6848\u5DF2\u5408\u5165 GitHub main \u5206\u652F\uFF08Commit: ${(release.sourceControl?.mainMergeCommitSha ?? "").slice(0, 7)} \xB7 \u5206\u652F: ${release.sourceControl?.devBranch ?? "develop"} \u2192 ${release.sourceControl?.mainBranch ?? "main"}\uFF09`) : null
           ) : null,
           diagnostic ? h(
@@ -4852,7 +4883,8 @@ ${text}`)) continue;
           h("p", { style: { margin: 0, fontSize: "13px", color: candidateReady || released ? T.ok : verification.color } }, released ? `\u6700\u8FD1\u9A8C\u8BC1\uFF1A\u{1F7E2} \u9A8C\u8BC1\u901A\u8FC7\uFF08\u53D1\u5E03\u5F52\u6863 ${release.id ?? "\u5DF2\u5B8C\u6210"}\uFF09` : candidateReady ? `\u6700\u8FD1\u9A8C\u8BC1\uFF1A\u{1F7E2} \u9A8C\u8BC1\u901A\u8FC7\uFF08\u4EA4\u4ED8\u5019\u9009 ${candidate.id ?? "\u5DF2\u5C31\u7EEA"} \u5DF2\u5C31\u7EEA\uFF09` : `\u6700\u8FD1\u9A8C\u8BC1\uFF1A${verification.label}${diagnostic?.summary ? ` \xB7 ${diagnostic.summary}` : ""}`),
           acceptance.finishedAt ? h("p", { style: { margin: "5px 0 0", fontSize: "12px", color: T.text2 } }, `\u6700\u8FD1\u6267\u884C\uFF1A${formatLocalStamp(acceptance.finishedAt)}`) : null,
           diagnostic?.log ? h("details", { style: { marginTop: "8px", fontSize: "12px", color: T.text2 } }, h("summary", { style: { cursor: "pointer" } }, "\u67E5\u770B\u5177\u4F53\u62A5\u9519\u65E5\u5FD7\u4E0E\u8BCA\u65AD\u8BE6\u60C5"), h("pre", { style: { margin: "8px 0 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "inherit" } }, diagnostic.log)) : null,
-          h("p", { style: { margin: "8px 0 0", fontSize: "13px", color: candidateReady || released ? T.ok : T.text2 } }, released ? `\u4EA4\u4ED8\u5019\u9009 ${release.candidateId ?? candidate.id ?? "\u5DF2\u751F\u6210"} \u5DF2\u5B8C\u6210\u7B7E\u6536\u4E0E\u53D1\u5E03\u5F52\u6863\u3002` : candidate.exists ? candidateReady ? `\u4EA4\u4ED8\u5019\u9009 ${candidate.id ?? "\u5DF2\u751F\u6210"} \u5DF2\u7ED1\u5B9A\u5F53\u524D\u9700\u6C42\u4E0E\u9A8C\u8BC1\u8BC1\u636E\uFF0C\u7B49\u5F85\u4EBA\u5DE5\u7B7E\u6536\u3002` : `\u4EA4\u4ED8\u5019\u9009\uFF1A${candidate.id ?? "\u5DF2\u751F\u6210"}\uFF0C\u9700\u8981\u91CD\u65B0\u6838\u9A8C` : "\u5C1A\u672A\u751F\u6210\u4EA4\u4ED8\u5019\u9009")
+          h("p", { style: { margin: "8px 0 0", fontSize: "13px", color: candidateReady || released ? T.ok : T.text2 } }, released ? `\u4EA4\u4ED8\u5019\u9009 ${release.candidateId ?? candidate.id ?? "\u5DF2\u751F\u6210"} \u5DF2\u5B8C\u6210\u7B7E\u6536\u4E0E\u53D1\u5E03\u5F52\u6863\u3002` : candidate.exists ? candidateReady ? `\u4EA4\u4ED8\u5019\u9009 ${candidate.id ?? "\u5DF2\u751F\u6210"} \u5DF2\u7ED1\u5B9A\u5F53\u524D\u9700\u6C42\u4E0E\u9A8C\u8BC1\u8BC1\u636E\uFF0C\u7B49\u5F85\u4EBA\u5DE5\u7B7E\u6536\u3002` : `\u4EA4\u4ED8\u5019\u9009\uFF1A${candidate.id ?? "\u5DF2\u751F\u6210"}\uFF0C\u9700\u8981\u91CD\u65B0\u6838\u9A8C` : "\u5C1A\u672A\u751F\u6210\u4EA4\u4ED8\u5019\u9009"),
+          h(ArchitectureLedgerPanel, { architecture: detail.record?.architecture, release })
         )
       );
     }
@@ -14172,7 +14204,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       );
     }
     const NATIVE_SOURCE_BUILD_ID = false ? null : null;
-    const NATIVE_CLIENT_BUILD_ID = true ? "7ac848e20e3bed46dcab377b8372ee311d45e415e643ce40d673f24297e95c32" : null;
+    const NATIVE_CLIENT_BUILD_ID = true ? "566004fe6ed3d393849079e3c99a60b12f9178e9e49d5f32f67417b281b9fb6b" : null;
     function NativeDeliveryControl({ root, requirementId }) {
       const [job, setJob] = useState(null);
       const [error, setError] = useState(null);

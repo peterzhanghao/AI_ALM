@@ -39,7 +39,7 @@ function git(root, args, { allowFailure = false } = {}) {
 }
 
 function gitClean(root) {
-  const localRuntime = /^(?:\.alm\/|artifacts\/|validation\/)/
+  const localRuntime = /^(?:\.alm\/|artifacts\/|validation\/|tmp\/|\.tmp\/)/
   return git(root, ['status', '--porcelain', '--untracked-files=all'])
     .split(/\r?\n/)
     .filter(Boolean)

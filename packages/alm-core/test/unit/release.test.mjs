@@ -287,6 +287,9 @@ test('release sync merges pushed develop into origin/main and records real merge
   git(root, ['add', '.']); git(root, ['commit', '-qm', 'base release archive']); git(root, ['push', '-u', 'origin', 'main'])
   git(root, ['checkout', '-qb', 'develop']); writeFileSync(join(root, 'delivery.mjs'), 'export const delivered = true\n')
   git(root, ['add', '.']); git(root, ['commit', '-qm', 'feat delivery']); git(root, ['push', '-u', 'origin', 'develop'])
+  mkdirSync(join(root, '.alm/runs'), { recursive: true }); writeFileSync(join(root, '.alm/runs/RUN-1.json'), '{}')
+  mkdirSync(join(root, 'artifacts'), { recursive: true }); writeFileSync(join(root, 'artifacts/debug.json'), '{}')
+  mkdirSync(join(root, 'validation'), { recursive: true }); writeFileSync(join(root, 'validation/README.md'), 'local only')
 
   const result = syncRequirementReleaseToMain({ root, requirementId: 'REQ-GIT', releaseId: 'REL-001', revision: 5, apply: true })
   assert.equal(result.applied, true, JSON.stringify(result.sourceControl))

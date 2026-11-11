@@ -1475,10 +1475,20 @@ test('released delivery projects a verified develop to main merge credential', (
         pushedToMain: true,
       },
     },
+    architectureLedger: {
+      path: 'requirements/architecture/REQ-ALM-012-design.md',
+      title: 'REQ-ALM-012 架构与数据模型交付档案',
+      baseline: ['需求：REQ-ALM-012 · v5'],
+      modules: [{ path: 'packages/dsh-plugin-requirements/client-source.js', role: 'DSH 插件接口与用户视图' }],
+      contracts: ['沿用既有数据与接口契约。'],
+      verification: ['AC-01：通过'],
+    },
   }), { now: NOW })
   assert.equal(view.summaries.release.mainMerged, true)
   assert.equal(view.summaries.release.sourceControl.mainBranch, 'main')
   assert.match(view.context.explanation, /代码与架构档案已合入 GitHub main 分支/)
   assert.doesNotMatch(view.verificationSummary.explanation, /缺少 GitHub 合并凭据/)
+  assert.equal(view.record.architecture.path, 'requirements/architecture/REQ-ALM-012-design.md')
+  assert.equal(view.record.architecture.modules[0].path, 'packages/dsh-plugin-requirements/client-source.js')
 })
 
