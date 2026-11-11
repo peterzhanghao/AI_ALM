@@ -1460,3 +1460,25 @@ test('execution diagnostics translate scope and acceptance failures into actiona
   assert.doesNotMatch(environment.currentMatter.explanation, /environment-blocked/)
 })
 
+test('released delivery projects a verified develop to main merge credential', () => {
+  const view = deriveDetailView(baseItem({
+    delivery: { schema: 'alm.delivery.state/v1', key: 'closed', label: '已关闭', source: 'release' },
+    release: {
+      exists: true,
+      id: 'REL-002',
+      status: 'released',
+      label: '已发布',
+      sourceControl: {
+        devBranch: 'develop',
+        mainBranch: 'main',
+        mainMergeCommitSha: '615178757f804a86ea313dd09b85c0497acf9f8f',
+        pushedToMain: true,
+      },
+    },
+  }), { now: NOW })
+  assert.equal(view.summaries.release.mainMerged, true)
+  assert.equal(view.summaries.release.sourceControl.mainBranch, 'main')
+  assert.match(view.context.explanation, /代码与架构档案已合入 GitHub main 分支/)
+  assert.doesNotMatch(view.verificationSummary.explanation, /缺少 GitHub 合并凭据/)
+})
+
