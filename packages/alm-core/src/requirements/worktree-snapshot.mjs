@@ -6,9 +6,11 @@ import { sha256 } from '../model/content-hash.mjs'
 
 const MAX_FILES = 2000
 const MAX_FILE_BYTES = 4 * 1024 * 1024
-const EXCLUDED_PREFIXES = ['.git/', '.alm/', 'node_modules/', 'dist/', 'tmp/', 'artifacts/', 'validation/']
+const EXCLUDED_PREFIXES = ['.git/', '.alm/', 'node_modules/', 'dist/', 'tmp/', 'artifacts/', 'validation/', 'requirements/architecture/']
 
-/** Content scope deliberately excludes generated evidence, dependencies and tmp. */
+/** Content scope deliberately excludes generated evidence, dependencies and tmp.
+ * The architecture ledger is generated documentation bound by its own hash in
+ * the candidate; regenerating it must not make a fresh acceptance stale. */
 export function worktreeSnapshot(root, { exec = execFileSync } = {}) {
   const repo = resolve(root), reasons = [], files = []
   const git = (args) => {

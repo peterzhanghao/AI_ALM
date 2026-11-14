@@ -538,7 +538,7 @@ export function releaseViewFor({ root, requirementId }) {
     // Legacy releases bind a candidate but do not record its requirement revision.
     // Read that immutable candidate, never infer a new iteration from dirty files.
     const candidate = delivery.candidateId ? readCandidate(root, requirementId, delivery.candidateId) : null
-    return {
+    const summary = {
       exists: true,
       id: record.id,
       status: record.status,
@@ -555,6 +555,8 @@ export function releaseViewFor({ root, requirementId }) {
       requirementHash: delivery.requirementHash ?? candidate?.requirementHash ?? null,
       treeHash: delivery.treeHash ?? candidate?.treeHash ?? null,
     }
+    // sourceControl is written after the original archive-only release. Keep it
+    // in the query projection so Desktop can verify the eventual main merge.
     if (record.sourceControl) {
       summary.sourceControl = record.sourceControl
       summary.mainMerged = record.sourceControl.pushedToMain === true && Boolean(record.sourceControl.mainMergeCommitSha)

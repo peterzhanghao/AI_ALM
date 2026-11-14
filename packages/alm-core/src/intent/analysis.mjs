@@ -103,6 +103,24 @@ function cleanModelText(value, { max = 4000, field = 'value', path = field, warn
   return cleanLine(text, { max, field })
 }
 
+/**
+ * The canonical requirement document deliberately preserves paragraph breaks
+ * in its goal and problem sections. Treat LF/CRLF as document whitespace,
+ * while retaining the control-character boundary for NUL, tabs and other
+ * invisible bytes.
+ */
+function cleanMultilineModelText(value, { max = 4000, field = 'value', path = field, warnings } = {}) {
+  const raw = asString(value, max + 1)
+  if (raw.trim() === '') return ''
+  const withoutHtml = HTML_TAG_RE.test(raw) ? stripHtml(raw) : raw
+  if (withoutHtml !== raw && warnings) warnings.push(`${path}: 含 HTML 标签，已剥离为纯文本（sanitized-html）`)
+  const text = withoutHtml.replace(/\r\n?/g, '\n').trim()
+  if (/[\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F]/.test(text)) {
+    throw intentError('invalid-request', `${field} must not contain control characters`)
+  }
+  return text.length > max ? text.slice(0, max) : text
+}
+
 function modelStringList(value, { max = 20, maxLength = 500, path = 'list', warnings } = {}) {
   const list = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value]
   const out = []
@@ -905,8 +923,8 @@ export function normalizeDocDraft(raw, {
     title: cleanModelText(source.title, { max: 200, field: 'docDraft.title', path: 'docDraft.title', warnings }),
     revision: Number.isInteger(source.revision) ? source.revision : Number.isInteger(revision) ? revision : null,
     docHash: null,
-    goal: cleanModelText(source.goal, { max: MAX_TEXT, field: 'docDraft.goal', path: 'docDraft.goal', warnings }),
-    problem: cleanModelText(source.problem, { max: MAX_TEXT, field: 'docDraft.problem', path: 'docDraft.problem', warnings }),
+    goal: cleanMultilineModelText(source.goal, { max: MAX_TEXT, field: 'docDraft.goal', path: 'docDraft.goal', warnings }),
+    problem: cleanMultilineModelText(source.problem, { max: MAX_TEXT, field: 'docDraft.problem', path: 'docDraft.problem', warnings }),
     features: normalizeDraftFeatures(source.features, warnings),
     scope: modelStringList(source.scope, { max: 30, maxLength: 500, path: 'docDraft.scope', warnings }),
     outOfScope: modelStringList(source.outOfScope, { max: 30, maxLength: 500, path: 'docDraft.outOfScope', warnings }),

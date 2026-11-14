@@ -16,8 +16,30 @@ test('views distinguish pending work and include closed in all', () => {
   }
 })
 
-test('all is the initial and project-switch default', () => {
-  assert.match(source, /const DEFAULT_REQUIREMENT_VIEW = 'all'/)
+test('mine (待我处理) is the initial and project-switch default', () => {
+  assert.match(source, /const DEFAULT_REQUIREMENT_VIEW = 'mine'/)
+  assert.match(source, /useState\(\(\) => readV4Navigation\(\)\.filter \?\? DEFAULT_REQUIREMENT_VIEW\)/)
   assert.match(source, /const applyProject = \(id\) => \{\s*setSelectedId\(null\)\s*setFilter\(DEFAULT_REQUIREMENT_VIEW\)/)
-  assert.equal(context.matchesView({ delivery: { key: 'in-progress' } }, 'pending'), false)
+  // 待我处理 means human work, not every open requirement: an in-progress run
+  // without a question stays out, while a pending acceptance lands in it.
+  assert.equal(context.matchesView({ delivery: { key: 'in-progress' } }, 'mine'), false)
+  assert.equal(context.matchesView({ delivery: { key: 'awaiting-acceptance' } }, 'mine'), true)
+  assert.equal(context.matchesView({ delivery: { key: 'closed' }, detailView: { question: 'q' } }, 'mine'), false)
+})
+
+test('a saved pre-upgrade navigation cannot mask the 待我处理 default', () => {
+  const version = source.match(/const NAVIGATION_VERSION = (\d+)/)?.[0]
+  assert.ok(version, 'navigation schema version is declared')
+  assert.match(source, /viewVersion: NAVIGATION_VERSION/)
+  const start = source.indexOf('    function readV4Navigation() {')
+  const end = source.indexOf('    async function saveExchangeFile', start)
+  assert.ok(start > 0 && end > start)
+  const storage = { value: JSON.stringify({ filter: 'all', source: 'all', keyword: '' }) }
+  const context = vm.createContext({ sessionStorage: { getItem: () => storage.value } })
+  vm.runInContext(`${version}\n${source.slice(start, end)}\nthis.read = readV4Navigation`, context)
+  // The old 'all' default was persisted on first paint, not chosen by a human.
+  assert.equal(context.read().filter, undefined)
+  assert.equal(context.read().keyword, '')
+  storage.value = JSON.stringify({ filter: 'awaiting', viewVersion: Number(version.split('=')[1]) })
+  assert.equal(context.read().filter, 'awaiting')
 })

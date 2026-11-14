@@ -327,6 +327,14 @@ test('resumable selector prefers active and only the latest restart failure, nev
   const third=createRun({root,requirementId:'REQ-A',carrier:'mock'}).run
   updateRun({root,runId:third.id,status:'failed',failure:{code:'ordinary-failure'},apply:true})
   assert.equal(resumableRunFor(root,'REQ-A'),null)
+  const fourth=createRun({root,requirementId:'REQ-A',carrier:'mock',sessionId:'transport-session'}).run
+  updateRun({root,runId:fourth.id,status:'failed',phase:'interrupted',failure:{code:'transport-failed',hostCode:'TRANSPORT'},apply:true})
+  assert.equal(resumableRunFor(root,'REQ-A').id,fourth.id,'a host transport failure retains the checkpoint for resume')
+  assert.deepEqual(readRun(root,fourth.id).interruptedSessions,['transport-session'])
+  const legacy = createRun({root,requirementId:'REQ-LEGACY',carrier:'mock',sessionId:'legacy-transport'}).run
+  updateRun({root,runId:legacy.id,status:'failed',phase:'implement',failure:{code:'TRANSPORT'},apply:true})
+  assert.equal(resumableRunFor(root,'REQ-LEGACY').id,legacy.id,'older uppercase TRANSPORT records remain recoverable')
+  assert.deepEqual(readRun(root,legacy.id).interruptedSessions,['legacy-transport'])
   assert.equal(resumableRunFor(root,'OTHER'),null)
  } finally {rmSync(root,{recursive:true,force:true})}
 })

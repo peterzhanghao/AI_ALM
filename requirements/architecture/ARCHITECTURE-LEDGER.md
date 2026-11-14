@@ -6,3 +6,4 @@
 
 | REQ-ALM-012 | v5 | [需求列表展示收敛变更状态与版本徽章](REQ-ALM-012-design.md) |
 | REQ-ALM-011 | v2 | [需求列表长标题自动提炼与主操作按钮语义优化](REQ-ALM-011-design.md) |
+| REQ-ALM-015 | v1 | [需求列表默认显示待我处理tab页面](REQ-ALM-015-design.md) |

@@ -12,6 +12,7 @@ import {
   readAcceptanceEvidence,
   runAcceptance,
 } from '../../src/acceptance/acceptance.mjs'
+import { MAX_VERIFICATION_TEST_FILES } from '../../src/requirements/blueprint-guard.mjs'
 import { gitHead } from '../../src/approvals/approval.mjs'
 import { requirementContentHash, testRevisionHash } from '../../src/model/content-hash.mjs'
 
@@ -232,6 +233,17 @@ test('acceptance rejects legacy unscoped Node discovery before spawning', () => 
   assert.equal(calls, 0)
 })
 
+test('acceptance rejects a legacy repository-wide package test before spawning', () => {
+  const root = makeRepo()
+  writeConfig(root, 'REQ-X-001', [{ id: 'unsafe', command: ['pnpm', 'test'], timeoutMs: 120000 }])
+  let calls = 0
+  assert.throws(
+    () => runAcceptance({ root, requirementId: 'REQ-X-001', apply: true, exec: () => { calls += 1; return { status: 0 } } }),
+    (error) => error.code === 'generic-test-command',
+  )
+  assert.equal(calls, 0)
+})
+
 test('explicit Node test scope runs without discovering a failing tmp copy', () => {
   const root = makeRepo()
   mkdirSync(join(root, 'test'), { recursive: true })
@@ -344,6 +356,25 @@ test('v1 evidence is read only compatible and marked incomplete, never migrated'
   // The old file is preserved verbatim: no migration, no deletion.
   assert.ok(existsSync(v1File))
   assert.equal(JSON.parse(readFileSync(v1File, 'utf8')).schema, 'alm.acceptance/v1')
+})
+
+test('an oversized timed-out command explains how to narrow the acceptance set', () => {
+  const root = makeRepo()
+  const asset = requirementAsset()
+  const files = Array.from({ length: MAX_VERIFICATION_TEST_FILES + 1 }, (_, index) => `test/case-${index}.test.mjs`)
+  writeConfig(root, 'REQ-X-001', [{ id: 'wide', command: ['node', '--test', ...files], timeoutMs: 30000 }])
+  const run = runAcceptance({
+    root,
+    requirementId: 'REQ-X-001',
+    apply: true,
+    context: contextOf(asset),
+    exec: () => ({ error: Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' }), signal: 'SIGTERM' }),
+  })
+  const diagnostic = acceptanceSummary(root, 'REQ-X-001', run.headSha, contextOf(asset)).latest.diagnostic
+  assert.equal(diagnostic.category, 'timeout')
+  assert.match(diagnostic.summary, /收窄验收命令/)
+  assert.equal(diagnostic.scale.fileCount, MAX_VERIFICATION_TEST_FILES + 1)
+  assert.equal(diagnostic.scale.max, MAX_VERIFICATION_TEST_FILES)
 })
 
 test('acceptance summary exposes a redacted diagnostic for a failed command', () => {

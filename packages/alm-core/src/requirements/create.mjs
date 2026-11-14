@@ -118,13 +118,16 @@ function feedbackSourceSection(feedback) {
 }
 
 const META_TAIL = /\n*<!--\s*alm:meta[\s\S]*?-->\s*$/
-const AUTO_TITLE_LIMIT = 28
+// Keep generated titles compact enough for dense list views while preserving
+// the essential wording from an intent clarification. The ellipsis is part of
+// this limit, so generated titles never exceed 50 characters.
+const AUTO_TITLE_LIMIT = 50
 
 function conciseTitle(value) {
   const raw = String(value ?? '').replace(/\s+/g, ' ').trim()
   if (raw.length <= AUTO_TITLE_LIMIT) return raw
   const firstClause = raw.split(/[。！？；;\n]/)[0]?.trim() || raw
-  const preferred = firstClause.length > AUTO_TITLE_LIMIT ? firstClause.slice(0, AUTO_TITLE_LIMIT) : firstClause
+  const preferred = firstClause.length >= AUTO_TITLE_LIMIT ? firstClause.slice(0, AUTO_TITLE_LIMIT - 1) : firstClause
   return `${preferred.replace(/[，,、\s]+$/, '')}…`
 }
 

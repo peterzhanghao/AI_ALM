@@ -2,6 +2,7 @@ import { parseAiJson } from './ai-review.mjs'
 
 export const AI_DRAFT_SCHEMA = 'alm.ai-draft/v1'
 const PRIORITIES = new Set(['P0', 'P1', 'P2'])
+const AUTO_TITLE_LIMIT = 50
 
 export class AiDraftError extends Error {
   constructor(message, { code = 'ai-draft', status = 400 } = {}) {
@@ -14,7 +15,7 @@ export class AiDraftError extends Error {
 
 function fallbackTitle(intent) {
   const first = String(intent).split(/\r?\n/)[0].replace(/^[-*#\s]+/, '').trim()
-  return (first || '未命名需求').slice(0, 40)
+  return (first || '未命名需求').slice(0, AUTO_TITLE_LIMIT)
 }
 
 function text(value) {
@@ -90,7 +91,7 @@ export function normalizeDraft(payload, { intent = '', extractedText = '' } = {}
   const source = payload && typeof payload === 'object' ? payload : {}
   let title = text(source.title).replace(/^#+\s*/, '').replace(/^["'“”]+|["'“”]+$/g, '').trim()
   if (title === '') title = fallbackTitle(intent)
-  title = title.slice(0, 200)
+  title = title.slice(0, AUTO_TITLE_LIMIT)
 
   let brief = text(source.brief)
   if (brief === '') brief = `## 背景\n\n${String(intent).trim()}\n\n## 目标\n\n（待补充）`
@@ -132,7 +133,7 @@ const SYSTEM_PROMPT = [
   'AI 输出只是候选，不会写入正式状态；不能替人做决定。',
   'JSON 结构：',
   '{',
-  '  "title": "不超过 30 字的标题，动词开头，具体可检索",',
+  '  "title": "可检索的对象 + 核心能力/结果短语，优先 12-24 字，不超过 50 字",',
   '  "brief": "Markdown：必须含 ## 背景、## 目标、## 范围外、## 关键决策、## 验收线索 五节；保留用户原意，不足处用（待确认）标注",',
   '  "claim": "这条需求要解决的核心断言，一句话，不超过 80 字",',
   '  "suggestedPriority": "P0 | P1 | P2 或空字符串；这只是建议，不是结论",',
@@ -148,6 +149,7 @@ const SYSTEM_PROMPT = [
   '- 不要输出 "priority" 或 "owner" 字段；优先级只放 suggestedPriority 供人工确认，负责人一律留空由人工指定。',
   '- 不得编造预期收益、具体数字、接口或负责人；没有依据就写进 unknowns 或用（待确认）标注。',
   '- sourceRefs 必须引用下方提供的聊天/截图原文行号，格式 #L<行号>（从 1 开始）；没有原文可引用时输出空数组。',
+  '- title 必须先提炼语义，不得复制、截断或拼接用户原话，不得以省略号结尾；标题只概括已提供的信息。',
   '- title 与 brief 使用中文；不要编造具体数字与接口。',
 ].join('\n')
 

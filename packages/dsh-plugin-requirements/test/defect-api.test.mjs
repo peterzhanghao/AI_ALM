@@ -256,7 +256,7 @@ test('confirm preview starts nothing; a real confirm starts execution and record
     assert.equal(confirmed.payload.execution.reason, undefined)
     assert.equal(createCalls, 1)
     assert.equal(followups.length, 1)
-    const runs = listDir(join(root, '.alm/runs'))
+    const runs = listDir(join(root, '.alm/runs')).filter((name) => !name.endsWith('-blueprint.json'))
     assert.equal(runs.length, 1)
     assert.equal(confirmed.payload.iteration?.run, confirmed.payload.execution.runId)
     const updated = readJson(join(root, '.alm/defects', defect.id + '.json'))

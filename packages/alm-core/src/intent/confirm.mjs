@@ -812,7 +812,7 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
 
   const confirmedArtifact = planned.find((entry) => entry?.kind === 'requirement' || entry?.kind === 'change-draft') ?? null
   const confirmedDoc = confirmedArtifact?.document ?? null
-  const confirmedDocHash = confirmedArtifact?.documentHash ?? (confirmedDoc ? docHashOf(renderDoc(confirmedDoc)) : null)
+  let confirmedDocHash = confirmedArtifact?.documentHash ?? (confirmedDoc ? docHashOf(renderDoc(confirmedDoc)) : null)
 
   const baseRevisions = {}
   for (const entry of planned) {
@@ -863,6 +863,13 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
       artifacts.push(artifact)
       journal.artifacts = artifacts
       writeJournal({ root, receiptId, journal })
+    }
+    // The receipt must describe the bytes that actually landed on disk. A
+    // re-render (or a plan/doc mismatch) must never leave the receipt pointing
+    // at a document hash the written brief does not have.
+    if (confirmedArtifact?.kind === 'requirement') {
+      const briefPath = confirmedArtifact.briefFile ?? `requirements/briefs/${confirmedArtifact.requirementId}.md`
+      try { confirmedDocHash = docHashOf(readFileSync(join(root, briefPath), 'utf8')) } catch {}
     }
     const warnings = [
       ...(readiness.warnings ?? []),

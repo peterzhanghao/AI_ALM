@@ -1,15 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
+import { isGenericTestCommand } from '../alm-core/src/acceptance/acceptance.mjs'
+import { deriveVerificationCommand, readBlueprint, verificationCommandDiagnosis } from '../alm-core/src/requirements/blueprint-guard.mjs'
+import { worktreeSnapshot } from '../alm-core/src/requirements/worktree-snapshot.mjs'
 
 /**
  * AI-driven entry gate (ALM preflight).
  *
  * Product rule: starting development must not be a manual checklist. The gate
- * runs itself when the user asks to start, repairs every evidence gap it can
- * repair deterministically (run/save review, adopt the AI review, register an
- * acceptance command derived from the repository, execute acceptance), records
- * the whole run, and only stops to ask the user when a gap is genuinely
- * ambiguous (review blockers, data anomalies, no derivable command).
+ * runs itself when the user asks to start, registers a derivable acceptance
+ * command, and records every existing review/verification fact as work for
+ * the delivery run. It deliberately does not run review or acceptance before
+ * implementation: those are outcomes of the development task, not admission
+ * prerequisites.
  *
  * Failing acceptance evidence is NOT a blocker here: a failing suite is work
  * for development, so it becomes a carry-over item instead of a locked button.
@@ -32,37 +36,73 @@ export function stepMeta(status) {
 }
 
 /**
- * Derive a safe acceptance command from the repository itself. Only the
- * package.json script name and the detected package manager are used; the
- * command still goes through the acceptance whitelist (node/npm/pnpm).
+ * Derive a requirement-scoped acceptance command from investigated and planned
+ * modules. A package script such as `pnpm test` is deliberately not a default:
+ * it has no requirement boundary and lets unrelated historical failures block
+ * a delivery.
  */
-export function deriveAcceptanceCommand(root) {
+export function deriveAcceptanceCommand(root, { investigationEvidence = [], asset = null, blueprint = null, changedFiles = [] } = {}) {
   const repo = resolve(root)
-  const file = join(repo, 'package.json')
-  if (!existsSync(file)) return null
-  let scripts
+  return deriveVerificationCommand({ root: repo, investigationEvidence, asset, blueprint, changedFiles })
+}
+
+export function needsTargetedAcceptance(acceptance) {
+  if (!acceptance?.registered) return true
+  const commands = acceptance.commands ?? []
+  if (commands.some(entry => isGenericTestCommand(entry?.command ?? entry))) return true
+  // A command generated from a long-lived dirty worktree can contain far more
+  // test files than its fixed timeout can cover. Re-derive a bounded command
+  // instead of letting a restart repeat the same guaranteed timeout.
+  return commands.some(entry => {
+    const diagnosis = verificationCommandDiagnosis(entry?.command ?? entry, entry?.timeoutMs)
+    return diagnosis.oversized || diagnosis.underBudget
+  })
+}
+
+/**
+ * Files changed since this run's blueprint baseline. A repository that has
+ * accumulated several rounds of uncommitted work must not make a new
+ * requirement own every historical change; only the current round counts.
+ */
+function runScopedChangedFiles(root, item) {
+  const runId = item?.run?.id
+  if (!runId) return []
   try {
-    scripts = JSON.parse(readFileSync(file, 'utf8')).scripts ?? {}
+    const baseline = new Map((readBlueprint(root, runId)?.baseline?.files ?? [])
+      .map(entry => [String(entry?.path ?? '').replaceAll('\\', '/'), entry?.hash]))
+    if (baseline.size === 0) return []
+    return worktreeSnapshot(root).files
+      .filter(entry => baseline.get(String(entry.path).replaceAll('\\', '/')) !== entry.hash)
+      .map(entry => entry.path)
   } catch {
-    return null
+    return []
   }
-  const name = ['test', 'ci', 'verify'].find((key) => typeof scripts[key] === 'string' && scripts[key].trim() !== '')
-  if (!name) return null
-  const runner = existsSync(join(repo, 'pnpm-lock.yaml')) ? 'pnpm' : existsSync(join(repo, 'package-lock.json')) ? 'npm' : 'pnpm'
+}
+
+function derivationInput(item) {
   return {
-    name,
-    runner,
-    command: [runner, name],
-    timeoutMs: 10 * 60 * 1000,
-    reason: `从 package.json 的 scripts.${name} 推导：${runner} ${name}`,
+    investigationEvidence: item?.investigationEvidence ?? [],
+    asset: item?.file ? { source: { path: item.file }, extra: { brief: item.brief ?? null }, doc: item.docView?.doc ?? null } : null,
+    blueprint: item?.run?.id ? { allowedPaths: item.run.allowedPaths ?? [] } : null,
+    changedFiles: item?.run?.changedFiles ?? [],
+  }
+}
+
+function workingTreeChangedFiles(root) {
+  try {
+    const tracked = execFileSync('git', ['diff', '--name-only', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    return [...new Set(`${tracked}\n${untracked}`.split(/\r?\n/).map(path => path.trim()).filter(Boolean))]
+  } catch {
+    return []
   }
 }
 
 /**
  * What is required to *start* development, as opposed to releasing it.
- * Review readiness and a registered acceptance command are mandatory; the
- * health of the implementation (failed / stale evidence) is carried into
- * development as work, never used to lock the button.
+ * Review and acceptance evidence describe work the AI must perform, rather
+ * than proof required before work can begin. Only an unreadable requirement,
+ * a damaged workspace or a terminal archive state may lock the start action.
  */
 export function startReadiness(item) {
   const decision = item?.decision ?? null
@@ -75,23 +115,34 @@ export function startReadiness(item) {
   if (item?.status === 'archived' || state === 'archived') {
     return { ...base, ready: false, code: 'archived', label: '需求已归档', reasons: gaps }
   }
-  if (state === 'blocked') {
-    return { ...base, ready: false, code: 'review-blocked', label: '评审存在阻塞项', reasons: gaps }
+  if (Object.hasOwn(item ?? {}, 'briefText') && !String(item.briefText ?? '').trim()) {
+    return { ...base, ready: false, code: 'brief-missing', label: '需求正文为空', reasons: [{ code: 'brief-missing', message: '需求正文为空，无法生成可执行任务' }] }
   }
-  if (state === 'needs-clarification') {
-    return { ...base, ready: false, code: 'needs-clarification', label: '需求数据存在歧义', reasons: gaps }
+  if (item?.workspace?.healthy === false || item?.workspace?.damaged === true || item?.integrity?.workspaceHealthy === false) {
+    return { ...base, ready: false, code: 'workspace-damaged', label: '工作区状态异常', reasons: [{ code: 'workspace-damaged', message: '工作区状态异常，无法安全创建开发任务' }] }
+  }
+  const carryOver = []
+  const addCarryOver = entry => {
+    if (!carryOver.some(current => current.code === entry.code)) carryOver.push(entry)
+  }
+  if (state === 'blocked' || state === 'needs-clarification' || state === 'failed') {
+    addCarryOver({
+      code: decision?.topGap?.code ?? `decision-${state}`,
+      message: decision?.topGap?.message ?? decision?.label ?? '现有检查结论需要在开发过程中处理',
+      fix: '将现有检查结论带入本轮 AI 推进并在实现后重新验证',
+      evidence: null,
+    })
   }
   if (!review?.stored) {
-    return { ...base, ready: false, code: 'review-missing', label: '尚未运行评审', reasons: gaps }
+    addCarryOver({ code: 'review-not-run', message: '尚未运行评审，AI 会在本轮推进中完成检查', fix: '开发过程中完成评审并处理发现项', evidence: null })
   }
   if (!acceptance?.registered) {
-    return { ...base, ready: false, code: 'acceptance-missing', label: '未登记验收命令', reasons: gaps }
+    addCarryOver({ code: 'acceptance-missing', message: '尚未登记验收命令，启动时会尝试从仓库自动推导', fix: '开发完成后运行已登记的定向验收', evidence: null })
   }
 
   const latest = acceptance.latest ?? null
-  const carryOver = []
   if (latest && latest.result === 'fail') {
-    carryOver.push({
+    addCarryOver({
       code: 'acceptance-failed',
       message: latest.commands
         ? `上次验收 ${latest.commands} 条命令执行失败（${String(latest.finishedAt ?? '').slice(0, 19).replace('T', ' ')}）`
@@ -100,14 +151,14 @@ export function startReadiness(item) {
       evidence: latest.file ?? null,
     })
   } else if (latest && latest.current !== true) {
-    carryOver.push({
+    addCarryOver({
       code: 'evidence-stale',
       message: '验收证据与当前需求/实现不一致，进入开发后会重新执行',
       fix: '开发完成后重新执行验收',
       evidence: latest.file ?? null,
     })
   } else if (!latest) {
-    carryOver.push({
+    addCarryOver({
       code: 'acceptance-not-run',
       message: '验收尚未执行，进入开发后由 AI 运行',
       fix: '开发完成后执行验收',
@@ -135,8 +186,7 @@ function decisionOf(item) {
  * Run one preflight pass. `deps` supplies every side effect so the orchestration
  * itself stays testable:
  *   inspect() -> { requirements: [...] }
- *   runReview() | readAiReview() | generateAiReview() | adoptAiReview(report)
- *   planAcceptanceConfig(commands) | applyAcceptanceConfig(commands) | runAcceptance()
+ *   Optional review helpers and applyAcceptanceConfig(commands)
  */
 export async function runPreflight({ root, requirementId, apply = false, deps }) {
   if (!requirementId) throw Object.assign(new Error('requirementId is required'), { status: 400, code: 'requirement-required' })
@@ -167,7 +217,9 @@ export async function runPreflight({ root, requirementId, apply = false, deps })
   //    what the run would do.
   if (!item.review?.stored) {
     if (!apply) {
-      push({ code: 'review-run', status: 'skipped', title: '需要运行评审', detail: '预览模式不改写文件；开始开发时会自动运行评审' })
+      push({ code: 'review-run', status: 'carry-over', title: '评审尚未运行', detail: '作为本轮 AI 推进目标带入，不阻断启动' })
+    } else if (typeof deps.runReview !== 'function') {
+      push({ code: 'review-run', status: 'carry-over', title: '评审尚未运行', detail: '当前没有独立评审执行器；AI 会在本轮推进中完成检查' })
     } else {
       try {
         deps.runReview()
@@ -185,7 +237,13 @@ export async function runPreflight({ root, requirementId, apply = false, deps })
   //    coverage. Adoption records the sign-off (and rewrites the brief through
   //    the reviewed suggestions), so the user never signs manually.
   const reviewGap = decisionOf(item)?.topGap?.code
-  if (reviewGap === 'review-not-accepted' || reviewGap === 'coverage-incomplete' || reviewGap === 'review-not-run') {
+  const aiReviewGap = reviewGap === 'review-not-accepted' || reviewGap === 'coverage-incomplete' || reviewGap === 'review-not-run'
+  // A host that only wires the acceptance side of preflight (for example the
+  // `start` path) must still be able to launch: the review becomes this round's
+  // AI work instead of a TypeError that blocks development entirely.
+  if (aiReviewGap && typeof deps.readAiReview !== 'function') {
+    push({ code: 'ai-review-adopt', status: 'carry-over', title: '评审建议待本轮 AI 处理', detail: '宿主未提供独立评审执行器；评审与建议采纳将在本轮推进中完成' })
+  } else if (aiReviewGap) {
     let report = deps.readAiReview()
     if (!report && apply) {
       try {
@@ -225,19 +283,24 @@ export async function runPreflight({ root, requirementId, apply = false, deps })
     }
   }
 
-  // 3. Register an acceptance command when the requirement has none. The
-  //    command is derived from the repository, never invented.
-  if (!item.acceptance?.registered) {
-    const derived = deriveAcceptanceCommand(root)
+  // 3. Register a targeted test set when none exists, and replace a legacy
+  //    default `pnpm test` binding before it can block this requirement again.
+  if (needsTargetedAcceptance(item.acceptance)) {
+    const input = derivationInput(item)
+    const scoped = runScopedChangedFiles(root, item)
+    // Prefer the current round's boundary; fall back to the whole working tree
+    // only when no blueprint baseline exists (for example a first start).
+    input.changedFiles = [...new Set([...input.changedFiles, ...scoped, ...(scoped.length ? [] : workingTreeChangedFiles(root))])]
+    const derived = deriveAcceptanceCommand(root, input)
     if (derived) {
       const commands = [{ id: 'cmd-1', command: derived.command, timeoutMs: derived.timeoutMs }]
       try {
         if (apply) {
           deps.applyAcceptanceConfig(commands)
-          push({ code: 'acceptance-configure', status: 'fixed', title: '登记验收命令', detail: derived.reason })
+          push({ code: 'acceptance-configure', status: 'fixed', title: '登记精准验收命令', detail: derived.reason })
           item = pickItem(deps.inspect(), requirementId) ?? item
         } else {
-          push({ code: 'acceptance-configure', status: 'skipped', title: '将登记验收命令', detail: derived.reason })
+          push({ code: 'acceptance-configure', status: 'skipped', title: '将登记精准验收命令', detail: derived.reason })
         }
       } catch (error) {
         push({ code: 'acceptance-configure', status: 'failed', title: '登记验收命令失败', detail: error?.message ?? String(error) })
@@ -246,16 +309,16 @@ export async function runPreflight({ root, requirementId, apply = false, deps })
       push({
         code: 'acceptance-configure',
         status: 'needs-decision',
-        title: '无法自动确定验收命令',
-        detail: '仓库里没有可用的 package.json 测试脚本，请手动登记验收命令',
+        title: '无法自动确定精准验收命令',
+        detail: '未找到与调查证据或执行范围对应的专项测试文件，请手动登记定向验收命令',
       })
     }
   }
 
-  // 4. Execute acceptance whenever the registered evidence is absent or stale.
-  //    A previously failing run is already a known development task: re-running
-  //    the same suite on every start would be slow and noisy, so it is carried
-  //    over instead of executed again.
+  // 4. Never execute acceptance before implementation. Both missing/stale
+  //    evidence and a known failure are explicit delivery tasks for the AI.
+  //    This prevents a first start from waiting on a suite that can only pass
+  //    after the requested change exists.
   const latest = item.acceptance?.latest ?? null
   const knownFailure = Boolean(item.acceptance?.registered) && latest?.result === 'fail'
   const needsRun =
@@ -268,25 +331,7 @@ export async function runPreflight({ root, requirementId, apply = false, deps })
       detail: '失败项作为开发任务带入，开发完成后自动重新验收',
     })
   } else if (needsRun) {
-    if (!apply) {
-      push({ code: 'acceptance-run', status: 'skipped', title: '需要执行验收', detail: '预览模式不执行命令' })
-    } else {
-      try {
-        const run = deps.runAcceptance()
-        const passed = run?.result === 'pass' || run?.evidence?.result === 'pass'
-        push({
-          code: 'acceptance-run',
-          status: passed ? 'fixed' : 'carry-over',
-          title: passed ? '执行验收并通过' : '执行验收未通过',
-          detail: passed
-            ? `${run?.evidence?.commands?.length ?? 0} 条命令通过，证据 ${run?.evidence?.file ?? ''}`.trim()
-            : '失败项会作为开发任务带入，开发完成后自动重新验收',
-        })
-        item = pickItem(deps.inspect(), requirementId) ?? item
-      } catch (error) {
-        push({ code: 'acceptance-run', status: 'failed', title: '执行验收失败', detail: error?.message ?? String(error) })
-      }
-    }
+    push({ code: 'acceptance-run', status: 'carry-over', title: '验收尚未执行', detail: '作为开发完成后的验证目标带入本轮 AI 推进' })
   } else if (latest) {
     push({
       code: 'acceptance-check',
@@ -296,7 +341,8 @@ export async function runPreflight({ root, requirementId, apply = false, deps })
     })
   }
 
-  // 5. Final readiness decides whether the flow continues to change creation.
+  // 5. Final readiness only rejects structurally unsafe starts. Historical
+  // review and acceptance outcomes are already represented as carry-over work.
   const readiness = startReadiness(item)
   let question = null
   if (!readiness.ready) {

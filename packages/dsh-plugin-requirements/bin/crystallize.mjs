@@ -7,7 +7,7 @@ import { collectEvidence, revalidateInvestigation, writeInvestigation, INVESTIGA
 import { crystallizeChatDraft } from '../intake.mjs'
 import { indexReport } from '../../alm-core/src/commands.mjs'
 import { normalizeDoc, parseDoc, renderDoc } from '../../alm-core/src/requirements/doc.mjs'
-import { confirmSpecDelta, proposeSpecDelta, requirementSpecContext } from '../../alm-core/src/requirements/convergence.mjs'
+import { confirmSpecDelta, proposeSpecDelta, requirementSpecContext, resynthesizeRequirementSpec } from '../../alm-core/src/requirements/convergence.mjs'
 import { matchRequirement } from '../../alm-core/src/requirements/matcher.mjs'
 
 const args = process.argv.slice(2)
@@ -44,11 +44,10 @@ if (values.update) {
   const draft = crystallizeChatDraft({ summary })
   if (!draft.title || !draft.goal || !draft.problem || !draft.acceptance.length) throw new Error('需要标题、目标、问题和验收标准')
   const asset = matches[0]
-  const previous = parseDoc(readFileSync(resolve(root, asset.extra.brief), 'utf8'))
+  const beforeBrief = readFileSync(resolve(root, asset.extra.brief), 'utf8')
+  const previous = parseDoc(beforeBrief)
   const next = normalizeDoc({ ...previous.doc, title: draft.title, goal: draft.goal, problem: draft.problem, acceptance: draft.acceptance.map(text => ({ text, provenance: 'human-edit' })) }, { previous: previous.doc })
-  const extras = (previous.unparsed ?? []).filter(entry => entry.title || entry.text).map(entry => `${entry.title ? `## ${entry.title}\n\n` : ''}${entry.text ?? ''}`)
-  const rendered = renderDoc(next)
-  const afterBrief = extras.length ? rendered.replace(/\n\s*<!--\s*alm:meta[^\n]*-->\s*$/, '') + `\n\n${extras.join('\n\n')}\n` : rendered
+  const afterBrief = resynthesizeRequirementSpec({ beforeBrief, feedback: summary, proposedBrief: renderDoc(next) })
   const evolutionNote = automaticMatch
     ? `🧲 跨会话自动吸附反馈：${summary.slice(0, 1000)}`
     : '主对话定稿'

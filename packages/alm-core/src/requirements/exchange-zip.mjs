@@ -16,9 +16,19 @@ export function crc32(buffer) {
   for (const byte of buffer) n = table[(n ^ byte) & 255] ^ (n >>> 8)
   return (n ^ 0xffffffff) >>> 0
 }
+// Excel, WPS and openpyxl all rewrite workbooks with explicit directory entries
+// (`_rels/`, `xl/`, `xl/worksheets/`) and a few Windows producers use
+// backslashes. Neither carries data, so normalize the separator and drop the
+// leading slash instead of rejecting an otherwise valid workbook.
+function normalizeName(raw) {
+  let name = raw.replace(/\\/g, '/')
+  while (name.startsWith('/')) name = name.slice(1)
+  return name
+}
 function validName(name) {
-  return name && !name.includes('\\') && !name.startsWith('/') && !name.includes(':') &&
-    !name.split('/').some(p => p === '..' || p === '.' || !p) && !/[\x00-\x1f]/.test(name)
+  if (!name || name.includes(':') || /[\x00-\x1f]/.test(name)) return false
+  const parts = name.split('/')
+  return parts.every((part, i) => (part === '' ? i === parts.length - 1 : part !== '.' && part !== '..'))
 }
 export function writeXlsxZip(entries) {
   const locals = [], central = []
@@ -50,6 +60,9 @@ export function readXlsxZip(input) {
   if (b.length > MAX_XLSX_BYTES) throw xlsxError('file exceeds 8 MiB')
   try {
     if (b.length < 22) throw xlsxError('truncated ZIP')
+    // A file renamed to .xlsx without being one (csv, xls, plain text) fails
+    // here; the message says so instead of blaming the ZIP directory.
+    if (b.readUInt32LE(0) !== 0x04034b50) throw xlsxError('not a valid .xlsx package (missing ZIP signature)')
     let end = -1
     for (let i = b.length - 22; i >= Math.max(0, b.length - 65557); i--) {
       if (b.readUInt32LE(i) === 0x06054b50 && i + 22 + b.readUInt16LE(i + 20) === b.length) { end = i; break }
@@ -65,8 +78,15 @@ export function readXlsxZip(input) {
       const packed = b.readUInt32LE(at + 20), unpacked = b.readUInt32LE(at + 24)
       const nl = b.readUInt16LE(at + 28), el = b.readUInt16LE(at + 30), cl = b.readUInt16LE(at + 32), pos = b.readUInt32LE(at + 42)
       if (at + 46 + nl + el + cl > end || b.readUInt16LE(at + 34) || flags & ~0x808 || ![0, 8].includes(method)) throw xlsxError('unsupported ZIP flags/compression')
-      const name = new TextDecoder('utf-8', { fatal: true }).decode(b.subarray(at + 46, at + 46 + nl))
-      if (!validName(name) || files.has(name)) throw xlsxError('unsafe or duplicate ZIP path')
+      const name = normalizeName(new TextDecoder('utf-8', { fatal: true }).decode(b.subarray(at + 46, at + 46 + nl)))
+      if (!validName(name)) throw xlsxError('unsafe ZIP path')
+      if (name.endsWith('/')) {
+        // Directory entry: no payload, no part. Editors emit one per folder.
+        if (packed || unpacked) throw xlsxError('directory ZIP entry with content')
+        at += 46 + nl + el + cl
+        continue
+      }
+      if (files.has(name)) throw xlsxError('duplicate ZIP path')
       expanded += unpacked
       if (expanded > MAX_EXPANDED || unpacked > MAX_EXPANDED) throw xlsxError('expanded ZIP exceeds 32 MiB')
       if (pos + 30 > start || b.readUInt32LE(pos) !== 0x04034b50 || b.readUInt16LE(pos + 6) !== flags || b.readUInt16LE(pos + 8) !== method) throw xlsxError('corrupt local ZIP header')

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, rmSync, readFileSync, readdirSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, rmSync, readFileSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { createServer } from 'node:http'
@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import RequirementsService from '../index.js'
 import { decodeRequirementsXlsx, encodeRequirementsXlsx } from '../../alm-core/src/requirements/exchange-xlsx.mjs'
+import { readXlsxZip, writeXlsxZip } from '../../alm-core/src/requirements/exchange-zip.mjs'
 
 test('exchange real HTTP JSON/XLSX export, preview, CAS apply and security boundaries', async () => {
   const root = mkdtempSync(join(tmpdir(), 'alm-run007-http-'))
@@ -54,28 +55,43 @@ test('exchange real HTTP JSON/XLSX export, preview, CAS apply and security bound
     }
   }
   try {
-    await denied([{ action: 'export', format: 'json' }, { action: 'initialize' }, { action: 'preview', format: 'json' }, { action: 'apply', format: 'json' }])
+    await denied([{ action: 'export', format: 'xlsx' }, { action: 'initialize' }, { action: 'preview', format: 'json' }, { action: 'apply', format: 'json' }])
     assert.equal((await fetch(url)).status, 405)
     assert.equal((await post({ action: 'export', format: 'pdf' })).status, 415)
     assert.equal((await post({ action: 'export', format: 'json' }, { origin: 'http://evil.invalid' })).status, 403)
-    assert.equal((await post({ action: 'export', format: 'json', status: 'signed' })).status, 400)
-    const uninitialized = await post({ action: 'export', format: 'json' })
-    assert.equal(uninitialized.status, 409)
-    assert.equal(uninitialized.body.error.code, 'exchange-uninitialized')
+    assert.equal((await post({ action: 'export', format: 'xlsx', status: 'signed' })).status, 400)
+    // AC-03: the export surface only produces the editable Excel workbook.
+    assert.equal((await post({ action: 'export', format: 'json' })).status, 415)
+    assert.equal((await post({ action: 'export', format: 'json' })).body.error.code, 'unsupported-format')
+    // AC-01: the first export silently provisions the project key.
+    assert.equal(existsSync(join(root, '.alm/exchange/key')), false)
+    const uninitialized = await post({ action: 'export', format: 'xlsx' })
+    assert.equal(uninitialized.status, 200, JSON.stringify(uninitialized.body))
+    assert.match(uninitialized.body.filename, /\.xlsx$/)
+    assert.equal(existsSync(join(root, '.alm/exchange/key')), true)
     assert.equal((await post({ action: 'initialize', format: 'json' })).status, 400)
     const initialized = await post({ action: 'initialize' })
     assert.equal(initialized.status, 200, JSON.stringify(initialized.body))
+    assert.equal(initialized.body.created, false)
     const key = readFileSync(join(root, '.alm/exchange/key'))
     assert.equal((await post({ action: 'initialize' })).status, 200)
     assert.deepEqual(readFileSync(join(root, '.alm/exchange/key')), key)
-    for (const format of ['json', 'xlsx']) {
-      const exported = await post({ action: 'export', format })
+    // AC-03: "current filter" scope exports only the selected requirement UIDs.
+    const filtered = await post({ action: 'export', format: 'xlsx', uids: ['REQ-PAY-004'] })
+    assert.equal(filtered.status, 200, JSON.stringify(filtered.body))
+    assert.deepEqual(decodeRequirementsXlsx(Buffer.from(filtered.body.content, 'base64')).records.map(record => record.uid), ['REQ-PAY-004'])
+    assert.equal((await post({ action: 'export', format: 'xlsx', uids: ['REQ-PAY-999'] })).status, 400)
+    assert.equal((await post({ action: 'preview', format: 'xlsx', uids: [] })).status, 400)
+    for (const format of ['xlsx', 'json']) {
+      const exported = await post({ action: 'export', format: 'xlsx' })
       assert.equal(exported.status, 200, JSON.stringify(exported.body))
       const bytes = Buffer.from(exported.body.content, 'base64')
-      const payload = format === 'json' ? JSON.parse(bytes) : decodeRequirementsXlsx(bytes)
+      // JSON import stays supported for packages produced by other agents.
+      const payload = decodeRequirementsXlsx(bytes)
       payload.records[0].values.title += ` ${format}中文HTTP`
-      const input = { format, filename: exported.body.filename, content: (format === 'json' ? Buffer.from(JSON.stringify(payload)) : encodeRequirementsXlsx(payload)).toString('base64') }
-      await denied([{ action: 'export', format }, { action: 'initialize' }, { action: 'preview', ...input }, { action: 'apply', ...input, expectedLocalHash: 'forged' }])
+      const content = format === 'json' ? Buffer.from(JSON.stringify(payload)) : encodeRequirementsXlsx(payload)
+      const input = { format, filename: `requirements.${format}`, content: content.toString('base64') }
+      await denied([{ action: 'export', format: 'xlsx' }, { action: 'initialize' }, { action: 'preview', ...input }, { action: 'apply', ...input, expectedLocalHash: 'forged' }])
       const before = readFileSync(join(root, 'requirements/refund.sdoc'), 'utf8')
       const preview = await post({ action: 'preview', ...input }, { authorization: 'Bearer test-human' })
       assert.equal(preview.status, 200, JSON.stringify(preview.body))
@@ -92,5 +108,43 @@ test('exchange real HTTP JSON/XLSX export, preview, CAS apply and security bound
       assert.equal(again.body.idempotent, true)
     }
     assert.equal((await post({ action: 'preview', format: 'json', filename: 'bad.json', content: '!!!!' })).status, 400)
+    // AC-05: the template is downloadable on its own and imports as one create.
+    assert.equal((await post({ action: 'template', format: 'json' })).status, 415)
+    const template = await post({ action: 'template' })
+    assert.equal(template.status, 200, JSON.stringify(template.body))
+    assert.match(template.body.filename, /template\.xlsx$/)
+    assert.equal(template.body.mime, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    const templatePayload = decodeRequirementsXlsx(Buffer.from(template.body.content, 'base64'))
+    assert.equal(templatePayload.records.length, 1)
+    assert.equal(templatePayload.records[0].operation, 'create')
+    assert.equal(templatePayload.records[0].uid, undefined)
+    const templateInput = { format: 'xlsx', filename: template.body.filename, content: template.body.content }
+    const templatePreview = await post({ action: 'preview', ...templateInput })
+    assert.equal(templatePreview.status, 200, JSON.stringify(templatePreview.body))
+    assert.equal(templatePreview.body.ok, true)
+    assert.deepEqual(templatePreview.body.changes.map(change => change.operation), ['create'])
+    // Spreadsheet editors rewrite the package with directory entries; the same
+    // workbook still has to import (regression: "unsafe or duplicate ZIP path").
+    const resaved = readXlsxZip(Buffer.from(template.body.content, 'base64'))
+    for (const dir of ['_rels/', 'docProps/', 'xl/', 'xl/worksheets/']) resaved.set(dir, '')
+    const resavedPreview = await post({ action: 'preview', format: 'xlsx', filename: 'requirements-template.xlsx', content: writeXlsxZip(resaved).toString('base64') })
+    assert.equal(resavedPreview.status, 200, JSON.stringify(resavedPreview.body))
+    assert.deepEqual(resavedPreview.body.changes.map(change => change.operation), ['create'])
+    // The Brief tab carries only long-brief continuations, so people delete it.
+    // A workbook without it must still import (regression: "still fails after I
+    // filled the template in Excel").
+    const dropped = readXlsxZip(Buffer.from(template.body.content, 'base64'))
+    dropped.delete('xl/worksheets/sheet2.xml')
+    dropped.set('xl/workbook.xml', dropped.get('xl/workbook.xml').toString().replace(/<sheet name="Brief"[^>]*\/>/, ''))
+    const droppedPreview = await post({ action: 'preview', format: 'xlsx', filename: 'requirements-template.xlsx', content: writeXlsxZip(dropped).toString('base64') })
+    assert.equal(droppedPreview.status, 200, JSON.stringify(droppedPreview.body))
+    assert.deepEqual(droppedPreview.body.changes.map(change => change.operation), ['create'])
+    // The build stamp is what tells the dialog that a running host is stale.
+    const version = await post({ action: 'version' })
+    assert.equal(version.status, 200)
+    assert.match(version.body.build, /^v\d/)
+    const templateApplied = await post({ action: 'apply', ...templateInput, expectedLocalHash: templatePreview.body.localHash })
+    assert.equal(templateApplied.status, 200, JSON.stringify(templateApplied.body))
+    assert.equal(templateApplied.body.applied, true)
   } finally { await new Promise(resolve => server.close(resolve)); rmSync(root, { recursive: true, force: true }) }
 })

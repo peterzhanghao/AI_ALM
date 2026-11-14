@@ -5,7 +5,9 @@ import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initializeRequirementsExchange, exportRequirements, previewRequirementsImport, applyRequirementsImport } from '../../src/requirements/exchange.mjs'
+import { initializeRequirementsExchange, exportRequirements, previewRequirementsImport, applyRequirementsImport, requirementsTemplateExport } from '../../src/requirements/exchange.mjs'
+import { encodeRequirementsXlsx, decodeRequirementsXlsx } from '../../src/requirements/exchange-xlsx.mjs'
+import { readXlsxZip, writeXlsxZip } from '../../src/requirements/exchange-zip.mjs'
 import { createRequirement, planRequirement } from '../../src/requirements/create.mjs'
 import { normalizeAsset } from '../../src/model/asset.mjs'
 const clone = x => structuredClone(x)
@@ -45,19 +47,19 @@ function rejectUnchanged(root, payload) {
   assert.equal(digest(root), before)
 }
 
-test('explicit initialization is persistent and idempotent; no-key reads never write', async t => {
+test('first export provisions the project key silently and later exports reuse it', async t => {
   const root = fixture(t)
   fs.rmSync(join(root, '.alm/exchange/key'))
   const before = digest(root)
-  assert.throws(() => exported(root), { code: 'exchange-uninitialized' })
-  assert.throws(() => previewRequirementsImport({ root, payload: { schema: 'alm.requirements.exchange/v1', exportId: 'empty', projectId: 'ALM', records: [] } }), { code: 'exchange-uninitialized' })
-  assert.equal(digest(root), before)
-  assert.equal(initializeRequirementsExchange({ root }).created, true)
-  const initialized = digest(root), key = fs.readFileSync(join(root, '.alm/exchange/key'), 'utf8')
-  assert.match(key, /^[0-9a-f]{64}$/)
-  assert.equal(initializeRequirementsExchange({ root }).created, false)
-  assert.equal(digest(root), initialized)
   const p = exported(root)
+  assert.equal(p.records.length, 2)
+  assert.notEqual(digest(root), before)
+  const key = fs.readFileSync(join(root, '.alm/exchange/key'), 'utf8')
+  assert.match(key, /^[0-9a-f]{64}$/)
+  const initialized = digest(root)
+  assert.equal(exported(root).records.length, 2)
+  assert.equal(fs.readFileSync(join(root, '.alm/exchange/key'), 'utf8'), key)
+  assert.equal(digest(root), initialized)
   const module = new URL('../../src/requirements/exchange.mjs', import.meta.url)
   module.search = `fresh=${Math.random()}`
   const fresh = await import(module.href)
@@ -67,6 +69,16 @@ test('explicit initialization is persistent and idempotent; no-key reads never w
   p.records[0].baseHash = createHash('sha256').update(JSON.stringify(Object.fromEntries(Object.entries(p.records[0].base).sort(([a], [b]) => a.localeCompare(b))))).digest('hex')
   assert.throws(() => fresh.previewRequirementsImport({ root, payload: p }), { code: 'invalid-provenance' })
   assert.equal(digest(root), initialized)
+})
+test('a create-only batch never needs the signing key and never writes one', t => {
+  const root = fixture(t)
+  fs.rmSync(join(root, '.alm/exchange/key'))
+  const before = digest(root)
+  const preview = previewRequirementsImport({ root, payload: { schema: 'alm.requirements.exchange/v1', exportId: 'create-only', projectId: 'ALM', records: [{ operation: 'create', clientId: 'row-1', projectId: 'ALM', values: { title: '新建', brief: '', priority: 'P2', owner: '' }, attachments: [] }] } })
+  assert.equal(preview.ok, true)
+  assert.equal(preview.changes[0].operation, 'create')
+  assert.equal(fs.existsSync(join(root, '.alm/exchange/key')), false)
+  assert.equal(digest(root), before)
 })
 test('initialization rejects lock, crash journal and corrupt key without writes', t => {
   const root = fixture(t), key = join(root, '.alm/exchange/key')
@@ -251,6 +263,99 @@ test('ordinary mid-commit rename failure restores all bytes, key, journals and d
   assert.equal(count, 2)
   assert.equal(digest(root), before)
   assert.equal(apply(root, p).applied, true)
+})
+test('export can be limited to the current filtered selection', t => {
+  const root = fixture(t)
+  const all = exported(root)
+  const one = exportRequirements({ root, uids: ['REQ-ALM-002'] })
+  assert.deepEqual(one.records.map(r => r.uid), ['REQ-ALM-002'])
+  assert.equal(one.schema, all.schema)
+  assert.equal(one.projectId, all.projectId)
+  assert.deepEqual(exportRequirements({ root, uids: [] }).records, [])
+  assert.throws(() => exportRequirements({ root, uids: ['REQ-ALM-999'] }), { code: 'unknown-requirement' })
+  assert.throws(() => exportRequirements({ root, uids: 'REQ-ALM-001' }), { code: 'invalid-selection' })
+  assert.throws(() => exportRequirements({ root, uids: [42] }), { code: 'invalid-selection' })
+})
+test('AC-05: the blank template is one example create, needs no key and imports as a create', t => {
+  const root = fixture(t)
+  const before = digest(root)
+  const template = requirementsTemplateExport({ root })
+  assert.equal(template.schema, 'alm.requirements.exchange/v1')
+  assert.equal(template.projectId, 'ALM')
+  assert.equal(template.records.length, 1)
+  const [sample] = template.records
+  assert.equal(sample.operation, 'create')
+  assert.equal(sample.uid, undefined)
+  assert.equal(sample.projectId, 'ALM')
+  assert.match(sample.clientId, /^template-[a-z0-9]{8}$/)
+  assert.equal(sample.values.priority, 'P2')
+  // Preparing a template is read-only: nothing in the project is touched.
+  assert.equal(digest(root), before)
+  // AC-01: a create-only batch never provisions the signing key, so a brand-new
+  // project can download a template and import it before any export exists.
+  const keyFile = join(root, '.alm/exchange/key')
+  fs.rmSync(join(root, '.alm/exchange'), { recursive: true, force: true })
+  const roundTrip = decodeRequirementsXlsx(encodeRequirementsXlsx(template))
+  assert.equal(roundTrip.records.length, 1)
+  assert.deepEqual(roundTrip.records[0].values, template.records[0].values)
+  assert.match(roundTrip.records[0].clientId, /^import-/)
+  const preview = previewRequirementsImport({ root, payload: roundTrip })
+  assert.equal(preview.ok, true)
+  assert.deepEqual(preview.changes.map(c => [c.operation, c.uid]), [['create', 'REQ-ALM-003']])
+  assert.equal(fs.existsSync(keyFile), false)
+  applyRequirementsImport({ root, payload: roundTrip, expectedLocalHash: preview.localHash })
+  assert.equal(fs.existsSync(join(root, 'requirements/req-alm-003.sdoc')), true)
+  assert.equal(fs.existsSync(keyFile), false)
+})
+function rewriteHeader(bytes, names) {
+  const files = readXlsxZip(bytes), path = 'xl/worksheets/sheet1.xml'
+  let i = 0
+  const xml = files.get(path).toString().replace(/(<c r="[A-F]1"[^>]*><is><t[^>]*>)[^<]*(<\/t>)/g, (match, open, close) => open + names[i++] + close)
+  assert.equal(i, names.length)
+  files.set(path, Buffer.from(xml))
+  return writeXlsxZip(files)
+}
+test('AC-05: the worksheet is the six fill-in columns, header frozen on row one', t => {
+  const root = fixture(t), base = exported(root), bytes = encodeRequirementsXlsx(base)
+  const sheet = readXlsxZip(bytes).get('xl/worksheets/sheet1.xml').toString()
+  const header = [...sheet.matchAll(/<c r="[A-F]1"[^>]*><is><t[^>]*>([^<]*)<\/t>/g)].map(m => m[1])
+  assert.deepEqual(header, ['需求编号', '项目', '标题', '需求描述', '优先级', '负责人'])
+  // The technical first row and the identity columns are gone.
+  assert.equal((sheet.match(/<row /g) ?? []).length, base.records.length + 1)
+  for (const gone of ['操作', '客户端标识', '基线哈希', 'exportId']) assert.equal(sheet.includes(gone), false)
+  assert.match(sheet, /<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"\/>/)
+  assert.deepEqual(decodeRequirementsXlsx(bytes).records, base.records)
+
+  // Editing the four fill-in columns flows through preview and apply.
+  const files = readXlsxZip(bytes), path = 'xl/worksheets/sheet1.xml'
+  files.set(path, files.get(path).toString().replace('>中文需求1<', '>改过的标题<'))
+  const preview = previewRequirementsImport({ root, payload: decodeRequirementsXlsx(writeXlsxZip(files)) })
+  assert.equal(preview.ok, true)
+  assert.deepEqual(preview.changes.map(c => [c.operation, c.uid, c.title]), [['update', 'REQ-ALM-001', '改过的标题']])
+
+  // Renaming a header is a structural edit, not a label tweak.
+  assert.throws(() => decodeRequirementsXlsx(rewriteHeader(bytes, ['需求编号', '项目', '名称', '需求描述', '优先级', '负责人'])), /read-only header changed/)
+  // The blank template ships the same headers and one row awaiting a title edit.
+  const template = readXlsxZip(encodeRequirementsXlsx(requirementsTemplateExport({ root }))).get('xl/worksheets/sheet1.xml').toString()
+  assert.match(template, /<t xml:space="preserve">标题<\/t>/)
+  assert.match(template, /<row r="2"><c r="A2" t="inlineStr"><is><t xml:space="preserve"><\/t>/)
+})
+test('preview reports per-record field changes and conflict fields for the diff panel', t => {
+  const root = fixture(t), base = exported(root)
+  const local = clone(base)
+  local.records[0].values.title = '本地标题'
+  apply(root, local)
+  const external = clone(base)
+  external.records[0].values.title = '外部标题'
+  external.records[1].values.owner = '外部负责人'
+  const preview = previewRequirementsImport({ root, payload: external })
+  assert.equal(preview.ok, false)
+  assert.deepEqual(preview.changes.map(c => ({ uid: c.uid, operation: c.operation, fields: c.fields, title: c.title })), [
+    { uid: 'REQ-ALM-002', operation: 'update', fields: ['owner'], title: '中文需求2' },
+  ])
+  assert.deepEqual(preview.conflicts.map(c => ({ uid: c.uid, field: c.field, title: c.title })), [
+    { uid: 'REQ-ALM-001', field: 'title', title: '本地标题' },
+  ])
 })
 test('lock conflict and unfinished crash journal fail closed without writes', t => {
   const root = fixture(t), p = exported(root)

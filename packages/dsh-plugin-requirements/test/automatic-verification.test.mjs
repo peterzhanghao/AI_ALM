@@ -29,6 +29,17 @@ function fixture(t, command = ['node', 'tests/check.cjs'], timeoutMs = 10000) {
 }
 async function drain(f) { for (let i=0;i<12;i++) { const jobs=[...(f.service.autoAdvanceJobs?.values()??[]), ...f.service.repairJobs.values()]; if(!jobs.length) break; await Promise.all(jobs) } }
 const stored = f => runs.readRun(f.root, f.runId)
+test('editing the acceptance command rebinds the active run authorization', t => {
+  const f=fixture(t)
+  const before=stored(f).checkpoint.autoAdvance.authorization.configHash
+  acceptance.applyAcceptanceConfig({root:f.root,requirementId:id,commands:[{id:'check2',command:['node','tests/check.cjs'],timeoutMs:12000}]})
+  const rebound=f.service.rebindVerificationAuthorization(f.root,id,'human:test')
+  assert.equal(rebound?.rebound,true)
+  assert.notEqual(rebound?.to,before)
+  const auth=stored(f).checkpoint.autoAdvance.authorization
+  assert.equal(auth.configHash,rebound.to)
+  assert.equal(auth.rebound.actor,'human:test')
+})
 test('carrier only changes source: host runs real registered subprocess and creates candidate, ignoring fake receipt', async t => {
   const f=fixture(t)
   writeFileSync(join(f.root,'src/value.cjs'),'module.exports=42\n')

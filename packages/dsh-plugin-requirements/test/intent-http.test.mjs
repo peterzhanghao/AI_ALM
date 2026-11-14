@@ -769,9 +769,9 @@ test('empty synchronous model response does not expose unknown finish reasons', 
     const ai = { stream: () => (async function* () { yield { type: 'finish', reason: { kind: 'private-secret-finish' } } })() }
     await withServer(root, { ai }, async ({ post }) => {
       const result = await post(analyzeText('退款进度看不到，用户一直问客服'))
-      assert.equal(result.status, 502)
+      assert.equal(result.status, 200)
+      assert.equal(result.payload.localFallback, true)
       assert.doesNotMatch(JSON.stringify(result.payload), /private-secret-finish/)
-      assert.match(result.payload.error.message, /finish=unknown/)
     })
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
@@ -1063,30 +1063,24 @@ test('invalid model JSON is repaired with exactly one retry and lands in runs[]'
   }
 })
 
-test('unusable model JSON on both attempts is a 502 with fields/rawExcerpt and a loadable session', async () => {
+test('unusable model JSON on both attempts falls back to a local draft without writing requirements', async () => {
   const root = tempFixture('alm-intent-badjson-')
   try {
     const ai = createAi(['这不是 JSON：<html>oops</html>', '仍然不是 JSON：<div>second</div>', needsInputAnalysis()])
     await withServer(root, { ai }, async ({ post, get }) => {
       const before = requirementFiles(root)
       const failed = await post(analyzeText('退款进度看不到，用户一直问客服'))
-      assert.equal(failed.status, 502, JSON.stringify(failed.payload))
-      assert.equal(failed.payload.error.code, 'ai-invalid-output')
-      assert.equal(ai.state.index, 2, 'the retry happens once and then 502 is final')
-      assert.ok(!JSON.stringify(failed.payload.error).includes('退款进度看不到'), 'error must not echo the prompt')
-      const details = failed.payload.error.details
-      assert.ok(details, 'invalid output keeps structural details')
-      assert.ok(Array.isArray(details.fields))
-      assert.equal(details.attempts, 2)
-      assert.ok(typeof details.rawExcerpt === 'string' && details.rawExcerpt.length <= 4_000)
-      assert.ok(details.rawExcerpt.includes('second'), 'rawExcerpt is the final bad answer, truncated only')
+      assert.equal(failed.status, 200, JSON.stringify(failed.payload))
+      assert.equal(failed.payload.localFallback, true)
+      assert.equal(ai.state.index, 2, 'the retry happens once and then the local draft is used')
       assert.deepEqual(requirementFiles(root), before, 'a failed analysis never writes requirements/')
 
       // Both failed attempts are in runs[], the session stays editable and a
       // fresh explicit retry can still succeed.
-      assert.ok(failed.payload.session, '5xx must carry the editable session')
+      assert.ok(failed.payload.session, 'the fallback response carries the editable session')
       const sessionId = failed.payload.session.sessionId
       assert.match(sessionId, /^INT-/)
+      assert.equal(failed.payload.session.state, 'ready_for_confirmation')
       const stored = readSession(root, sessionId)
       assert.equal(stored.runs.length, 2)
       assert.deepEqual(stored.runs.map((run) => run.status), ['error', 'error'])
@@ -1104,18 +1098,17 @@ test('unusable model JSON on both attempts is a 502 with fields/rawExcerpt and a
     rmSync(root, { recursive: true, force: true })
   }
 })
-test('no model configured returns 503 no-model with manualFallback and a saved session', async () => {
+test('no model configured falls back to a local draft with a saved editable session', async () => {
   const root = tempFixture('alm-intent-nomodel-')
   try {
     await withServer(root, { model: false }, async ({ post, get }) => {
       const before = requirementFiles(root)
       const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
-      assert.equal(status, 503)
-      assert.equal(payload.error.code, 'no-model')
-      assert.equal(payload.manualFallback, true)
+      assert.equal(status, 200)
+      assert.equal(payload.localFallback, true)
       assert.ok(payload.session)
       assert.match(payload.session.sessionId, /^INT-/)
-      assert.equal(payload.session.state, 'editing')
+      assert.equal(payload.session.state, 'ready_for_confirmation')
 
       const sessionId = payload.session.sessionId
       const loaded = await get(sessionId)
@@ -1123,8 +1116,8 @@ test('no model configured returns 503 no-model with manualFallback and a saved s
       assert.equal(loaded.payload.session.input.text, '退款进度看不到，用户一直问客服')
       assert.deepEqual(requirementFiles(root), before)
 
-      // Manual fallback: the 503 session carries a human stub item so the UI can
-      // fill the candidate and confirm even when no model is configured.
+      // The local draft still carries a human stub item so the UI can edit the
+      // candidate and confirm even when no model is configured.
       assert.equal(loaded.payload.session.items.length, 1)
       assert.equal(loaded.payload.session.items[0].itemId, 'ITM-MANUAL-1')
       const edited = await post({
@@ -1289,14 +1282,14 @@ test('intent locks with invalid owners or inconclusive process probes remain loc
   }
 })
 
-test('a provider stream error maps to 502 ai-call-failed without leaking the provider detail', async () => {
+test('a provider stream error falls back locally without leaking the provider detail', async () => {
   const root = tempFixture('alm-intent-streamfail-')
   try {
     const ai = createAi([streamError])
     await withServer(root, { ai }, async ({ post }) => {
       const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
-      assert.equal(status, 502)
-      assert.equal(payload.error.code, 'ai-call-failed')
+      assert.equal(status, 200)
+      assert.equal(payload.localFallback, true)
       assert.ok(!JSON.stringify(payload).includes('secret-key-xyz'))
       assert.ok(!JSON.stringify(payload).includes('secret'))
     })
@@ -2089,12 +2082,13 @@ test('evidence changed during model selection is rejected before calling the mod
   } finally { releaseSelection(); rmSync(root, { recursive: true, force: true }) }
 })
 
-test('investigate without a model is a 503 no-model with the editable session', async () => {
+test('investigate without a model keeps the local session and reports no-model on the model call', async () => {
   const root = tempFixture('intent-investigate-no-model-')
   try {
     await withServer(root, { model: false }, async ({ post }) => {
       const first = await post(analyzeText('退款进度看不到'))
-      assert.equal(first.status, 503, JSON.stringify(first.payload))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      assert.equal(first.payload.localFallback, true)
       const sessionId = first.payload.session.sessionId
 
       // No model ran, so the session has no generated question to fall back to;
@@ -2492,7 +2486,8 @@ test('successful and failed runs both persist server-measured timing (no fabrica
     const ai = createAi(['这不是 JSON：<html>oops</html>', '仍然不是 JSON：<div>second</div>', needsInputAnalysis()])
     await withServer(failureRoot, { ai }, async ({ post }) => {
       const failed = await post(analyzeText('退款进度看不到，用户一直问客服'))
-      assert.equal(failed.status, 502, JSON.stringify(failed.payload))
+      assert.equal(failed.status, 200, JSON.stringify(failed.payload))
+      assert.equal(failed.payload.localFallback, true)
       const stored = readSession(failureRoot, failed.payload.session.sessionId)
       assert.equal(stored.runs.length, 2)
       for (const run of stored.runs) {

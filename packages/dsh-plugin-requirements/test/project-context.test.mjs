@@ -53,7 +53,7 @@ function harness() {
 }
 
 const body = project => ({ ok: true, project, requirements: [{ id: `REQ-${project}` }] })
-const viewIds = ['pending', 'all', 'mine', 'running', 'awaiting', 'accepted', 'closed', 'anomalies']
+const viewIds = ['all', 'mine', 'pending', 'running', 'awaiting', 'accepted', 'closed', 'anomalies']
 function assertTabs(app, view, expected) {
   const tabs = Array.from(app.tabs(view.data))
   assert.deepEqual(tabs.map(tab => tab.props.key), viewIds)
@@ -107,8 +107,8 @@ test('eight category spans include anomaly counts and filtered real zero, not pl
   rows[0].anomalies = ['duplicate-title']
   app.requests[0].resolve({ ok: true, requirements: rows }); await flush()
   const view = app.render('A')
-  // Production matchesView rules: pending overlaps running/awaiting; awaiting needs a human.
-  assertTabs(app, view, [3, 5, 1, 1, 1, 1, 1, 1])
+  // Production matchesView rules keep the work views mutually exclusive.
+  assertTabs(app, view, [5, 1, 1, 1, 1, 1, 1, 1])
   const filteredTabs = Array.from(app.tabs(view.data, []))
   assert.deepEqual(filteredTabs.map(tab => tab.children[1].children[0]), zero)
   assertTabs(app, { data: {} }, unloaded)

@@ -83,7 +83,11 @@ export function createCandidate({ root, asset, acceptance = null, actor = 'ai:ad
         asset,
         requirement: development.requirement ?? null,
         acceptance,
-        implementationPaths: development.paths ?? [],
+        // Record only files that really changed. Acceptance command paths used
+        // to be archived as "module changes" even when they were untouched.
+        implementationPaths: development.scope
+          ? (development.scope.owned.length ? development.scope.owned : null)
+          : (development.paths ?? []),
       })
       devSync = syncDevelopmentBranch({
         root: repo,
@@ -93,6 +97,8 @@ export function createCandidate({ root, asset, acceptance = null, actor = 'ai:ad
         title: development.requirement?.title ?? asset.title,
         branch: development.branch ?? 'develop',
         remote: development.remote ?? 'origin',
+        scope: development.scope ?? null,
+        push: development.push ?? true,
         paths: [...(development.paths ?? []), architecture.path, architecture.indexPath],
       })
     }
@@ -118,11 +124,17 @@ export function createCandidate({ root, asset, acceptance = null, actor = 'ai:ad
       fileCount: snapshot.files.length,
       files: snapshot.files,
       acceptance: acceptanceRecord,
-      architecture,
+      architecture: architecture ? {
+        ...architecture,
+        synced: devSync?.pushedToRemoteDev === true,
+        syncedCommitSha: devSync?.devCommitSha ?? null,
+      } : null,
       development: devSync,
+      architectureChanged: architecture?.changed === true,
       devCommitSha: devSync?.devCommitSha ?? null,
       devBranch: devSync?.devBranch ?? null,
       pushedToRemoteDev: devSync?.pushedToRemoteDev ?? false,
+      requiresReverification: devSync?.requiresReverification === true,
     }
     writeFileSync(join(dir, `${id}.json`), `${JSON.stringify(candidate, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     return candidate
@@ -237,7 +249,9 @@ export function candidateView({ root, asset, assets = null, acceptance = null, r
     requirementHash: candidate?.requirementHash ?? null,
     acceptance: candidate?.acceptance ?? null,
     architecture: candidate?.architecture ?? null,
+    architectureChanged: candidate?.architectureChanged === true,
     development: candidate?.development ?? null,
+    requiresReverification: candidate?.requiresReverification === true,
     devCommitSha: candidate?.devCommitSha ?? null,
     devBranch: candidate?.devBranch ?? null,
     pushedToRemoteDev: candidate?.pushedToRemoteDev ?? false,

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "alm": "node packages/alm-core/bin/alm.mjs",
-    "test": "node --test \"packages/*/test/**/*.test.mjs\"",
+    "test": "node --test --test-concurrency=4 \"packages/*/test/**/*.test.mjs\"",
     "test:ui": "node scripts/ui-verify.mjs",
     "serve:pages": "node scripts/serve-alm-pages.mjs",
     "acceptance": "node packages/dsh-plugin-acceptance/bin/acceptance.mjs",

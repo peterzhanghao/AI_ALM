@@ -187,6 +187,25 @@ test('create 确认：草稿 docHash 匹配时按 renderDoc 规范正文落盘�
   assert.equal(reloaded.confirmation.draftRevision, session.draftRevision)
 })
 
+test('create 确认：多段问题描述可落为正式需求正文', (t) => {
+  const { root, context, session } = stageWithDraft(t, {
+    items: [makeItem()],
+    draft: { problem: '重复操作导致返工\n需要按批次复盘' },
+  })
+  const result = confirmIntent({
+    root,
+    sessionId: session.sessionId,
+    confirmation: confirmationFor(session, context),
+    actor: 'human:tester',
+    idempotencyKey: 'key-v5-multiline-problem',
+    now: CONFIRMED_AT,
+  })
+
+  assert.equal(result.replayed, false)
+  const brief = readFileSync(join(root, 'requirements/briefs/REQ-PAY-005.md'), 'utf8')
+  assert.match(brief, /重复操作导致返工\n需要按批次复盘/)
+})
+
 test('docHash 不匹配：draft-changed 409，带 latest 草稿与 diff，且不写需求', (t) => {
   const { root, context, session } = stageWithDraft(t, { items: [makeItem()] })
   const before = requirementFiles(root)

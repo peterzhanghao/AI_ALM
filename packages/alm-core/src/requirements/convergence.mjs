@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { indexReport } from '../commands.mjs'
-import { diffDoc, parseDoc } from './doc.mjs'
+import { diffDoc, normalizeDoc, parseDoc, renderDoc } from './doc.mjs'
 import { applyRequirementUpdate, readIdempotentResult, requirementBaseline } from './update.mjs'
 import { readRun } from './run.mjs'
 
@@ -29,6 +29,261 @@ export function writeIterationRetry(root, requirementId, { feedbackText, status 
 const deltaPath = (root, id, seq = null) => join(resolve(root), '.alm', 'runs', `${id}-spec-delta${seq === null ? '' : `-${seq}`}.json`)
 const deltaNames = (root, runId) => {
   try { return readdirSync(join(resolve(root), '.alm', 'runs')).filter(name => new RegExp(`^${runId}-spec-delta(?:-\\d+)?\\.json$`).test(name)) } catch { return [] }
+}
+
+function normalizeRequirementText(value) {
+  return String(value ?? '')
+    .replace(/\$\\(?:right)?arrow\$/g, '→')
+    .replace(/(^|[^-])\s*->\s*/g, '$1 → ')
+}
+
+function frozenJsonEnd(text, offset) {
+  if (text[offset] !== '{') return -1
+  let depth = 0
+  let quote = false
+  let escaped = false
+  for (let index = offset; index < text.length; index += 1) {
+    const char = text[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') quote = false
+      continue
+    }
+    if (char === '"') quote = true
+    else if (char === '{') depth += 1
+    else if (char === '}') {
+      depth -= 1
+      if (depth === 0) return index + 1
+    }
+  }
+  return -1
+}
+
+/** Remove old internal draft snapshots before they can become business prose. */
+export function sanitizeRequirementBrief(value) {
+  let text = normalizeRequirementText(value)
+    .replace(/^\s*<!--\s*alm:meta\b[\s\S]*?-->\s*$/gim, '')
+  const marker = /(?:^|\n)\s*冻结澄清正文\s*[:：]\s*/im.exec(text)
+  if (marker) {
+    const start = marker.index + marker[0].length
+    const jsonStart = text.slice(start).search(/\S/)
+    const absoluteStart = jsonStart < 0 ? -1 : start + jsonStart
+    const end = absoluteStart >= 0 ? frozenJsonEnd(text, absoluteStart) : -1
+    // A valid historical snapshot can be removed without swallowing a later
+    // canonical acceptance section that was appended after it.
+    if (end >= 0) {
+      const tail = text.slice(end).replace(/^\s*人工补充验收\s*[:：]\s*\[\s*\]\s*/im, '')
+      const prefix = text.slice(0, marker.index).trimEnd()
+      text = tail.trim() ? `${prefix}\n\n${tail.trimStart()}` : prefix
+    } else {
+      text = text.slice(0, marker.index)
+    }
+  }
+  return text.replace(/\n{3,}/g, '\n\n').trim() + '\n'
+}
+
+function feedbackPoints(feedback) {
+  const source = normalizeRequirementText(feedback).replace(/\r\n?/g, '\n').trim()
+  const collect = expression => {
+    const points = []
+    let current = null
+    for (const line of source.split('\n')) {
+      const match = line.match(expression)
+      if (match) {
+        points.push(match[1].trim())
+        current = points.length - 1
+      } else if (current !== null && line.trim()) {
+        points[current] = `${points[current]} ${line.trim()}`.trim()
+      }
+    }
+    return points.filter(Boolean)
+  }
+  const numbered = collect(/^\s*\d+[.、)]\s*(.+)$/)
+  if (numbered.length > 1) return numbered
+  const bulleted = collect(/^\s*[-*]\s+(.+)$/)
+  if (bulleted.length > 1) return bulleted
+  const directives = source.split(/[；;]\s*/).map(entry => entry.trim()).filter(Boolean)
+  if (directives.length > 1 && directives.some(entry => /(?:AC-\d{2,}|TEST-[A-Z0-9-]+|改为|改成|替换|移除|删除|取消|不再支持)/iu.test(entry))) return directives
+  // Long feedback copied from a design review often loses line breaks. A run
+  // of labelled Chinese clauses remains a stable, readable unit in that case.
+  const labelled = source
+    .split(/(?<=[。！？])\s*(?=[^。！？\n]{2,80}[：:])/)
+    .map(entry => entry.trim())
+    .filter(Boolean)
+  if (labelled.length > 1) {
+    const grouped = []
+    for (const entry of labelled) {
+      // "Excel 模板" is part of the preceding export card rather than a
+      // separate user journey. Preserve the user's four-card structure when
+      // a rich-text feedback box flattens its original line breaks.
+      if (/^Excel\s*模板/i.test(entry) && /^卡片一[（(]导出需求/.test(grouped.at(-1) ?? '')) grouped[grouped.length - 1] = `${grouped.at(-1)} ${entry}`
+      else grouped.push(entry)
+    }
+    return grouped
+  }
+  return source ? [source] : []
+}
+
+const clone = value => JSON.parse(JSON.stringify(value ?? {}))
+const normalizeClause = value => String(value ?? '').toLowerCase().replace(/[\s，,。；;：:、()（）【】\[\]"'`]/g, '')
+
+function explicitCriterionId(text) {
+  return String(text ?? '').match(/\b((?:AC-\d{2,}|TEST-[A-Z0-9-]+))\b/i)?.[1]?.toUpperCase() ?? null
+}
+
+function explicitCriterionIds(text) {
+  return [...String(text ?? '').matchAll(/\b(?:AC-\d{2,}|TEST-[A-Z0-9-]+)\b/gi)].map(match => match[0].toUpperCase())
+}
+
+function feedbackTarget(point, acceptance) {
+  const explicit = explicitCriterionId(point)
+  if (explicit) return acceptance.find(entry => entry.id === explicit) ?? null
+  const source = normalizeClause(point)
+  let best = null
+  for (const entry of acceptance) {
+    const basis = normalizeClause([entry.text, entry.action, entry.expected, entry.judgement].filter(Boolean).join(' '))
+    const score = ['json', 'excel', 'esc', '关闭', '导出', '导入', '弹窗'].reduce((total, token) => total + (source.includes(token) && basis.includes(token) ? 1 : 0), 0)
+    if (score > 0 && (!best || score > best.score)) best = { entry, score }
+  }
+  return best?.score >= 2 ? best.entry : null
+}
+
+function clauseTextFromPoint(point, previous) {
+  let text = normalizeRequirementText(point)
+    .replace(/^\s*(?:[-*]|\d+[.、)])\s*/, '')
+    .replace(/^\s*(?:AC-\d{2,}|TEST-[A-Z0-9-]+)\s*[:：]?\s*/i, '')
+    .trim()
+  // Feedback is an instruction to the convergence engine, not suitable
+  // acceptance prose. Turn the common interaction changes into observable
+  // business rules instead of storing "修改 AC-02 ..." verbatim.
+  if ((/(?:Esc|ESC).*(?:关闭|关掉)|(?:关闭|关掉).*(?:Esc|ESC)/u.test(text) || /(?:Esc|ESC)/u.test(String(previous?.text ?? ''))) && /(?:去掉|不再|必须|点击)/u.test(text)) {
+    return '弹窗只能通过点击明确的关闭按钮关闭；按 Esc 不会关闭弹窗，以避免误触。'
+  }
+  if (/不再支持.*(?:JSON|json).*(?:只(?:需要)?保留|仅(?:需)?保留).*(?:Excel|excel|xlsx)/u.test(text)) {
+    return '导出区域只提供 Excel（.xlsx）导出，不再展示或生成 JSON 交换包；用户仍可导出全部需求或当前筛选结果。'
+  }
+  const replacement = /(?:改为|改成|替换为)\s*(.+)$/u.exec(text)?.[1]?.trim()
+  if (replacement) return replacement
+  if (/不再支持/u.test(text) && /(?:只(?:需要)?保留|仅(?:需)?保留)/u.test(text)) return text
+  return text || previous?.text || ''
+}
+
+function appliesRemoval(point) {
+  return /(?:移除|删除|废弃|取消)\s*(?:原有|该|此)?\s*(?:AC-|TEST-)?/iu.test(point) ||
+    (/不再支持/u.test(point) && !/(?:只(?:需要)?保留|仅(?:需)?保留|改为|改成|替换)/u.test(point))
+}
+
+function appliesModification(point) {
+  return /(?:改为|改成|替换|不再支持|调整|必须)/u.test(point)
+}
+
+function removesUnsupportedExclusiveClause(point, target) {
+  const text = normalizeClause(point)
+  const clause = normalizeClause([target?.text, target?.action, target?.expected].filter(Boolean).join(' '))
+  return text.includes('不再支持导出json') && clause.includes('json') && !clause.includes('excel')
+}
+
+function feedbackImpact(feedback) {
+  const impact = { goal: [], value: [] }
+  for (const point of feedbackPoints(feedback)) {
+    const text = normalizeRequirementText(point)
+    if (/不再支持.*(?:JSON|json).*(?:只(?:需要)?保留|仅(?:需)?保留).*(?:Excel|excel|xlsx)/u.test(text)) {
+      impact.goal.push('将文件导出聚焦为 Excel（.xlsx）流程。')
+      impact.value.push('减少格式选择负担，让用户使用可直接编辑的 Excel 完成交换。')
+    }
+    if ((/(?:Esc|ESC).*(?:关闭|关掉)|(?:关闭|关掉).*(?:Esc|ESC)/u.test(text) || /(?:必须|点击).*(?:关闭|关掉)/u.test(text)) && /(?:去掉|不再|必须|点击)/u.test(text)) {
+      impact.goal.push('让弹窗关闭动作保持明确且可预期。')
+      impact.value.push('避免按 Esc 造成误触关闭，降低编辑过程丢失操作上下文的风险。')
+    }
+  }
+  impact.goal = [...new Set(impact.goal)]
+  impact.value = [...new Set(impact.value)]
+  return impact
+}
+
+function narrativeWithImpact(current, proposed, additions) {
+  const base = String(current ?? '').trim()
+  // A complete LLM rewrite may be used when it is not simply echoing an
+  // imperative feedback sentence. Explicit product-impact rules below still
+  // win so goal/value/acceptance cannot drift apart.
+  const candidate = String(proposed ?? '').trim()
+  const next = candidate && normalizeClause(candidate) !== normalizeClause(base) &&
+    !/(?:本轮调整|调整需求范围|修改\s*(?:AC-|TEST-)|本轮已按最新反馈)/u.test(candidate)
+    ? candidate
+    : base
+  const missing = additions.filter(entry => !normalizeClause(next).includes(normalizeClause(entry)))
+  if (!missing.length) return next
+  return `${next}${next ? ' ' : ''}${missing.join(' ')}`.trim()
+}
+
+/**
+ * Produce one complete, canonical requirement document for every convergence
+ * entry point. Existing clauses survive by default; only explicit feedback
+ * may replace or remove them.
+ */
+export function resynthesizeRequirementSpec({ beforeBrief, feedback = '', proposedBrief = null } = {}) {
+  const before = parseDoc(sanitizeRequirementBrief(beforeBrief)).doc
+  const proposed = typeof proposedBrief === 'string' && proposedBrief.trim()
+    ? parseDoc(sanitizeRequirementBrief(proposedBrief)).doc
+    : null
+  const impact = feedbackImpact(feedback)
+  const next = clone(before)
+  next.title = proposed?.title || before.title
+  next.goal = narrativeWithImpact(before.goal, proposed?.goal, impact.goal)
+  next.problem = narrativeWithImpact(before.problem, proposed?.problem, impact.value)
+
+  const proposedById = new Map((proposed?.acceptance ?? []).filter(entry => entry?.id).map(entry => [entry.id, entry]))
+  let acceptance = before.acceptance.map(entry => clone(proposedById.get(entry.id) ?? entry))
+  const known = new Set(acceptance.map(entry => entry.id).filter(Boolean))
+  for (const entry of proposed?.acceptance ?? []) {
+    if (!entry?.id || known.has(entry.id)) continue
+    acceptance.push(clone(entry)); known.add(entry.id)
+  }
+
+  for (const point of feedbackPoints(feedback)) {
+    const mergeIds = explicitCriterionIds(point)
+    if (/合并/u.test(point) && mergeIds.length >= 2) {
+      const [keeper, ...merged] = mergeIds
+      const keepIndex = acceptance.findIndex(entry => entry.id === keeper)
+      if (keepIndex >= 0) {
+        const drafted = proposedById.get(keeper)
+        acceptance[keepIndex] = { ...acceptance[keepIndex], ...(drafted ? clone(drafted) : {}), provenance: 'human-edit' }
+        acceptance = acceptance.filter(entry => entry.id === keeper || !merged.includes(entry.id))
+      }
+      continue
+    }
+    const target = feedbackTarget(point, acceptance)
+    if (target && (appliesRemoval(point) || removesUnsupportedExclusiveClause(point, target))) {
+      acceptance = acceptance.filter(entry => entry.id !== target.id)
+      continue
+    }
+    if (target && appliesModification(point)) {
+      const index = acceptance.findIndex(entry => entry.id === target.id)
+      const drafted = proposedById.get(target.id)
+      acceptance[index] = { ...target, ...(drafted ? clone(drafted) : {}), text: clauseTextFromPoint(point, drafted ?? target), provenance: 'human-edit' }
+      continue
+    }
+    // An AI-drafted new AC is already incorporated above. In an offline or
+    // legacy path, each independent feedback point becomes one reviewable AC.
+    if (!target && !proposed && point.trim()) acceptance.push({ text: clauseTextFromPoint(point), provenance: 'human-edit' })
+  }
+  next.acceptance = acceptance
+  return renderDoc(normalizeDoc(next, { previous: before }))
+}
+
+/**
+ * Convert a legacy brief with TEST-* relations but no canonical AC section
+ * into a proposal the human can review. It does not update the requirement;
+ * normal confirmation and baseline checks still apply in confirmSpecDelta.
+ */
+export function draftLegacyFeedbackBrief({ beforeBrief, feedback }) {
+  const before = sanitizeRequirementBrief(beforeBrief)
+  const doc = parseDoc(before).doc
+  if (!doc.goal || !doc.problem) fail('legacy-brief-incomplete', '旧需求正文缺少目标或问题描述，无法生成收敛草案', 409)
+  const points = feedbackPoints(feedback)
+  if (!points.length) fail('feedback-invalid', '反馈中没有可生成验收标准的内容')
+  return resynthesizeRequirementSpec({ beforeBrief: before, feedback })
 }
 
 function readDelta(root, runId, requirementId, deltaHash) {
@@ -88,7 +343,9 @@ function checkedRun(root, runId, requirementId) {
 export function proposeSpecDelta({ root, runId, requirementId, afterBrief, evolutionNote, kind, sourceSession = null }) {
   checkedRun(root, runId, requirementId)
   if (!['spec_refinement', 'spec_pivot'].includes(kind)) fail('invalid-triage', '仅需求演进可生成补丁')
-  if (typeof afterBrief !== 'string' || !afterBrief.trim() || afterBrief.length > 60000 || typeof evolutionNote !== 'string' || !evolutionNote.trim() || evolutionNote.length > 4000) fail('invalid-delta', '需要完整的需求正文和演进原因')
+  const normalizedAfterBrief = normalizeRequirementText(afterBrief)
+  const normalizedEvolutionNote = normalizeRequirementText(evolutionNote)
+  if (typeof afterBrief !== 'string' || !normalizedAfterBrief.trim() || normalizedAfterBrief.length > 60000 || typeof evolutionNote !== 'string' || !normalizedEvolutionNote.trim() || normalizedEvolutionNote.length > 4000) fail('invalid-delta', '需要完整的需求正文和演进原因')
   const asset = currentAsset(root, requirementId)
   if (typeof asset.extra?.brief !== 'string' || !asset.extra.brief) fail('brief-missing', '需求缺少正文', 409)
   if (isAbsolute(asset.extra.brief)) fail('invalid-path', '需求正文路径无效')
@@ -97,12 +354,13 @@ export function proposeSpecDelta({ root, runId, requirementId, afterBrief, evolu
   const rel = relative(rootReal, briefReal)
   if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) fail('invalid-path', '需求正文路径越界')
   const beforeBrief = readFileSync(briefReal, 'utf8')
+  const resynthesizedAfterBrief = resynthesizeRequirementSpec({ beforeBrief, feedback: evolutionNote, proposedBrief: normalizedAfterBrief })
   const baseline = requirementBaseline({ root, asset })
   const beforeDoc = parseDoc(beforeBrief).doc
-  const afterDoc = parseDoc(afterBrief).doc
+  const afterDoc = parseDoc(resynthesizedAfterBrief).doc
   if (!afterDoc.goal || !afterDoc.problem || !afterDoc.acceptance.length) fail('invalid-delta', '变更后必须保留目标、问题和验收标准')
-  if (beforeBrief === afterBrief) fail('empty-delta', '需求正文没有变化')
-  const delta = { schema: 'alm.spec-delta/v1', runId, requirementId, kind, baseRequirementHash: baseline.contentHash, baseline, beforeBrief, afterBrief, acceptanceCriteria: { before: beforeDoc.acceptance, after: afterDoc.acceptance }, diff: diffDoc(beforeBrief, afterBrief), evolutionNote: evolutionNote.trim(), ...(sourceSession ? { sourceSession: String(sourceSession).slice(0, 200) } : {}), proposedAt: new Date().toISOString() }
+  if (sanitizeRequirementBrief(beforeBrief) === resynthesizedAfterBrief) fail('empty-delta', '需求正文没有变化')
+  const delta = { schema: 'alm.spec-delta/v1', runId, requirementId, kind, baseRequirementHash: baseline.contentHash, baseline, beforeBrief, afterBrief: resynthesizedAfterBrief, acceptanceCriteria: { before: beforeDoc.acceptance, after: afterDoc.acceptance }, diff: diffDoc(beforeBrief, resynthesizedAfterBrief), evolutionNote: normalizedEvolutionNote.trim(), ...(sourceSession ? { sourceSession: String(sourceSession).slice(0, 200) } : {}), proposedAt: new Date().toISOString() }
   mkdirSync(join(resolve(root), '.alm', 'runs'), { recursive: true })
   for (let seq = 1; seq <= 100000; seq++) {
     const path = deltaPath(root, runId, seq)

@@ -6,7 +6,7 @@ import { run as runNodeTests } from 'node:test'
 import { gitHead } from '../approvals/approval.mjs'
 import { requirementContentHash, testRevisionHash, sha256 } from '../model/content-hash.mjs'
 import { worktreeSnapshot } from '../requirements/worktree-snapshot.mjs'
-import { snapshotTestFileHashes, verifyTestFileHashes } from '../requirements/blueprint-guard.mjs'
+import { MAX_VERIFICATION_TEST_FILES, snapshotTestFileHashes, verificationBudget, verificationCommandDiagnosis, verificationTestFiles, verifyTestFileHashes } from '../requirements/blueprint-guard.mjs'
 
 export const ACCEPTANCE_DIR = '.alm/acceptance'
 export const ACCEPTANCE_SCHEMA = 'alm.acceptance/v3'
@@ -91,7 +91,27 @@ export function isUnscopedNodeTestCommand(command) {
   return !command.slice(testIndex + 1).some((part) => part && !part.startsWith('-'))
 }
 
-function normalizeCommands(raw) {
+/**
+ * Broad package scripts have no requirement boundary. They are prohibited for
+ * single-requirement acceptance, whether suggested by the system or entered
+ * manually.
+ */
+export function isGenericTestCommand(command) {
+  if (!Array.isArray(command) || command.length === 0) return false
+  if (isUnscopedNodeTestCommand(command)) return true
+  if (!['pnpm', 'npm'].includes(command[0])) return false
+  return (command.length === 2 && command[1] === 'test') ||
+    (command.length === 3 && command[1] === 'run' && command[2] === 'test')
+}
+
+function genericTestCommandError(index) {
+  return new AcceptanceError(
+    `command ${index + 1} uses a repository-wide test script; provide explicit requirement test paths, for example: node --test packages/example/test/feature.test.mjs`,
+    { code: 'generic-test-command', status: 409 },
+  )
+}
+
+function normalizeCommands(raw, { allowLegacyGeneric = false } = {}) {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new AcceptanceError('acceptance config needs a non-empty commands array', { code: 'no-commands', status: 409 })
   }
@@ -108,11 +128,14 @@ function normalizeCommands(raw) {
       })
     }
     if (isUnscopedNodeTestCommand(command)) {
-      throw new AcceptanceError(
-        `command ${index + 1} uses unscoped "node --test"; provide requirement test paths, for example: node --test packages/example/test/feature.test.mjs`,
-        { code: 'test-scope-required', status: 409 },
-      )
+      if (!allowLegacyGeneric) {
+        throw new AcceptanceError(
+          `command ${index + 1} uses unscoped "node --test"; provide requirement test paths, for example: node --test packages/example/test/feature.test.mjs`,
+          { code: 'test-scope-required', status: 409 },
+        )
+      }
     }
+    if (isGenericTestCommand(command) && !allowLegacyGeneric) throw genericTestCommandError(index)
     const timeoutMs = Number(entry.timeoutMs ?? 120_000)
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT) {
       throw new AcceptanceError(`command ${index + 1} timeoutMs must be 1-${MAX_TIMEOUT}`, { code: 'invalid-timeout' })
@@ -160,16 +183,39 @@ export function parseCommandArgs(text) {
   return args
 }
 
+/**
+ * Registration-side scale guard. Reading a legacy config stays permissive so
+ * preflight can replace an oversized binding; a write must never create one.
+ * An under-budget command is lifted to the budget its file count needs instead
+ * of being allowed to time out a delivery round.
+ */
+export function enforceVerificationScale(commands) {
+  return commands.map((entry) => {
+    const files = verificationTestFiles(entry.command)
+    if (files.length === 0) return entry
+    const diagnosis = verificationCommandDiagnosis(entry.command, entry.timeoutMs)
+    if (diagnosis.oversized) {
+      throw new AcceptanceError(
+        `验收命令包含 ${files.length} 个测试文件，超出单条上限 ${MAX_VERIFICATION_TEST_FILES}；请收窄为本需求用例或拆成多条命令。`,
+        { code: 'verification-scale-exceeded', status: 409 },
+      )
+    }
+    return entry.timeoutMs < diagnosis.requiredTimeoutMs
+      ? { ...entry, timeoutMs: diagnosis.requiredTimeoutMs }
+      : entry
+  })
+}
+
 /** Normalize a registration request into `{id, command, timeoutMs}` entries. */
 export function normalizeAcceptanceCommands(input) {
   const raw = Array.isArray(input) ? input : [{ id: 'verify', command: input }]
-  return normalizeCommands(
+  return enforceVerificationScale(normalizeCommands(
     raw.map((entry, index) => {
       if (typeof entry === 'string') return { id: `cmd-${index + 1}`, command: parseCommandArgs(entry) }
       const command = typeof entry?.command === 'string' ? parseCommandArgs(entry.command) : entry?.command
       return { id: entry?.id ?? `cmd-${index + 1}`, command, timeoutMs: entry?.timeoutMs }
     }),
-  )
+  ))
 }
 
 /** Dry-run view of a command registry write. */
@@ -213,7 +259,10 @@ export function readAcceptanceConfig(root, requirementId) {
   return {
     schema: CONFIG_SCHEMA,
     requirement: payload.requirement ?? requirementId,
-    commands: normalizeCommands(payload.commands),
+    // Keep legacy generic configs readable so preflight can replace them with
+    // a precise test set. `runAcceptance` rejects them before any process can
+    // start, and new writes are rejected by normalizeAcceptanceCommands.
+    commands: normalizeCommands(payload.commands, { allowLegacyGeneric: true }),
     file,
   }
 }
@@ -308,7 +357,20 @@ function latestDiagnostic(evidence) {
   const log = diagnosticLog([failed?.stderr, failed?.stdout, failed?.error?.message, evidence?.failure?.message].filter(Boolean).join('\n'))
   const line = log.split(/\r?\n/).map(value => value.trim()).find(value => /(?:not ok|assert(?:ion)?error|error:|expected|failed|fail)/i.test(value)) ?? log.split(/\r?\n/).map(value => value.trim()).find(Boolean) ?? null
   if (tampered) return { category: 'tampered-test', title: '测试断言防篡改锁已触发', summary: evidence.failure.message ?? '验收期间检测到测试文件被修改', command, log }
-  if (failed?.timedOut) return { category: 'timeout', title: '验证命令超时', summary: `验证命令在限定时间内未完成${command ? `：${command.join(' ')}` : ''}`, command, log }
+  if (failed?.timedOut) {
+    const fileCount = verificationTestFiles(failed.command).length
+    const oversized = fileCount > MAX_VERIFICATION_TEST_FILES
+    return {
+      category: 'timeout',
+      title: '验证命令超时',
+      summary: oversized
+        ? `验证命令包含 ${fileCount} 个测试文件，超出单条上限 ${MAX_VERIFICATION_TEST_FILES}，预算内无法跑完；请收窄验收命令为本需求用例，再重新验证。`
+        : `验证命令在限定时间内未完成${command ? `：${command.join(' ')}` : ''}；请缩小测试范围或提高超时预算后重新验证。`,
+      command,
+      log,
+      ...(oversized ? { scale: { fileCount, max: MAX_VERIFICATION_TEST_FILES } } : {}),
+    }
+  }
   if (failed?.spawnFailed || failed?.error) return { category: 'environment', title: '验证环境或命令受阻', summary: failed?.error?.message ?? `无法启动验证命令${command ? `：${command.join(' ')}` : ''}`, command, log }
   return { category: 'verification', title: '验证检查未通过', summary: `验证命令失败${Number.isInteger(failed?.exitCode) ? `（exit ${failed.exitCode}）` : ''}${line ? `：${line}` : ''}`, command, log }
 }
@@ -444,6 +506,19 @@ function isSandboxSpawnError(command) {
   return command?.spawnFailed === true && ['EPERM', 'EACCES'].includes(command?.error?.code)
 }
 
+function isTimingOutCommand(command) {
+  return command?.timedOut === true || command?.error?.code === 'ETIMEDOUT'
+}
+
+/**
+ * Both a blocked child process and a killed `spawnSync` can be retried by the
+ * in-process Node runner. The host (where spawn works) previously had no
+ * recovery from a timeout at all; the sandbox did. Keep the two paths equal.
+ */
+function canRetryInProcess(repo, command, entry) {
+  return (isSandboxSpawnError(command) || isTimingOutCommand(command)) && Boolean(inProcessNodeTestSpec(repo, entry?.command))
+}
+
 /** Only explicit, repository-local `node --test file.test.mjs` commands may run in-process. */
 function inProcessNodeTestSpec(repo, command) {
   if (!Array.isArray(command) || command[0] !== 'node') return null
@@ -492,7 +567,10 @@ async function runInProcessNodeTests({ repo, entry }) {
   const passed = []
   const failed = []
   try {
-    const options = { files: spec.files, cwd: repo, isolation: 'none', timeout: entry.timeoutMs }
+    // Re-running a timed-out command with the same doomed budget cannot heal
+    // it. The fallback gets the budget its file count needs, capped at 180s.
+    const options = { files: spec.files, cwd: repo, isolation: 'none',
+      timeout: Math.max(Number(entry.timeoutMs) || 0, verificationBudget(spec.files.length)) }
     if (spec.testNamePatterns.length) options.testNamePatterns = spec.testNamePatterns
     for await (const event of runNodeTests(options)) {
       if (event.type === 'test:pass') passed.push(event.data?.name ?? 'unnamed test')
@@ -524,6 +602,15 @@ export function runAcceptance({ root, requirementId, apply = false, exec = spawn
   if (!config) {
     throw new AcceptanceError(`未登记验收命令：${configPath(repo, requirementId)}`, { code: 'no-config', status: 404 })
   }
+  const unscoped = config.commands.find(entry => isUnscopedNodeTestCommand(entry.command))
+  if (unscoped) {
+    throw new AcceptanceError(
+      `command ${unscoped.id} uses unscoped "node --test"; provide requirement test paths`,
+      { code: 'test-scope-required', status: 409 },
+    )
+  }
+  const generic = config.commands.find(entry => isGenericTestCommand(entry.command))
+  if (generic) throw genericTestCommandError(config.commands.indexOf(generic))
   const bound = Boolean(context?.asset)
 
   const plan = {
@@ -628,7 +715,7 @@ export async function runAcceptanceAdaptive(options) {
   const repo = resolve(options.root)
   const eligible = receipt.evidence.commands
     .map((command, index) => ({ command, entry: receipt.commands[index] }))
-    .filter(({ command, entry }) => isSandboxSpawnError(command) && inProcessNodeTestSpec(repo, entry?.command))
+    .filter(({ command, entry }) => canRetryInProcess(repo, command, entry))
   if (eligible.length === 0) return receipt
 
   // A failed spawn cannot have executed test code. Snapshot again around the
@@ -643,7 +730,7 @@ export async function runAcceptanceAdaptive(options) {
   for (let index = 0; index < receipt.evidence.commands.length; index += 1) {
     const original = receipt.evidence.commands[index]
     const entry = receipt.commands[index]
-    if (!isSandboxSpawnError(original) || !inProcessNodeTestSpec(repo, entry?.command)) {
+    if (!canRetryInProcess(repo, original, entry)) {
       commands.push(original)
       continue
     }
@@ -651,7 +738,10 @@ export async function runAcceptanceAdaptive(options) {
     commands.push({
       ...commandRunRecord({ entry, result: fallback, durationMs: fallback.durationMs }),
       execution: fallback.execution,
-      fallback: { reason: original.error?.code ?? 'spawn-blocked', originalError: original.error?.message ?? null },
+      fallback: {
+        reason: isTimingOutCommand(original) ? 'verification-timeout' : original.error?.code ?? 'spawn-blocked',
+        originalError: original.error?.message ?? null,
+      },
     })
   }
   const testLock = verifyTestFileHashes({ root: repo, expected: testFileHashes })

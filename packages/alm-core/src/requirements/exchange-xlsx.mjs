@@ -3,7 +3,12 @@ import { readXlsxZip, writeXlsxZip, xlsxError } from './exchange-zip.mjs'
 
 const SCHEMA = 'alm.requirements.exchange/v1'
 const FIELDS = ['title', 'brief', 'priority', 'owner']
-const HEADERS = ['operation', 'uid', 'clientId', 'projectId', 'baseHash', ...FIELDS]
+// The worksheet shows only what a person fills in. Record identity, baseline
+// hashes and the digest travel as protocol fields and in the hidden _Metadata
+// part, so no technical column clutters the sheet people actually read.
+const HEADERS = ['需求编号', '项目', '标题', '需求描述', '优先级', '负责人']
+const BRIEF_HEADERS = ['记录行号', '分段序号', '需求描述（续）']
+const sameRow = (row, headers) => (row?.length ?? -1) === headers.length && headers.every((h, i) => h === (row[i] ?? ''))
 const CHUNK = 30000
 const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
@@ -25,9 +30,15 @@ function check(payload) {
 }
 const escape = s => text(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\r/g, '&#13;')
 function col(n) { let s = ''; for (n++; n; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
-function sheet(rows) {
-  return `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${NS}"><sheetData>${rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => `<c r="${col(c)}${r + 1}" t="inlineStr"><is><t xml:space="preserve">${escape(v)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`
+function sheet(rows, layout = '') {
+  return `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${NS}">${layout}<sheetData>${rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => `<c r="${col(c)}${r + 1}" t="inlineStr"><is><t xml:space="preserve">${escape(v)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`
 }
+// Readable column widths plus a frozen header: the requirements sheet is meant
+// to be filled in by hand, so the header row has to stay on screen.
+const widths = list => `<cols>${list.map(([i, w]) => `<col min="${i}" max="${i}" width="${w}" customWidth="1"/>`).join('')}</cols>`
+const freeze = rows => `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${rows}" topLeftCell="A${rows + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>`
+const REQUIREMENTS_LAYOUT = `${freeze(1)}${widths([[1, 16], [2, 10], [3, 34], [4, 60], [5, 10], [6, 14]])}`
+const BRIEF_LAYOUT = `${freeze(1)}${widths([[1, 12], [2, 12], [3, 100]])}`
 function chunks(value) {
   const out = []
   for (let i = 0; i < value.length;) {
@@ -43,19 +54,22 @@ function chunks(value) {
 export function encodeRequirementsXlsx(payload) {
   check(payload)
   const json = JSON.stringify(payload), digest = hash(json)
-  const rows = [[SCHEMA, payload.exportId, payload.projectId, digest], HEADERS], briefs = [['record', 'chunk', 'brief']]
+  const rows = [HEADERS], briefs = [BRIEF_HEADERS]
   payload.records.forEach((r, i) => {
     const parts = chunks(text(r.values.brief))
-    rows.push([...HEADERS.slice(0, 5).map(k => text(r[k])), ...FIELDS.map(k => k === 'brief' ? parts[0] : text(r.values[k]))])
+    rows.push([text(r.uid), text(r.projectId), ...FIELDS.map(k => k === 'brief' ? parts[0] : text(r.values[k]))])
     parts.slice(1).forEach((part, j) => briefs.push([String(i + 1), String(j + 2), part]))
   })
   const metadata = [['sha256', digest], ...chunks(Buffer.from(json).toString('base64')).map((s, i) => [String(i), s])]
   const files = new Map([
     ['[Content_Types].xml', `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${[1, 2, 3].map(i => `<Override PartName="/xl/worksheets/sheet${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
     ['_rels/.rels', `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
-    ['xl/workbook.xml', `<workbook xmlns="${NS}" xmlns:r="${REL}"><sheets><sheet name="Requirements" sheetId="1" r:id="rId1"/><sheet name="Brief" sheetId="2" r:id="rId2"/><sheet name="_Metadata" sheetId="3" state="veryHidden" r:id="rId3"/></sheets></workbook>`],
+    // Brief only carries brief text beyond the first 30k characters, so it is
+    // hidden: an empty visible tab next to the sheet people fill in gets deleted
+    // by editors, and a deleted Brief used to fail the whole import.
+    ['xl/workbook.xml', `<workbook xmlns="${NS}" xmlns:r="${REL}"><sheets><sheet name="Requirements" sheetId="1" r:id="rId1"/><sheet name="Brief" sheetId="2" state="hidden" r:id="rId2"/><sheet name="_Metadata" sheetId="3" state="veryHidden" r:id="rId3"/></sheets></workbook>`],
     ['xl/_rels/workbook.xml.rels', `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${[1, 2, 3].map(i => `<Relationship Id="rId${i}" Type="${REL}/worksheet" Target="worksheets/sheet${i}.xml"/>`).join('')}</Relationships>`],
-    ['xl/worksheets/sheet1.xml', sheet(rows)], ['xl/worksheets/sheet2.xml', sheet(briefs)], ['xl/worksheets/sheet3.xml', sheet(metadata)],
+    ['xl/worksheets/sheet1.xml', sheet(rows, REQUIREMENTS_LAYOUT)], ['xl/worksheets/sheet2.xml', sheet(briefs, BRIEF_LAYOUT)], ['xl/worksheets/sheet3.xml', sheet(metadata)],
   ])
   return writeXlsxZip(files)
 }
@@ -141,7 +155,12 @@ export function decodeRequirementsXlsx(buffer) {
     const workbook = trees.get('xl/workbook.xml'), rels = trees.get('xl/_rels/workbook.xml.rels')
     if (!workbook || !rels) throw xlsxError('missing workbook')
     const names = all(workbook, 'sheet').map(s => s.attrs.name)
-    if (names.length !== 3 || names.some(n => !['Requirements', 'Brief', '_Metadata'].includes(n))) throw xlsxError('unexpected worksheet; only four editable fields are supported')
+    // People rename, add scratch sheets and delete empty tabs. Only the two
+    // sheets that carry data are mandatory; a missing Brief sheet is rebuilt
+    // from the digest-checked metadata below, and extra sheets are ignored.
+    for (const required of ['Requirements', '_Metadata']) {
+      if (names.filter(n => n === required).length !== 1) throw xlsxError(`missing/duplicate ${required} sheet`)
+    }
     const shared = trees.has('xl/sharedStrings.xml') ? all(trees.get('xl/sharedStrings.xml'), 'si').map(strings) : []
     function get(name) {
       const sheets = all(workbook, 'sheet').filter(s => s.attrs.name === name)
@@ -152,15 +171,20 @@ export function decodeRequirementsXlsx(buffer) {
       if (!/^xl\/worksheets\/[\w.-]+\.xml$/.test(path) || !trees.has(path)) throw xlsxError('invalid worksheet relationship')
       return rows(trees.get(path), shared)
     }
-    const meta = get('_Metadata'), main = get('Requirements'), continuation = get('Brief')
+    const meta = get('_Metadata'), main = get('Requirements')
+    // Brief is optional: losing it must not lose the import.
+    const continuation = names.includes('Brief') ? get('Brief') : []
     if (meta[0]?.[0] !== 'sha256' || !/^[a-f0-9]{64}$/.test(meta[0]?.[1] ?? '')) throw xlsxError('missing metadata digest')
     let encoded = ''
     meta.slice(1).forEach((r, i) => { if (r[0] !== String(i) || r.length !== 2 || !/^[A-Za-z0-9+/=]*$/.test(r[1])) throw xlsxError('metadata chunk changed'); encoded += r[1] })
     const json = Buffer.from(encoded, 'base64').toString('utf8')
     if (hash(json) !== meta[0][1]) throw xlsxError('metadata digest changed')
     const payload = JSON.parse(json); check(payload)
-    if (JSON.stringify(main[0]) !== JSON.stringify([SCHEMA, payload.exportId, payload.projectId, meta[0][1]]) || JSON.stringify(main[1]) !== JSON.stringify(HEADERS)) throw xlsxError('read-only metadata/header changed')
-    if (JSON.stringify(continuation[0]) !== JSON.stringify(['record', 'chunk', 'brief'])) throw xlsxError('Brief header changed')
+    // Workbooks written before the worksheet was trimmed to the four editable
+    // fields still open with a metadata row of four cells.
+    if ((main[0]?.length ?? 0) === 4 && text(main[0][0]).startsWith('alm.requirements.exchange/')) throw xlsxError('legacy workbook layout; export the requirements again')
+    if (!sameRow(main[0], HEADERS)) throw xlsxError('read-only header changed')
+    if (continuation.length && !sameRow(continuation[0], BRIEF_HEADERS)) throw xlsxError('Brief header changed')
     const extra = new Map()
     for (const r of continuation.slice(1)) {
       if (r.length !== 3 || !/^[1-9]\d*$/.test(r[0]) || !/^[1-9]\d*$/.test(r[1])) throw xlsxError('invalid brief continuation')
@@ -168,36 +192,46 @@ export function decodeRequirementsXlsx(buffer) {
       if (!original || chunk < 2 || chunk > chunks(text(original.values.brief)).length || extra.has(`${index}:${chunk}`)) throw xlsxError('read-only brief chunk identity changed')
       extra.set(`${index}:${chunk}`, r[2])
     }
-    const selected = [], seen = new Set(), clientIds = new Set()
-    // Reserve metadata client IDs even for omitted rows; new records cannot
-    // shadow an exported create identity with altered read-only fields.
-    const reservedClientIds = new Set(payload.records.map(r => r.clientId).filter(v => typeof v === 'string'))
-    if (main.length - 2 > 1000) throw xlsxError('more than 1000 records')
-    for (const row of main.slice(2)) {
+    const data = main.slice(1)
+    if (data.length > 1000) throw xlsxError('more than 1000 records')
+    const selected = [], seen = new Set(), clientIds = new Set(), newRows = new Set()
+    // Create identity is derived from the file and the spreadsheet row, so a
+    // preview and its apply produce the same id while two different files never
+    // collide.
+    const token = payload.exportId.replace(/[^A-Za-z0-9]/g, '').slice(0, 16) || 'file'
+    for (const row of data) {
       if (row.length > HEADERS.length) throw xlsxError('unexpected worksheet column')
-      const index = payload.records.findIndex(r => HEADERS.slice(0, 5).every((k, i) => text(r[k]) === (row[i] ?? '')))
-      if (index < 0) {
-        // External editors may append explicit creates, never invent updates.
-        // Existing exported row slots remain read-only in their identity columns.
-        const clientId = row[2] ?? ''
-        if (!(row.rowNumber > payload.records.length + 2) || row[0] !== 'create' || (row[1] ?? '') !== '' || !clientId.trim() || row[3] !== payload.projectId || (row[4] ?? '') !== '' || reservedClientIds.has(clientId) || clientIds.has(clientId)) throw xlsxError('invalid appended create/read-only record identity changed')
+      if ((row[1] ?? '') !== payload.projectId) throw xlsxError('wrong project in worksheet row')
+      const uid = row[0] ?? ''
+      if (!uid) {
+        // A blank requirement number is the one way to add a requirement: there
+        // is nothing to match, so the row must be a new record with a title.
+        if (!text(row[2]).trim()) throw xlsxError('new row needs a title')
+        const content = JSON.stringify(FIELDS.map((k, i) => [k, row[i + 2] ?? '']))
+        // Row identity can no longer catch a copy-pasted row, so identical new
+        // rows are refused instead of creating the same requirement twice.
+        if (newRows.has(content)) throw xlsxError('duplicate new row content')
+        newRows.add(content)
+        const clientId = `import-${token}-${row.rowNumber}`
+        if (clientIds.has(clientId)) throw xlsxError('duplicate create clientId')
         clientIds.add(clientId)
-        selected.push({ operation: 'create', clientId, projectId: payload.projectId, values: Object.fromEntries(FIELDS.map((k, i) => [k, row[i + 5] ?? ''])), attachments: [] })
+        selected.push({ operation: 'create', clientId, projectId: payload.projectId, values: Object.fromEntries(FIELDS.map((k, i) => [k, row[i + 2] ?? ''])), attachments: [] })
         continue
       }
+      const index = payload.records.findIndex(r => r.operation === 'update' && r.uid === uid)
+      // Only exported records can be updated; an unknown or duplicated number is
+      // never guessed into a create.
+      if (index < 0) throw xlsxError(`unknown requirement in worksheet: ${uid}`)
       if (seen.has(index)) throw xlsxError('read-only record identity changed/duplicated')
       seen.add(index)
       const record = structuredClone(payload.records[index])
-      if (record.operation === 'create') {
-        if (clientIds.has(record.clientId)) throw xlsxError('duplicate create clientId')
-        clientIds.add(record.clientId)
-      }
+      // Chunks keep coming from the digest-verified metadata. The worksheet only
+      // overrides what it still contains, so a cleared or deleted Brief sheet
+      // restores the original long text instead of truncating or failing.
+      const original = chunks(text(record.values.brief))
       FIELDS.forEach((k, i) => {
-        let v = row[i + 5] ?? ''
-        if (k === 'brief') for (let c = 2; c <= chunks(text(record.values.brief)).length; c++) {
-          if (!extra.has(`${index}:${c}`)) throw xlsxError('missing brief continuation chunk')
-          v += extra.get(`${index}:${c}`)
-        }
+        let v = row[i + 2] ?? ''
+        if (k === 'brief') for (let c = 2; c <= original.length; c++) v += extra.get(`${index}:${c}`) ?? original[c - 1]
         record.values[k] = v === '' && record.values[k] === null ? null : v
       })
       selected.push(record)

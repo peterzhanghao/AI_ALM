@@ -104,6 +104,21 @@ test('compact list exposes the next action without presenting unchecked review a
   assert.ok(!html.includes('可进入人工确认'))
 })
 
+test('compact list renders GitHub develop and main links for a synchronized delivery', () => {
+  const item = {
+    ...payload.requirements[0],
+    development: { remoteUrl: 'git@github.com:peterzhanghao/AI_ALM.git', integrationBranch: 'develop', releaseBranch: 'main' },
+    release: { sourceControl: {
+      remoteUrl: 'git@github.com:peterzhanghao/AI_ALM.git', devBranch: 'develop', mainBranch: 'main',
+      mainMergeCommitSha: '615178757f804a86ea313dd09b85c0497acf9f8f',
+    } },
+  }
+  const html = renderRequirementsPage({ ...payload, requirements: [item] })
+  assert.match(html, /https:\/\/github\.com\/peterzhanghao\/AI_ALM\/tree\/develop/)
+  assert.match(html, /https:\/\/github\.com\/peterzhanghao\/AI_ALM\/tree\/main/)
+  assert.match(html, /rel="noopener"/)
+})
+
 test('compact list does not expose internal acceptance provenance', () => {
   const html = renderRequirementsPage(payload)
   assert.ok(!html.includes('0123456789ab'))

@@ -385,6 +385,26 @@ test('setDocDraft 合并补丁、递增 draftRevision/sessionRevision 并重算�
   assert.equal(second.docDraft.basedOnSessionRevision, 2)
 })
 
+test('setDocDraft preserves paragraph breaks in goal and problem but rejects other controls', (t) => {
+  const root = makeRepo(t)
+  const { session } = makeSession(root)
+  const saved = setDocDraft({
+    root,
+    session,
+    docDraft: {
+      goal: '缩短交付等待\r\n保留人工决策',
+      problem: '重复操作导致返工\n需要按批次复盘',
+    },
+  })
+
+  assert.equal(saved.docDraft.goal, '缩短交付等待\n保留人工决策')
+  assert.equal(saved.docDraft.problem, '重复操作导致返工\n需要按批次复盘')
+  assert.throws(
+    () => setDocDraft({ root, session: saved, docDraft: { problem: '不可见\u0000字符' } }),
+    (error) => error?.code === 'invalid-request' && /docDraft\.problem/.test(error.message),
+  )
+})
+
 test('recordAnswers 后草稿 draftRevision 递增，setInput 清空草稿与锁定', (t) => {
   const root = makeRepo(t)
   const { session } = makeSession(root)

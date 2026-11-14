@@ -41,7 +41,13 @@ window.__ModuleLoader__.load({
 
     // Work views, not lifecycle states: they may overlap ("待验收" is also part
     // of "待我处理"), and their counts never need to add up to the total.
-    const DEFAULT_REQUIREMENT_VIEW = 'all'
+    // REQ-ALM-015: entering the plugin lands on human work first. The server
+    // already returns requirements newest-first, so this view preserves that
+    // creation-time-descending order instead of re-sorting rows here.
+    const DEFAULT_REQUIREMENT_VIEW = 'mine'
+    // Bumped when the persisted default changes; old sessions must not keep the
+    // previous default alive after an upgrade.
+    const NAVIGATION_VERSION = 5
     const FILTERS = [
       ['all', '全部'],
       ['mine', '待我处理'],
@@ -1757,7 +1763,7 @@ window.__ModuleLoader__.load({
         load.request = request
         if (!scope) {
           setState({ scope, loading: false, error: null, data: null })
-          return
+          return Promise.resolve({ ok: false, error: '请先选择工作区项目' })
         }
         // Refresh keeps rows only for this exact scope.
         if (!silent) setState((prev) => ({ scope, loading: true, error: null, data: prev.scope === scope ? prev.data : null }))
@@ -1768,9 +1774,11 @@ window.__ModuleLoader__.load({
               throw new Error(body?.error?.message ?? body?.error ?? `HTTP ${response.status}`)
             }
             if (load.request === request) setState({ scope, loading: false, error: null, data: body })
+            return { ok: true, data: body }
           })
           .catch((error) => {
             if (load.request === request) setState((prev) => ({ scope, loading: false, error: error.message, data: prev.scope === scope ? prev.data : null }))
+            return { ok: false, error: error.message }
           })
       // A server-resolved project ID does not change this root-scoped request.
       // Avoid fetching the same expensive projection twice on first open.
@@ -1966,6 +1974,7 @@ window.__ModuleLoader__.load({
       const occurrences = Number(defect?.occurrenceCount ?? 0)
       const action = rowAction(item, actionHandlers)
       const executing = isExecutingRequirement(item)
+      const githubLinks = item.detailView?.githubLinks ?? null
       const [hover, setHover] = useState(false)
       const open = () => actionHandlers.onOpen(item)
       const actionButton = h(
@@ -2148,6 +2157,8 @@ window.__ModuleLoader__.load({
             ),
             h('span', { title: item.specConvergences?.length ? [...item.specConvergences].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote || '需求已演进' : '需求版本', tabIndex: 0, style: Number(item.revision) > 1 ? { color: '#8bd5f5', background: 'rgba(63,160,205,.14)', border: '1px solid rgba(106,190,225,.4)', borderRadius: '999px', padding: '1px 7px', fontSize: '11px', whiteSpace: 'nowrap' } : { color: T.text3, fontSize: '11px' } }, `v${item.revision ?? 1}${Number(item.revision) > 1 ? ' · 已演进' : ''}`),
             item.pendingPatch ? h('span', { style: { color: T.warn, fontSize: '11px', fontWeight: 600 } }, '● 待确认变更') : null,
+            githubLinks?.devBranchUrl ? h(GitHubLinkButton, { href: githubLinks.devBranchUrl, compact: true, title: '在 GitHub 查看开发分支' }, `🌿 ${githubLinks.devBranch ?? 'develop'}`) : null,
+            githubLinks?.mainBranchUrl && githubLinks.mainMergeCommitSha ? h(GitHubLinkButton, { href: githubLinks.mainBranchUrl, compact: true, title: '在 GitHub 查看主干分支' }, `✅ ${githubLinks.mainBranch ?? 'main'}`) : null,
             defect?.impact?.stage ? h('span', { style: { color: T.text3, fontSize: '11px' } }, `失败于${defectStageText(item)}`) : null,
             defect && occurrences > 1
               ? h('span', { style: { color: T.text2, fontSize: '11px', fontVariantNumeric: 'tabular-nums' } }, `×${occurrences}`)
@@ -2757,6 +2768,7 @@ window.__ModuleLoader__.load({
       alert: 'M12 3l9 16H3zM12 9v5M12 17h.01',
       archive: 'M4 7h16M6 7v12a1 1 0 001 1h10a1 1 0 001-1V7M9 7V4h6v3M12 11v5M9.5 13.5L12 16l2.5-2.5',
       message: 'M21 11.5a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-4.6A8.5 8.5 0 0 1 11.5 3h1A8.5 8.5 0 0 1 21 11.5z',
+      download: 'M12 4v11M7 11l5 5 5-5M4 20h16',
     }
 
     function ActionIcon({ name, size = 14 }) {
@@ -3320,6 +3332,53 @@ window.__ModuleLoader__.load({
 
     function safeHttpHref(value) {
       return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : null
+    }
+
+    function GitHubLinkButton({ href, children, title = null, compact = false }) {
+      const safe = safeHttpHref(href)
+      if (!safe) return null
+      return h('a', {
+        href: safe,
+        target: '_blank',
+        rel: 'noopener',
+        title: title ?? String(children ?? ''),
+        onClick: event => event.stopPropagation(),
+        style: compact
+          ? { color: T.ok, fontSize: '11px', textDecoration: 'none', whiteSpace: 'nowrap' }
+          : { display: 'inline-flex', alignItems: 'center', minHeight: '32px', padding: '5px 9px', border: `1px solid ${T.line2}`, borderRadius: '7px', color: T.text, background: T.layer, fontSize: '12px', textDecoration: 'none' },
+      }, children)
+    }
+
+    function GitHubDeliveryLinks({ links, showCompare = false, compact = false }) {
+      if (!links?.repoWebUrl) return null
+      const short = value => String(value ?? '').slice(0, 7)
+      const entries = [
+        links.mainCommitUrl ? ['main', links.mainCommitUrl, '↗ 查看 GitHub 主干提交'] : null,
+        links.devCommitUrl
+          ? ['develop', links.devCommitUrl, `🌿 查看本次交付提交 (${short(links.devCommitSha)})`]
+          : links.devBranchUrl ? ['develop', links.devBranchUrl, `🌿 查看 GitHub ${links.devBranch ?? 'develop'} 分支`] : null,
+        showCompare && links.compareUrl ? ['compare', links.compareUrl, '比较 main 与 develop'] : null,
+      ].filter(Boolean)
+      if (!entries.length) return null
+      return h('div', { 'data-github-delivery-links': 'true', style: { display: 'flex', gap: '7px', flexWrap: 'wrap', marginTop: compact ? '5px' : '10px' } },
+        entries.map(([key, href, label]) => h(GitHubLinkButton, { key, href, compact }, label)),
+      )
+    }
+
+    function GitHubDeliveryProperties({ links }) {
+      if (!links?.repoWebUrl) return null
+      const row = (label, children) => h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '6px 0', fontSize: '13px', color: T.text2 } }, h('div', null, label), h('div', { style: { color: T.text, overflowWrap: 'anywhere', textAlign: 'right', minWidth: 0 } }, children))
+      const branch = h('span', { style: { display: 'inline-flex', gap: '5px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' } },
+        links.devBranchUrl ? h(GitHubLinkButton, { href: links.devBranchUrl, compact: true }, links.devBranch ?? 'develop') : null,
+        links.mainBranchUrl && links.mainMergeCommitSha ? h('span', { style: { color: T.text3 } }, '→') : null,
+        links.mainBranchUrl && links.mainMergeCommitSha ? h(GitHubLinkButton, { href: links.mainBranchUrl, compact: true }, links.mainBranch ?? 'main') : null,
+      )
+      const commitHref = links.mainCommitUrl ?? links.devCommitUrl
+      const commitSha = links.mainMergeCommitSha ?? links.devCommitSha
+      return h('div', { 'data-github-delivery-properties': 'true' },
+        links.devBranchUrl || links.mainBranchUrl ? row('代码分支', branch) : null,
+        commitHref && commitSha ? row('最新提交', h(GitHubLinkButton, { href: commitHref, compact: true, title: '在 GitHub 查看提交 Diff' }, commitSha.slice(0, 7))) : null,
+      )
     }
 
     function relationRows(relations) {
@@ -4067,7 +4126,7 @@ window.__ModuleLoader__.load({
       const changes = []
       for (const [id, text] of right) if (!left.has(id)) changes.push({ type: 'added', id, after: text }); else if (left.get(id) !== text) changes.push({ type: 'modified', id, before: left.get(id), after: text })
       for (const [id, text] of left) if (!right.has(id)) changes.push({ type: 'removed', id, before: text })
-      const fields = [['title', '标题'], ['goal', '预期变化'], ['problem', '解决什么问题']].flatMap(([field, label]) => {
+      const fields = [['title', '标题'], ['goal', '预期变化'], ['problem', '价值']].flatMap(([field, label]) => {
         const a = delta.beforeDocument?.[field], b = delta.afterDocument?.[field]
         return typeof a === 'string' && typeof b === 'string' && a !== b ? [{ label, before: a, after: b }] : []
       })
@@ -4126,9 +4185,9 @@ window.__ModuleLoader__.load({
         h('p', { role: 'status', 'aria-live': 'polite', style: { ...DETAIL_SMALL, margin: state.loading || (!state.error && state.loaded) ? '6px 0' : 0 } }, state.loading ? '正在读取较早事件…' : !state.error && state.loaded ? `已读取 ${state.loaded} 条较早事件。` : ''),
         state.next && !record.timelineFingerprint ? h('p', { style: DETAIL_SMALL }, `另有 ${state.next} 条较早事件；请刷新需求后读取。`) : null,
         record.timelineOmitted > 0 && record.timelineFingerprint ? h('button', { type: 'button', style: { ...DETAIL_LINK, cursor: state.loading || !state.next || state.error === 'changed' ? 'not-allowed' : 'pointer' }, 'aria-disabled': state.loading || !state.next || state.error === 'changed', onClick: load }, state.loading ? '读取中…' : state.error === 'changed' ? '请刷新需求后读取' : state.next ? `加载较早事件（剩余 ${state.next} 条）` : '已显示全部已收集事件') : null,
-        timeline.length ? h('div', { 'data-version-timeline': 'true', style: { position: 'relative', margin: '12px 0 0 8px', paddingLeft: '18px', borderLeft: `1px solid ${T.line}`, display: 'grid', gap: '14px' } }, [...timeline].reverse().map((entry, index) => {
+        timeline.length ? h('ul', { 'data-version-timeline': 'true', style: { position: 'relative', margin: '12px 0 0 8px', paddingLeft: '18px', borderLeft: `1px solid ${T.line}`, display: 'grid', gap: '14px', listStyle: 'none' } }, [...timeline].reverse().map((entry, index) => {
           const appearance = timelineStyle(entry)
-          return h('article', { key: `${entry.at ?? 'event'}-${index}`, style: { position: 'relative', fontSize: '12px', color: T.text2, lineHeight: 1.6, minWidth: 0 } },
+          return h('li', { key: `${entry.at ?? 'event'}-${index}`, style: { position: 'relative', fontSize: '12px', color: T.text2, lineHeight: 1.6, minWidth: 0 } },
             h('span', { 'aria-hidden': 'true', style: { position: 'absolute', left: '-24px', top: '5px', width: '10px', height: '10px', borderRadius: '50%', background: appearance.color, boxShadow: `0 0 0 3px ${T.bg ?? T.layer}` } }),
             h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, h('span', { style: { color: appearance.color, background: T.layer2, border: `1px solid ${appearance.color}`, borderRadius: '999px', padding: '1px 7px', fontSize: '11px', fontWeight: 600 } }, appearance.label), h('time', { dateTime: entry.at, style: { color: T.text3, fontSize: '11px', flex: 'none' } }, formatLocalStamp(entry.at))),
             h('div', { style: { color: T.text, marginTop: '3px', fontWeight: 600, overflowWrap: 'anywhere' } }, entry.title ?? entry.kind ?? '事件'),
@@ -4143,6 +4202,7 @@ window.__ModuleLoader__.load({
       const record = detail.record ?? {}
       const relations = relationRows((record.relations ?? []).length ? record.relations : relationsOf(item, allItems)).filter(entry => entry.ids?.length)
       const github = record.github
+      const githubLinks = record.githubLinks ?? detail.githubLinks
       const architecture = record.architecture
       const defects = detail.summaries?.defects ?? {}
       const hasDefects = defects.own || defects.related?.length || defects.closedHistory?.length
@@ -4150,7 +4210,8 @@ window.__ModuleLoader__.load({
       const fingerprint = String(item.docMeta?.docHash ?? '').replace(/^sha256:/, '').slice(0, 8)
       return h('div', { 'data-detail-content': 'record', style: { minWidth: 0 } },
         h(CollectedTimeline, { key: `${item.root ?? root}:${item.id}:${record.timelineFingerprint ?? ''}`, root: item.root ?? root, requirementId: item.id, record, onNavigate, onRefresh }),
-        h(ArchitectureLedgerPanel, { architecture, release: detail.summaries?.release }),
+        h(ArchitectureLedgerPanel, { architecture, release: detail.summaries?.release, githubLinks }),
+        h(GitHubDeliveryLinks, { links: githubLinks, showCompare: true }),
         relations.length ? h(DetailBlock, { title: '归属关系', sectionId: 'record-relations' }, relations.map(entry => h(DetailRow, { key: entry.label, label: entry.label }, entry.ids.join('、')))) : null,
         github && (github.issue || github.url || github.board || github.tasks) ? h(DetailBlock, { title: 'GitHub', sectionId: 'record-github' }, github.issue ? h(DetailRow, { label: 'Issue' }, github.issue) : null, github.url ? h(DetailRow, { label: '链接' }, safeHttpHref(github.url) ? h('a', { href: github.url, target: '_blank', rel: 'noreferrer' }, github.url) : github.url) : null, github.board ? h(DetailRow, { label: '看板' }, github.board) : null) : null,
         hasDefects ? h(DetailBlock, { title: '缺陷记录', sectionId: 'record-defects' }, [defects.own, ...(defects.related ?? []), ...(defects.closedHistory ?? [])].filter(Boolean).map((defect, index) => h(DetailRow, { key: index, label: '缺陷' }, `${defect.id ?? defect}${defect.statusLabel ? ' · ' + defect.statusLabel : ''}`))) : null,
@@ -4297,14 +4358,14 @@ window.__ModuleLoader__.load({
         const headings = [...value.matchAll(/^(?:#{1,6}[ \t]+)?(?:\*\*)?(背景|目标|问题与场景)(?:\*\*)?[ \t]*(?:[：:][ \t]*|\n)/gm)]
         if (!headings.length) return add(fallback, value)
         add(fallback, value.slice(0, headings[0].index))
-        headings.forEach((heading, index) => add(heading[1] === '目标' ? '预期变化' : '解决什么问题', value.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? value.length)))
+        headings.forEach((heading, index) => add(heading[1] === '目标' ? '预期变化' : '价值', value.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? value.length)))
       }
       if (model?.status === 'legacy') {
-        addLegacy(doc.goal, '需求内容')
-        addLegacy(doc.problem, '解决什么问题')
+        addLegacy(doc.goal, '预期变化')
+        addLegacy(doc.problem, '价值')
       } else {
         add('预期变化', doc.goal)
-        add('解决什么问题', doc.problem)
+        add('价值', doc.problem)
       }
       return blocks.sort((a, b) => Number(b.title === '预期变化') - Number(a.title === '预期变化'))
     }
@@ -4326,7 +4387,7 @@ window.__ModuleLoader__.load({
     function HumanLongDescription({ text, paragraph, preview }) {
       const [expanded, setExpanded] = useState(false)
       return h('div', null,
-        h('p', { 'data-human-excerpt': 'true', hidden: expanded, style: paragraph }, `${preview(text).slice(0, 420)}…`),
+        h('p', { 'data-human-excerpt': 'true', hidden: expanded, style: paragraph }, `${preview(text).slice(0, 180)}…`),
         h('details', { style: { marginTop: '6px' }, onToggle: event => setExpanded(event.currentTarget.open) },
           h('summary', { style: { fontSize: '12px', color: T.text3, cursor: 'pointer' } }, expanded ? '收起完整内容' : '展开这段完整内容'),
           h('div', { style: paragraph }, renderRich(text))),
@@ -4349,10 +4410,10 @@ window.__ModuleLoader__.load({
         .trim()
       const rows = (label, values) => values.length ? h('div', { style: { marginTop: '16px' } }, h('h3', { style: { margin: 0, fontSize: '13px', color: T.text } }, label), h('ul', { style: { ...paragraph, paddingLeft: '20px' } }, values.map((text, index) => h('li', { key: index }, text)))) : null
       return h('div', { 'data-human-description': 'true' },
-        h('div', { className: 'description-cards' }, blocks.map((block, index) => h('div', { key: index, 'data-human-long': block.text.length > 420 ? 'true' : undefined, style: { padding: '12px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer } },
+        h('div', { className: 'description-cards' }, blocks.map((block, index) => h('div', { key: index, 'data-human-long': block.text.length > 180 ? 'true' : undefined, style: { padding: '12px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer } },
           index === 0 && status === 'unconfirmed' ? descriptionStatusBadge(status) : null,
-          index === 0 && block.title === '需求内容' ? null : h('h3', { style: { margin: 0, fontSize: '13px', fontWeight: 600, color: T.text } }, block.title),
-          block.text.length > 420
+          h('h3', { style: { margin: 0, fontSize: '13px', fontWeight: 600, color: T.text } }, block.title || '预期变化'),
+          block.text.length > 180
             ? h(HumanLongDescription, { text: block.text, paragraph, preview })
             : h('div', { style: paragraph }, renderRich(block.text)),
         ))),
@@ -4369,11 +4430,25 @@ window.__ModuleLoader__.load({
 
     function HumanVerification({ item, detail, matter }) {
       const summary = detail.verificationSummary ?? {}
-      const criteria = detail.content?.doc?.acceptance?.length ? detail.content.doc.acceptance.map(entry => ({ ...entry, ...(summary.criteria ?? []).find(result => result.id === entry.id) })) : summary.criteria ?? detail.content?.acceptanceCriteria ?? []
+      const sourceCriteria = detail.content?.acceptanceCriteria?.length ? detail.content.acceptanceCriteria.map(entry => ({ ...entry, ...(summary.criteria ?? []).find(result => result.id === entry.id) })) : detail.content?.doc?.acceptance?.length ? detail.content.doc.acceptance.map(entry => ({ ...entry, ...(summary.criteria ?? []).find(result => result.id === entry.id) })) : summary.criteria ?? []
+      const criteria = [...sourceCriteria].sort((left, right) => {
+        if (Boolean(left?.legacyBaseline) !== Boolean(right?.legacyBaseline)) return left?.legacyBaseline ? -1 : 1
+        if (left?.legacyBaseline && right?.legacyBaseline) return 0
+        const number = entry => Number(/^AC-(\d+)$/i.exec(String(entry?.id ?? '').trim())?.[1] ?? Number.MAX_SAFE_INTEGER)
+        const byNumber = number(left) - number(right)
+        return byNumber || String(left?.id ?? '').localeCompare(String(right?.id ?? ''))
+      })
+      const statusMeta = status => {
+        if (status === 'accepted') return { label: '🟢 已验收', color: T.ok }
+        if (status === 'verified') return { label: '🟢 已验证（待签收）', color: T.ok }
+        if (status === 'passed') return { label: '已通过', color: T.ok }
+        if (status === 'failed') return { label: '未通过', color: T.err }
+        return { label: '待验证', color: T.text3 }
+      }
       return h('section', { 'data-human-verification': 'true', style: { marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${T.line}` } },
         h('h2', { style: { fontSize: '16px', margin: 0 } }, '验收标准'),
         criteria.length ? h('div', { 'data-human-acceptance': 'true', style: { display: 'grid', gap: '6px', marginTop: '8px' } }, criteria.map((entry, index) => h('div', { key: entry.id ?? index, 'data-detail-ac': entry.id ?? `AC-${String(index + 1).padStart(2, '0')}`, style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '8px 12px', minWidth: 0 } },
-          h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '12px', color: T.text2, fontSize: '12px' } }, h('strong', null, entry.id ?? `AC-${String(index + 1).padStart(2, '0')}`), h('span', null, entry.status === 'passed' ? '已通过' : entry.status === 'failed' ? '未通过' : '待验证')),
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '12px', color: T.text2, fontSize: '12px' } }, h('strong', null, entry.id ?? `AC-${String(index + 1).padStart(2, '0')}`), (() => { const status = statusMeta(entry.status); return h('span', { style: { color: status.color } }, status.label) })()),
           h('div', { style: { marginTop: '5px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, entry.text || entry.title || entry.expected || '待补充')))) : h('p', { style: { color: T.text2 } }, '暂无验收标准。'),
       )
     }
@@ -4381,46 +4456,69 @@ window.__ModuleLoader__.load({
     const HUMAN_CONTROL = { ...button, minHeight: '40px', padding: '8px 14px', fontSize: '14px', fontWeight: 500, lineHeight: 1.5, color: T.text, border: `1px solid ${T.line2}`, background: T.layer }
     const DETAIL_MENU_ITEM = { ...HUMAN_CONTROL, width: '100%', textAlign: 'left', border: 0, background: 'transparent', minHeight: '36px', padding: '7px 10px' }
     const HUMAN_PRIMARY = { ...primary, minHeight: '44px', padding: '10px 20px', fontSize: '14px', fontWeight: 600 }
-    function IterationFeedback({ item, root, onRefresh }) {
+    function IterationFeedback({ item, root, onRefresh, onPatch }) {
       const [feedback, setFeedback] = useState('')
       const [localPatch, setLocalPatch] = useState(null)
       const [resolution, setResolution] = useState('')
       const [busy, setBusy] = useState(false)
       const [message, setMessage] = useState('')
+      const [messageTone, setMessageTone] = useState('neutral')
+      const [phase, setPhase] = useState('')
       const patch = localPatch ?? item.pendingPatch
+      const convergenceCoverage = patch?.diff?.modified ?? []
+      const updates = (kind) => convergenceCoverage.some(change => change?.kind === kind) || (kind === 'acceptance' && [patch?.diff?.added, patch?.diff?.removed].some(list => Array.isArray(list) && list.some(change => change?.kind === 'acceptance')))
       if (item.closed) return null
       const send = async body => {
-        setBusy(true); setMessage('')
+        const controller = new AbortController()
+        const slowNotice = setTimeout(() => setPhase('AI 正在生成需求调整草案，通常只需几秒…'), 900)
+        const timeout = setTimeout(() => controller.abort(), 20_000)
+        setBusy(true); setMessage(''); setMessageTone('neutral'); setPhase(body.action === 'feedback' || body.action === 'retry' ? '提交处理中...' : '正在记录处理结果…')
         try {
-          const response = await fetch(`/api/alm/requirements/convergence?root=${encodeURIComponent(item.root ?? root)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+          const response = await fetch(`/api/alm/requirements/convergence?root=${encodeURIComponent(item.root ?? root)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal })
           const result = await response.json()
           if (!response.ok || !result.ok) throw new Error(result.message || '操作失败，请刷新后重试')
-          if (body.action === 'feedback') {
-            if (result.pendingPatch) { setLocalPatch(result.pendingPatch); setResolution('') }
-            else { setMessage(result.execution?.resumed ? '修复反馈已提交，AI 正在继续推进。' : result.execution?.message ?? '反馈已保存，请启动或重试推进。'); onRefresh?.() }
+          if (result.pendingPatch) {
+            setLocalPatch(result.pendingPatch); setResolution(''); setFeedback('')
+            onPatch?.(result.pendingPatch)
+            setMessage('已生成需求演进补丁，请在下方确认合入。'); setMessageTone('success')
+          } else if (body.action === 'feedback' || body.action === 'retry') {
+            setFeedback('')
+            setMessage(result.deferred === true ? `反馈草案暂未生成：${result.message ?? '请点击重新生成调整草案。'}` : result.message ?? (result.execution?.resumed ? '修复反馈已提交，AI 正在继续推进。' : result.execution?.message ?? '反馈已保存，请启动或重试推进。'))
+            setMessageTone(result.deferred === true ? 'error' : 'neutral')
+            await onRefresh?.()
           } else {
-            setLocalPatch(null); setFeedback(''); setResolution('')
-            setMessage(result.execution?.resumed ? '已提交并继续推进，完成后将重新检查。' : `已记录处理结果，但未能继续推进：${result.execution?.message ?? '请刷新后重试'}`)
-            onRefresh?.()
+            setLocalPatch(null); onPatch?.(null); setFeedback(''); setResolution('')
+            const revision = Number(result.applied?.result?.after?.revision)
+            setMessage(body.resolution === 'confirm_converge' && Number.isFinite(revision) ? `✅ 需求基线已更新至 v${revision}` : result.execution?.resumed ? '已提交并继续推进，完成后将重新检查。' : `已记录处理结果，但未能继续推进：${result.execution?.message ?? '请刷新后重试'}`)
+            setMessageTone(body.resolution === 'confirm_converge' ? 'success' : 'neutral')
+            await onRefresh?.()
           }
-        } catch (error) { setMessage(error?.message || '操作失败，请重试') } finally { setBusy(false) }
+        } catch (error) {
+          setMessage(error?.name === 'AbortError' ? '等待 AI 生成草案超时。反馈未确认保存，请重新提交。' : error?.message || '操作失败，请重试'); setMessageTone('error')
+        } finally {
+          clearTimeout(slowNotice); clearTimeout(timeout); setPhase(''); setBusy(false)
+        }
       }
       return h('section', { 'data-iteration-feedback': 'true', style: { margin: '14px 0 0', padding: '12px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer } },
         h('h2', { style: { fontSize: '16px', margin: '0 0 12px' } }, patch ? '需求收敛确认' : '补充反馈或调整需求'),
         !patch ? h('div', null,
           h('label', { htmlFor: `iteration-feedback-${item.id}`, style: { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clipPath: 'inset(50%)' } }, '描述需要调整的内容'),
           h('textarea', { id: `iteration-feedback-${item.id}`, value: feedback, maxLength: 4000, rows: 2, placeholder: '直接描述需要微调的交互、补充的规则或发现的问题，AI 将自动判断是修复代码还是升级需求版本...', onChange: event => setFeedback(event.target.value), style: { display: 'block', boxSizing: 'border-box', width: '100%', margin: '8px 0', background: T.layer, color: T.text, border: `1px solid ${T.line2}`, padding: '8px' } }),
-          h('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, h('button', { type: 'button', style: HUMAN_CONTROL, disabled: busy || !feedback.trim(), onClick: () => send({ action: 'feedback', reqId: item.id, feedbackText: feedback }) }, busy ? '正在分析…' : '提交反馈'))) :
+          h('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, h('button', { type: 'button', style: HUMAN_CONTROL, disabled: busy || !feedback.trim(), onClick: () => send({ action: 'feedback', reqId: item.id, feedbackText: feedback }) }, busy ? '提交处理中...' : '提交反馈'))) :
           h('div', { 'data-pending-patch': 'true' },
-            
             h('p', null, patch.evolutionNote),
+            h('div', { 'data-convergence-coverage': 'true', style: { display: 'flex', gap: '7px', flexWrap: 'wrap', margin: '8px 0 12px', fontSize: '12px', color: T.text2 } },
+              ...[['goal', '预期变化'], ['problem', '价值'], ['acceptance', '验收标准']].map(([kind, label]) => h('span', { key: kind, style: { border: `1px solid ${updates(kind) ? T.ok : T.warn}`, borderRadius: '999px', padding: '3px 8px', color: updates(kind) ? T.ok : T.warn } }, `${updates(kind) ? '已更新' : '待核对'}：${label}`))),
             h('details', null, h('summary', null, '查看变更前正文及验收'), h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, String(patch.beforeBrief ?? '').replace(/<!--\s*alm:meta\b[\s\S]*?-->/g, ''))),
             h('details', null, h('summary', null, '查看变更后正文及验收'), h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, String(patch.afterBrief ?? '').replace(/<!--\s*alm:meta\b[\s\S]*?-->/g, ''))),
             h('fieldset', { style: { margin: '12px 0', border: 0, padding: 0 } }, h('legend', null, '选择处理方式'),
               ...[['confirm_converge', '确认更新需求基线并继续推进'], ['repair_only', '仅作为代码问题修复（不修改需求基线）']].map(([value, label]) => h('label', { key: value, style: { display: 'block', margin: '8px 0' } }, h('input', { type: 'radio', name: `iteration-resolution-${item.id}`, value, checked: resolution === value, onChange: () => setResolution(value) }), ' ', label))),
-            h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: busy || !resolution, onClick: () => send({ action: 'resolve', reqId: item.id, patchId: patch.patchId, patchHash: patch.patchHash, baseRequirementHash: patch.baseRequirementHash, resolution }) }, busy ? '正在执行…' : '确认执行')),
-        item.iterationRetry ? h('div', null, h('p', null, '迭代反馈已保存，等待启动或继续推进。'), h('button', { type: 'button', style: HUMAN_CONTROL, disabled: busy, onClick: () => send({ action: 'retry', reqId: item.id }) }, '重试推进'), h('p', { style: { color: T.text2, fontSize: '13px' } }, '如果尚未启动运行，请使用本页“交给 AI 推进”。')) : null,
-        h('p', { role: 'status', 'aria-live': 'polite', style: { margin: message ? '8px 0 0' : 0 } }, message))
+            h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: busy || !resolution, onClick: () => send({ action: 'resolve', reqId: item.id, patchId: patch.patchId, patchHash: patch.patchHash, baseRequirementHash: patch.baseRequirementHash, resolution }) }, busy ? '确认处理中...' : '确认更新需求基线')),
+        item.iterationRetry ? h('div', null,
+          h('p', null, item.iterationRetry.execution?.deferred === true ? '反馈已保存，但 AI 生成调整草案超时。' : '迭代反馈已保存，等待启动或继续推进。'),
+          h('button', { type: 'button', style: HUMAN_CONTROL, disabled: busy, onClick: () => send({ action: 'retry', reqId: item.id }) }, item.iterationRetry.execution?.deferred === true ? '重新生成调整草案' : '重试推进'),
+          h('p', { style: { color: T.text2, fontSize: '13px' } }, item.iterationRetry.execution?.deferred === true ? '将使用已保存的反馈重新生成草案，不会重复提交内容。' : '如果尚未启动运行，请使用本页“交给 AI 推进”。')) : null,
+        (busy || message) ? h('p', { role: messageTone === 'error' ? 'alert' : 'status', 'aria-live': 'polite', 'data-iteration-feedback-status': messageTone, style: { margin: '8px 0 0', color: busy ? T.text2 : messageTone === 'error' ? T.err : messageTone === 'success' ? T.ok : undefined, fontWeight: messageTone === 'error' || messageTone === 'success' ? 600 : 400 } }, busy ? phase : message) : null)
     }
     const HUMAN_TABS = [{ id: 'requirement', label: '需求正文' }, { id: 'delivery', label: 'AI 进展' }, { id: 'record', label: '历史记录' }]
 
@@ -4439,6 +4537,7 @@ window.__ModuleLoader__.load({
           human.next && !decision ? h('p', { style: { margin: '0 0 12px', color: T.text2, fontSize: '13px' } }, human.next) : null,
           h('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' } },
             decision ? h('button', { style: HUMAN_PRIMARY, disabled: action?.enabled === false, 'data-primary-action': action?.id ?? 'answer-run', onClick: () => onNavigate('requirement') }, businessDecision ? '查看业务选项并决定' : '查看问题与 AI 处理选项') : !watch && action?.enabled !== false && handlers[action?.id] ? h('button', { style: HUMAN_PRIMARY, 'data-primary-action': action.id, onClick: () => handlers[action.id]() }, action.id === 'watch-run' ? '查看 AI 进展' : action.label) : null,
+            !decision ? (detail.secondaryActions ?? []).filter(entry => entry?.id === 'run-acceptance' && entry.enabled !== false && handlers[entry.id]).map(entry => h('button', { key: entry.id, style: HUMAN_CONTROL, 'data-secondary-action': entry.id, onClick: () => handlers[entry.id]() }, entry.label)) : null,
             progressPage && onRefresh ? h('button', { style: HUMAN_CONTROL, 'data-progress-refresh': 'true', onClick: onRefresh }, '刷新状态') : null,
           ),
           action?.enabled === false && action.reason ? h('p', { role: 'status', style: { color: T.text2, fontSize: '13px', margin: '8px 0' } }, action.reason) : null,
@@ -4796,7 +4895,7 @@ window.__ModuleLoader__.load({
         loadMoreRuns.current = load
         void load()
         return () => { controller.abort(); loadMoreRuns.current = null }
-      }, [root, item.id, latestRunId, initialRunId])
+      }, [root, item.id, latestRunId, initialRunId, segment, refresh])
       useEffect(() => {
         if (requirementClosed || !runId || runId !== latestRunId || !['queued', 'running'].includes(currentStatus) || view !== 'conversation') return
         let alive = true, timer
@@ -5008,7 +5107,7 @@ window.__ModuleLoader__.load({
                 output?.nonTextBlocks ? h('p', { style: { color: T.text2, fontSize: '12px' } }, `包含 ${output.nonTextBlocks} 项非文本内容，当前未展示。`) : null,
               )
             }),
-            view === 'trace' && projected.systemEvents.length ? h('details', { 'data-run-system-events': 'true', style: { marginTop: '12px', fontSize: '12px', color: T.text2 } }, h('summary', { style: { cursor: 'pointer' } }, `底层系统事件 (${projected.systemEvents.length} 条)`), h('ul', { style: { margin: '8px 0 0', paddingLeft: '18px' } }, projected.systemEvents.map(event => h('li', { key: `${event.seq}:${event.name}` }, event.name)))) : null,
+            view === 'trace' && projected.systemEvents.length ? h('details', { 'data-run-system-events': 'true', style: { marginTop: '12px', fontSize: '12px', color: T.text2 } }, h('summary', { style: { cursor: 'pointer' } }, `底层系统事件 (${projected.systemEvents.length} 条)`), h('ul', { style: { margin: '8px 0 0', paddingLeft: '18px', overflowWrap: 'anywhere' } }, projected.systemEvents.map(event => h('li', { key: `${event.seq}:${event.name}` }, event.name)))) : null,
             view === 'conversation' && live && (live.text || live.reasoning) ? h('article', { 'data-live-attempt': 'true', style: { borderTop: `1px solid ${T.line}`, padding: '12px 0', minWidth: 0 } },
               h('strong', { style: { fontSize: '12px' } }, 'AI 正在回复'),
               live.truncated ? h('p', { style: { color: T.text2, fontSize: '12px' } }, '实时内容过长，当前显示开头；完成后可查看完整记录。') : null,
@@ -5020,7 +5119,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function ArchitectureLedgerPanel({ architecture, release }) {
+    function ArchitectureLedgerPanel({ architecture, release, githubLinks = null }) {
       if (!architecture?.path) return null
       const sourceControl = release?.sourceControl ?? null
       const short = value => String(value ?? '').slice(0, 7)
@@ -5036,8 +5135,12 @@ window.__ModuleLoader__.load({
           architecture.title ? h('strong', { style: { fontSize: '13px' } }, architecture.title) : null,
           list('需求与版本基线', architecture.baseline),
           list('架构与模块变更', architecture.modules, module => module.role ? `${module.path}：${module.role}` : module.path),
+          githubLinks?.architectureUrl
+            ? h('p', { 'data-architecture-synced': 'true', style: { margin: '10px 0 0', fontSize: '12px', color: T.ok } }, `🌿 架构与模块变更已标记并同步至 GitHub · ${architecture.modules?.length ?? 0} 个模块`)
+            : h('p', { 'data-architecture-local': 'true', style: { margin: '10px 0 0', fontSize: '12px', color: T.warn } }, '⚠ 架构档案仅本地归档，尚未同步至 GitHub，链接暂不可用'),
           list('数据模型与接口契约', architecture.contracts),
           list('验证与证据摘要', architecture.verification),
+          githubLinks?.architectureUrl ? h('p', { style: { margin: '12px 0 0', fontSize: '12px' } }, h(GitHubLinkButton, { href: githubLinks.architectureUrl, compact: true }, '↗ 在 GitHub 查看架构档案')) : null,
           sourceControl?.pushedToRemoteDev ? h('p', { 'data-dev-commit-badge': 'true', style: { margin: '12px 0 0', color: T.ok, fontSize: '12px' } }, `🌿 GitHub 远端已同步 · 开发分支提交 (develop: ${short(sourceControl.devCommitSha)})`) : null,
           sourceControl?.pushedToMain ? h('p', { 'data-main-commit-badge': 'true', style: { margin: '5px 0 0', color: T.ok, fontSize: '12px' } }, `✅ 主干合并提交 (main: ${short(sourceControl.mainMergeCommitSha)})`) : null,
         ),
@@ -5049,6 +5152,7 @@ window.__ModuleLoader__.load({
       const acceptance = detail.summaries?.acceptance ?? {}
       const candidate = detail.summaries?.candidate ?? {}
       const release = detail.summaries?.release ?? null
+      const githubLinks = detail.githubLinks ?? null
       const matter = detail.currentMatter ?? {}
       const blueprint = item.run?.blueprint ?? null
       const diagnostic = detail.executionDiagnostic ?? null
@@ -5076,6 +5180,7 @@ window.__ModuleLoader__.load({
             h('div', { style: { marginTop: '4px' } }, `发布记录 ${release.id ?? '—'} · 交付候选 ${release.candidateId ?? candidate.id ?? '—'}${release.releasedAt ? ` · ${formatLocalStamp(release.releasedAt)}` : ''}`),
             release.sourceControl?.pushedToRemoteDev ? h('div', { 'data-release-dev-commit': 'true', style: { marginTop: '5px', color: T.ok } }, `🌿 开发分支提交 (develop: ${(release.sourceControl.devCommitSha ?? '').slice(0, 7)}) · GitHub 远端已同步`) : null,
             release.mainMerged ? h('div', { 'data-main-merged': 'true', style: { marginTop: '5px', color: T.ok } }, `✅ 代码与架构档案已合入 GitHub main 分支（Commit: ${(release.sourceControl?.mainMergeCommitSha ?? '').slice(0, 7)} · 分支: ${release.sourceControl?.devBranch ?? 'develop'} → ${release.sourceControl?.mainBranch ?? 'main'}）`) : null,
+            h(GitHubDeliveryLinks, { links: githubLinks, showCompare: true }),
           ) : null,
           diagnostic ? h('div', { 'data-execution-diagnostic': 'true', style: { marginTop: '12px', padding: '10px 12px', borderLeft: `3px solid ${T.warn}`, background: T.layer2 } },
             h('strong', { style: { fontSize: '13px' } }, diagnostic.title),
@@ -5096,7 +5201,8 @@ window.__ModuleLoader__.load({
           acceptance.finishedAt ? h('p', { style: { margin: '5px 0 0', fontSize: '12px', color: T.text2 } }, `最近执行：${formatLocalStamp(acceptance.finishedAt)}`) : null,
           diagnostic?.log ? h('details', { style: { marginTop: '8px', fontSize: '12px', color: T.text2 } }, h('summary', { style: { cursor: 'pointer' } }, '查看具体报错日志与诊断详情'), h('pre', { style: { margin: '8px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit' } }, diagnostic.log)) : null,
           h('p', { style: { margin: '8px 0 0', fontSize: '13px', color: candidateReady || released ? T.ok : T.text2 } }, released ? `交付候选 ${release.candidateId ?? candidate.id ?? '已生成'} 已完成签收与发布归档。` : candidate.exists ? candidateReady ? `交付候选 ${candidate.id ?? '已生成'} 已绑定当前需求与验证证据，等待人工签收。` : `交付候选：${candidate.id ?? '已生成'}，需要重新核验` : '尚未生成交付候选'),
-          h(ArchitectureLedgerPanel, { architecture: detail.record?.architecture, release }),
+          h(GitHubDeliveryLinks, { links: githubLinks }),
+          h(ArchitectureLedgerPanel, { architecture: detail.record?.architecture, release, githubLinks }),
         ),
       )
     }
@@ -5107,6 +5213,8 @@ window.__ModuleLoader__.load({
       const [dirty, setDirty] = useState(false)
       const [more, setMore] = useState(false)
       const [runSelection, setRunSelection] = useState(null)
+      const [refreshStatus, setRefreshStatus] = useState(null)
+      const [localPendingPatch, setLocalPendingPatch] = useState(null)
       const selectedRunId = runSelection?.requirementId === item.id && runSelection?.root === (item.root ?? root) ? runSelection.runId : null
       const mainScroll = useRef(0)
       const titleRef = useRef(null)
@@ -5118,7 +5226,29 @@ window.__ModuleLoader__.load({
         clearTimeout(tabFocusTimerRef.current)
       }, [])
       useEffect(() => { titleRef.current?.focus?.({ preventScroll: true }) }, [item.id])
+      useEffect(() => { setRefreshStatus(null) }, [item.id])
+      useEffect(() => { setLocalPendingPatch(null) }, [item.id, item.revision, item.pendingPatch?.patchHash])
+      useEffect(() => {
+        if (!localPendingPatch) return
+        const handle = requestAnimationFrame(() => {
+          const card = scrollRef.current?.querySelector?.('[data-pending-patch]')
+          card?.scrollIntoView?.({ block: 'start', behavior: REDUCE_MOTION ? 'auto' : 'smooth' })
+        })
+        return () => cancelAnimationFrame(handle)
+      }, [localPendingPatch?.patchHash])
       const matter = detail.currentMatter ?? { kind: detail.question ? 'decision' : detail.context?.kind, headline: detail.context?.headline, explanation: detail.context?.explanation, action: detail.primaryAction }
+      const displayItem = localPendingPatch ? { ...item, pendingPatch: localPendingPatch } : item
+      const refreshDetail = async () => {
+        if (refreshStatus?.busy) return
+        setRefreshStatus({ busy: true, text: '正在刷新状态…' })
+        const result = await onRefresh?.()
+        if (result?.ok === false) setRefreshStatus({ busy: false, error: true, text: `刷新失败：${result.error ?? '请稍后重试'}` })
+        else {
+          const latest = result?.data?.requirements?.find(entry => entry.id === item.id)
+          const changed = latest && (latest.revision !== item.revision || Boolean(latest.pendingPatch) !== Boolean(item.pendingPatch))
+          setRefreshStatus({ busy: false, text: changed ? '状态已刷新，页面已更新为最新结果。' : '状态已刷新；当前没有新的变化。' })
+        }
+      }
       const leave = (callback) => { if (dirty && !window.confirm('还有未提交的内容。放弃这些草稿并离开？')) return false; setDirty(false); callback(); return true }
       useEffect(() => {
         if (!more) return
@@ -5184,6 +5314,11 @@ window.__ModuleLoader__.load({
          }, 60)
       })
       const viewRevision = detail.identity?.revision ?? item.revision ?? 1
+      const githubLinks = detail.githubLinks ?? null
+      const sidebarRows = [
+        ...[['负责人', item.owner || '未分配'], ['优先级', item.priority || '未设置'], ['来源', item.sourceSession ? '对话生成' : (item.sources?.map(source => ({ chat: '对话生成', manual: '手动创建' }[String(source).toLowerCase()] ?? source)).join('、') || '未登记')], ['当前修订', `v${viewRevision}`], ['最近更新', detail.identity?.updatedAt ? formatLocalStamp(detail.identity.updatedAt) : '暂无记录']].map(([label, value]) => h('div', { key: label, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '6px 0', fontSize: '13px', color: T.text2 } }, h('div', null, label), h('div', { style: { color: T.text, overflowWrap: 'anywhere', textAlign: 'right', minWidth: 0 } }, value))),
+        h(GitHubDeliveryProperties, { key: 'github-delivery', links: githubLinks }),
+      ]
       const cancelPendingFocus = () => { clearTimeout(navigationTimerRef.current); clearTimeout(tabFocusTimerRef.current) }
       return h('section', { 'data-detail-shell': 'true', 'data-detail-page': 'v4', onPointerDownCapture: cancelPendingFocus, onKeyDownCapture: cancelPendingFocus, onKeyDown: onTabKeyDown, style: { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: T.base, minWidth: 0 } },
         h('style', null, `[data-detail-page] .v4-reading{box-sizing:border-box;width:100%;max-width:864px;margin:0 auto;padding:24px 32px 48px;font-size:16px;line-height:1.6;overflow-wrap:anywhere;}@container (max-width:959px){[data-detail-page] .v4-reading{padding-left:24px;padding-right:24px}}@container (max-width:639px){[data-detail-page] .v4-reading{padding-left:16px;padding-right:16px}}[data-detail-page] button:focus-visible,[data-detail-page] input:focus-visible,[data-detail-page] textarea:focus-visible,[data-detail-page] summary:focus-visible,[data-detail-page] h1:focus-visible,[data-detail-page] h2:focus-visible,[data-detail-page] [data-detail-anchor]:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] button:disabled{opacity:.5;cursor:not-allowed}[data-detail-page] [data-detail-section] h4{font-size:15px!important;color:${T.text}!important}[data-detail-page] [data-detail-section]{font-size:16px!important;line-height:1.6!important}[data-detail-page] [data-detail-section]>summary{min-height:44px;align-items:center!important;font-size:14px}[data-detail-page] [data-detail-section]>summary h3{font-size:14px!important}[data-detail-page] [data-detail-section] button{min-height:40px;font-size:13px!important;padding:8px 12px!important;color:${T.text}!important;border:1px solid ${T.line2}!important;border-radius:7px}[data-detail-page] [data-detail-section] button:disabled{color:${T.text3}!important}[data-detail-page] [data-detail-section] summary{cursor:pointer}[data-detail-page] [data-detail-section] summary::marker{color:${T.text2}}`),
@@ -5196,7 +5331,7 @@ window.__ModuleLoader__.load({
             h('button', { style: HUMAN_CONTROL, 'aria-expanded': more, 'aria-controls': 'v4-more-actions', onClick: () => setMore(value => !value) }, '更多 ▾'),
             more ? h('div', { id: 'v4-more-actions', role: 'group', 'aria-label': '更多操作', style: { position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 20, width: '210px', padding: '6px', display: 'grid', gap: '4px', border: `1px solid ${T.line2}`, borderRadius: '10px', background: T.base, boxShadow: '0 8px 32px rgba(0,0,0,.24)' } },
               h('button', { style: DETAIL_MENU_ITEM, disabled: isExecutingRequirement(item), onClick: () => leave(() => { setEditing(true); setMore(false); onNavigate('requirement') }) }, '编辑需求'),
-              h('button', { style: DETAIL_MENU_ITEM, onClick: () => { setMore(false); onRefresh?.() } }, '刷新状态'),
+              h('button', { style: DETAIL_MENU_ITEM, disabled: refreshStatus?.busy, onClick: () => { setMore(false); void refreshDetail() } }, refreshStatus?.busy ? '正在刷新…' : '刷新状态'),
               props.onCancelRun && canCancelRequirementRun(detail.summaries?.run ?? item.run) ? h('button', { style: { ...DETAIL_MENU_ITEM, color: T.err, marginTop: '6px' }, 'data-detail-cancel-run': 'true', onClick: () => { setMore(false); props.onCancelRun(item) } }, '取消本轮推进…') : null,
               props.onArchive ? h('button', { style: DETAIL_MENU_ITEM, onClick: () => leave(() => { setMore(false); props.onArchive(item) }) }, '归档需求…') : null,
               props.onRemove ? h('button', { style: { ...DETAIL_MENU_ITEM, color: T.err }, onClick: () => leave(() => { setMore(false); props.onRemove(item) }) }, '删除需求…') : null,
@@ -5208,7 +5343,8 @@ window.__ModuleLoader__.load({
           h('article', { className: 'v4-reading', 'data-progress-reading': tab === 'delivery' ? 'true' : undefined },
             h('div', { 'data-detail-id': item.id, style: { fontSize: '12px', color: T.text3, marginBottom: '8px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } }, h('span', null, item.id, ' · ', h('span', { 'data-detail-revision': String(viewRevision) }, `v${viewRevision}`)), h('span', { style: { border: `1px solid ${T.line2}`, borderRadius: '999px', padding: '2px 8px', color: T.text2 } }, item.delivery?.label ?? detail.summaries?.delivery?.label ?? '待推进')),
             h('h1', { ref: titleRef, tabIndex: -1, id: detailTitleId(item), style: { fontFamily: 'inherit', fontSize: '20px', fontWeight: 600, lineHeight: 1.45, letterSpacing: 0, margin: '0 0 18px' } }, item.title),
-            item.pendingPatch && (tab === 'requirement' || tab === 'delivery') ? h(IterationFeedback, { key: item.id, item, root, onRefresh }) : null,
+            refreshStatus ? h('p', { role: refreshStatus.error ? 'alert' : 'status', 'data-detail-refresh-status': 'true', style: { margin: '-8px 0 14px', fontSize: '13px', color: refreshStatus.error ? T.err : T.text2 } }, refreshStatus.text) : null,
+            displayItem.pendingPatch && (tab === 'requirement' || tab === 'delivery') ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
             h('div', { className: 'detail-columns' }, h('div', { style: { minWidth: 0 } }, tab !== 'requirement' ? h('div', null,
               tab === 'record' ? h(RequirementRecord, { ...props, onNavigate: (next, anchor) => { if (anchor === 'delivery-run-observation') setRunSelection(null); navigate(next, anchor) }, onOpenRun: runId => { setRunSelection({ requirementId: item.id, root: item.root ?? root, runId }); navigate('delivery', 'delivery-run-observation') } }) : h('div', null,
                 !(detail.summaries?.run?.exists || item.run?.id || selectedRunId || detail.summaries?.candidate?.exists || item.candidate?.exists || detail.question || matter.kind === 'decision') ? h('section', { 'data-progress-not-started': 'true', style: { padding: '24px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer } },
@@ -5216,14 +5352,14 @@ window.__ModuleLoader__.load({
                   h('p', { style: { color: T.text2, lineHeight: 1.7 } }, '启动后 AI 将在授权范围内自动完成代码实现与验证，遇到业务取舍或需求变更时会向你发起确认。'),
                   handlers[matter.action?.id] ? h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: matter.action?.enabled === false, onClick: () => handlers[matter.action.id]() }, '交给 AI 推进') : null,
                 ) : h('div', null,
-                 h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: props.onRefresh, onOpenSession: props.onOpenSession }),
+                  h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: refreshDetail, onOpenSession: props.onOpenSession }),
                  h(RunObservationPanel, { item, detail, root: item.root ?? root, initialRunId: selectedRunId, onOpenSession: props.onOpenSession })),
-            )) : editing ? h(InlineRequirementEditor, { item, root, onDirty: setDirty, onCancel: () => leave(() => setEditing(false)), onDone: () => { setDirty(false); setEditing(false); onRefresh?.() } }) : h('div', { className: 'requirement-body' },
-              h(DetailDescription, { item, detail, root, onRefresh }),
+            )) : editing ? h(InlineRequirementEditor, { item, root, onDirty: setDirty, onCancel: () => leave(() => setEditing(false)), onDone: () => { setDirty(false); setEditing(false); void refreshDetail() } }) : h('div', { className: 'requirement-body' },
+              h(DetailDescription, { item, detail, root, onRefresh: refreshDetail }),
               h(HumanVerification, { item, detail, matter }),
-              !item.pendingPatch ? h(IterationFeedback, { key: item.id, item, root, onRefresh }) : null,
+              !displayItem.pendingPatch ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
             )), h('aside', { className: 'detail-sidebar', 'aria-label': '需求属性' }, h('h2', { style: { fontSize: '15px', margin: '0 0 8px' } }, '需求属性'),
-              ...[['负责人', item.owner || '未分配'], ['优先级', item.priority || '未设置'], ['来源', item.sourceSession ? '对话生成' : (item.sources?.map(source => ({ chat: '对话生成', manual: '手动创建' }[String(source).toLowerCase()] ?? source)).join('、') || '未登记')], ['当前修订', `v${viewRevision}`], ['最近更新', detail.identity?.updatedAt ? formatLocalStamp(detail.identity.updatedAt) : '暂无记录']].map(([label, value]) => h('div', { key: label, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '6px 0', fontSize: '13px', color: T.text2 } }, h('div', null, label), h('div', { style: { color: T.text, overflowWrap: 'anywhere', textAlign: 'right', minWidth: 0 } }, value))))),
+              ...sidebarRows)),
           ),
         ),
       )
@@ -5578,6 +5714,14 @@ window.__ModuleLoader__.load({
       const handlers = {
         'answer-run': () => props.onAnswer && props.onAnswer(item),
         'resume-run': () => props.onResumeRun && props.onResumeRun(item),
+        'run-acceptance': () => props.onAcceptance && props.onAcceptance(item),
+        'narrow-verification': () =>
+          writeJson('narrow-verification', { requirementId: item.id, apply: true }, root)
+            .then(result => {
+              props.onRefresh && props.onRefresh()
+              if (result?.verification?.result !== 'pass') window.alert('验收命令已收窄，但本次验证仍未通过；请查看验证详情。')
+            })
+            .catch(error => window.alert('收窄验收命令失败：' + error.message)),
         'continue-run': () => props.onContinueRun && props.onContinueRun(item),
         start: () => props.onStart && props.onStart(item, { isolate: startIsolate }),
         'start-fix': () => props.onStart && props.onStart(item, { isolate: startIsolate }),
@@ -5639,7 +5783,7 @@ window.__ModuleLoader__.load({
       return h(DrawerContent, props)
     }
 
-    function useDialogFocus(dialogRef, onClose) {
+    function useDialogFocus(dialogRef, onClose, { closeOnEscape = true } = {}) {
       const closeRef = useRef(onClose)
       closeRef.current = onClose
       useEffect(() => {
@@ -5648,7 +5792,14 @@ window.__ModuleLoader__.load({
           if (feedbackLayerOpen()) return
           const dialogs = [...document.querySelectorAll('[role="dialog"]')]
           if (dialogs.at(-1) !== dialogRef.current) return
-          if (event.key === 'Escape') { event.preventDefault(); closeRef.current(); return }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            // AC-02: an exchange draft must survive a stray Escape. Swallow the
+            // key so no outer surface closes either, and leave only the explicit
+            // close button as the exit.
+            if (!closeOnEscape) { event.stopPropagation(); return }
+            closeRef.current(); return
+          }
           if (event.key !== 'Tab') return
           const nodes = [...dialogRef.current.querySelectorAll('button, input, textarea, select, summary, a[href], [tabindex]')].filter((node) => node.tabIndex >= 0 && !node.matches(':disabled') && !node.closest('[inert]') && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden')
           const first = nodes[0], last = nodes.at(-1)
@@ -6252,7 +6403,7 @@ window.__ModuleLoader__.load({
         question
           ? h('button', { key: 'cancel-question', style: button, onClick: onClose }, question.options?.find((option) => option.id === 'cancel')?.label ?? '先不开始')
           : h('button', { key: 'close', style: button, onClick: onClose }, start || state.phase === 'error' ? '关闭' : state.phase === 'running' ? '关闭（尚未启动）' : '关闭（启动请求已提交）'),
-        question && state.phase === 'question' ? h('button', { key: 'proceed', style: primary, onClick: proceed }, question.options?.find((option) => option.id === 'proceed')?.label ?? '带着问题交给 AI 推进') : null,
+        question && !start && state.phase !== 'starting' ? h('button', { key: 'proceed', style: primary, onClick: proceed }, '确认并启动 AI 推进') : null,
       ]
       return h(
         ModalShell,
@@ -7640,7 +7791,9 @@ window.__ModuleLoader__.load({
     }
 
     function draftText(value) {
-      return typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value)
+      return (typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value))
+        .replace(/\$\\(?:right)?arrow\$/g, '→')
+        .replace(/\s*->\s*/g, ' → ')
     }
 
     function draftList(value) {
@@ -12032,6 +12185,10 @@ window.__ModuleLoader__.load({
       }
       const simpleReview = () => activeItems().length === 1 && routeOf(activeItems()[0]) === 'create' && !(activeItems()[0].unknowns ?? []).some(entry => entry.blocking && (!entry.resolution || entry.resolution === 'pending' || entry.resolution === 'investigate')) && simpleDraft
       const grillIsValue = /拷问|grill/i.test(`${simpleDraft?.title ?? ''} ${simpleDraft?.goal ?? ''}`)
+      const selfHealingIntent = /(?:需求插件|插件)/.test(`${session?.input?.text ?? ''} ${simpleDraft?.title ?? ''}`) && /(?:报错|错误|bug)/i.test(`${session?.input?.text ?? ''}`) && /自动修复/.test(`${session?.input?.text ?? ''}`)
+      const grillApplied = session?.grill?.outcome === 'applied'
+      const grillFallback = session?.grill?.outcome === 'fallback'
+      const grillAvailable = session?.grill?.status === 'loaded'
       const titlePreservationRule = /(?:手动修改|自动提炼|覆盖)/.test(`${simpleDraft?.title ?? ''} ${simpleDraft?.problem ?? ''} ${simpleDraft?.goal ?? ''}`)
       const modelGrillQuestions = [
         ...(Array.isArray(session?.questionGroup?.questions) ? session.questionGroup.questions : []),
@@ -12040,7 +12197,11 @@ window.__ModuleLoader__.load({
         .filter(question => question.status !== 'answered')
         .slice(0, 3)
         .map(question => ({ id: `model-${question.questionId}`, question: question.text, options: (question.options ?? []).map(option => option.label).filter(Boolean) }))
-      const grillQuestions = modelGrillQuestions.length ? modelGrillQuestions : grillIsValue ? [
+      const grillQuestions = modelGrillQuestions.length ? modelGrillQuestions : selfHealingIntent ? [
+        { id: 'repair-boundary', question: '自动修复可修改的范围是什么？', options: ['仅修改需求插件工作区并重启该插件', '允许修改所有 DSH 插件', '每次修复前要求人工确认'] },
+        { id: 'repair-failure', question: '自动修复或验证失败时如何处理？', options: ['停止自动修复，保留故障证据并转人工处理', '在相同策略下额外重试一次', '持续重试直到恢复'] },
+        { id: 'restart-proof', question: '插件重启后以什么结果证明恢复？', options: ['重放触发故障的定向用例并记录结果', '仅确认插件进程已启动', '由用户手动确认功能恢复'] },
+      ] : grillIsValue ? [
         { id: 'value', question: '需求价值拷问主要帮助解决什么问题？', options: ['识别缺少业务价值的需求，避免盲目开发', '明确需求的受益人和使用场景', '减少需求不清造成的返工'] },
         { id: 'boundary', question: '需求价值信息不足时如何处理？', options: ['价值依据不足时继续追问，允许用户补充', '无法判断价值时标记待确认，不直接下结论', '允许用户跳过追问并保留未决问题'] },
         { id: 'measure', question: '如何检验需求价值拷问有效？', options: ['展示价值判断依据和待确认问题', '记录受益人、触发场景和预期收益', '用户确认价值与边界后形成验收标准'] },
@@ -12118,15 +12279,15 @@ window.__ModuleLoader__.load({
           renderRequirementMatchCard(),
           error ? renderError(error) : null, confirmState.error ? renderError(confirmState.error) : null,
           h('div', { role: 'status', style: { display: 'flex', alignItems: 'center', gap: '8px', color: T.text2, fontSize: '12px' } },
-            h('span', { style: { border: `1px solid ${session?.grill?.status === 'loaded' ? T.brand : T.line2}`, color: session?.grill?.status === 'loaded' ? T.brand : T.text2, borderRadius: '999px', padding: '3px 8px' } }, session?.grill?.status === 'loaded' ? '已加载 Grill Skill' : '本地澄清'),
-            session?.grill?.status === 'loaded' ? `第 ${session.grill.round || 1} 轮` : '模型不可用时使用本地动态建议',
+            h('span', { style: { border: `1px solid ${grillApplied ? T.brand : T.line2}`, color: grillApplied ? T.brand : T.text2, borderRadius: '999px', padding: '3px 8px' } }, grillApplied ? 'Grill Skill 已参与本轮' : grillFallback ? 'Grill 未完成，本地澄清' : '本地澄清'),
+            grillApplied ? `第 ${session.grill.round || 1} 轮` : grillFallback ? '模型调用未完成；以下问题是本地建议，并非 Grill 结果' : '模型不可用时使用本地动态建议',
           ),
           h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '14px', alignItems: 'end' } },
             field('需求标题', simpleDraft.title, value => setSimpleDraft(d => ({ ...d, title: value }))),
             h('fieldset', { style: { border: 0, padding: 0, margin: 0 } }, h('legend', { style: { color: T.text2, fontSize: '13px', marginBottom: '6px' } }, '优先级'), ...['P0','P1','P2'].map(value => h('button', { key: value, type: 'button', 'aria-pressed': priorityChoice === value, onClick: () => setPriorityChoice(value), style: { ...button, marginRight: '5px', borderColor: priorityChoice === value ? T.brand : T.line2, color: priorityChoice === value ? T.text : T.text2 } }, value)))),
           h('section', null, h('h3', { style: { fontSize: '15px', margin: '0 0 10px' } }, '需求价值与边界拷问'), ...grillQuestions.map(q => h('div', { key: q.id, style: { marginBottom: '12px' } }, h('div', { style: { fontSize: '13px', marginBottom: '6px' } }, q.question), h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' } }, ...q.options.map(option => h('button', { key: option, type: 'button', 'aria-pressed': grillAnswers[q.id] === option, onClick: () => updateGrill(q.id, option), style: { ...button, borderColor: grillAnswers[q.id] === option ? T.brand : T.line2 } }, option)), h('button', { type: 'button', style: button, onClick: () => setGrillCustom(current => ({ ...current, [q.id]: !current[q.id] })) }, '自定义…'), grillCustom[q.id] ? h('input', { 'aria-label': `${q.question} 自定义回答`, value: grillAnswers[q.id] ?? '', placeholder: '输入补充回答', onChange: event => updateGrill(q.id, event.target.value), style: { ...input, flex: '1 1 160px', minWidth: 0 } }) : null)))),
-          session?.grill?.status === 'loaded' ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } }, h('button', { type: 'button', style: button, disabled: busy || analysisPending(), onClick: continueGrilling }, '继续追问'), h('button', { type: 'button', style: button, onClick: copyGrillCommand }, '转入主对话 /grilling')) : null,
-          h('section', { style: { display: 'grid', gap: '10px' } }, h('h3', { style: { fontSize: '15px', margin: 0 } }, '需求草稿'), field('预期变化', simpleDraft.goal, value => setSimpleDraft(d => ({ ...d, goal: value })), true), field('解决什么问题', simpleDraft.problem, value => setSimpleDraft(d => ({ ...d, problem: value })), true),
+          grillAvailable ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } }, h('button', { type: 'button', style: button, disabled: busy || analysisPending(), onClick: continueGrilling }, grillApplied ? '继续追问' : '使用 Grill 重试'), h('button', { type: 'button', style: button, onClick: copyGrillCommand }, '转入主对话 /grilling')) : null,
+          h('section', { style: { display: 'grid', gap: '10px' } }, h('h3', { style: { fontSize: '15px', margin: 0 } }, '需求草稿'), field('预期变化', simpleDraft.goal, value => setSimpleDraft(d => ({ ...d, goal: value })), true), field('价值', simpleDraft.problem, value => setSimpleDraft(d => ({ ...d, problem: value })), true),
             h('div', null, h('div', { style: { fontSize: '13px', color: T.text2, marginBottom: '6px' } }, '验收标准（建议草稿，请核对）'), ...simpleDraft.acceptance.map((entry, index) => h('div', { key: entry.id ?? index, style: { display: 'flex', gap: '6px', marginBottom: '6px' } }, h('input', { 'aria-label': `验收标准 ${index + 1}`, value: entry.text, onChange: event => setSimpleDraft(d => ({ ...d, acceptance: d.acceptance.map((v, i) => i === index ? { ...v, text: event.target.value, provenance: 'human-edit' } : v) })), style: { ...input, flex: 1, minWidth: 0 } }), h('button', { type: 'button', 'aria-label': `删除验收标准 ${index + 1}`, style: button, onClick: () => setSimpleDraft(d => ({ ...d, acceptance: d.acceptance.filter((_, i) => i !== index) })) }, '删除'))), h('button', { type: 'button', style: button, onClick: () => setSimpleDraft(d => ({ ...d, acceptance: [...d.acceptance, { text: '', provenance: 'human-edit' }] })) }, '新增验收标准'))))
       }
       const renderRequirementMatchCard = () => {
@@ -14800,16 +14961,24 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function readV4Navigation() { try { return JSON.parse(sessionStorage.getItem('alm.requirements.navigation.v4') ?? '{}') } catch { return {} } }
+    function readV4Navigation() {
+      try {
+        const value = JSON.parse(sessionStorage.getItem('alm.requirements.navigation.v4') ?? '{}')
+        // REQ-ALM-015: sessions written before the default view moved to 待我处理
+        // persisted the old 'all' default on first paint. That was never an
+        // explicit choice, so it must not mask the new default after upgrade.
+        return value?.viewVersion === NAVIGATION_VERSION ? value : { ...value, filter: undefined }
+      } catch { return {} }
+    }
 
-    async function saveExchangeFile(format, request) {
+    async function saveExchangeFile(format, request, { suggestedName } = {}) {
       const mime = format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/json'
       // Invoke the picker before the first await, while the click still has user activation.
       let handle
       if (typeof window.showSaveFilePicker === 'function') {
         try {
           handle = await window.showSaveFilePicker({
-            suggestedName: `requirements.${format}`,
+            suggestedName: suggestedName ?? `requirements.${format}`,
             types: [{ description: format === 'xlsx' ? 'Excel workbook' : 'JSON', accept: { [mime]: [`.${format}`] } }],
           })
         } catch (error) {
@@ -14830,7 +14999,7 @@ window.__ModuleLoader__.load({
           try { await writable.abort() } catch { /* Preserve the original write/close error. */ }
           throw error
         }
-        return { message: `已保存 ${handle.name}（${file.bytes} bytes），附件仅含manifest。` }
+        return { message: `已保存 ${handle.name}（${file.bytes} bytes）。` }
       }
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -14842,63 +15011,258 @@ window.__ModuleLoader__.load({
       } catch (error) { cleanup(); throw error }
       // Download handoff is asynchronous. Keep both the node and URL alive.
       setTimeout(cleanup, 60000)
-      return { message: `已发起下载 ${file.filename}（${file.bytes} bytes），请检查浏览器下载记录；尚未确认落盘。附件仅含manifest。` }
+      return { message: `已发起下载 ${file.filename}（${file.bytes} bytes），请检查浏览器下载记录；尚未确认落盘。` }
     }
 
-    function ExchangeModal({ root, onClose, onApplied }) {
+    // Must match EXCHANGE_BUILD in exchange.mjs. A host that was already running
+    // keeps its old module, so the dialog says so instead of failing mysteriously.
+    const EXCHANGE_CLIENT_BUILD = 'v3.2026-11-14'
+    const EXCHANGE_FIELD_LABELS = { title: '标题', brief: '需求描述', priority: '优先级', owner: '负责人' }
+    const EXCHANGE_FIELD_TEXT = (fields) => (fields ?? []).map(field => EXCHANGE_FIELD_LABELS[field] ?? field).join('、')
+
+    /**
+     * AC-04: one tidy summary of what an imported file would change. Counts are
+     * per record (a record with three conflicting fields is still one conflict).
+     */
+    function exchangePreviewSummary(preview) {
+      const changes = Array.isArray(preview?.changes) ? preview.changes : []
+      const conflicts = Array.isArray(preview?.conflicts) ? preview.conflicts : []
+      const creates = changes.filter(change => change?.operation === 'create')
+      const updates = changes.filter(change => change?.operation === 'update')
+      const conflictGroups = [...new Set(conflicts.map(entry => entry?.uid).filter(Boolean))].map(uid => ({
+        uid,
+        title: conflicts.find(entry => entry?.uid === uid)?.title ?? uid,
+        fields: [...new Set(conflicts.filter(entry => entry?.uid === uid).map(entry => entry.field))],
+      }))
+      return { creates, updates, conflicts: conflictGroups }
+    }
+
+    /**
+     * Host errors are precise but written for the domain layer. Map the ones a
+     * human can actually act on to a next step; keep anything unknown verbatim
+     * so nobody loses an unexpected cause.
+     */
+    const EXCHANGE_ERROR_HINTS = [
+      // Structural failures first: these happen with re-saved, renamed or
+      // hand-assembled files and every one of them has a concrete remedy.
+      [/invalid JSON/i, 'JSON 文件解析失败：内容不是合法 JSON（常因手工改过或复制不完整）。Excel 数据请用「导出 Excel」得到的 .xlsx，或重新生成 JSON 后再导入。'],
+      [/not a valid \.xlsx package/i, '这不是 .xlsx 工作簿（可能把 .xls / .csv / 文本文件改成了 .xlsx 后缀）。请在 Excel 或 WPS 中打开后「另存为 → Excel 工作簿(.xlsx)」，再导入。'],
+      [/unsafe ZIP path|duplicate ZIP path|directory ZIP entry with content/i, '文件内部打包结构异常（路径重复或含非法目录）。请用 Excel 或 WPS 打开该文件后「另存为 → Excel 工作簿(.xlsx)」，再导入。'],
+      [/truncated ZIP|missing ZIP directory|corrupt ZIP|unsupported ZIP|overlapping ZIP entries|ZIP (?:header|directory|CRC)|ZIP data range/i, '文件不完整，或不是标准的工作簿压缩包（下载中断、被压缩工具改写过）。请重新导出 / 重新下载模板后再填写。'],
+      [/more than 1000 records/i, '一次最多导入 1000 条需求。请分批导出、分批导入。'],
+      [/expanded ZIP exceeds|exceeds 32 MiB/i, '文件解压后超过 32 MiB。请减少条数或精简长描述后分批导入。'],
+      [/cell exceeds Excel text limit/i, '某个单元格超过 Excel 的 32767 字上限。请把长描述拆到「需求描述（续）」列，或缩短内容。'],
+      [/unexpected worksheet column/i, '有一行超出了 6 列。请删除多余列，只保留「需求编号 / 项目 / 标题 / 需求描述 / 优先级 / 负责人」。'],
+      [/macros forbidden|external relationships|externalLink|hyperlinks? forbidden|vbaProject|DTD\/entities/i, '文件里含宏、外部链接或超链接。请「另存为 → Excel 工作簿(.xlsx)」，并去掉链接后再导入。'],
+      [/unsupported binary\/macro ZIP part/i, '文件里含有图片等非文本部件。请删除图片/批注后另存为 .xlsx 再导入。'],
+      [/unsupported cell type|missing cell reference|duplicate\/out-of-range cell|unsupported worksheet row element|unsupported\/oversized XML|mismatched XML tags|malformed XML|duplicate XML attribute|invalid XML entity/i, '单元格结构异常（可能插入了合并单元格、公式或图片）。请只在这 6 列里填纯文本，另存为 .xlsx 后再导入。'],
+      [/unsupported exchange payload|invalid record|invalid (?:title|brief|priority|owner) type|brief exceeds 1 MiB|title\/owner exceeds limit/i, '工作表里的内容不符合需求字段限制（比如标题过长）。请检查「标题」≤200 字、「负责人」≤120 字、「需求描述」≤1 MB 后重试。'],
+      [/missing metadata digest|metadata digest changed|metadata chunk changed|missing workbook|invalid worksheet relationship/i, '这个文件不是由「导出 Excel」或「下载导入模板」生成的，缺少校验信息。请重新导出或重新下载模板后再填写。'],
+      [/legacy workbook layout/i, '这是旧版导出的工作簿（首行是版本信息、含已移除的列）。请重新导出需求或重新下载模板后再填写。'],
+      [/unexpected worksheet\b|missing\/duplicate \w+ sheet/i, '找不到必要的工作表：请保留「Requirements」和隐藏的「_Metadata」两张表，不要删除或改名（「Brief」表只是长描述续块，可留可删）。最省事的做法是重新下载模板再填写。'],
+      [/Brief header changed|read-only header changed/i, '表头被改动了。请保留「需求编号 / 项目 / 标题 / 需求描述 / 优先级 / 负责人」原样，只改这四列的内容（表头文字不能改）。'],
+      [/read-only record identity changed|duplicated/i, '同一条需求出现了两次（或「需求编号」被改乱）。每行的需求编号只能出现一次，重复行请删除。'],
+      [/unknown requirement in worksheet/i, '这一行的「需求编号」不在本次导出里。请对照原始文件核对；如果要新增需求，请把该行「需求编号」整格清空。'],
+      [/new row needs a title|duplicate new row content/i, '「需求编号」为空的行会被当作新增需求：必须填写「标题」，并且不要复制出两行完全相同的内容。'],
+      [/wrong project in worksheet row|wrong project|project mismatch|record project mismatch/i, '「项目」列必须保持导出时的项目，不能改成其它项目。'],
+      [/create identity already used|create-conflict/i, '这批新增需求之前已用不同内容导入过。请重新导出或重新下载模板，另存为新文件后再导入。'],
+      [/formula-like value|formula-injection|unsafe .*formula/i, '单元格以 = + - @ 开头会被当成公式。请在前面加一个空格或改成普通文字（需求描述里的「- 」列表不受影响）。'],
+      [/invalid title, priority or brief|invalid title|invalid priority/i, '标题不能为空；优先级只能填 P0 / P1 / P2 / P3；需求描述不要留空行以外的控制字符。'],
+      [/stale-preview|local files changed after preview/i, '本地需求在预览之后发生了变化。请重新选择文件预览一次再确认。'],
+      [/unfinished exchange transaction|recovery-required/i, '上次写入未完成，需要先恢复才能继续导入。'],
+      [/exchange-locked/i, '另一个导入/导出正在进行，请稍后重试。'],
+      [/exceeds 8 MiB|file-too-large|超过 8 MiB/i, '文件超过 8 MiB 限制。请分批导出或拆分成多个文件。'],
+    ]
+    const exchangeErrorHint = (message) => {
+      const text = String(message ?? '').trim().replace(/^file rejected:\s*/i, '')
+      const hit = EXCHANGE_ERROR_HINTS.find(([pattern]) => pattern.test(text))
+      if (hit) return hit[1]
+      // A structural error we have not named yet must still tell a person what
+      // to do instead of echoing the parser in English.
+      if (/invalid requirements xlsx/i.test(text)) {
+        const detail = text.replace(/^invalid requirements xlsx:\s*/i, '')
+        return `这个文件无法作为需求工作簿读取。请重新下载导入模板，只填写「标题 / 需求描述 / 优先级 / 负责人」四列后另存为 .xlsx 再导入。（技术信息：${detail}）`
+      }
+      return text || '操作失败，请重试。'
+    }
+    // Guidance reads better as one sentence plus a muted technical tail; the
+    // raw parser words stay available for debugging without shouting.
+    const exchangeErrorParts = (message) => {
+      const [main, ...rest] = String(message ?? '').split('（技术信息：')
+      return { main, tech: rest.join('（技术信息：').replace(/）\s*$/, '') }
+    }
+
+    function ExchangeModal({ root, onClose, onApplied, visibleIds = [] }) {
       const dialogRef = useRef(null)
+      const inputRef = useRef(null)
       const [busy, setBusy] = useState(false)
+      const [scope, setScope] = useState('all')
       const [selected, setSelected] = useState(null)
       const [preview, setPreview] = useState(null)
       const [receipt, setReceipt] = useState(null)
       const [error, setError] = useState('')
+      const [dragging, setDragging] = useState(false)
+      const [hostBuild, setHostBuild] = useState(null)
       const request = async (body) => {
         const response = await fetch(`/api/alm/requirements/exchange?root=${encodeURIComponent(root)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
         const result = await response.json()
         if (!response.ok && !Array.isArray(result.conflicts)) throw new Error(result.error?.message ?? result.message ?? `HTTP ${response.status}`)
         return result
       }
-      const run = async (fn) => { setBusy(true); setError(''); try { await fn() } catch (e) { setError(e.message) } finally { setBusy(false) } }
-      const download = (format) => run(async () => {
+      // Ask the host which build it is running. An older host does not know the
+      // version action at all, which is itself the answer.
+      useEffect(() => {
+        let live = true
+        request({ action: 'version' })
+          .then(result => { if (live) setHostBuild(typeof result?.build === 'string' ? result.build : null) })
+          .catch(() => { if (live) setHostBuild('旧版本') })
+        return () => { live = false }
+      }, [root])
+      const run = async (fn) => { setBusy(true); setError(''); try { await fn() } catch (e) { setError(exchangeErrorHint(e.message)) } finally { setBusy(false) } }
+      // AC-03: the only export is an editable Excel workbook. The scope selector
+      // keeps "all requirements" and "current filter" available without offering
+      // a second file format.
+      const download = () => run(async () => {
         setReceipt(null)
-        setReceipt(await saveExchangeFile(format, request))
+        if (scope === 'filtered' && !visibleIds.length) throw new Error('当前筛选结果为空，没有可导出的需求')
+        const uids = scope === 'filtered' ? visibleIds : undefined
+        const result = await saveExchangeFile('xlsx', body => request({ ...body, ...(uids ? { uids } : {}) }))
+        setReceipt({ message: `${result.message}改完这四列后，从卡片二导入即可。` })
+      })
+      // AC-05: a first-time author should not have to export production data to
+      // learn the column layout; the template is the same workbook shape.
+      const downloadTemplate = () => run(async () => {
+        setReceipt(null)
+        const result = await saveExchangeFile('xlsx', () => request({ action: 'template' }), { suggestedName: 'requirements-template.xlsx' })
+        setReceipt({ message: `${result.message}模板含 1 行示例（「需求编号」留空即为新增）：改写为真实需求，或整行删除后再导入；该文件只用于新增需求。` })
       })
       const pick = (file) => run(async () => {
         setPreview(null); setReceipt(null); setSelected(null)
         if (!file) return
-        if (file.size > 8 * 1024 * 1024) throw new Error('文件超过8 MiB限制')
-        const format = file.name.toLowerCase().endsWith('.xlsx') ? 'xlsx' : file.name.toLowerCase().endsWith('.json') ? 'json' : null
-        if (!format) throw new Error('仅支持JSON或.xlsx文件')
+        if (file.size > 8 * 1024 * 1024) throw new Error('文件超过 8 MiB 限制')
+        const name = String(file.name ?? '')
+        const format = name.toLowerCase().endsWith('.xlsx') ? 'xlsx' : name.toLowerCase().endsWith('.json') ? 'json' : null
+        if (!format) throw new Error('仅支持 .xlsx 或 .json 文件')
         const bytes = new Uint8Array(await file.arrayBuffer())
         let binary = ''; for (let i = 0; i < bytes.length; i += 16384) binary += String.fromCharCode(...bytes.subarray(i, i + 16384))
-        const input = { format, filename: file.name, content: btoa(binary) }
+        const input = { format, filename: name, content: btoa(binary) }
         const result = await request({ action: 'preview', ...input })
         setSelected(input); setPreview(result)
       })
+      const openPicker = () => { if (!busy) inputRef.current?.click() }
+      const drop = (event) => {
+        event.preventDefault(); setDragging(false)
+        if (busy) return
+        pick(event.dataTransfer?.files?.[0] ?? null)
+      }
       const apply = () => run(async () => {
         const result = await request({ action: 'apply', ...selected, expectedLocalHash: preview.localHash })
         if (result.ok === false) { setPreview(result); return }
-        setReceipt({ ...result, message: result.idempotent ? '回导完成：无新增变更（幂等）。' : '回导完成：整批已应用。' }); setPreview(null); onApplied()
+        const created = (result.changes ?? []).filter(change => change.operation === 'create').length
+        const updated = (result.changes ?? []).filter(change => change.operation === 'update').length
+        setReceipt({ ...result, message: result.idempotent ? '回导完成：没有需要写入的变更（幂等）。' : `回导完成：新增 ${created} 条、更新 ${updated} 条，整批已原子写入。` })
+        setPreview(null); setSelected(null)
+        onApplied()
       })
-      useDialogFocus(dialogRef, onClose)
-      return h('div', { style: { position: 'fixed', inset: 0, zIndex: 1000, background: '#0008', display: 'grid', placeItems: 'center' } },
-        h('section', { ref: dialogRef, tabIndex: -1, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'alm-exchange-title', style: { width: 'min(820px, 94vw)', maxHeight: '90vh', overflow: 'auto', overscrollBehavior: 'contain', padding: 24, background: T.bg, color: T.text, border: `1px solid ${T.line}`, borderRadius: 12 } },
-          h('h2', { id: 'alm-exchange-title' }, '需求文件交换'),
-          h('p', null, '仅交换title / brief / priority / owner；不导入执行状态、证据、签收或发布授权。缺行不删除。'),
-          h('p', null, '旧项目先点「初始化交换」（独立持久化项目密钥）。Excel已有行仅编辑F-I四字段；长正文用Brief表C列，record/chunk只读。新增须在原记录块末尾后追加：A=create、B空、C唯一clientId、D项目ID、E空、F-I四值，新正文限32767字符。身份、基线与隐藏元数据不可修改。附件仅含安全manifest。'),
-          h('div', { style: { display: 'flex', gap: 12, marginBottom: 16 } },
-            h('button', { disabled: busy, onClick: () => run(async () => { await request({ action: 'initialize' }); setReceipt({ message: '项目交换已初始化；密钥保存在项目内，不导出、不轮换。可导出或选择文件预览。' }) }) }, '初始化交换'),
-            h('button', { disabled: busy, onClick: () => download('json') }, '导出JSON'),
-            h('button', { disabled: busy, onClick: () => download('xlsx') }, '导出Excel .xlsx')),
-          h('label', null, '选择文件导入并预览 ', h('input', { type: 'file', accept: '.json,.xlsx', disabled: busy, onChange: e => { const file = e.target.files?.[0]; e.target.value = ''; pick(file) } })),
-          busy ? h('p', { role: 'status' }, '处理中…') : null,
-          error ? h('p', { role: 'alert', style: { color: '#d94b4b' } }, error) : null,
-          preview ? h('div', null,
-            h('h3', null, preview.ok ? '预览通过，等待确认' : '预览拒绝：冲突或校验失败，未写入'),
-            h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 280, overflow: 'auto' } }, JSON.stringify({ changes: preview.changes, conflicts: preview.conflicts, errors: preview.errors }, null, 2)),
-            h('button', { disabled: busy || !preview.ok, onClick: apply }, '确认整批导入')) : null,
-          receipt ? h('div', { role: 'status' }, h('h3', null, '交换结果回执'), h('p', null, receipt.message), h('pre', { style: { whiteSpace: 'pre-wrap' } }, JSON.stringify(receipt.created ?? receipt.receipt ?? {}, null, 2))) : null,
-          h('button', { disabled: busy, onClick: onClose, style: { marginTop: 20 } }, '关闭交换')))
+      // AC-02: Escape never closes this dialog; the explicit close button does.
+      useDialogFocus(dialogRef, onClose, { closeOnEscape: false })
+      const card = { marginTop: 14, padding: '14px 16px', border: `1px solid ${T.line2}`, borderRadius: 12, background: T.layer2 }
+      const cardTitle = { margin: 0, fontSize: '14px', fontWeight: 600, color: T.text }
+      const hint = { margin: '6px 0 0', fontSize: '12px', color: T.text2, lineHeight: 1.6 }
+      const secondary = (active) => ({ minHeight: '32px', padding: '5px 11px', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer', fontSize: '12.5px', color: active ? T.text : T.text2, background: active ? 'rgba(77,107,254,.16)' : 'transparent', border: `1px solid ${active ? 'rgba(106,140,255,.6)' : T.line2}` })
+      // A filled brand button needs a guaranteed foreground. The host brand token
+      // can resolve to a light colour, which turned this CTA into white-on-white,
+      // so primary actions use the label/background pair, as ActionButton does.
+      const primaryButton = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: '34px', padding: '7px 14px', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer', fontSize: '12.5px', fontWeight: 600, color: T.base, background: T.text, border: '1px solid transparent', whiteSpace: 'nowrap' }
+      const ghostButton = { ...primaryButton, color: T.text, background: 'transparent', border: `1px solid ${T.line2}`, fontWeight: 500 }
+      const disabledLook = (off) => ({ opacity: off ? 0.5 : 1, cursor: busy || off ? 'not-allowed' : 'pointer' })
+      const summary = exchangePreviewSummary(preview)
+      const creates = summary.creates
+      const updates = summary.updates
+      const conflictGroups = summary.conflicts
+      const chip = (tone, id, label) => h('span', { 'data-exchange-count': id, style: { padding: '3px 9px', borderRadius: 999, fontSize: '12px', fontWeight: 600, color: tone, background: T.layer, border: `1px solid ${T.line2}` } }, label)
+      const row = (key, kind, tone, title, detail) => h('li', { 'data-exchange-change': kind, 'data-exchange-uid': key, style: { display: 'flex', gap: 8, alignItems: 'baseline', padding: '6px 0', fontSize: '12.5px', color: T.text, borderTop: `1px solid ${T.line}` } },
+        h('span', { style: { color: tone, fontWeight: 600, flex: 'none' } }, kind === 'create' ? '🟢 新增' : kind === 'update' ? '🟡 更新' : '🔴 冲突'),
+        h('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } }, title),
+        detail ? h('span', { style: { marginLeft: 'auto', color: T.text3, flex: 'none' } }, detail) : null)
+      return h('div', { 'data-exchange-modal': 'true', style: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(5,7,11,.66)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', padding: '24px' } },
+        h('section', { ref: dialogRef, tabIndex: -1, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'alm-exchange-title', style: { width: 'min(860px, 96vw)', maxHeight: '90vh', overflow: 'auto', overscrollBehavior: 'contain', padding: '20px 22px 22px', background: T.layer, color: T.text, border: `1px solid ${T.line2}`, borderRadius: 14, boxShadow: '0 28px 80px rgba(0,0,0,.55)' } },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
+            h('h2', { id: 'alm-exchange-title', style: { margin: 0, fontSize: '18px', fontWeight: 600 } }, '需求文件交换'),
+            h('button', { type: 'button', 'data-exchange-close': 'true', 'aria-label': '关闭交换弹窗', disabled: busy, onClick: onClose, style: { marginLeft: 'auto', minHeight: '32px', padding: '5px 12px', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer', fontSize: '12.5px', color: T.text, background: 'transparent', border: `1px solid ${T.line2}` } }, '✕ 关闭')),
+          h('p', { style: hint }, '只交换标题 / 需求描述 / 优先级 / 负责人：需求编号、状态与版本只读；不导入执行状态、验收证据、签收或发布授权；缺行不删除本地需求。'),
+          h('section', { 'data-exchange-export': 'true', style: card },
+            h('h3', { style: cardTitle }, '卡片一 · 导出需求'),
+            h('p', { style: hint }, '导出可直接编辑的 Excel（.xlsx）工作簿；可编辑列：标题 / 需求描述 / 优先级 / 负责人。用于批量修改已有需求。'),
+            h('div', { role: 'group', 'aria-label': '导出范围', style: { display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' } },
+              h('button', { type: 'button', 'data-exchange-scope': 'all', 'aria-pressed': scope === 'all' ? 'true' : 'false', disabled: busy, onClick: () => setScope('all'), style: secondary(scope === 'all') }, '全部需求'),
+              h('button', { type: 'button', 'data-exchange-scope': 'filtered', 'aria-pressed': scope === 'filtered' ? 'true' : 'false', disabled: busy || !visibleIds.length, title: visibleIds.length ? `导出当前筛选的 ${visibleIds.length} 条需求` : '当前筛选结果为空', onClick: () => setScope('filtered'), style: secondary(scope === 'filtered') }, `当前筛选结果（${visibleIds.length} 条）`)),
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' } },
+              h('button', { type: 'button', 'data-exchange-export-action': 'true', 'aria-label': '导出 Excel 工作簿', disabled: busy, onClick: download, style: { ...primaryButton, ...disabledLook(false) } },
+                h(ActionIcon, { name: 'download', size: 14 }),
+                h('span', null, '导出 Excel (.xlsx)')),
+              h('span', { style: { ...hint, margin: 0 } }, scope === 'filtered' ? `将导出 ${visibleIds.length} 条当前筛选结果` : '将导出全部需求'))),
+          h('section', { 'data-exchange-import': 'true', style: card },
+            h('h3', { style: cardTitle }, '卡片二 · 导入与差异预览'),
+            h('p', { style: hint }, '拖拽或点击选择 .xlsx / .json 文件：先解析并展示变更预览，确认后整批原子落盘。'),
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' } },
+              h('button', { type: 'button', 'data-exchange-template': 'true', 'aria-label': '下载导入模板', disabled: busy, onClick: downloadTemplate, style: { ...ghostButton, ...disabledLook(false) } },
+                h(ActionIcon, { name: 'download', size: 14 }),
+                h('span', null, '下载导入模板 (.xlsx)')),
+              h('span', { style: { ...hint, margin: 0 } }, '第一次新增需求时先下载模板；模板只用于新增，修改已有需求请用卡片一导出。')),
+            h('p', { style: { ...hint, margin: '8px 0 0' } }, '填写规则：只改「标题 / 需求描述 / 优先级 / 负责人」四列；新增需求请在末尾追加一行、把「需求编号」留空并填写标题；「项目」列不要改；清空某行需求编号等于新增一条，请勿误删；优先级限 P0–P3；标题 ≤200 字；缺行不会删除本地需求。'),
+            h('input', { ref: inputRef, type: 'file', accept: '.xlsx,.json', 'data-exchange-input': 'true', style: { display: 'none' }, onChange: event => { const file = event.target.files?.[0] ?? null; event.target.value = ''; pick(file) } }),
+            h('div', {
+              role: 'button',
+              tabIndex: 0,
+              'data-exchange-dropzone': dragging ? 'active' : 'true',
+              'aria-label': '拖拽或点击选择导入文件',
+              'aria-disabled': busy ? 'true' : 'false',
+              onClick: openPicker,
+              onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openPicker() } },
+              onDragOver: event => { event.preventDefault(); if (!busy) setDragging(true) },
+              onDragLeave: () => setDragging(false),
+              onDrop: drop,
+              style: { marginTop: 10, padding: '16px 14px', borderRadius: 10, textAlign: 'center', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1, color: T.text2, background: dragging ? 'rgba(77,107,254,.12)' : T.layer, border: `1px dashed ${dragging ? 'rgba(106,140,255,.75)' : T.line2}` },
+            },
+              h('div', { style: { fontSize: '13px', color: T.text } }, '拖拽 .xlsx / .json 到此处，或点击选择文件'),
+              h('div', { style: hint }, '选择后自动解析并预览：🟢 新增 · 🟡 更新 · 🔴 冲突；此步骤不会写入')),
+            selected ? h('p', { 'data-exchange-selected': 'true', style: hint }, `已选择：${selected.filename}`) : null,
+            preview ? h('div', { 'data-exchange-preview': preview.ok ? 'ready' : 'conflict', style: { marginTop: 12 } },
+              h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                chip(T.ok, 'create', `🟢 新增 ${creates.length} 条`),
+                chip(T.warn, 'update', `🟡 更新 ${updates.length} 条`),
+                chip(T.err, 'conflict', `🔴 冲突 ${conflictGroups.length} 条`)),
+              h('p', { role: 'status', style: hint }, preview.ok ? '预览通过：确认后整批原子落盘。' : '存在同字段冲突：不会写入任何记录；请先在 Excel 中修正或重新导出后再导入。'),
+              h('ul', { 'data-exchange-changes': 'true', style: { listStyle: 'none', margin: '8px 0 0', padding: 0, maxHeight: 240, overflow: 'auto' } },
+                creates.map(change => row(change.uid, 'create', T.ok, `${change.uid} ${change.title ?? ''}`.trim(), '全部字段')),
+                updates.map(change => row(change.uid, 'update', T.warn, `${change.uid} ${change.title ?? ''}`.trim(), `修改字段：${EXCHANGE_FIELD_TEXT(change.fields)}`)),
+                conflictGroups.map(group => row(group.uid, 'conflict', T.err, `${group.uid} ${group.title}`.trim(), `冲突字段：${EXCHANGE_FIELD_TEXT(group.fields)}`))),
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' } },
+                h('button', { type: 'button', 'data-exchange-apply': 'true', disabled: busy || !preview.ok, onClick: apply, style: { ...primaryButton, ...disabledLook(!preview.ok) } },
+                  h(ActionIcon, { name: 'check', size: 14 }),
+                  h('span', null, preview.ok ? '确认导入' : '存在冲突，暂不可导入')),
+                preview.ok ? h('span', { style: { ...hint, margin: 0 } }, '写入后可在列表查看，也可再次导出核对。') : null)) : null),
+          // The receipt belongs to whichever card acted, so it sits between the
+          // cards and the dialog footer instead of inside the import card.
+          receipt ? h('div', { role: 'status', 'data-exchange-receipt': 'true', style: { marginTop: 12, padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.line2}`, background: T.layer2 } },
+            h('h4', { style: { margin: 0, fontSize: '13px' } }, '结果回执'),
+            h('p', { style: hint }, receipt.message)) : null,
+          busy ? h('p', { role: 'status', 'data-exchange-busy': 'true', style: hint }, '处理中…') : null,
+          error ? (() => {
+            const { main, tech } = exchangeErrorParts(error)
+            return h('div', { role: 'alert', 'data-exchange-error': 'true', style: { display: 'flex', gap: 8, alignItems: 'flex-start', margin: '12px 0 0', padding: '9px 12px', borderRadius: 10, border: `1px solid ${T.line2}`, background: T.layer2 } },
+              h('span', { style: { flex: 'none', display: 'inline-flex', color: T.warn, marginTop: 2 } }, h(ActionIcon, { name: 'alert', size: 13 })),
+              h('div', { style: { minWidth: 0 } },
+                h('p', { style: { margin: 0, fontSize: '12.5px', color: T.text, lineHeight: 1.65 } }, main),
+                tech ? h('p', { style: { ...hint, margin: '3px 0 0' } }, `技术信息：${tech}`) : null))
+          })() : null,
+          // Diagnostics, not decoration: when this line reports an old host, the
+          // import rules in force are not the ones on screen.
+          h('p', { 'data-exchange-build': 'true', style: { ...hint, margin: '14px 0 0', textAlign: 'right' } },
+            hostBuild && hostBuild !== EXCHANGE_CLIENT_BUILD
+              ? `工作簿格式 ${EXCHANGE_CLIENT_BUILD} · 宿主插件 ${hostBuild} 未更新：请完全退出并重启 DSH Desktop 后再导入。`
+              : `工作簿格式 ${EXCHANGE_CLIENT_BUILD}`)))
     }
     const NATIVE_SOURCE_BUILD_ID = typeof __ALM_SOURCE_BUILD_ID__ === 'string' ? __ALM_SOURCE_BUILD_ID__ : null
     const NATIVE_CLIENT_BUILD_ID = typeof __ALM_CLIENT_BUILD_ID__ === 'string' ? __ALM_CLIENT_BUILD_ID__ : null
@@ -14973,7 +15337,7 @@ window.__ModuleLoader__.load({
       const [defectToast, setDefectToast] = useState(null)
       const seenDefectFingerprints = useRef(readSeenDefectFingerprints())
       const [keyword, setKeyword] = useState(() => readV4Navigation().keyword ?? '')
-      useEffect(() => { try { sessionStorage.setItem('alm.requirements.navigation.v4', JSON.stringify({ root, projectId, filter, source, keyword })) } catch {} }, [root, projectId, filter, source, keyword])
+      useEffect(() => { try { sessionStorage.setItem('alm.requirements.navigation.v4', JSON.stringify({ root, projectId, filter, source, keyword, viewVersion: NAVIGATION_VERSION })) } catch {} }, [root, projectId, filter, source, keyword])
       const [selectedId, setSelectedId] = useState(() => { try { return sessionStorage.getItem('alm.requirements.detail.v4') || null } catch { return null } })
       const listFocus = useRef(null)
       const listScroll = useRef(null)
@@ -15244,6 +15608,11 @@ window.__ModuleLoader__.load({
       const counts = requirementViewCounts(data, keywordMatched)
       const searched = keywordMatched.filter((item) => matchesView(item, filter))
       const visible = searched
+      // Exchange always exports one project tree, so the "current filter" scope
+      // hands the server only rows that belong to the open workspace root.
+      const normalizeRoot = (value) => String(value ?? '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+      const exchangeRoot = data?.root ?? root
+      const exportableIds = [...new Set(visible.filter((item) => !item.root || !exchangeRoot || normalizeRoot(item.root) === normalizeRoot(exchangeRoot)).map((item) => item.id))]
       const itemCount = activeItems.length
       const filtered = filter !== 'all' || keyword !== '' || source !== 'all'
       const clearFilters = () => {
@@ -15437,7 +15806,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-          h('button', { disabled: !singleWorkspace, onClick: () => setExchangeOpen(true), title: 'JSON / Excel安全交换' }, '导入 / 导出'),
+          h('button', { disabled: !singleWorkspace, onClick: () => setExchangeOpen(true), title: '安全交换：导出 Excel，导入并预览变更' }, '导入 / 导出'),
           h(ActionButton, {
             label: '新建需求',
             icon: 'plus',
@@ -16080,7 +16449,7 @@ window.__ModuleLoader__.load({
               },
             })
           : null,
-        exchangeOpen ? h(ExchangeModal, { root: data?.root ?? root, onClose: () => setExchangeOpen(false), onApplied: reload }) : null,
+        exchangeOpen ? h(ExchangeModal, { root: exchangeRoot, visibleIds: exportableIds, onClose: () => setExchangeOpen(false), onApplied: reload }) : null,
         createOpen
           ? h(IntentModal, {
               root: data?.root ?? root,

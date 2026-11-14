@@ -159,9 +159,9 @@ test('verification summary keeps release history and every full criterion withou
   const released = deriveDetailView(baseItem({ briefText, delivery: { key: 'accepted', source: 'release' }, release: { exists: true, status: 'released', released: true }, acceptance: failingAcceptance() }))
   assert.equal(released.verificationSummary.kind, 'released-history')
   assert.match(released.verificationSummary.explanation, /不会撤销/)
-  assert.match(released.verificationSummary.criteria[0].text, /AC2 不得丢失历史记录/)
+  assert.ok(released.verificationSummary.criteria.some(criterion => /AC2 不得丢失历史记录/.test(criterion.text)))
   for (const criterion of released.verificationSummary.criteria) {
-    assert.equal(criterion.status, 'unverified')
+    assert.equal(criterion.status, 'accepted')
     assert.equal(criterion.evidence, null)
   }
   const passed = deriveDetailView(baseItem({ briefText, acceptance: passingAcceptance() }))
@@ -656,7 +656,7 @@ test('awaiting acceptance offers signoff on the candidate', () => {
   assert.match(view.context.explanation, /CAND-001/)
 })
 
-test('live running and queued repairs outrank old failed or blocked evidence without dropping warnings', () => {
+test('live running and queued repairs hide stale failure controls until this turn has finished', () => {
   for (const status of ['running', 'queued']) {
     for (const state of ['failed', 'stale', 'blocked', 'needs-clarification']) {
       const item = baseItem({
@@ -671,7 +671,8 @@ test('live running and queued repairs outrank old failed or blocked evidence wit
       assert.equal(view.primaryAction.enabled, true)
       assert.equal(view.primaryAction.target.runId, 'RUN-live')
       assert.deepEqual(view.secondaryActions.map((entry) => entry.id), ['refresh', 'open-record'])
-      assert.ok(attentionKinds(view).includes('acceptance-failed'))
+      assert.equal(attentionKinds(view).includes('acceptance-failed'), false)
+      assert.equal(view.executionDiagnostic, null)
       assert.equal(view.summaries.acceptance.result, 'fail')
       assert.equal(deriveDetailView({ ...item, closed: true }).context.kind, 'closed')
       assert.equal(deriveDetailView({ ...item, delivery: { key: 'accepted', source: 'release' } }).context.kind, 'released')
@@ -684,6 +685,35 @@ test('live running and queued repairs outrank old failed or blocked evidence wit
       }
     }
   }
+})
+
+test('a pre-run failed verification is historical while AI is coding, and transport failure offers recovery', () => {
+  const running = deriveDetailView(baseItem({
+    delivery: { key: 'in-progress', label: '推进中' },
+    run: { exists: true, id: 'RUN-006', status: 'running', active: true, startedAt: '2026-02-01T12:00:00.000Z' },
+    acceptance: failingAcceptance({ latest: { ...failingAcceptance().latest, finishedAt: '2026-02-01T11:00:00.000Z' } }),
+  }))
+  assert.equal(running.context.kind, 'run-active')
+  assert.equal(running.verificationSummary.kind, 'historical-during-run')
+  assert.match(running.verificationSummary.explanation, /待本轮编码完成后重新验证/)
+  assert.equal(running.executionDiagnostic, null)
+  assert.notEqual(running.primaryAction.id, 'start-fix')
+
+  const interrupted = deriveDetailView(baseItem({
+    run: { exists: true, id: 'RUN-006', status: 'failed', active: false, failure: { code: 'transport-failed', message: 'AI 推进因模型连接中断暂停（DeepSeek Messages transport failed）' } },
+  }))
+  assert.equal(interrupted.context.kind, 'run-interrupted')
+  assert.equal(interrupted.currentMatter.headline, 'AI 推进因模型连接中断暂停')
+  assert.equal(interrupted.primaryAction.id, 'resume-run')
+  assert.equal(interrupted.primaryAction.label, '▶ 从断点恢复推进')
+  assert.ok(interrupted.secondaryActions.some(action => action.id === 'run-acceptance'))
+
+  const legacyTransport = deriveDetailView(baseItem({
+    run: { exists: true, id: 'RUN-legacy', status: 'failed', active: false, failure: { code: 'TRANSPORT', message: '执行会话失败（TRANSPORT）' } },
+  }))
+  assert.equal(legacyTransport.currentMatter.headline, 'AI 推进因模型连接中断暂停')
+  assert.equal(legacyTransport.primaryAction.id, 'resume-run')
+  assert.ok(legacyTransport.secondaryActions.some(action => action.id === 'run-acceptance'))
 })
 
 test('settled runs expose recovery instead of pretending they are live', () => {
@@ -1090,6 +1120,15 @@ test('parseBodySections classifies authored and metadata-backed AI sections', ()
   assert.equal(withoutAi.find((section) => section.title === 'AI评审').kind, 'other')
 })
 
+test('detail projection removes legacy frozen draft snapshots from business text', () => {
+  const frozen = `# REQ-TEST-001 导出设置\n\n## 目标\n\n提供安全的 Excel 导出。\n\n## 问题与场景\n\n用户需要清晰的导出选项。\n冻结澄清正文：\n{\n  "schema": "alm.requirement.doc.draft/v1",\n  "problem": "不应展示"\n}\n人工补充验收：\n[]\n\n## 验收要求\n\n- AC-01 支持导出 Excel。\n<!-- alm:meta {"docHash":"sha256:abc"} -->\n`
+  const view = deriveDetailView(baseItem({ briefText: frozen }))
+  assert.match(view.content.doc.problem, /清晰的导出选项/)
+  assert.doesNotMatch(view.content.doc.problem, /冻结澄清正文|alm\.requirement|不应展示/)
+  assert.doesNotMatch(JSON.stringify(view.content.sections), /冻结澄清正文|alm\.requirement/)
+  assert.match(view.content.doc.acceptance[0].text, /Excel/)
+})
+
 test('sameAs marks only fully equal earlier bodies and keeps every paragraph', () => {
   const sections = parseBodySections(
     briefText(
@@ -1431,6 +1470,21 @@ test('a current candidate supersedes an old waiting-input handback and its histo
   assert.match(view.verificationSummary.headline, /CAND-REQ-ALM-012-002/)
 })
 
+test('a verification timeout offers a real command-narrowing action', () => {
+  const view = deriveDetailView(baseItem({
+    run: { exists: true, id: 'RUN-11', status: 'waiting-input', label: '等待输入', active: false, idleHandback: true, autoAdvance: { status: 'stopped', reason: 'verification-timeout' } },
+  }))
+  assert.equal(view.primaryAction.id, 'narrow-verification')
+  assert.equal(view.currentMatter.action.id, 'narrow-verification')
+  assert.equal(view.executionDiagnostic.actionLabel, '收窄验收命令并重新验证')
+
+  const alreadyPassed = deriveDetailView(baseItem({
+    acceptance: passingAcceptance(),
+    run: { exists: true, id: 'RUN-11', status: 'waiting-input', label: '等待输入', active: false, idleHandback: true, autoAdvance: { status: 'stopped', reason: 'verification-timeout' } },
+  }))
+  assert.notEqual(alreadyPassed.primaryAction?.id, 'narrow-verification')
+})
+
 test('execution diagnostics translate scope and acceptance failures into actionable Chinese', () => {
   const scope = deriveDetailView(baseItem({
     run: {
@@ -1458,6 +1512,20 @@ test('execution diagnostics translate scope and acceptance failures into actiona
   assert.equal(environment.executionDiagnostic.title, '🟠 调查证据过期或环境受阻')
   assert.doesNotMatch(JSON.stringify(environment.executionDiagnostic), /environment-blocked/)
   assert.doesNotMatch(environment.currentMatter.explanation, /environment-blocked/)
+})
+
+test('a timeout diagnostic points at narrowing the acceptance command, not AI repair', () => {
+  const view = deriveDetailView(baseItem({
+    acceptance: failingAcceptance({ latest: {
+      ...failingAcceptance().latest,
+      diagnostic: {
+        category: 'timeout', title: '验证命令超时',
+        summary: '验证命令包含 51 个测试文件，超出单条上限 8，预算内无法跑完；请收窄验收命令为本需求用例，再重新验证。',
+        command: ['node', '--test', 'x.test.mjs'], log: 'ETIMEDOUT',
+      },
+    } }),
+  }))
+  assert.equal(view.executionDiagnostic.actionLabel, '收窄验收命令并重新验证')
 })
 
 test('released delivery projects a verified develop to main merge credential', () => {
@@ -1490,5 +1558,44 @@ test('released delivery projects a verified develop to main merge credential', (
   assert.doesNotMatch(view.verificationSummary.explanation, /缺少 GitHub 合并凭据/)
   assert.equal(view.record.architecture.path, 'requirements/architecture/REQ-ALM-012-design.md')
   assert.equal(view.record.architecture.modules[0].path, 'packages/dsh-plugin-requirements/client-source.js')
+})
+
+test('delivery projection supplies safe direct GitHub branch, commit, compare and archive links', () => {
+  const view = deriveDetailView(baseItem({
+    delivery: { key: 'closed', source: 'release' },
+    release: { exists: true, id: 'REL-002', status: 'released', sourceControl: {
+      remoteUrl: 'git@github.com:peterzhanghao/AI_ALM.git', devBranch: 'develop', mainBranch: 'main',
+      devCommitSha: '1234567890abcdef', mainMergeCommitSha: 'abcdef0123456789', pushedToMain: true,
+      architectureDocPath: 'requirements/architecture/REQ-TEST-001-design.md',
+    } },
+  }))
+  assert.equal(view.githubLinks.repoWebUrl, 'https://github.com/peterzhanghao/AI_ALM')
+  assert.equal(view.githubLinks.devBranchUrl, 'https://github.com/peterzhanghao/AI_ALM/tree/develop')
+  assert.equal(view.githubLinks.mainCommitUrl, 'https://github.com/peterzhanghao/AI_ALM/commit/abcdef0123456789')
+  assert.equal(view.githubLinks.compareUrl, 'https://github.com/peterzhanghao/AI_ALM/compare/main...develop')
+  assert.match(view.githubLinks.architectureUrl, /blob\/main\/requirements\/architecture\/REQ-TEST-001-design\.md$/)
+})
+
+test('settled delivery marks every AC accepted in natural order and suppresses old run diagnostics', () => {
+  const view = deriveDetailView(baseItem({
+    delivery: { schema: 'alm.delivery.state/v1', key: 'closed', label: '已关闭', source: 'release' },
+    run: {
+      exists: true, id: 'RUN-OLD', status: 'waiting-input', active: false, idleHandback: true,
+      autoAdvance: { status: 'stopped', reason: 'environment-blocked' },
+    },
+    docView: { doc: { acceptance: [
+      { id: 'AC-11', text: '第十一项验收。' },
+      { id: 'AC-06', text: '第六项验收。' },
+      { id: 'AC-02', text: '第二项验收。' },
+    ] } },
+    release: {
+      exists: true, id: 'REL-002', status: 'released', label: '已发布',
+      sourceControl: { devBranch: 'develop', devCommitSha: '1234567890abcdef', mainBranch: 'main', mainMergeCommitSha: 'abcdef0123456789', pushedToMain: true },
+    },
+  }), { now: NOW })
+  assert.equal(view.executionDiagnostic, null)
+  assert.deepEqual(view.verificationSummary.criteria.map(criterion => criterion.id), ['TEST-REFUND-001', 'AC-02', 'AC-06', 'AC-11'])
+  assert.deepEqual(view.verificationSummary.criteria.map(criterion => criterion.status), ['accepted', 'accepted', 'accepted', 'accepted'])
+  assert.match(view.context.explanation, /代码与架构档案已合入 GitHub main 分支/)
 })
 

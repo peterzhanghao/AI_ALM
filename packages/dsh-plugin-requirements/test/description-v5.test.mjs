@@ -227,66 +227,52 @@ test('detail view keeps legacy labels and the old section detection', () => {
   }
 })
 
-test('buildExecutionPrompt embeds docHash, acceptance and the full body', () => {
-  const body = '完整正文内容\n第二行'
+test('buildExecutionPrompt embeds the confirmed baseline, change and verification command', () => {
   const prompt = buildExecutionPrompt({
     requirementId: 'REQ-PAY-004',
     changeId: 'CHG-001',
     runId: 'RUN-001',
-    item: { revision: 3, briefText: body, docMeta: { docHash: 'sha256:meta' } },
+    item: { revision: 3 },
     acceptanceCommands: ['node --test'],
     docView: {
       doc: {
+        title: '支持部分退款',
         revision: 3,
-        docHash: 'sha256:abc',
+        goal: '同一订单与幂等键只产生一张退款单。',
         acceptance: [{ id: 'AC-01', text: '退款成功' }],
       },
     },
+    executionFacts: { allowedPaths: ['packages/refund'], humanAnswers: [], evidence: null, commandLines: ['node --test'] },
   })
-  assert.ok(prompt.includes('需求：REQ-PAY-004 v3（docHash sha256:abc）'))
-  assert.ok(prompt.includes('AC-01'))
-  assert.ok(prompt.includes(body))
-  assert.ok(prompt.includes('工作方式'))
-  assert.ok(!prompt.includes('当前修订：'))
+  assert.match(prompt, /^# 需求交付任务：REQ-PAY-004 \(修订版本 v3\) — 支持部分退款/)
+  assert.match(prompt, /- 核心目标：同一订单与幂等键只产生一张退款单。/)
+  assert.match(prompt, /- AC-01: 退款成功/)
+  assert.match(prompt, /- 允许修改的模块\/文件范围：`packages\/refund`/)
+  assert.match(prompt, /`node --test`/)
+  assert.match(prompt, /开始交付变更 CHG-001/)
+  assert.doesNotMatch(prompt, /docHash/)
 })
 
-test('buildExecutionPrompt rejects bodies above 60000 characters without truncating', () => {
+test('buildExecutionPrompt never embeds an oversized legacy brief body', () => {
   const body = 'x'.repeat(60001)
-  assert.throws(
-    () =>
-      buildExecutionPrompt({
-        requirementId: 'REQ-PAY-004',
-        item: { revision: 1, briefText: body },
-        acceptanceCommands: [],
-      }),
-    (error) => {
-      assert.equal(error.code, 'requirement-doc-too-large')
-      assert.equal(error.status, 422)
-      assert.match(error.message, /60000/)
-      assert.match(error.message, /不会截断/)
-      return true
-    },
-  )
-  // Exactly at the limit is still accepted.
-  assert.doesNotThrow(() =>
-    buildExecutionPrompt({
-      requirementId: 'REQ-PAY-004',
-      item: { revision: 1, briefText: 'y'.repeat(60000) },
-      acceptanceCommands: [],
-    }),
-  )
+  const prompt = buildExecutionPrompt({
+    requirementId: 'REQ-PAY-004',
+    item: { revision: 1, briefText: body },
+    acceptanceCommands: [],
+  })
+  assert.ok(!prompt.includes(body), 'a legacy brief body is not copied into the task brief')
+  assert.ok(prompt.length < 60001)
 })
 
-test('buildExecutionPrompt keeps a 12000 character body intact end to end', () => {
+test('buildExecutionPrompt keeps a 12000 character legacy brief out of the prompt end to end', () => {
   const body = `START-MARKER-${'a'.repeat(12000)}-END-MARKER`
   const prompt = buildExecutionPrompt({
     requirementId: 'REQ-PAY-004',
     item: { revision: 2, briefText: body },
     acceptanceCommands: [],
   })
-  assert.ok(prompt.includes('START-MARKER-'))
-  assert.ok(prompt.includes('-END-MARKER'))
-  assert.ok(prompt.includes(body), 'the executor must receive the body unchanged')
+  assert.ok(!prompt.includes('START-MARKER-'))
+  assert.ok(!prompt.includes(body))
 })
 
 test('createRun stores the requirement binding and runView exposes it', () => {

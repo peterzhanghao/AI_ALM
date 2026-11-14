@@ -64,10 +64,12 @@ test('byte mismatch fails before touching writable or Blob URL', async () => {
   const h = harness({ corrupt: true }); await assert.rejects(h.save(), /字节数或类型不匹配/)
   assert.equal(h.calls.includes('createWritable'), false); assert.equal(h.calls.includes('url'), false)
 })
-test('ExchangeModal routes both buttons through save helper and clears stale receipt first', () => {
+test('ExchangeModal exports only Excel, clears stale receipts and never offers a JSON package', () => {
   const modal = source.slice(end, source.indexOf('    function Workbench(', end))
-  assert.match(modal, /setReceipt\(null\)\s+setReceipt\(await saveExchangeFile\(format, request\)\)/)
-  assert.match(modal, /download\('json'\)/); assert.match(modal, /download\('xlsx'\)/)
+  assert.match(modal, /setReceipt\(null\)/)
+  assert.match(modal, /saveExchangeFile\('xlsx'/)
+  assert.match(modal, /导出 Excel \(\.xlsx\)/)
+  assert.doesNotMatch(modal, /download\('json'\)|导出JSON|初始化交换|action: 'initialize'/)
   assert.doesNotMatch(modal, /createObjectURL|已导出/)
 })
 test('Blob click failure cleans resources and rejects', async () => {

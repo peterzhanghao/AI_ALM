@@ -11,13 +11,55 @@ export const WORKSPACE_IMPLEMENTATION_AUTHORIZATION = Object.freeze([
   'package.json',
   'pnpm-lock.yaml',
 ])
-// Generated verification remains intentionally bounded. 30 seconds leaves
-// enough room for a focused Node test file on Windows without turning the
-// start/resume path into a repository-wide test run.
+// Generated verification remains intentionally bounded. A single focused Node
+// test file gets 30 seconds; every additional file adds budget, and the whole
+// command is capped so a dirty worktree can never inflate a requirement's
+// acceptance into a repository-wide run.
 export const QUICK_VERIFICATION_TIMEOUT_MS = 30_000
+export const MAX_VERIFICATION_TEST_FILES = 8
+export const VERIFICATION_TIMEOUT_PER_FILE_MS = 15_000
+export const VERIFICATION_TIMEOUT_MAX_MS = 180_000
+
+/** Budget grows with the selected test set instead of staying fixed at 30s. */
+export function verificationBudget(fileCount) {
+  const count = Math.max(1, Number.isInteger(fileCount) ? fileCount : 1)
+  return Math.min(VERIFICATION_TIMEOUT_MAX_MS,
+    QUICK_VERIFICATION_TIMEOUT_MS + (count - 1) * VERIFICATION_TIMEOUT_PER_FILE_MS)
+}
+
+/** Test paths of a registered `node --test` command, ignoring runner flags. */
+export function verificationTestFiles(command) {
+  if (!Array.isArray(command) || command[0] !== 'node' || !command.includes('--test')) return []
+  return command.slice(command.indexOf('--test') + 1).filter(part => typeof part === 'string' && part && !part.startsWith('-'))
+}
+
+/**
+ * A registered command is unhealthy when its test set exceeds the cap, or its
+ * timeout is smaller than the budget that many files need. Both are fixable by
+ * re-deriving a bounded command, and neither should be allowed to time out a
+ * delivery round.
+ */
+export function verificationCommandDiagnosis(command, timeoutMs) {
+  const files = verificationTestFiles(command)
+  const requiredTimeoutMs = verificationBudget(files.length)
+  const budget = Number(timeoutMs)
+  return {
+    fileCount: files.length,
+    requiredTimeoutMs,
+    oversized: files.length > MAX_VERIFICATION_TEST_FILES,
+    underBudget: Number.isFinite(budget) && budget > 0 && budget < requiredTimeoutMs,
+  }
+}
 
 const TEST_FILE = /(?:^|\/)(?:test|tests)\/.*\.(?:test|spec)\.(?:[cm]?js|tsx?)$/i
 const SOURCE_EXTENSIONS = new Set(['.mjs', '.cjs', '.js', '.jsx', '.ts', '.tsx', '.css'])
+// These names represent one deliberately small feature boundary. Keeping the
+// relation here makes it inspectable and avoids widening a requirement to the
+// package (or repository) test suite just because its implementation is an
+// HTTP entry point.
+const RELATED_TEST_DOMAINS = Object.freeze({
+  exchange: ['exchange', 'intent-http', 'clarification'],
+})
 
 function normalizedPath(value) {
   return String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+/g, '/').trim()
@@ -30,12 +72,14 @@ function insideRoot(root, value) {
   return relative(resolve(root), absolute).replaceAll('\\', '/').startsWith('..') ? null : path
 }
 
-function sourcePaths({ investigationEvidence = [], asset = null } = {}) {
+function sourcePaths({ investigationEvidence = [], asset = null, blueprint = null, changedFiles = [] } = {}) {
   const paths = Array.isArray(investigationEvidence)
     ? investigationEvidence.map(entry => typeof entry === 'string' ? entry : entry?.path)
     : []
   if (asset?.source?.path) paths.push(asset.source.path)
   if (asset?.extra?.brief) paths.push(asset.extra.brief)
+  if (Array.isArray(blueprint?.allowedPaths)) paths.push(...blueprint.allowedPaths)
+  if (Array.isArray(changedFiles)) paths.push(...changedFiles.map(entry => typeof entry === 'string' ? entry : entry?.path))
   return [...new Set(paths.map(normalizedPath).filter(Boolean))]
 }
 
@@ -83,25 +127,59 @@ function titleMatchedTest(root, sources, asset) {
   return best?.score >= Math.max(4, Math.floor(title.length / 4)) ? best.path : null
 }
 
+function testFilesForDomains(root, sources) {
+  const packageRoots = [...new Set(sources
+    .filter(path => path.startsWith('packages/'))
+    .map(path => path.split('/').slice(0, 2).join('/')))]
+  const domains = new Set()
+  for (const source of sources) {
+    const extension = extname(source)
+    if (!SOURCE_EXTENSIONS.has(extension)) continue
+    const stem = basename(source, extension).toLowerCase()
+    domains.add(stem)
+    for (const related of RELATED_TEST_DOMAINS[stem] ?? []) domains.add(related)
+  }
+  const matched = []
+  for (const packageRoot of packageRoots) {
+    let names = []
+    try { names = readdirSync(join(root, packageRoot, 'test')) } catch { continue }
+    for (const name of names) {
+      if (!/\.(?:test|spec)\.(?:[cm]?js|tsx?)$/i.test(name)) continue
+      const stem = name.replace(/\.(?:test|spec)\.(?:[cm]?js|tsx?)$/i, '').toLowerCase()
+      if ([...domains].some(domain => stem === domain || stem.startsWith(`${domain}-`))) matched.push(`${packageRoot}/test/${name}`)
+    }
+  }
+  return matched.sort()
+}
+
 /**
- * Pick one existing, repository-relative test file. A missing path is never
- * guessed into a command, and the fallback deliberately does not scan a whole
- * package or repository.
+ * Build a small, explicit test set from the requirement's evidence and current
+ * implementation boundary. Missing paths are never guessed into a command;
+ * package-wide and repository-wide globs are never a fallback.
  */
-export function deriveVerificationCommand({ root, investigationEvidence = [], asset = null } = {}) {
+export function deriveVerificationCommand({ root, investigationEvidence = [], asset = null, blueprint = null, changedFiles = [] } = {}) {
   const repo = resolve(root)
-  const sources = sourcePaths({ investigationEvidence, asset })
+  const sources = sourcePaths({ investigationEvidence, asset, blueprint, changedFiles })
   const candidates = sources.flatMap(path => testCandidates(repo, path))
-  const testFile = [...new Set(candidates)].find(path => existsSync(join(repo, path))) ?? titleMatchedTest(repo, sources, asset)
-  if (!testFile) return null
+  const direct = [...new Set(candidates)].filter(path => existsSync(join(repo, path)))
+  // Title-matched and directly changed tests describe this requirement best;
+  // domain expansion is only a supplement. Cap the result so a long-lived
+  // dirty worktree cannot turn a requirement into a repository-wide suite.
+  const titleMatch = titleMatchedTest(repo, sources, asset)
+  const ranked = [...new Set([...(titleMatch ? [titleMatch] : []), ...direct, ...testFilesForDomains(repo, sources)])]
+  const testFiles = ranked.slice(0, MAX_VERIFICATION_TEST_FILES)
+  if (testFiles.length === 0) return null
+  const omittedCount = ranked.length - testFiles.length
+  const timeoutMs = verificationBudget(testFiles.length)
   return {
-    command: ['node', '--test', testFile],
+    command: ['node', '--test', ...testFiles],
     // A generated command is part of the handoff path, never a substitute for
-    // a repository-wide suite. Keep it bounded so starting a delivery round
-    // cannot leave the UI blocked behind a slow browser/integration run.
-    timeoutMs: QUICK_VERIFICATION_TIMEOUT_MS,
-    testFiles: [testFile],
-    reason: `根据需求证据推导专项验收：node --test ${testFile}`,
+    // a repository-wide suite. Its budget follows the bounded file count.
+    timeoutMs,
+    testFiles,
+    omittedCount,
+    reason: `根据需求证据推导精准定向验收：node --test ${testFiles.join(' ')}` +
+      (omittedCount ? `（另有 ${omittedCount} 个候选用例超出上限 ${MAX_VERIFICATION_TEST_FILES}，已裁剪并计入预算）` : ''),
   }
 }
 

@@ -1,3 +1,5 @@
+import { githubDeliveryLinks } from './github-web.mjs'
+
 const ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 
 export function escapeHtml(value) {
@@ -82,6 +84,30 @@ function acceptanceCell(item) {
   return entries.length ? `${entries.length} 项标准` : section.trim() ? '正文内含' : '待细化'
 }
 
+function deliveryLinksFor(item) {
+  const sourceControl = item?.release?.sourceControl ?? {}
+  const candidate = item?.candidate?.development ?? {}
+  const development = item?.development ?? {}
+  return item?.detailView?.githubLinks ?? githubDeliveryLinks({
+    remoteUrl: sourceControl.remoteUrl ?? development.remoteUrl ?? null,
+    devBranch: sourceControl.devBranch ?? candidate.devBranch ?? development.integrationBranch ?? null,
+    mainBranch: sourceControl.mainBranch ?? development.releaseBranch ?? null,
+    devCommitSha: sourceControl.devCommitSha ?? candidate.devCommitSha ?? null,
+    mainMergeCommitSha: sourceControl.mainMergeCommitSha ?? null,
+    architectureDocPath: item?.candidate?.architecture?.path ?? sourceControl.architectureDocPath ?? null,
+  })
+}
+
+function gitDeliveryBadge(item) {
+  const links = deliveryLinksFor(item)
+  if (!links) return ''
+  const anchor = (href, label) => href ? `<a class="ok" href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>` : ''
+  return [
+    anchor(links.devBranchUrl, `🌿 ${links.devBranch ?? 'develop'}`),
+    links.mainMergeCommitSha ? anchor(links.mainBranchUrl, `✅ ${links.mainBranch ?? 'main'}`) : '',
+  ].filter(Boolean).join(' · ')
+}
+
 function anomalyItems(anomalies) {
   if (!anomalies.length) return '<p class="muted">没有数据异常。</p>'
   const items = anomalies
@@ -147,7 +173,7 @@ export function renderRequirementsPage(payload, options = {}) {
         .map(
           (item) => `<tr>
         <td><code>${escapeHtml(item.id)}</code> · <span class="${Number(item.revision) > 1 ? 'evolved' : 'muted'}" title="${escapeHtml([...item.specConvergences ?? []].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote ?? '需求版本')}">v${escapeHtml(item.revision ?? 1)}${Number(item.revision) > 1 ? ' · 已演进' : ''}</span>${item.pendingPatch ? ' <span class="warn">● 待确认变更</span>' : ''}</td>
-        <td class="requirement-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}<div class="muted">${(item.sources ?? []).includes('defect') ? '⚠ 缺陷' : item.sourceSession || (item.sources ?? []).includes('chat') ? '💬 对话生成' : (item.sources ?? []).includes('feedback') ? '反馈' : '✍️ 手动创建'}</div></td>
+        <td class="requirement-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}<div class="muted">${(item.sources ?? []).includes('defect') ? '⚠ 缺陷' : item.sourceSession || (item.sources ?? []).includes('chat') ? '💬 对话生成' : (item.sources ?? []).includes('feedback') ? '反馈' : '✍️ 手动创建'}${gitDeliveryBadge(item) ? ` · ${gitDeliveryBadge(item)}` : ''}</div></td>
         <td>${escapeHtml(item.statusLabel ?? item.status)}</td>
         <td>${escapeHtml(item.owner)}</td>
         <td>${escapeHtml(listTimestamp(item.updatedAt ?? item.createdAt))}${decisionCell(item) ? `<div>${decisionCell(item)}</div>` : ''}</td>
@@ -182,7 +208,7 @@ export function renderRequirementsPage(payload, options = {}) {
     const left = asMap(before), right = asMap(after), changes = []
     for (const [id, text] of right) if (!left.has(id)) changes.push({ type: '新增', id, after: text }); else if (left.get(id) !== text) changes.push({ type: '修改', id, before: left.get(id), after: text })
     for (const [id, text] of left) if (!right.has(id)) changes.push({ type: '移除', id, before: text })
-    const fields = [['title', '标题'], ['goal', '预期变化'], ['problem', '解决什么问题']].flatMap(([key, label]) => typeof event.beforeDocument?.[key] === 'string' && typeof event.afterDocument?.[key] === 'string' && event.beforeDocument[key] !== event.afterDocument[key] ? [{ label, before: event.beforeDocument[key], after: event.afterDocument[key] }] : [])
+    const fields = [['title', '标题'], ['goal', '预期变化'], ['problem', '价值']].flatMap(([key, label]) => typeof event.beforeDocument?.[key] === 'string' && typeof event.afterDocument?.[key] === 'string' && event.beforeDocument[key] !== event.afterDocument[key] ? [{ label, before: event.beforeDocument[key], after: event.afterDocument[key] }] : [])
     const count = type => changes.filter(change => change.type === type).length + (type === '修改' ? fields.length : 0)
     const body = fields.map(field => `<div><strong>${escapeHtml(field.label)}</strong><p>修改前：${escapeHtml(field.before)}</p><p>修改后：${escapeHtml(field.after)}</p></div>`).join('') + changes.map(change => `<div style="border-left:3px solid ${change.type === '新增' ? '#35c47a' : change.type === '移除' ? '#ef7777' : '#e7b04b'};padding:8px;margin:8px 0"><strong>${change.type === '新增' ? '+' : change.type === '移除' ? '-' : '~'} ${change.type} ${escapeHtml(change.id)}</strong>${change.type === '修改' ? `<p>修改前：${escapeHtml(change.before)}</p><p>修改后：${escapeHtml(change.after)}</p>` : `<p${change.type === '移除' ? ' style="text-decoration:line-through"' : ''}>${escapeHtml(change.after ?? change.before)}</p>`}</div>`).join('')
     const version = event.beforeRevision && event.revision ? `v${escapeHtml(event.beforeRevision)} → v${escapeHtml(event.revision)}` : '版本演进'

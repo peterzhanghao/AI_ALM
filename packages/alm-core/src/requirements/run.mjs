@@ -29,6 +29,18 @@ export const ACTIVE_RUN_STATES = ['queued', 'running', 'waiting-input', 'paused'
 /** A run without a heartbeat for this long stops claiming to be running. */
 export const RUN_HEARTBEAT_TIMEOUT_MS = 10 * 60 * 1000
 export const IDLE_RUN_STATES = ['waiting-input', 'paused']
+// A host connection can end a turn before the agent's `whenIdle()` promise
+// settles. These failures retain the checkpoint and may be resumed in a fresh
+// host session; they are not product or acceptance failures.
+export const RESUMABLE_HOST_FAILURE_CODES = ['host-restart', 'transport-failed']
+
+export function isResumableHostFailure(failure) {
+  const code = String(failure?.code ?? '').toLowerCase()
+  // `TRANSPORT` was persisted by older host adapters before transport errors
+  // received their durable, user-facing identifier. Keep those interrupted
+  // runs resumable rather than marooning an already failed host turn.
+  return RESUMABLE_HOST_FAILURE_CODES.includes(code) || code === 'transport'
+}
 
 /** Remove storage metadata from text handed to an execution agent. */
 export function cleanRequirementBriefForPrompt(brief) {
@@ -134,7 +146,7 @@ export function resumableRunFor(root, requirementId) {
   const active = activeRunFor(root, requirementId)
   if (active) return active
   const latest = listRuns(root).filter((run) => run.requirement === requirementId).at(-1)
-  return latest?.status === 'failed' && latest.failure?.code === 'host-restart' ? latest : null
+  return latest?.status === 'failed' && isResumableHostFailure(latest.failure) ? latest : null
 }
 
 function heartbeatExpired(run, now = Date.now()) {
@@ -163,7 +175,7 @@ function runError(code, message, status = 409) {
 }
 
 function interruptedSessionsFor(run, failure) {
-  if (!['heartbeat-lost', 'host-restart'].includes(failure?.code) || typeof run.sessionId !== 'string' || !run.sessionId) return null
+  if ((failure?.code !== 'heartbeat-lost' && !isResumableHostFailure(failure)) || typeof run.sessionId !== 'string' || !run.sessionId) return null
   const existing = Array.isArray(run.interruptedSessions) ? run.interruptedSessions : []
   return [...new Set([...existing, run.sessionId])]
 }
@@ -457,7 +469,7 @@ export function runView({ root, requirementId, decisionFor = resolveRunDecision 
     // "Waiting for input" is only a real question when the executor wrote a
     // decision request. A turn that merely ended (agent idle) must not offer
     // "回答并继续": there is nothing to answer.
-    awaitingAnswer: Boolean(selected) && (latest.status === 'waiting-input' || (latest.status === 'failed' && latest.failure?.code === 'host-restart')) && pending,
+    awaitingAnswer: Boolean(selected) && (latest.status === 'waiting-input' || (latest.status === 'failed' && isResumableHostFailure(latest.failure))) && pending,
     idleHandback: latest.status === 'waiting-input' && !pending,
     lastActivityAt: latest.heartbeatAt ?? latest.updatedAt ?? latest.createdAt ?? null,
     startedAt: latest.createdAt ?? null,

@@ -10,7 +10,7 @@
 | 页面路由 | `GET /alm/requirements` → 只读 HTML（免 token，可直接在浏览器打开） |
 | 工具 | `alm_requirements [root]` |
 | 页面 | 侧边栏「需求」图标 / Settings → Requirements；`main` 面板 key `requirements` |
-| 交付状态 | 派生自 candidate + evidence + run：待推进 / 推进中 / 待验收 / 已验收 / 已关闭；`STATUS:` 已下线为 legacy 只读（STATE-001 退役为空规则）。顶部工作视图：全部/待我处理/AI 推进中/待验收/已验收/已关闭 |
+| 交付状态 | 派生自 candidate + evidence + run：待推进 / 推进中 / 待验收 / 已验收 / 已关闭；`STATUS:` 已下线为 legacy 只读（STATE-001 退役为空规则）。顶部工作视图：全部/待我处理/AI 推进中/待验收/已验收/已关闭；进入插件默认落在「待我处理」，列表沿用服务端创建时间倒序（见下文 REQ-ALM-015） |
 | 项目空间 | 项目列表 = DSH 工作区（剔除默认工作区），每个工作区可关联 GitHub 仓库（`.alm/project.json`） |
 | 交付推进 | 「交给 AI 推进」= preflight（登记验收/保留已有验收结果，不再强制重复评审）+ 登记变更 + 创建宿主执行会话：`.alm/runs/<RUN>.json` 记录 排队/运行/等待输入/暂停/失败/取消，关闭面板后仍继续；执行会话 pin 为 `workspace-write` + `approval:never`（点按钮即本轮授权），遇到业务取舍会写 `.alm/runs/<RUN>-decision.md` 等你回答；面板提供「回答并继续」（`run {mode:'answer'}`，回答追加进 `run.answers` 并继续推进，宿主重启则用新会话降级续跑）与「取消推进」（`run {mode:'cancel'}`，改动与记录保留） |
 | 验收 / 交付候选 | 验收通过后生成 `CAND-*` 交付候选（绑定需求内容哈希 + 未提交工作区文件哈希 + 验收哈希）；人类对具体候选签收才到「已验收」；候选变化会让旧验收与旧发布授权失效 |
@@ -37,13 +37,17 @@
 
 HTTP：`POST /api/alm/requirements/exchange?root=<workspace>`，Content-Type为application/json；action为initialize/export/preview/apply。旧项目先用独立请求`{"action":"initialize"}`初始化项目密钥（UI「初始化交换」按钮）；此动作不带format，幂等且不轮换。其余动作format为json/xlsx。export返回filename/mime/content(base64)/bytes；preview/apply传filename/content，apply另传expectedLocalHash。成功200；校验400、项目冲突/CAS409、不支持格式415，跨origin403，非POST405。请求12MiB、文件8MiB；底层安全限制详见架构文档。所有exchange动作均先通过`humanSubjectFor(req)`调用宿主Connection.admit认证，再解析文件或访问项目；匿名返回401/403，非可信人类/owner主体返回403，body.actor不能提供身份。同源检查仅防跨站请求，不能代替认证。不带Connection的显式本地单用户组合保持既有行为；不改变旧公共接口。不允许payload选择root。
 
-Excel已有Requirements行仅F-I四字段可编辑；长brief使用Brief表C列续块，record/chunk及隐藏元数据只读。附件只有manifest，不含二进制。显式新建可以直接在普通Excel编辑器中、原导出记录块末尾之后追加：A=create、B空UID、C非空且唯一clientId、D当前项目ID、E空baseHash、F标题/G正文/H优先级/I负责人。不覆盖原行槽位，即使删除了行也应在原末行之后追加。新增brief受Excel单格32767字符限制；现有长brief仍支持续块，JSON支持1MiB。不能按同名标题猜UID，不能伪造更新行。
+Excel 表头为中文，只有六列：`需求编号 / 项目 / 标题 / 需求描述 / 优先级 / 负责人`（第 1 行即表头并已冻结；此前版本的首行版本信息与 操作/客户端标识/基线哈希 三列已移除，旧版文件请重新导出）。只有「标题 / 需求描述 / 优先级 / 负责人」可改；「需求编号」是行身份，「项目」必须保持导出时的值；长 brief（>3 万字）使用隐藏的 Brief 表 C 列续块；该表可留可删——删掉后长描述从校验过的元数据回填，导入不会失败。record/chunk 及隐藏元数据只读。附件只有 manifest，不含二进制。新增需求：在末尾追加一行，把「需求编号」留空并填写标题等内容即可（清空某行编号等于新增，请勿误删）；重复编号、重复内容、外来项目或未改标题的追加行都会被拒绝。新增 brief 受 Excel 单格 32767 字符限制；现有长 brief 仍支持续块，JSON 支持 1MiB。不能按同名标题猜 UID，不能伪造更新行。工作簿只强制要求 `Requirements` 与隐藏的 `_Metadata` 两张表，额外的工作表（随手记、草稿）会被忽略。经 Excel / WPS「另存为」后的工作簿同样可导入：编辑器写入的目录条目（如 `xl/worksheets/`）、Windows 反斜杠路径与共享字符串（sharedStrings）都会被规范化接受；损坏、改名冒充 .xlsx 或含宏/外部链接的文件会被拒绝，并给出「另存为 → Excel 工作簿(.xlsx)」等可执行提示。
 
 无改应用不写磁盘。HMAC密钥经独立初始化持久化；export/preview不写，未初始化返回409 exchange-uninitialized，初始化后首个导出包即可跨独立进程回导。普通写失败全批回滚，崩溃journal存在时fail closed，需人工恢复；不保证外部不合作读写隔离。当前构建因沙箱spawn EPERM未通过，未宣称现有Desktop完成验证。
 
 ## REQ-ALM-007 调查消息预算
 
 消息序列化优先完整 snippet，再文件元数据，最后 tree；system + user 共不超过 25000 个 UTF-16 字符。导出 builder 拒绝非规范 boundary 元数据（计数字段须为非负安全整数，截断标记须为布尔值），最终预算超限也明确返回 400，不返回超限消息。逐条装入完整 JSON，装不下的条目整体遗漏且继续尝试后续条目，不截 quote 或整段 JSON。`boundary.messageBudget` 记录字符预算与实际字符数，以及 snippets/files/tree 的 original/retained/omitted 计数；采集截断与消息预算遗漏均明确披露。既有只读、根路径隔离、逐字引用验证及未知降级不变。本节为实现约定，Desktop 重载重放结果以 RUN-008 实际记录为准。
+
+## REQ-ALM-015 默认「待我处理」视图
+
+进入需求插件时默认选中「待我处理」工作视图（`DEFAULT_REQUIREMENT_VIEW = 'mine'`），而不是「全部」。该视图复用既有 `matchesView(item, 'mine')` 语义：待人工决策、补充回答、确认/验证缺陷、待验收等需要人处理的需求可见；执行中但无需人工介入的需求与已关闭需求不在此视图。列表顺序不自作主张：服务端 `sortRequirements` 已按 `createdAt` 倒序返回（同一时刻再按需求 ID 倒序），客户端筛选只过滤、不重排。项目切换仍回到该默认视图；同一浏览器会话内用户主动切到其他视图后刷新会保留其显式选择。升级前会话在首屏持久化过旧的「全部」默认，它从未是人类显式选择，因此导航 schema 升到版本 5 后旧记录不再掩盖新默认（迁移一次）。实现见 `client-source.js`，回归覆盖 `test/default-view.test.mjs`、`test/list-query-axes.test.mjs` 与 `test/query-sort.test.mjs`。
 
 ## 打开页面
 

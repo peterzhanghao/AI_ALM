@@ -38,6 +38,13 @@ test('normalizeAcceptanceCommands validates scope, binary whitelist and timeout'
     () => normalizeAcceptanceCommands('node --test'),
     (error) => error.code === 'test-scope-required' && error.status === 409,
   )
+  for (const command of ['pnpm test', 'pnpm run test', 'npm test', 'npm run test']) {
+    assert.throws(
+      () => normalizeAcceptanceCommands(command),
+      (error) => error.code === 'generic-test-command' && error.status === 409,
+      command,
+    )
+  }
   const commands = normalizeAcceptanceCommands('node --test packages/alm-core/test/unit/acceptance.test.mjs')
   assert.equal(commands.length, 1)
   assert.deepEqual(commands[0].command, ['node', '--test', 'packages/alm-core/test/unit/acceptance.test.mjs'])
@@ -88,30 +95,28 @@ test('applyAcceptanceConfig writes a registry the reader accepts', () => {
   }
 })
 
-test('readAcceptanceConfig rejects a legacy unscoped Node test before execution', () => {
+test('legacy generic configs remain readable for migration but cannot be newly registered', () => {
   const root = tempRoot()
   try {
     const file = configPath(root, 'REQ-PAY-001')
-    applyAcceptanceConfig({ root, requirementId: 'REQ-PAY-001', commands: ['pnpm test'] })
-    const safe = readFileSync(file, 'utf8')
+    applyAcceptanceConfig({ root, requirementId: 'REQ-PAY-001', commands: ['node --test packages/pay/test/refund.test.mjs'] })
     writeFileSync(
       file,
       JSON.stringify(
         {
           schema: 'alm.acceptance.config/v1',
           requirement: 'REQ-PAY-001',
-          commands: [{ id: 'cmd-1', command: ['node', '--test'], timeoutMs: 120000 }],
+          commands: [{ id: 'cmd-1', command: ['pnpm', 'test'], timeoutMs: 120000 }],
         },
         null,
         2,
       ),
     )
-    assert.throws(
-      () => readAcceptanceConfig(root, 'REQ-PAY-001'),
-      (error) => error.code === 'test-scope-required',
-    )
-    writeFileSync(file, safe)
     assert.deepEqual(readAcceptanceConfig(root, 'REQ-PAY-001').commands[0].command, ['pnpm', 'test'])
+    assert.throws(
+      () => applyAcceptanceConfig({ root, requirementId: 'REQ-PAY-001', commands: ['pnpm test'] }),
+      (error) => error.code === 'generic-test-command',
+    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

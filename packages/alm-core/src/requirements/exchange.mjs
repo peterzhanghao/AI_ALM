@@ -129,29 +129,37 @@ function localKey(repo) {
   return text
 }
 
-/** Explicit, persistent project setup. Export and preview never initialize implicitly. */
-export function initializeRequirementsExchange({ root }) {
-  const repo = resolve(root)
-  const p = project(repo)
+/**
+ * AC-01: the project signing key is provisioned silently. The first export (or
+ * the first import that carries externally signed baselines) creates it, so
+ * humans never press an "initialize exchange" button and never see key material.
+ * An existing but corrupt key still fails closed instead of being replaced.
+ */
+export function ensureExchangeKey(repo) {
+  const file = safePath(repo, KEY)
+  if (existsSync(file)) return localKey(repo)
   if (existsSync(safePath(repo, JOURNAL))) fail('unfinished exchange transaction; explicit recovery required', 'recovery-required', 409)
-  if (existsSync(safePath(repo, KEY))) {
-    localKey(repo)
-    return { initialized: true, created: false, projectId: p.id }
-  }
+  project(repo)
   let fd
   try { fd = openSync(safePath(repo, LOCK), 'wx') } catch (error) {
-    if (error.code === 'EEXIST') fail('another import holds the project lock', 'exchange-locked', 409)
+    if (error.code === 'EEXIST') fail('another exchange operation holds the project lock', 'exchange-locked', 409)
     throw error
   }
   try {
     if (existsSync(safePath(repo, JOURNAL))) fail('unfinished exchange transaction; explicit recovery required', 'recovery-required', 409)
-    if (existsSync(safePath(repo, KEY))) {
-      localKey(repo)
-      return { initialized: true, created: false, projectId: p.id }
-    }
-    transaction(repo, new Map([[KEY, Buffer.from(randomBytes(32).toString('hex'))]]))
-    return { initialized: true, created: true, projectId: p.id }
+    if (!existsSync(file)) transaction(repo, new Map([[KEY, Buffer.from(randomBytes(32).toString('hex'))]]))
+    return localKey(repo)
   } finally { closeSync(fd); rmSync(safePath(repo, LOCK), { force: true }) }
+}
+
+/** Backward-compatible explicit setup. The product path is `ensureExchangeKey`. */
+export function initializeRequirementsExchange({ root }) {
+  const repo = resolve(root)
+  const p = project(repo)
+  const existed = existsSync(safePath(repo, KEY))
+  const key = ensureExchangeKey(repo)
+  if (!/^[0-9a-f]{64}$/.test(key)) fail('invalid exchange signing key', 'invalid-key')
+  return { initialized: true, created: !existed, projectId: p.id }
 }
 function immutable(payload, row) {
   return canonical({ schema: payload.schema, exportId: payload.exportId, projectId: payload.projectId, operation: row.operation, uid: row.uid, project: row.projectId, base: row.base, baseHash: row.baseHash, attachments: row.attachments })
@@ -160,19 +168,61 @@ function signature(repo, payload, row) { return createHmac('sha256', Buffer.from
 function verify(repo, payload, row) {
   if (typeof row.proof !== 'string' || !/^[0-9a-f]{64}$/.test(row.proof) || !timingSafeEqual(Buffer.from(signature(repo, payload, row)), Buffer.from(row.proof))) fail('export baseline or identity proof is invalid', 'invalid-provenance')
 }
-export function exportRequirements({ root, format = 'json' }) {
+export function exportRequirements({ root, format = 'json', uids } = {}) {
   if (format !== 'json') fail('only JSON is supported by the domain exchange', 'unsupported-format')
-  const repo = resolve(root), s = snapshot(repo)
-  localKey(repo)
+  const repo = resolve(root)
+  // AC-01: exporting is the first-use moment for the project key; it is created
+  // before the snapshot so the baseline hash describes the final tree.
+  ensureExchangeKey(repo)
+  const s = snapshot(repo)
   const payload = { schema: EXCHANGE_SCHEMA, exportId: randomUUID(), projectId: s.p.id, records: [] }
-  if (s.rows.size > EXCHANGE_LIMITS.records) fail('too many requirements', 'size-limit')
-  for (const r of [...s.rows.values()].sort((a, b) => a.uid.localeCompare(b.uid))) {
+  let rows = [...s.rows.values()].sort((a, b) => a.uid.localeCompare(b.uid))
+  if (uids !== undefined) {
+    if (!Array.isArray(uids) || uids.length > EXCHANGE_LIMITS.records) fail('invalid export selection', 'invalid-selection')
+    const wanted = new Set()
+    for (const uid of uids) {
+      if (typeof uid !== 'string' || !uid) fail('invalid export selection', 'invalid-selection')
+      if (!s.rows.has(uid)) fail(`unknown requirement: ${uid}`, 'unknown-requirement')
+      wanted.add(uid)
+    }
+    rows = rows.filter(r => wanted.has(r.uid))
+  }
+  if (rows.length > EXCHANGE_LIMITS.records) fail('too many requirements', 'size-limit')
+  for (const r of rows) {
     const row = { operation: 'update', uid: r.uid, projectId: r.projectId, base: { ...r.values }, baseHash: hash(canonical(r.values)), values: { ...r.values }, attachments: structuredClone(r.attachments) }
     row.proof = signature(repo, payload, row)
     payload.records.push(row)
   }
   if (Buffer.byteLength(JSON.stringify(payload)) > EXCHANGE_LIMITS.bytes) fail('exchange exceeds 8 MiB', 'size-limit')
   return payload
+}
+/**
+ * AC-05: a fill-in workbook humans can download without exporting anything
+ * first. It shares the exact exported structure (metadata row, header row,
+ * Requirements/Brief/_Metadata sheets) so the ordinary preview/apply pipeline
+ * validates it unchanged. Only appending creates is meaningful here: edits to
+ * existing requirements need a baseline, which only a real export carries.
+ */
+export const TEMPLATE_SAMPLE = Object.freeze({
+  title: '示例行：导入前请改写标题，或整行删除',
+  brief: '- 目标：一句话说明要解决的问题\n- 验收：可验证的完成标准',
+  priority: 'P2',
+  owner: '',
+})
+export function requirementsTemplateExport({ root }) {
+  const p = project(resolve(root))
+  return {
+    schema: EXCHANGE_SCHEMA,
+    exportId: `template-${randomUUID()}`,
+    projectId: p.id,
+    records: [{
+      operation: 'create',
+      clientId: `template-${randomBytes(4).toString('hex')}`,
+      projectId: p.id,
+      values: { ...TEMPLATE_SAMPLE },
+      attachments: [],
+    }],
+  }
 }
 function rewrite(content, uid, fields) {
   const eol = content.includes('\r\n') ? '\r\n' : '\n'
@@ -197,9 +247,11 @@ function plan(repo, payload) {
   if (Buffer.byteLength(JSON.stringify(payload)) > EXCHANGE_LIMITS.bytes) fail('exchange exceeds 8 MiB', 'size-limit')
   if (payload.schema !== EXCHANGE_SCHEMA || typeof payload.exportId !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(payload.exportId)) fail('invalid schema or exportId')
   if (!Array.isArray(payload.records) || payload.records.length > EXCHANGE_LIMITS.records) fail('invalid record count', 'size-limit')
+  if (payload.projectId !== project(repo).id) fail('wrong project', 'project-mismatch')
+  // AC-01: a create-only batch needs no signing key. Update rows carry external
+  // HMAC proofs, so provision the key silently before hashing the local tree.
+  if (payload.records.some(r => r && typeof r === 'object' && r.operation === 'update')) ensureExchangeKey(repo)
   const s = snapshot(repo)
-  localKey(repo)
-  if (payload.projectId !== s.p.id) fail('wrong project', 'project-mismatch')
   const changes = [], conflicts = [], writes = new Map(), mappings = Object.create(null), seen = new Set()
   const receipts = s.files.has(CREATES) ? JSON.parse(s.files.get(CREATES).toString('utf8')) : {}
   let next = Math.max(0, ...[...s.rows.keys()].map(id => Number(id.slice(`REQ-${s.p.id}-`.length))).filter(Number.isSafeInteger))
@@ -227,7 +279,7 @@ function plan(repo, payload) {
       if (r.attachments.length) writes.set(`${s.p.requirementRoot}/attachments/${uid}/manifest.json`, Buffer.from(JSON.stringify({ requirement: uid, files: r.attachments }, null, 2) + '\n'))
       receipts[receiptKey] = { uid, bodyHash }
       mappings[r.clientId] = uid
-      changes.push({ uid, operation: 'create', fields: FIELDS })
+      changes.push({ uid, operation: 'create', title: r.values.title, fields: [...FIELDS] })
       continue
     }
     if (r.operation !== 'update' || r.clientId !== undefined || typeof r.uid !== 'string' || seen.has(r.uid)) fail('invalid or duplicate update identity')
@@ -242,7 +294,7 @@ function plan(repo, payload) {
       const b = r.base[field], l = local.values[field], e = r.values[field]
       if (e === b || l === e) continue
       if (l === b) { merged[field] = e; changed.push(field) }
-      else conflicts.push({ uid: r.uid, field, base: b, local: l, external: e })
+      else conflicts.push({ uid: r.uid, title: local.values.title, field, base: b, local: l, external: e })
     }
     if (!changed.length) continue
     const content = (writes.get(local.file) ?? s.files.get(local.file)).toString('utf8')
@@ -254,7 +306,7 @@ function plan(repo, payload) {
       writes.set(local.briefFile, Buffer.from(merged.brief))
     }
     writes.set(local.file, Buffer.from(rewrite(content, r.uid, fields)))
-    changes.push({ uid: r.uid, operation: 'update', fields: changed })
+    changes.push({ uid: r.uid, operation: 'update', title: merged.title, fields: changed })
   }
   if (Object.keys(mappings).length && changes.some(c => c.operation === 'create')) writes.set(CREATES, Buffer.from(JSON.stringify(receipts, null, 2) + '\n'))
   return { ...s, changes, conflicts, writes, mappings }

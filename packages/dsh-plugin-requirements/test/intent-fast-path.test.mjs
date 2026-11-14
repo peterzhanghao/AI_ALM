@@ -64,6 +64,32 @@ test('provider failure produces a local editable draft with a valid route', asyn
   assert.ok(result.session.docDraft.pending.length)
 })
 
+test('local fallback distills the metrics-and-evidence intent into a searchable title', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'intent-local-title-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  cpSync(new URL('../../../fixtures/order-refund', import.meta.url), root, { recursive: true })
+  const input = '我希望需求插件能够实现收集需求插件本身开发过程核心数据指标和相关证据，通过数据洞察和分析，实现需求插件自身的迭代和优化，并形成可验证的改进建议。'
+  const result = await handleIntentRequest({ root, body: { action: 'analyze', projectId: 'PAY', input: { text: input, source: 'text' } }, resolveAiSelection: async () => ({ provider: 'fake', model: 'fake' }), aiStreamFor: () => async function* () { throw new Error('HTTP 502') } })
+  assert.equal(result.localFallback, true)
+  assert.equal(result.session.docDraft.title, '需求插件效能数据洞察与迭代优化')
+  assert.doesNotMatch(result.session.docDraft.title, /能够实现收集|相关证据，通过/)
+})
+
+test('failed Grill analysis labels the fallback and distills a plugin self-healing title', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'intent-self-healing-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  cpSync(new URL('../../../fixtures/order-refund', import.meta.url), root, { recursive: true })
+  const skillDir = join(root, '.agents', 'skills', 'grilling')
+  mkdirSync(skillDir, { recursive: true })
+  writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: grilling\n---\n\nInterview the user relentlessly until you reach a shared understanding.\n')
+  const input = '我希望当需求插件功能在使用该功能时，若功能报错，非网络问题，而是功能本身的bug，可以触发DSH自动修复，修复完成后自动重启该插件'
+  const result = await handleIntentRequest({ root, body: { action: 'analyze', projectId: 'PAY', input: { text: input, source: 'text' } }, resolveAiSelection: async () => ({ provider: 'fake', model: 'fake' }), aiStreamFor: () => async function* () { throw new Error('HTTP 502') } })
+  assert.equal(result.localFallback, true)
+  assert.equal(result.session.docDraft.title, '需求插件故障自动修复与重启')
+  assert.equal(result.session.grill.outcome, 'fallback')
+  assert.equal(result.session.grill.failureCode, 'ai-call-failed')
+})
+
 test('loads the installed Grill Skill and injects it into the host model for later rounds', async t => {
   const root = mkdtempSync(join(tmpdir(), 'intent-grill-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
@@ -87,6 +113,7 @@ test('loads the installed Grill Skill and injects it into the host model for lat
   }
   const first = await handleIntentRequest({ root, body: { action: 'analyze', projectId: 'PAY', input: { text: '在需求澄清过程中，可以使用拷问skills，对需求进行拷问，澄清需求是否有价值', source: 'text' } }, resolveAiSelection: async () => ({ provider: 'fake', model: 'fake' }), aiStreamFor: () => stream })
   assert.equal(first.session.grill.status, 'loaded')
+  assert.equal(first.session.grill.outcome, 'applied')
   assert.equal(first.session.grill.name, 'grilling')
   assert.equal(first.session.grill.source, 'workspace')
   assert.match(calls[0].messages.map(message => message.content.map(part => part.text).join('\n')).join('\n'), /Interview the user relentlessly/)
@@ -103,7 +130,7 @@ test('spoken fallback supplies editable acceptance and can be confirmed with pri
   const result = await handleIntentRequest({ root, body: { action: 'analyze', projectId: 'PAY', input: { text: '在需求澄清过程中，可以使用拷问skills，对需求进行拷问，澄清需求是否有价值', source: 'text' } }, resolveAiSelection: async () => ({ provider: 'fake', model: 'fake' }), aiStreamFor: () => async function* () { throw new Error('HTTP 502') } })
   let session = result.session
   assert.ok(session.docDraft.pending.filter(entry => entry.text.includes('验收建议')).length >= 2)
-  assert.ok(session.docDraft.title.length <= 28)
+  assert.ok(session.docDraft.title.length <= 50)
   assert.match(session.items[0].candidate.title, /拷问/)
   assert.match(session.docDraft.pending.map(entry => entry.text).join(' '), /拷问.*需求|需求.*拷问/)
   assert.doesNotMatch(session.docDraft.pending.map(entry => entry.text).join(' '), /在目标场景中/)

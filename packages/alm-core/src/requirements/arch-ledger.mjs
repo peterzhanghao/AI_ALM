@@ -83,16 +83,22 @@ export function writeArchitectureLedger({ root, asset, requirement = null, accep
   const title = text(requirement?.title ?? asset?.title) || requirementId
   const goal = text(requirement?.doc?.goal ?? asset?.doc?.goal) || text(String(requirement?.briefText ?? '').match(/^##\s*目标\s*\n+([^#]+)/m)?.[1]) || '按已确认需求完成交付'
   const criteria = criteriaOf(requirement, asset)
-  const paths = unique([
+  const relativeFile = `${ARCHITECTURE_DIR}/${requirementId}-design.md`
+  const file = join(repo, relativeFile)
+  const existingBody = existsSync(file) ? readFileSync(file, 'utf8') : null
+  const previousModules = (existingBody ? parseArchitectureLedger(existingBody, { path: relativeFile }).modules : [])
+    .map(entry => entry.path)
+  // A post-commit re-verification runs on a clean worktree: an empty diff must
+  // not erase the module list that was archived in the delivery commit.
+  const declaredPaths = unique([
     asset?.source?.path,
     asset?.extra?.brief,
-    ...implementationPaths,
+    ...(implementationPaths ?? []),
   ])
+  const paths = implementationPaths === null && previousModules.length ? previousModules : declaredPaths
   const modules = paths.filter(path => !path.startsWith('.alm/'))
   const schemas = paths.map(schemaRole).filter(Boolean)
   const evidence = acceptance?.latest ?? null
-  const relativeFile = `${ARCHITECTURE_DIR}/${requirementId}-design.md`
-  const file = join(repo, relativeFile)
   mkdirSync(join(repo, ARCHITECTURE_DIR), { recursive: true })
   const body = [
     `# ${requirementId} 架构与数据模型交付档案`,
@@ -119,7 +125,11 @@ export function writeArchitectureLedger({ root, asset, requirement = null, accep
     ...(Array.isArray(evidence?.commands) ? evidence.commands.filter(entry => entry?.exitCode === 0).map(entry => `- 通过命令：\`${(entry.command ?? []).join(' ')}\``) : []),
     '',
   ].join('\n')
-  const existingBody = existsSync(file) ? readFileSync(file, 'utf8') : null
+  // "Architecture changed" is a comparison against the last archived module
+  // list, not against the acceptance command. This is what decides whether the
+  // delivery has to carry a refreshed architecture record to the repository.
+  const changed = !existingBody || previousModules.length !== modules.length ||
+    modules.some(path => !previousModules.includes(path)) || previousModules.some(path => !modules.includes(path))
   if (existingBody !== body) writeFileSync(file, body, 'utf8')
 
   const indexPath = join(repo, ARCHITECTURE_DIR, 'ARCHITECTURE-LEDGER.md')
@@ -133,5 +143,12 @@ export function writeArchitectureLedger({ root, asset, requirement = null, accep
   const index = `${rows.join('\n')}\n`
   const existingIndex = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : null
   if (existingIndex !== index) writeFileSync(indexPath, index, 'utf8')
-  return { path: relativeFile, indexPath: `${ARCHITECTURE_DIR}/ARCHITECTURE-LEDGER.md`, hash: sha256(body), implementationPaths: paths }
+  return {
+    path: relativeFile,
+    indexPath: `${ARCHITECTURE_DIR}/ARCHITECTURE-LEDGER.md`,
+    hash: sha256(body),
+    implementationPaths: paths,
+    changed,
+    changedModules: changed ? modules : [],
+  }
 }

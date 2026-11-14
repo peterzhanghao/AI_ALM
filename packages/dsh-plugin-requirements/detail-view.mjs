@@ -12,6 +12,7 @@
  */
 import { parseDoc } from '../alm-core/src/requirements/doc.mjs'
 import { createHash } from 'node:crypto'
+import { githubDeliveryLinks } from './github-web.mjs'
 
 export const DETAIL_VIEW_SCHEMA = 'alm.detail.view/v1'
 
@@ -47,13 +48,15 @@ const STALE_REASON_LABELS = {
 
 const ACTION_LABELS = {
   'answer-run': '回答并继续',
-  'resume-run': '恢复推进',
+  'resume-run': '▶ 从断点恢复推进',
+  'run-acceptance': '🧪 验证当前已有改动',
   'watch-run': '查看运行',
   'continue-run': '恢复推进',
   signoff: '✓ 确认签收 (Signoff)',
   release: '🚀 发布交付 (Release)',
   'execute-release': '🚀 发布交付 (Release)',
   'create-candidate': '生成交付候选',
+  'narrow-verification': '收窄验收命令并重新验证',
   'start-fix': '🔧 让 AI 自动修复未通过项',
   start: '交给 AI 推进',
 }
@@ -104,8 +107,47 @@ function asArray(value) {
   return Array.isArray(value) ? value : []
 }
 
+function normalizePresentationText(value) {
+  return String(value ?? '')
+    .replace(/\$\\(?:right)?arrow\$/g, '→')
+    .replace(/(^|[^-])\s*->\s*/g, '$1 → ')
+}
+
+function frozenSnapshotEnd(text, offset) {
+  if (text[offset] !== '{') return -1
+  let depth = 0; let quoted = false; let escaped = false
+  for (let index = offset; index < text.length; index += 1) {
+    const char = text[index]
+    if (quoted) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') quoted = false
+    } else if (char === '"') quoted = true
+    else if (char === '{') depth += 1
+    else if (char === '}' && --depth === 0) return index + 1
+  }
+  return -1
+}
+
+// Early briefs embedded an internal document snapshot after this marker. It
+// is provenance, not a business problem statement, and must not surface in a
+// detail card even before the next confirmed convergence rewrites the file.
+function cleanBriefForPresentation(value, { keepMeta = false } = {}) {
+  let text = normalizePresentationText(value)
+  if (!keepMeta) text = text.replace(/^\s*<!--\s*alm:meta\b[\s\S]*?-->\s*$/gim, '')
+  const marker = /(?:^|\n)\s*冻结澄清正文\s*[:：]\s*/im.exec(text)
+  if (!marker) return text
+  const start = marker.index + marker[0].length
+  const first = text.slice(start).search(/\S/)
+  const end = first < 0 ? -1 : frozenSnapshotEnd(text, start + first)
+  if (end < 0) return text.slice(0, marker.index).trim()
+  const prefix = text.slice(0, marker.index).trimEnd()
+  const tail = text.slice(end).replace(/^\s*人工补充验收\s*[:：]\s*\[\s*\]\s*/im, '')
+  return (tail.trim() ? `${prefix}\n\n${tail.trimStart()}` : prefix).replace(/\n{3,}/g, '\n\n').trim()
+}
+
 function textOrNull(value) {
-  return typeof value === 'string' ? value : null
+  return typeof value === 'string' ? normalizePresentationText(value) : null
 }
 
 function nonEmptyText(value) {
@@ -157,7 +199,7 @@ function peelInlineLabels(text, title) {
 }
 
 function rawBriefSections(text) {
-  const lines = String(text ?? '').split(/\r?\n/)
+  const lines = cleanBriefForPresentation(text).split(/\r?\n/)
   const sections = []
   let current = null
   const startSection = (title) => {
@@ -250,8 +292,12 @@ function missingSections(sections) {
  */
 function resolveDocView(source) {
   const provided = source?.docView
+  // A persisted projection can pre-date cleanup. Reparse the brief whenever
+  // it contains an old frozen snapshot so every consumer sees the same clean
+  // business document.
+  if (nonEmptyText(source?.briefText) && /冻结澄清正文|<!--\s*alm:meta\b/i.test(source.briefText)) return parseDoc(cleanBriefForPresentation(source.briefText, { keepMeta: true }))
   if (provided && typeof provided === 'object' && provided.doc && typeof provided.doc === 'object') return provided
-  if (nonEmptyText(source?.briefText)) return parseDoc(source.briefText)
+  if (nonEmptyText(source?.briefText)) return parseDoc(cleanBriefForPresentation(source.briefText, { keepMeta: true }))
   return null
 }
 
@@ -349,6 +395,7 @@ function summarizeRun(item) {
     awaitingAnswer: exists && run.awaitingAnswer === true,
     idleHandback: exists && run.idleHandback === true,
     autoAdvance: exists && run.autoAdvance && typeof run.autoAdvance === 'object' ? { ...run.autoAdvance } : null,
+    startedAt: exists ? textOrNull(run.startedAt) : null,
     lastActivityAt: exists ? textOrNull(run.lastActivityAt) : null,
     label: exists ? textOrNull(run.label) : null,
     failure,
@@ -429,6 +476,9 @@ function summarizeAcceptance(item) {
 
 function deriveExecutionDiagnostic(item, summaries) {
   const { run, acceptance } = summaries
+  // A live turn is still changing the worktree. A prior failed check cannot
+  // diagnose that turn and must never surface a repair action while coding.
+  if (isLiveRun(run)) return null
   const scope = run.scopeDiagnostic
   if (scope && (scope.outOfScope.length || scope.risky.length || scope.reason)) {
     const files = [...new Set([...scope.outOfScope, ...scope.risky])]
@@ -438,8 +488,16 @@ function deriveExecutionDiagnostic(item, summaries) {
       log: files.join('\n'), actionLabel: '批准当前修改范围并重新验证',
     }
   }
-  if (acceptance.diagnostic) return { ...acceptance.diagnostic, actionLabel: acceptance.diagnostic.category === 'environment' ? '刷新证据并重新验证' : '🔧 让 AI 自动修复未通过项' }
+  if (acceptance.diagnostic) return {
+    ...acceptance.diagnostic,
+    // A timeout is a command/budget problem, not a code defect. Sending it to
+    // "let AI fix the failing item" only repeats the same doomed command.
+    actionLabel: acceptance.diagnostic.category === 'timeout' ? '收窄验收命令并重新验证'
+      : acceptance.diagnostic.category === 'environment' ? '刷新证据并重新验证'
+        : '🔧 让 AI 自动修复未通过项',
+  }
   const code = run.failure?.code ?? run.autoAdvance?.reason
+  const normalizedCode = String(code ?? '').toLowerCase() === 'transport' ? 'transport-failed' : code
   const message = run.failure?.message ?? run.failureDiagnostic?.summary
   const labels = {
     'environment-blocked': '🟠 调查证据过期或环境受阻',
@@ -452,13 +510,17 @@ function deriveExecutionDiagnostic(item, summaries) {
     'waiting-input': '🟡 等待继续推进',
     'review-result': '🟡 AI 已交回本轮结果',
     'tampered_test': '🟠 测试断言防篡改锁已触发',
+    'transport-failed': '🟠 模型连接中断，推进已暂停',
   }
   if (!code && !message) return null
   return {
-    category: run.failureDiagnostic?.category ?? 'run', title: labels[code] ?? run.failureDiagnostic?.title ?? '🟠 推进暂停，等待处理',
+    category: run.failureDiagnostic?.category ?? 'run', title: labels[normalizedCode] ?? run.failureDiagnostic?.title ?? '🟠 推进暂停，等待处理',
     summary: message ?? '系统未能继续确认本轮推进条件；请查看诊断详情后恢复推进。',
     log: run.failureDiagnostic?.log ?? '',
-    actionLabel: ['environment-blocked', 'verification-context-changed', 'verification-timeout', 'verification-command-unavailable'].includes(code) ? '刷新证据并重新验证' : '🔧 让 AI 自动修复未通过项',
+    actionLabel: normalizedCode === 'transport-failed' ? '▶ 从断点恢复推进'
+      : normalizedCode === 'verification-timeout' ? '收窄验收命令并重新验证'
+        : ['environment-blocked', 'verification-context-changed', 'verification-command-unavailable'].includes(normalizedCode) ? '刷新证据并重新验证'
+          : '🔧 让 AI 自动修复未通过项',
   }
 }
 
@@ -539,6 +601,51 @@ function summarizeRelease(item) {
   }
 }
 
+function githubLinksFor(item, summaries) {
+  const sourceControl = summaries.release?.sourceControl ?? {}
+  const candidateDevelopment = summaries.candidate?.development ?? {}
+  const development = item?.development ?? {}
+  const architecturePath = summaries.candidate?.architecture?.path ?? sourceControl.architectureDocPath ?? null
+  const synced = sourceControl.pushedToRemoteDev === true ||
+    candidateDevelopment.pushedToRemoteDev === true ||
+    summaries.release?.mainMerged === true
+  return githubDeliveryLinks({
+    remoteUrl: sourceControl.remoteUrl ?? development.remoteUrl ?? null,
+    devBranch: sourceControl.devBranch ?? candidateDevelopment.devBranch ?? development.integrationBranch ?? null,
+    mainBranch: sourceControl.mainBranch ?? development.releaseBranch ?? null,
+    devCommitSha: sourceControl.devCommitSha ?? candidateDevelopment.devCommitSha ?? null,
+    mainMergeCommitSha: sourceControl.mainMergeCommitSha ?? null,
+    architectureDocPath: architecturePath,
+    synced,
+  })
+}
+
+// A completed delivery is authoritative over older run snapshots. Runs are
+// retained for audit, but their historic failures cannot turn a signed-off or
+// published requirement back into a blocked implementation in the UI.
+function isDeliverySettled(summaries, decision) {
+  const delivery = summaries?.delivery ?? {}
+  if (delivery.key === 'closed' || delivery.key === 'accepted') return true
+  if (summaries?.release?.released === true) return true
+  return delivery.key === 'awaiting-acceptance' &&
+    summaries?.candidate?.current === true &&
+    decision?.state === 'ready-for-human'
+}
+
+function acceptanceNumber(value) {
+  const match = /^AC-(\d+)$/i.exec(String(value ?? '').trim())
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
+}
+
+function sortAcceptanceCriteria(criteria) {
+  return [...criteria].sort((left, right) => {
+    if (Boolean(left?.legacyBaseline) !== Boolean(right?.legacyBaseline)) return left?.legacyBaseline ? -1 : 1
+    if (left?.legacyBaseline && right?.legacyBaseline) return 0
+    const byNumber = acceptanceNumber(left?.id) - acceptanceNumber(right?.id)
+    return byNumber || String(left?.id ?? '').localeCompare(String(right?.id ?? ''))
+  })
+}
+
 // ---------------------------------------------------------------------------
 // §3 focus resolution — order is a contract, first hit wins.
 // ---------------------------------------------------------------------------
@@ -555,6 +662,10 @@ function isLiveRun(run) {
   return run?.exists === true && run.active === true && run.stale !== true &&
     run.idleHandback !== true && run.awaitingAnswer !== true &&
     (run.status === 'running' || run.status === 'queued')
+}
+
+function isTransportFailure(run) {
+  return ['transport-failed', 'transport'].includes(String(run?.failure?.code ?? '').toLowerCase())
 }
 
 function resolveFocus(item, summaries, decision) {
@@ -714,7 +825,7 @@ function buildExplanation(item, summaries, decision, focus) {
 // ---------------------------------------------------------------------------
 
 function buildAttentionItems(item, summaries, decision) {
-  const { acceptance, candidate, defects, delivery } = summaries
+  const { acceptance, candidate, defects, delivery, run } = summaries
   const items = []
   // The candidate itself is bound to fresh passing acceptance evidence. Do not
   // resurface a historical failed attempt beside an already deliverable build.
@@ -722,7 +833,7 @@ function buildAttentionItems(item, summaries, decision) {
     ((delivery.key === 'awaiting-acceptance' && decision?.state === 'ready-for-human') ||
       ['accepted', 'closed'].includes(delivery.key))
 
-  if (!deliverySettled && acceptance.result !== null && acceptance.result !== 'pass') {
+  if (!deliverySettled && !isLiveRun(run) && acceptance.result !== null && acceptance.result !== 'pass') {
     items.push({
       id: 'attn-acceptance-failed',
       kind: 'acceptance-failed',
@@ -734,7 +845,7 @@ function buildAttentionItems(item, summaries, decision) {
     })
   }
 
-  if (!deliverySettled && (acceptance.registered !== true || acceptance.result === null)) {
+  if (!deliverySettled && !isLiveRun(run) && (acceptance.registered !== true || acceptance.result === null)) {
     items.push({
       id: 'attn-acceptance-missing',
       kind: 'acceptance-missing',
@@ -881,6 +992,9 @@ function secondaryActionsFor(detail) {
   if (!detail?.primaryAction && detail?.context?.kind === 'closed') return []
   const primaryId = detail?.primaryAction?.id ?? null
   const actions = [
+    ...(detail?.context?.kind === 'run-interrupted' && isTransportFailure(detail?.summaries?.run)
+      ? [{ id: 'run-acceptance', label: ACTION_LABELS['run-acceptance'], enabled: true, reason: null }]
+      : []),
     { id: 'refresh', label: '刷新', enabled: true, reason: null },
     { id: 'open-record', label: '查看记录', enabled: true, reason: null },
   ]
@@ -1132,7 +1246,12 @@ export function currentMatterFor(item, detail) {
   let headline = detail.context.headline
   let explanation = detail.context.explanation
   let action = detail.primaryAction
-  if (focus === 'closed' || focus === 'released' || focus === 'accepted') kind = focus
+  if (isTransportFailure(run)) {
+    kind = 'run-interrupted'
+    headline = 'AI 推进因模型连接中断暂停'
+    explanation = run.failure.message ?? 'DeepSeek Messages transport failed；当前工作区改动已保留。'
+    action = primaryActionFor({ ...detail, context: { ...detail.context, kind: 'run-interrupted' } })
+  } else if (focus === 'closed' || focus === 'released' || focus === 'accepted') kind = focus
   else if (focus === 'release-authorized' || focus === 'release-failed') kind = 'accepted'
   else if (candidate.current === true && delivery.key === 'awaiting-acceptance' && item?.decision?.state === 'ready-for-human') {
     kind = 'awaiting-acceptance'
@@ -1186,25 +1305,57 @@ export function deriveDetailView(item, options = {}) {
     defects: summarizeDefects(source),
     release: summarizeRelease(source),
   }
-  const candidateSettled = summaries.candidate.current === true &&
-    ((summaries.delivery.key === 'awaiting-acceptance' && decision?.state === 'ready-for-human') ||
-      ['accepted', 'closed'].includes(summaries.delivery.key))
-  const executionDiagnostic = candidateSettled ? null : deriveExecutionDiagnostic(source, summaries)
+  const deliverySettled = isDeliverySettled(summaries, decision)
+  const executionDiagnostic = deliverySettled ? null : deriveExecutionDiagnostic(source, summaries)
+  const githubLinks = githubLinksFor(source, summaries)
 
   const docView = resolveDocView(source)
   const sections = parseBodySections(source.briefText, { aiStored: source.aiReview?.stored === true })
   // Legacy bodies keep the historical wording and detection (goal/scope/acceptance
   // sections). Canonical bodies are judged by the structured document only.
   const missing = docView && docView.legacy !== true ? missingSectionsFromDoc(docView) : missingSections(sections)
-  const acceptanceCriteria = sections
+  // Canonical documents retain one entry per AC. Prefer them over the legacy
+  // prose section so delivery status can be mapped to AC-01…AC-n precisely.
+  const structuredAcceptance = asArray(docView?.doc?.acceptance)
+    .map((criterion) => ({
+      id: textOrNull(criterion?.id),
+      title: textOrNull(criterion?.id),
+      text: textOrNull(criterion?.text),
+    }))
+    .filter((criterion) => criterion.id && criterion.text)
+  const proseAcceptance = sections
     .filter((section) => section.kind === 'acceptance')
     .map((section) => ({ id: section.id, title: section.title, text: section.text }))
-  if (acceptanceCriteria.length === 0) {
+  const authoredBulletCount = proseAcceptance.reduce(
+    (count, criterion) => count + String(criterion.text ?? '').split(/\r?\n/).filter(line => /^\s*[-*]\s*AC[- ]?\d+/i.test(line)).length,
+    0,
+  )
+  // Older briefs can parse into only the first AC. Fall back to the complete
+  // authored section when structured parsing omitted any stated bullet.
+  let acceptanceCriteria = structuredAcceptance.length > 0 &&
+    (authoredBulletCount === 0 || structuredAcceptance.length >= authoredBulletCount)
+    ? structuredAcceptance
+    : proseAcceptance
+  // A once-legacy brief becomes canonical after its first refinement, while
+  // its verified_by relations remain the established safety baseline. Only
+  // expose those relations alongside authored ACs; a test link alone never
+  // becomes a fabricated acceptance statement.
+  const legacyTestCriteria = structuredAcceptance.length > 0
+    ? asArray(source.verifiedBy).filter((id) => typeof id === 'string' && id.trim()).map((id) => {
+      const test = source.trace?.nodes?.find(node => node.id === id && node.type === 'test')
+      return { id, title: id, text: test?.title ? `既有验证基线：${test.title}` : `既有验证基线：${id}`, legacyBaseline: true }
+    })
+    : []
+  if (legacyTestCriteria.length) {
+    const existing = new Set(acceptanceCriteria.map((criterion) => criterion.id))
+    acceptanceCriteria = [...legacyTestCriteria.filter((criterion) => !existing.has(criterion.id)), ...acceptanceCriteria]
+  } else if (acceptanceCriteria.length === 0) {
     for (const id of source.verifiedBy ?? []) {
       const test = source.trace?.nodes?.find(node => node.id === id && node.type === 'test')
       if (test?.title) acceptanceCriteria.push({ id, title: id, text: test.title })
     }
   }
+  acceptanceCriteria = sortAcceptanceCriteria(acceptanceCriteria)
 
   const focus = resolveFocus(source, summaries, decision)
   const attentionItems = buildAttentionItems(source, summaries, decision)
@@ -1224,6 +1375,7 @@ export function deriveDetailView(item, options = {}) {
     secondaryActions: [],
     attentionItems,
     summaries,
+    githubLinks,
     executionDiagnostic,
     tabs: {
       requirement: { badge: null },
@@ -1253,6 +1405,7 @@ export function deriveDetailView(item, options = {}) {
       timelineFingerprint: timeline.length > 50 ? timelineHash(timeline) : null,
       relations,
       github: buildGithub(source),
+      githubLinks,
       architecture: source.architectureLedger && typeof source.architectureLedger === 'object'
         ? {
             path: textOrNull(source.architectureLedger.path),
@@ -1293,11 +1446,14 @@ export function deriveDetailView(item, options = {}) {
   detail.rejectionReview = source.rejectionReview ?? { allowed: false, binding: null }
   // Rendered by the isolated RejectCandidateControl, not the generic action dispatcher.
   const latest = source.acceptance?.latest
+  const evidencePredatesRun = isLiveRun(detail.summaries.run) &&
+    Date.parse(detail.summaries.acceptance.finishedAt ?? '') < Date.parse(detail.summaries.run.startedAt ?? '')
   const kind = detail.summaries.candidate.current === true &&
       ((detail.summaries.delivery.key === 'awaiting-acceptance' && decision?.state === 'ready-for-human') || detail.summaries.delivery.key === 'accepted')
     ? 'candidate-ready'
     : detail.context.kind === 'released' || detail.summaries.delivery.source === 'release' ? 'released-history'
     : detail.summaries.delivery.key === 'accepted' ? 'accepted'
+      : evidencePredatesRun ? 'historical-during-run'
       : latest?.current === false ? 'outdated'
         : latest?.current === true && latest?.complete === true ? 'current' : 'unverified'
   const descriptions = {
@@ -1306,14 +1462,40 @@ export function deriveDetailView(item, options = {}) {
     'candidate-ready': [`验证通过（交付候选 ${detail.summaries.candidate.id ?? '已就绪'} 已就绪）`, '当前候选已绑定需求、工作区和验收证据，等待人工签收。'],
     outdated: ['已有检查记录不再适用当前内容', '内容或测试版本已变化，需要重新验证，不能沿用旧结论。'],
     current: [latest?.result === 'pass' ? '当前已执行的技术检查通过' : '当前技术检查未通过', '技术检查仅证明实际执行的检查，不自动覆盖全部业务验收要求。'],
+    'historical-during-run': ['上一轮历史检查已过期', '待本轮编码完成后重新验证。'],
     unverified: ['尚无当前版本完整验证结论', '缺少新鲜、完整的检查证据；不能默认通过业务验收。'],
   }
+  const criterionStatus = deliverySettled && (detail.summaries.delivery.key === 'closed' || detail.summaries.delivery.key === 'accepted' || detail.summaries.release?.released === true)
+    ? 'accepted'
+    : detail.summaries.delivery.key === 'awaiting-acceptance' && detail.summaries.candidate.current === true
+      ? 'verified'
+      : 'unverified'
+  const criterionReason = criterionStatus === 'accepted'
+    ? '交付候选已通过验证并完成人工签收。'
+    : criterionStatus === 'verified'
+      ? '交付候选已通过当前验证，等待人工签收。'
+      : '尚无逐项绑定的业务验收证据；整体命令通过不能代替此项核验。'
   detail.verificationSummary = {
     kind, headline: descriptions[kind][0], explanation: descriptions[kind][1],
     technicalResult: latest?.result ?? null,
-    criteria: acceptanceCriteria.map((criterion) => ({ ...criterion, status: 'unverified', evidence: null, reason: '尚无逐项绑定的业务验收证据；整体命令通过不能代替此项核验。' })),
+    criteria: acceptanceCriteria.map((criterion) => ({ ...criterion, status: criterionStatus, evidence: null, reason: criterionReason })),
   }
   detail.currentMatter = currentMatterFor(source, detail)
   detail.primaryAction = detail.currentMatter.action
+  // A timeout is a command/budget defect. Give the primary button an action
+  // that actually re-derives the command, rather than only relabelling resume.
+  const verificationCurrent = detail.summaries.acceptance.result === 'pass' &&
+    detail.summaries.acceptance.current === true &&
+    detail.summaries.acceptance.complete === true
+  // Once fresh evidence is green, hand the button back to resume/candidate.
+  // autoAdvance.reason still says verification-timeout until the run resumes.
+  const timedOut = !verificationCurrent && (executionDiagnostic?.category === 'timeout' ||
+    String(detail.summaries.run.autoAdvance?.reason ?? '') === 'verification-timeout')
+  if (timedOut && !detail.summaries.run.active) {
+    const narrowed = { id: 'narrow-verification', label: ACTION_LABELS['narrow-verification'],
+      enabled: true, reason: null, target: { runId: detail.summaries.run.id ?? null } }
+    detail.primaryAction = narrowed
+    detail.currentMatter.action = narrowed
+  }
   return detail
 }

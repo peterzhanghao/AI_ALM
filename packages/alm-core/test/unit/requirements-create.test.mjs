@@ -42,14 +42,22 @@ test('planRequirement picks the next id and returns file content without writing
   assert.ok(!existsSync(join(root, plan.file)))
 })
 
-test('long raw title becomes a concise title and preserves the full original words', () => {
+test('automatic title preserves the full wording when it fits within 50 characters', () => {
   const root = makeRepo()
   const original = '需求列表第一列直接展示用户长篇口语原话导致排版臃肿，需要自动提炼为简明短标题并保留原话。'
   const plan = planRequirement({ root, title: original })
-  assert.ok(plan.title.length <= 29)
-  assert.notEqual(plan.title, original)
+  assert.ok(plan.title.length <= 50)
+  assert.equal(plan.title, original)
   assert.match(plan.content, new RegExp(`TITLE: ${plan.title}`))
-  assert.match(plan.briefContent, /## 用户原话/)
+  assert.doesNotMatch(plan.briefContent, /## 用户原话/)
+})
+
+test('automatic title truncates to 50 characters including the ellipsis', () => {
+  const root = makeRepo()
+  const original = '需求插件收集自身开发过程的核心数据指标和关联证据，并通过洞察分析持续迭代优化需求插件能力，同时保留可追溯的改进依据。'
+  const plan = planRequirement({ root, title: original })
+  assert.equal(plan.title.length, 50)
+  assert.equal(plan.title, `${original.slice(0, 49)}…`)
   assert.match(plan.briefContent, new RegExp(original))
 })
 

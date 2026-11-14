@@ -25,9 +25,10 @@ const context = vm.createContext({
 vm.runInContext([
   extract('    function draftText(', '    function draftOfSession('),
   extract('    function acceptanceResultText(', '    function safeHttpHref('),
+  extract('    function safeHttpHref(', '    function relationRows('),
   extract('    function humanDescriptionBlocks(', '    function V4DetailPage('),
   extract('    const DESCRIPTION_STATUS_LABELS =', '    function RequirementDetailShell('),
-  'this.ui = { humanDescriptionBlocks, humanMatterCopy, HumanDescriptionBody, HumanVerification, detailDescriptionModel, DetailDescription, humanAcceptanceState, canCancelRequirementRun, HumanCurrentMatter, HumanProgress }',
+  'this.ui = { humanDescriptionBlocks, humanMatterCopy, HumanDescriptionBody, HumanVerification, detailDescriptionModel, DetailDescription, humanAcceptanceState, canCancelRequirementRun, HumanCurrentMatter, HumanProgress, GitHubDeliveryProperties }',
 ].join('\n'), context)
 const ui = context.ui
 const nodes = node => node && typeof node === 'object' ? [node, ...(node.children ?? []).flatMap(nodes)] : []
@@ -46,6 +47,11 @@ test('legacy duplicated goal/background reads once, with no document mutation', 
   const body = visibleText(ui.HumanDescriptionBody({ model }))
   assert.equal(body.split('列表不能滚动').length - 1, 1)
   assert.doesNotMatch(body, /\(0\)|尚未填写|暂无|待确认的业务问题/)
+})
+
+test('legacy first paragraph is always labelled as an expected change', () => {
+  const blocks = ui.humanDescriptionBlocks({ status: 'legacy', doc: { goal: '早期 brief 的首段没有标准标题。', problem: '仍需说明的问题。' } })
+  assert.equal(blocks[0].title, '预期变化')
 })
 
 test('plain brief, background-only and unparsed-only documents retain a readable body', () => {
@@ -97,6 +103,13 @@ test('long prose has a bounded excerpt and accessible full paragraph', () => {
   assert.match(text(tree), /结尾不可丢失/)
 })
 
+test('a six-line-sized problem card stays compact until expanded', () => {
+  const body = '较长问题说明。'.repeat(35) + '结尾不可直接占据首屏'
+  const tree = ui.HumanDescriptionBody({ model: { doc: { goal: '简短目标', problem: body } } })
+  assert.doesNotMatch(visibleText(tree), /结尾不可直接占据首屏/)
+  assert.match(visibleText(tree), /展开这段完整内容/)
+})
+
 test('metadata/full original are collapsed and never deleted from the detail', () => {
   const brief = '背景：用户原文。\n目标：显示一次。\n\n历史 AI 建议：完整留存。'
   const item = { id: 'REQ-1', briefText: brief, docMeta: { docHash: 'sha256:private-metadata', revision: 3 } }
@@ -123,6 +136,47 @@ test('acceptance shows one concise list without command warnings', () => {
   assert.match(rendered, /重复操作无重复需求/)
   assert.match(rendered, /待验证/)
   assert.doesNotMatch(rendered, /验收命令|验证通过/)
+})
+
+test('accepted and candidate-ready ACs use green delivery labels and natural numbering', () => {
+  const detail = {
+    content: { doc: { acceptance: [
+      { id: 'AC-11', text: '第十一项。' },
+      { id: 'AC-06', text: '第六项。' },
+      { id: 'AC-02', text: '第二项。' },
+    ] } },
+    verificationSummary: { criteria: [
+      { id: 'AC-11', status: 'accepted' },
+      { id: 'AC-06', status: 'accepted' },
+      { id: 'AC-02', status: 'accepted' },
+    ] },
+  }
+  const rendered = ui.HumanVerification({ item: {}, detail })
+  const cards = nodes(rendered).filter(node => node.props?.['data-detail-ac'])
+  assert.deepEqual(cards.map(card => card.props['data-detail-ac']), ['AC-02', 'AC-06', 'AC-11'])
+  assert.match(visibleText(rendered), /🟢 已验收/)
+  const pending = ui.HumanVerification({ item: {}, detail: {
+    content: { doc: { acceptance: [{ id: 'AC-01', text: '待签收。' }] } },
+    verificationSummary: { criteria: [{ id: 'AC-01', status: 'verified' }] },
+  } })
+  assert.match(visibleText(pending), /🟢 已验证（待签收）/)
+})
+
+test('GitHub delivery properties use safe external links for branches and commit', () => {
+  const tree = ui.GitHubDeliveryProperties({ links: {
+    repoWebUrl: 'https://github.com/peterzhanghao/AI_ALM', devBranch: 'develop', mainBranch: 'main',
+    devBranchUrl: 'https://github.com/peterzhanghao/AI_ALM/tree/develop',
+    mainBranchUrl: 'https://github.com/peterzhanghao/AI_ALM/tree/main',
+    mainCommitUrl: 'https://github.com/peterzhanghao/AI_ALM/commit/abcdef0123456789', mainMergeCommitSha: 'abcdef0123456789',
+  } })
+  const links = nodes(tree).filter(node => node.type === 'a')
+  assert.equal(links.length, 3)
+  assert.ok(links.every(link => link.props.target === '_blank' && link.props.rel === 'noopener'))
+  assert.deepEqual(links.map(link => link.props.href), [
+    'https://github.com/peterzhanghao/AI_ALM/tree/develop',
+    'https://github.com/peterzhanghao/AI_ALM/tree/main',
+    'https://github.com/peterzhanghao/AI_ALM/commit/abcdef0123456789',
+  ])
 })
 
 test('blocked and stale reasons remain truthful; running copy removes machine identifiers', () => {

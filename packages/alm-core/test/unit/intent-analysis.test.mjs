@@ -435,6 +435,7 @@ test('系统提示词对可回答的使用类提问优先 answer（INT-07）', (
   assert.ok(INTENT_SYSTEM_PROMPT.includes('route=answer'))
   assert.ok(INTENT_SYSTEM_PROMPT.includes('不得为答疑新建需求'))
   assert.ok(INTENT_SYSTEM_PROMPT.includes('investigate'))
+  assert.ok(INTENT_SYSTEM_PROMPT.includes('不得复制、截断或拼接用户原话'))
   const messages = buildAnalysisMessages({ session, context })
   assert.equal(messages[0].role, 'system')
   assert.ok(messages[0].content.includes(INTENT_SYSTEM_PROMPT))

@@ -55,9 +55,10 @@ function fixtureRepo() {
   return root
 }
 
-async function withServer(root, run, admission = null) {
+async function withServer(root, run, admission = null, { holdIdle = false } = {}) {
   const routes = new Map()
   const followed = []
+  const listeners = new Map()
   const agents = {
     async create() {
       return {
@@ -66,7 +67,7 @@ async function withServer(root, run, admission = null) {
             followed.push(message)
             return Promise.resolve()
           },
-          whenIdle: () => Promise.resolve(),
+          whenIdle: () => holdIdle ? new Promise(() => {}) : Promise.resolve(),
           cancel: () => {},
         },
         dispose: () => {},
@@ -77,6 +78,10 @@ async function withServer(root, run, admission = null) {
   const ctx = {
     effect(callback) {
       callback()
+    },
+    on(event, listener) {
+      listeners.set(event, listener)
+      return () => listeners.delete(event)
     },
     webServer: {
       register(route) {
@@ -104,11 +109,34 @@ async function withServer(root, run, admission = null) {
   })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   try {
-    await run(`http://127.0.0.1:${server.address().port}`, followed)
+    await run(`http://127.0.0.1:${server.address().port}`, followed, (event, ...args) => listeners.get(event)?.(...args))
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }
 }
+
+test('a host TRANSPORT event immediately interrupts the persisted run instead of waiting for whenIdle', async () => {
+  const root = fixtureRepo()
+  try {
+    await withServer(root, async (base, followed, emit) => {
+      const payload = await fetch(`${base}/api/alm/requirements/start`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true }),
+      }).then(response => response.json())
+      assert.equal(payload.execution.scheduled, true)
+      emit('session/event', { id: payload.execution.sessionId }, {
+        type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } },
+      })
+      const stored = JSON.parse(readFileSync(join(root, '.alm', 'runs', `${payload.execution.runId}.json`), 'utf8'))
+      assert.equal(stored.status, 'failed')
+      assert.equal(stored.phase, 'interrupted')
+      assert.equal(stored.failure.code, 'transport-failed')
+      assert.match(stored.failure.message, /DeepSeek Messages transport failed/)
+      assert.deepEqual(stored.interruptedSessions, [payload.execution.sessionId])
+      assert.equal(followed.length, 1)
+    }, { peer: { principal: { kind: 'human', id: 'human:test' } } }, { holdIdle: true })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
 
 test('native answer and continue reject forged human actor without trusted human principal', async () => {
  for(const admission of [{peer:{principal:{kind:'agent',id:'agent:test'}}},{peer:{principal:{kind:'anonymous'}}},{rejection:401}]) {
@@ -126,7 +154,7 @@ test('native answer and continue reject forged human actor without trusted human
  }
 })
 
-test('automatic start reports unverified path and creates no change, run or model turn', async () => {
+test('automatic start ignores temporary validation folders and schedules the development run', async () => {
   const root = fixtureRepo()
   try {
     const nested = join(root, 'validation/undeclared-project')
@@ -139,13 +167,11 @@ test('automatic start reports unverified path and creates no change, run or mode
         body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true, autoAdvance: true }),
       })
       const payload = await response.json()
-      assert.equal(response.status, 409, JSON.stringify(payload))
-      assert.equal(payload.error.code, 'auto-facts-unavailable')
-      assert.match(payload.error.message, /validation\/undeclared-project\//)
-      assert.match(payload.error.message, /目录或非普通文件/)
-      assert.equal(followed.length, 0)
-      assert.equal(existsSync(join(root, '.alm/changes')), false)
-      assert.equal(existsSync(join(root, '.alm/runs')), false)
+      assert.equal(response.status, 200, JSON.stringify(payload))
+      assert.equal(payload.execution?.scheduled, true)
+      assert.equal(followed.length, 1)
+      assert.equal(existsSync(join(root, '.alm/changes')), true)
+      assert.equal(existsSync(join(root, '.alm/runs')), true)
     }, { peer: { principal: { kind: 'human', id: 'human:test' } } })
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -171,7 +197,7 @@ test('release blockers are a readable plan, not a transport failure or a publish
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('start with apply schedules one host run and returns its receipt', async () => {
+test('start with no stored review or acceptance evidence schedules one host run and returns its receipt', async () => {
   const root = fixtureRepo()
   try {
     await withServer(root, async (base, followed) => {
@@ -236,6 +262,35 @@ test('start silently registers inferred verification before creating its run', a
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('start re-derives an already registered but oversized verification command', async () => {
+  const root = fixtureRepo()
+  try {
+    const plan = join(root, '.alm', 'acceptance', 'REQ-PAY-001.json')
+    const files = Array.from({ length: 9 }, (_, index) => `packages/demo/test/wide-${index}.test.mjs`)
+    writeFileSync(plan, JSON.stringify({
+      schema: 'alm.acceptance.config/v1', requirement: 'REQ-PAY-001',
+      commands: [{ id: 'wide', command: ['node', '--test', ...files], timeoutMs: 30000 }],
+    }, null, 2))
+    await withServer(root, async (base) => {
+      const response = await fetch(`${base}/api/alm/requirements/start`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true }),
+      })
+      const payload = await response.json()
+      assert.equal(response.status, 200, JSON.stringify(payload))
+      const config = JSON.parse(readFileSync(plan, 'utf8'))
+      assert.equal(config.commands[0].command.length, 3)
+      assert.equal(config.commands[0].timeoutMs, 30000)
+    })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('preflight modal always offers an explicit start confirmation for a nonfatal question', () => {
+  const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+  assert.match(source, /确认并启动 AI 推进/)
+  assert.match(source, /question && !start && state\.phase !== 'starting'/)
+})
+
 test('execution and resume prompts render a concise task brief without metadata JSON', () => {
   const root = fixtureRepo()
   const hash = 'a'.repeat(64)
@@ -270,6 +325,7 @@ test('execution and resume prompts render a concise task brief without metadata 
       assert.match(text, /packages\/demo\/index\.js/)
       assert.match(text, /验证命令超时|专项验证/)
       assert.match(text, /node --test packages\/demo\/test\/index\.test\.mjs/)
+      assert.match(text, /严禁在单需求交付中运行 pnpm test/)
     }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

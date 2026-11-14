@@ -32,7 +32,8 @@ window.__ModuleLoader__.load({
       superseded: { label: "\u88AB\u66FF\u4EE3", color: T.text3, bg: "rgba(107,116,128,.12)" },
       archived: { label: "\u5DF2\u5F52\u6863", color: T.text3, bg: "rgba(107,116,128,.12)" }
     };
-    const DEFAULT_REQUIREMENT_VIEW = "all";
+    const DEFAULT_REQUIREMENT_VIEW = "mine";
+    const NAVIGATION_VERSION = 5;
     const FILTERS = [
       ["all", "\u5168\u90E8"],
       ["mine", "\u5F85\u6211\u5904\u7406"],
@@ -1590,7 +1591,7 @@ window.__ModuleLoader__.load({
         load2.request = request;
         if (!scope) {
           setState({ scope, loading: false, error: null, data: null });
-          return;
+          return Promise.resolve({ ok: false, error: "\u8BF7\u5148\u9009\u62E9\u5DE5\u4F5C\u533A\u9879\u76EE" });
         }
         if (!silent) setState((prev) => ({ scope, loading: true, error: null, data: prev.scope === scope ? prev.data : null }));
         return fetch(`/api/alm/requirements${scope}`, { headers: { accept: "application/json" } }).then(async (response) => {
@@ -1599,8 +1600,10 @@ window.__ModuleLoader__.load({
             throw new Error(body?.error?.message ?? body?.error ?? `HTTP ${response.status}`);
           }
           if (load2.request === request) setState({ scope, loading: false, error: null, data: body });
+          return { ok: true, data: body };
         }).catch((error) => {
           if (load2.request === request) setState((prev) => ({ scope, loading: false, error: error.message, data: prev.scope === scope ? prev.data : null }));
+          return { ok: false, error: error.message };
         });
       }, [scope]);
       useEffect(() => {
@@ -1758,6 +1761,7 @@ window.__ModuleLoader__.load({
       const occurrences = Number(defect?.occurrenceCount ?? 0);
       const action = rowAction(item, actionHandlers);
       const executing = isExecutingRequirement(item);
+      const githubLinks = item.detailView?.githubLinks ?? null;
       const [hover, setHover] = useState(false);
       const open = () => actionHandlers.onOpen(item);
       const actionButton = h(
@@ -1939,6 +1943,8 @@ window.__ModuleLoader__.load({
             ),
             h("span", { title: item.specConvergences?.length ? [...item.specConvergences].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote || "\u9700\u6C42\u5DF2\u6F14\u8FDB" : "\u9700\u6C42\u7248\u672C", tabIndex: 0, style: Number(item.revision) > 1 ? { color: "#8bd5f5", background: "rgba(63,160,205,.14)", border: "1px solid rgba(106,190,225,.4)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px", whiteSpace: "nowrap" } : { color: T.text3, fontSize: "11px" } }, `v${item.revision ?? 1}${Number(item.revision) > 1 ? " \xB7 \u5DF2\u6F14\u8FDB" : ""}`),
             item.pendingPatch ? h("span", { style: { color: T.warn, fontSize: "11px", fontWeight: 600 } }, "\u25CF \u5F85\u786E\u8BA4\u53D8\u66F4") : null,
+            githubLinks?.devBranchUrl ? h(GitHubLinkButton, { href: githubLinks.devBranchUrl, compact: true, title: "\u5728 GitHub \u67E5\u770B\u5F00\u53D1\u5206\u652F" }, `\u{1F33F} ${githubLinks.devBranch ?? "develop"}`) : null,
+            githubLinks?.mainBranchUrl && githubLinks.mainMergeCommitSha ? h(GitHubLinkButton, { href: githubLinks.mainBranchUrl, compact: true, title: "\u5728 GitHub \u67E5\u770B\u4E3B\u5E72\u5206\u652F" }, `\u2705 ${githubLinks.mainBranch ?? "main"}`) : null,
             defect?.impact?.stage ? h("span", { style: { color: T.text3, fontSize: "11px" } }, `\u5931\u8D25\u4E8E${defectStageText(item)}`) : null,
             defect && occurrences > 1 ? h("span", { style: { color: T.text2, fontSize: "11px", fontVariantNumeric: "tabular-nums" } }, `\xD7${occurrences}`) : null,
             defect?.regressionSuspected ? h("span", { style: { color: T.warn, fontSize: "11px" } }, "\u7591\u4F3C\u56DE\u5F52") : null,
@@ -2478,7 +2484,8 @@ window.__ModuleLoader__.load({
       link: "M10 13a5 5 0 007 0l2-2a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-2 2a5 5 0 007 7l1-1",
       alert: "M12 3l9 16H3zM12 9v5M12 17h.01",
       archive: "M4 7h16M6 7v12a1 1 0 001 1h10a1 1 0 001-1V7M9 7V4h6v3M12 11v5M9.5 13.5L12 16l2.5-2.5",
-      message: "M21 11.5a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-4.6A8.5 8.5 0 0 1 11.5 3h1A8.5 8.5 0 0 1 21 11.5z"
+      message: "M21 11.5a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-4.6A8.5 8.5 0 0 1 11.5 3h1A8.5 8.5 0 0 1 21 11.5z",
+      download: "M12 4v11M7 11l5 5 5-5M4 20h16"
     };
     function ActionIcon({ name, size = 14 }) {
       return h(
@@ -2990,6 +2997,52 @@ window.__ModuleLoader__.load({
     }
     function safeHttpHref(value) {
       return typeof value === "string" && /^https?:\/\//i.test(value) ? value : null;
+    }
+    function GitHubLinkButton({ href, children, title = null, compact = false }) {
+      const safe = safeHttpHref(href);
+      if (!safe) return null;
+      return h("a", {
+        href: safe,
+        target: "_blank",
+        rel: "noopener",
+        title: title ?? String(children ?? ""),
+        onClick: (event) => event.stopPropagation(),
+        style: compact ? { color: T.ok, fontSize: "11px", textDecoration: "none", whiteSpace: "nowrap" } : { display: "inline-flex", alignItems: "center", minHeight: "32px", padding: "5px 9px", border: `1px solid ${T.line2}`, borderRadius: "7px", color: T.text, background: T.layer, fontSize: "12px", textDecoration: "none" }
+      }, children);
+    }
+    function GitHubDeliveryLinks({ links, showCompare = false, compact = false }) {
+      if (!links?.repoWebUrl) return null;
+      const short = (value) => String(value ?? "").slice(0, 7);
+      const entries = [
+        links.mainCommitUrl ? ["main", links.mainCommitUrl, "\u2197 \u67E5\u770B GitHub \u4E3B\u5E72\u63D0\u4EA4"] : null,
+        links.devCommitUrl ? ["develop", links.devCommitUrl, `\u{1F33F} \u67E5\u770B\u672C\u6B21\u4EA4\u4ED8\u63D0\u4EA4 (${short(links.devCommitSha)})`] : links.devBranchUrl ? ["develop", links.devBranchUrl, `\u{1F33F} \u67E5\u770B GitHub ${links.devBranch ?? "develop"} \u5206\u652F`] : null,
+        showCompare && links.compareUrl ? ["compare", links.compareUrl, "\u6BD4\u8F83 main \u4E0E develop"] : null
+      ].filter(Boolean);
+      if (!entries.length) return null;
+      return h(
+        "div",
+        { "data-github-delivery-links": "true", style: { display: "flex", gap: "7px", flexWrap: "wrap", marginTop: compact ? "5px" : "10px" } },
+        entries.map(([key, href, label]) => h(GitHubLinkButton, { key, href, compact }, label))
+      );
+    }
+    function GitHubDeliveryProperties({ links }) {
+      if (!links?.repoWebUrl) return null;
+      const row2 = (label, children) => h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", padding: "6px 0", fontSize: "13px", color: T.text2 } }, h("div", null, label), h("div", { style: { color: T.text, overflowWrap: "anywhere", textAlign: "right", minWidth: 0 } }, children));
+      const branch = h(
+        "span",
+        { style: { display: "inline-flex", gap: "5px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" } },
+        links.devBranchUrl ? h(GitHubLinkButton, { href: links.devBranchUrl, compact: true }, links.devBranch ?? "develop") : null,
+        links.mainBranchUrl && links.mainMergeCommitSha ? h("span", { style: { color: T.text3 } }, "\u2192") : null,
+        links.mainBranchUrl && links.mainMergeCommitSha ? h(GitHubLinkButton, { href: links.mainBranchUrl, compact: true }, links.mainBranch ?? "main") : null
+      );
+      const commitHref = links.mainCommitUrl ?? links.devCommitUrl;
+      const commitSha = links.mainMergeCommitSha ?? links.devCommitSha;
+      return h(
+        "div",
+        { "data-github-delivery-properties": "true" },
+        links.devBranchUrl || links.mainBranchUrl ? row2("\u4EE3\u7801\u5206\u652F", branch) : null,
+        commitHref && commitSha ? row2("\u6700\u65B0\u63D0\u4EA4", h(GitHubLinkButton, { href: commitHref, compact: true, title: "\u5728 GitHub \u67E5\u770B\u63D0\u4EA4 Diff" }, commitSha.slice(0, 7))) : null
+      );
     }
     function relationRows(relations) {
       return (relations ?? []).map((entry, index) => {
@@ -3680,7 +3733,7 @@ window.__ModuleLoader__.load({
       for (const [id, text] of right) if (!left.has(id)) changes.push({ type: "added", id, after: text });
       else if (left.get(id) !== text) changes.push({ type: "modified", id, before: left.get(id), after: text });
       for (const [id, text] of left) if (!right.has(id)) changes.push({ type: "removed", id, before: text });
-      const fields = [["title", "\u6807\u9898"], ["goal", "\u9884\u671F\u53D8\u5316"], ["problem", "\u89E3\u51B3\u4EC0\u4E48\u95EE\u9898"]].flatMap(([field, label]) => {
+      const fields = [["title", "\u6807\u9898"], ["goal", "\u9884\u671F\u53D8\u5316"], ["problem", "\u4EF7\u503C"]].flatMap(([field, label]) => {
         const a = delta.beforeDocument?.[field], b = delta.afterDocument?.[field];
         return typeof a === "string" && typeof b === "string" && a !== b ? [{ label, before: a, after: b }] : [];
       });
@@ -3753,10 +3806,10 @@ window.__ModuleLoader__.load({
         h("p", { role: "status", "aria-live": "polite", style: { ...DETAIL_SMALL, margin: state.loading || !state.error && state.loaded ? "6px 0" : 0 } }, state.loading ? "\u6B63\u5728\u8BFB\u53D6\u8F83\u65E9\u4E8B\u4EF6\u2026" : !state.error && state.loaded ? `\u5DF2\u8BFB\u53D6 ${state.loaded} \u6761\u8F83\u65E9\u4E8B\u4EF6\u3002` : ""),
         state.next && !record.timelineFingerprint ? h("p", { style: DETAIL_SMALL }, `\u53E6\u6709 ${state.next} \u6761\u8F83\u65E9\u4E8B\u4EF6\uFF1B\u8BF7\u5237\u65B0\u9700\u6C42\u540E\u8BFB\u53D6\u3002`) : null,
         record.timelineOmitted > 0 && record.timelineFingerprint ? h("button", { type: "button", style: { ...DETAIL_LINK, cursor: state.loading || !state.next || state.error === "changed" ? "not-allowed" : "pointer" }, "aria-disabled": state.loading || !state.next || state.error === "changed", onClick: load }, state.loading ? "\u8BFB\u53D6\u4E2D\u2026" : state.error === "changed" ? "\u8BF7\u5237\u65B0\u9700\u6C42\u540E\u8BFB\u53D6" : state.next ? `\u52A0\u8F7D\u8F83\u65E9\u4E8B\u4EF6\uFF08\u5269\u4F59 ${state.next} \u6761\uFF09` : "\u5DF2\u663E\u793A\u5168\u90E8\u5DF2\u6536\u96C6\u4E8B\u4EF6") : null,
-        timeline.length ? h("div", { "data-version-timeline": "true", style: { position: "relative", margin: "12px 0 0 8px", paddingLeft: "18px", borderLeft: `1px solid ${T.line}`, display: "grid", gap: "14px" } }, [...timeline].reverse().map((entry, index) => {
+        timeline.length ? h("ul", { "data-version-timeline": "true", style: { position: "relative", margin: "12px 0 0 8px", paddingLeft: "18px", borderLeft: `1px solid ${T.line}`, display: "grid", gap: "14px", listStyle: "none" } }, [...timeline].reverse().map((entry, index) => {
           const appearance = timelineStyle(entry);
           return h(
-            "article",
+            "li",
             { key: `${entry.at ?? "event"}-${index}`, style: { position: "relative", fontSize: "12px", color: T.text2, lineHeight: 1.6, minWidth: 0 } },
             h("span", { "aria-hidden": "true", style: { position: "absolute", left: "-24px", top: "5px", width: "10px", height: "10px", borderRadius: "50%", background: appearance.color, boxShadow: `0 0 0 3px ${T.bg ?? T.layer}` } }),
             h("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, h("span", { style: { color: appearance.color, background: T.layer2, border: `1px solid ${appearance.color}`, borderRadius: "999px", padding: "1px 7px", fontSize: "11px", fontWeight: 600 } }, appearance.label), h("time", { dateTime: entry.at, style: { color: T.text3, fontSize: "11px", flex: "none" } }, formatLocalStamp(entry.at))),
@@ -3771,6 +3824,7 @@ window.__ModuleLoader__.load({
       const record = detail.record ?? {};
       const relations = relationRows((record.relations ?? []).length ? record.relations : relationsOf(item, allItems)).filter((entry) => entry.ids?.length);
       const github = record.github;
+      const githubLinks = record.githubLinks ?? detail.githubLinks;
       const architecture = record.architecture;
       const defects = detail.summaries?.defects ?? {};
       const hasDefects = defects.own || defects.related?.length || defects.closedHistory?.length;
@@ -3780,7 +3834,8 @@ window.__ModuleLoader__.load({
         "div",
         { "data-detail-content": "record", style: { minWidth: 0 } },
         h(CollectedTimeline, { key: `${item.root ?? root}:${item.id}:${record.timelineFingerprint ?? ""}`, root: item.root ?? root, requirementId: item.id, record, onNavigate, onRefresh }),
-        h(ArchitectureLedgerPanel, { architecture, release: detail.summaries?.release }),
+        h(ArchitectureLedgerPanel, { architecture, release: detail.summaries?.release, githubLinks }),
+        h(GitHubDeliveryLinks, { links: githubLinks, showCompare: true }),
         relations.length ? h(DetailBlock, { title: "\u5F52\u5C5E\u5173\u7CFB", sectionId: "record-relations" }, relations.map((entry) => h(DetailRow, { key: entry.label, label: entry.label }, entry.ids.join("\u3001")))) : null,
         github && (github.issue || github.url || github.board || github.tasks) ? h(DetailBlock, { title: "GitHub", sectionId: "record-github" }, github.issue ? h(DetailRow, { label: "Issue" }, github.issue) : null, github.url ? h(DetailRow, { label: "\u94FE\u63A5" }, safeHttpHref(github.url) ? h("a", { href: github.url, target: "_blank", rel: "noreferrer" }, github.url) : github.url) : null, github.board ? h(DetailRow, { label: "\u770B\u677F" }, github.board) : null) : null,
         hasDefects ? h(DetailBlock, { title: "\u7F3A\u9677\u8BB0\u5F55", sectionId: "record-defects" }, [defects.own, ...defects.related ?? [], ...defects.closedHistory ?? []].filter(Boolean).map((defect, index) => h(DetailRow, { key: index, label: "\u7F3A\u9677" }, `${defect.id ?? defect}${defect.statusLabel ? " \xB7 " + defect.statusLabel : ""}`))) : null,
@@ -3929,14 +3984,14 @@ window.__ModuleLoader__.load({
         const headings = [...value.matchAll(/^(?:#{1,6}[ \t]+)?(?:\*\*)?(背景|目标|问题与场景)(?:\*\*)?[ \t]*(?:[：:][ \t]*|\n)/gm)];
         if (!headings.length) return add(fallback, value);
         add(fallback, value.slice(0, headings[0].index));
-        headings.forEach((heading, index) => add(heading[1] === "\u76EE\u6807" ? "\u9884\u671F\u53D8\u5316" : "\u89E3\u51B3\u4EC0\u4E48\u95EE\u9898", value.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? value.length)));
+        headings.forEach((heading, index) => add(heading[1] === "\u76EE\u6807" ? "\u9884\u671F\u53D8\u5316" : "\u4EF7\u503C", value.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? value.length)));
       };
       if (model?.status === "legacy") {
-        addLegacy(doc.goal, "\u9700\u6C42\u5185\u5BB9");
-        addLegacy(doc.problem, "\u89E3\u51B3\u4EC0\u4E48\u95EE\u9898");
+        addLegacy(doc.goal, "\u9884\u671F\u53D8\u5316");
+        addLegacy(doc.problem, "\u4EF7\u503C");
       } else {
         add("\u9884\u671F\u53D8\u5316", doc.goal);
-        add("\u89E3\u51B3\u4EC0\u4E48\u95EE\u9898", doc.problem);
+        add("\u4EF7\u503C", doc.problem);
       }
       return blocks.sort((a, b) => Number(b.title === "\u9884\u671F\u53D8\u5316") - Number(a.title === "\u9884\u671F\u53D8\u5316"));
     }
@@ -3958,7 +4013,7 @@ window.__ModuleLoader__.load({
       return h(
         "div",
         null,
-        h("p", { "data-human-excerpt": "true", hidden: expanded, style: paragraph }, `${preview(text).slice(0, 420)}\u2026`),
+        h("p", { "data-human-excerpt": "true", hidden: expanded, style: paragraph }, `${preview(text).slice(0, 180)}\u2026`),
         h(
           "details",
           { style: { marginTop: "6px" }, onToggle: (event) => setExpanded(event.currentTarget.open) },
@@ -3981,10 +4036,10 @@ window.__ModuleLoader__.load({
         { "data-human-description": "true" },
         h("div", { className: "description-cards" }, blocks.map((block, index) => h(
           "div",
-          { key: index, "data-human-long": block.text.length > 420 ? "true" : void 0, style: { padding: "12px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
+          { key: index, "data-human-long": block.text.length > 180 ? "true" : void 0, style: { padding: "12px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
           index === 0 && status === "unconfirmed" ? descriptionStatusBadge(status) : null,
-          index === 0 && block.title === "\u9700\u6C42\u5185\u5BB9" ? null : h("h3", { style: { margin: 0, fontSize: "13px", fontWeight: 600, color: T.text } }, block.title),
-          block.text.length > 420 ? h(HumanLongDescription, { text: block.text, paragraph, preview }) : h("div", { style: paragraph }, renderRich(block.text))
+          h("h3", { style: { margin: 0, fontSize: "13px", fontWeight: 600, color: T.text } }, block.title || "\u9884\u671F\u53D8\u5316"),
+          block.text.length > 180 ? h(HumanLongDescription, { text: block.text, paragraph, preview }) : h("div", { style: paragraph }, renderRich(block.text))
         ))),
         features.length ? h(
           "div",
@@ -4006,7 +4061,21 @@ window.__ModuleLoader__.load({
     }
     function HumanVerification({ item, detail, matter }) {
       const summary = detail.verificationSummary ?? {};
-      const criteria = detail.content?.doc?.acceptance?.length ? detail.content.doc.acceptance.map((entry) => ({ ...entry, ...(summary.criteria ?? []).find((result) => result.id === entry.id) })) : summary.criteria ?? detail.content?.acceptanceCriteria ?? [];
+      const sourceCriteria = detail.content?.acceptanceCriteria?.length ? detail.content.acceptanceCriteria.map((entry) => ({ ...entry, ...(summary.criteria ?? []).find((result) => result.id === entry.id) })) : detail.content?.doc?.acceptance?.length ? detail.content.doc.acceptance.map((entry) => ({ ...entry, ...(summary.criteria ?? []).find((result) => result.id === entry.id) })) : summary.criteria ?? [];
+      const criteria = [...sourceCriteria].sort((left, right) => {
+        if (Boolean(left?.legacyBaseline) !== Boolean(right?.legacyBaseline)) return left?.legacyBaseline ? -1 : 1;
+        if (left?.legacyBaseline && right?.legacyBaseline) return 0;
+        const number = (entry) => Number(/^AC-(\d+)$/i.exec(String(entry?.id ?? "").trim())?.[1] ?? Number.MAX_SAFE_INTEGER);
+        const byNumber = number(left) - number(right);
+        return byNumber || String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
+      });
+      const statusMeta2 = (status) => {
+        if (status === "accepted") return { label: "\u{1F7E2} \u5DF2\u9A8C\u6536", color: T.ok };
+        if (status === "verified") return { label: "\u{1F7E2} \u5DF2\u9A8C\u8BC1\uFF08\u5F85\u7B7E\u6536\uFF09", color: T.ok };
+        if (status === "passed") return { label: "\u5DF2\u901A\u8FC7", color: T.ok };
+        if (status === "failed") return { label: "\u672A\u901A\u8FC7", color: T.err };
+        return { label: "\u5F85\u9A8C\u8BC1", color: T.text3 };
+      };
       return h(
         "section",
         { "data-human-verification": "true", style: { marginTop: "14px", paddingTop: "12px", borderTop: `1px solid ${T.line}` } },
@@ -4014,7 +4083,10 @@ window.__ModuleLoader__.load({
         criteria.length ? h("div", { "data-human-acceptance": "true", style: { display: "grid", gap: "6px", marginTop: "8px" } }, criteria.map((entry, index) => h(
           "div",
           { key: entry.id ?? index, "data-detail-ac": entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`, style: { border: `1px solid ${T.line}`, borderRadius: "10px", padding: "8px 12px", minWidth: 0 } },
-          h("div", { style: { display: "flex", justifyContent: "space-between", gap: "12px", color: T.text2, fontSize: "12px" } }, h("strong", null, entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`), h("span", null, entry.status === "passed" ? "\u5DF2\u901A\u8FC7" : entry.status === "failed" ? "\u672A\u901A\u8FC7" : "\u5F85\u9A8C\u8BC1")),
+          h("div", { style: { display: "flex", justifyContent: "space-between", gap: "12px", color: T.text2, fontSize: "12px" } }, h("strong", null, entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`), (() => {
+            const status = statusMeta2(entry.status);
+            return h("span", { style: { color: status.color } }, status.label);
+          })()),
           h("div", { style: { marginTop: "5px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, entry.text || entry.title || entry.expected || "\u5F85\u8865\u5145")
         ))) : h("p", { style: { color: T.text2 } }, "\u6682\u65E0\u9A8C\u6536\u6807\u51C6\u3002")
       );
@@ -4022,39 +4094,59 @@ window.__ModuleLoader__.load({
     const HUMAN_CONTROL = { ...button, minHeight: "40px", padding: "8px 14px", fontSize: "14px", fontWeight: 500, lineHeight: 1.5, color: T.text, border: `1px solid ${T.line2}`, background: T.layer };
     const DETAIL_MENU_ITEM = { ...HUMAN_CONTROL, width: "100%", textAlign: "left", border: 0, background: "transparent", minHeight: "36px", padding: "7px 10px" };
     const HUMAN_PRIMARY = { ...primary, minHeight: "44px", padding: "10px 20px", fontSize: "14px", fontWeight: 600 };
-    function IterationFeedback({ item, root, onRefresh }) {
+    function IterationFeedback({ item, root, onRefresh, onPatch }) {
       const [feedback, setFeedback] = useState("");
       const [localPatch, setLocalPatch] = useState(null);
       const [resolution, setResolution] = useState("");
       const [busy, setBusy] = useState(false);
       const [message, setMessage] = useState("");
+      const [messageTone, setMessageTone] = useState("neutral");
+      const [phase, setPhase] = useState("");
       const patch = localPatch ?? item.pendingPatch;
+      const convergenceCoverage = patch?.diff?.modified ?? [];
+      const updates = (kind) => convergenceCoverage.some((change) => change?.kind === kind) || kind === "acceptance" && [patch?.diff?.added, patch?.diff?.removed].some((list) => Array.isArray(list) && list.some((change) => change?.kind === "acceptance"));
       if (item.closed) return null;
       const send = async (body) => {
+        const controller = new AbortController();
+        const slowNotice = setTimeout(() => setPhase("AI \u6B63\u5728\u751F\u6210\u9700\u6C42\u8C03\u6574\u8349\u6848\uFF0C\u901A\u5E38\u53EA\u9700\u51E0\u79D2\u2026"), 900);
+        const timeout = setTimeout(() => controller.abort(), 2e4);
         setBusy(true);
         setMessage("");
+        setMessageTone("neutral");
+        setPhase(body.action === "feedback" || body.action === "retry" ? "\u63D0\u4EA4\u5904\u7406\u4E2D..." : "\u6B63\u5728\u8BB0\u5F55\u5904\u7406\u7ED3\u679C\u2026");
         try {
-          const response = await fetch(`/api/alm/requirements/convergence?root=${encodeURIComponent(item.root ?? root)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+          const response = await fetch(`/api/alm/requirements/convergence?root=${encodeURIComponent(item.root ?? root)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
           const result = await response.json();
           if (!response.ok || !result.ok) throw new Error(result.message || "\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5");
-          if (body.action === "feedback") {
-            if (result.pendingPatch) {
-              setLocalPatch(result.pendingPatch);
-              setResolution("");
-            } else {
-              setMessage(result.execution?.resumed ? "\u4FEE\u590D\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0CAI \u6B63\u5728\u7EE7\u7EED\u63A8\u8FDB\u3002" : result.execution?.message ?? "\u53CD\u9988\u5DF2\u4FDD\u5B58\uFF0C\u8BF7\u542F\u52A8\u6216\u91CD\u8BD5\u63A8\u8FDB\u3002");
-              onRefresh?.();
-            }
+          if (result.pendingPatch) {
+            setLocalPatch(result.pendingPatch);
+            setResolution("");
+            setFeedback("");
+            onPatch?.(result.pendingPatch);
+            setMessage("\u5DF2\u751F\u6210\u9700\u6C42\u6F14\u8FDB\u8865\u4E01\uFF0C\u8BF7\u5728\u4E0B\u65B9\u786E\u8BA4\u5408\u5165\u3002");
+            setMessageTone("success");
+          } else if (body.action === "feedback" || body.action === "retry") {
+            setFeedback("");
+            setMessage(result.deferred === true ? `\u53CD\u9988\u8349\u6848\u6682\u672A\u751F\u6210\uFF1A${result.message ?? "\u8BF7\u70B9\u51FB\u91CD\u65B0\u751F\u6210\u8C03\u6574\u8349\u6848\u3002"}` : result.message ?? (result.execution?.resumed ? "\u4FEE\u590D\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0CAI \u6B63\u5728\u7EE7\u7EED\u63A8\u8FDB\u3002" : result.execution?.message ?? "\u53CD\u9988\u5DF2\u4FDD\u5B58\uFF0C\u8BF7\u542F\u52A8\u6216\u91CD\u8BD5\u63A8\u8FDB\u3002"));
+            setMessageTone(result.deferred === true ? "error" : "neutral");
+            await onRefresh?.();
           } else {
             setLocalPatch(null);
+            onPatch?.(null);
             setFeedback("");
             setResolution("");
-            setMessage(result.execution?.resumed ? "\u5DF2\u63D0\u4EA4\u5E76\u7EE7\u7EED\u63A8\u8FDB\uFF0C\u5B8C\u6210\u540E\u5C06\u91CD\u65B0\u68C0\u67E5\u3002" : `\u5DF2\u8BB0\u5F55\u5904\u7406\u7ED3\u679C\uFF0C\u4F46\u672A\u80FD\u7EE7\u7EED\u63A8\u8FDB\uFF1A${result.execution?.message ?? "\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5"}`);
-            onRefresh?.();
+            const revision = Number(result.applied?.result?.after?.revision);
+            setMessage(body.resolution === "confirm_converge" && Number.isFinite(revision) ? `\u2705 \u9700\u6C42\u57FA\u7EBF\u5DF2\u66F4\u65B0\u81F3 v${revision}` : result.execution?.resumed ? "\u5DF2\u63D0\u4EA4\u5E76\u7EE7\u7EED\u63A8\u8FDB\uFF0C\u5B8C\u6210\u540E\u5C06\u91CD\u65B0\u68C0\u67E5\u3002" : `\u5DF2\u8BB0\u5F55\u5904\u7406\u7ED3\u679C\uFF0C\u4F46\u672A\u80FD\u7EE7\u7EED\u63A8\u8FDB\uFF1A${result.execution?.message ?? "\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5"}`);
+            setMessageTone(body.resolution === "confirm_converge" ? "success" : "neutral");
+            await onRefresh?.();
           }
         } catch (error) {
-          setMessage(error?.message || "\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
+          setMessage(error?.name === "AbortError" ? "\u7B49\u5F85 AI \u751F\u6210\u8349\u6848\u8D85\u65F6\u3002\u53CD\u9988\u672A\u786E\u8BA4\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u65B0\u63D0\u4EA4\u3002" : error?.message || "\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
+          setMessageTone("error");
         } finally {
+          clearTimeout(slowNotice);
+          clearTimeout(timeout);
+          setPhase("");
           setBusy(false);
         }
       };
@@ -4067,11 +4159,16 @@ window.__ModuleLoader__.load({
           null,
           h("label", { htmlFor: `iteration-feedback-${item.id}`, style: { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clipPath: "inset(50%)" } }, "\u63CF\u8FF0\u9700\u8981\u8C03\u6574\u7684\u5185\u5BB9"),
           h("textarea", { id: `iteration-feedback-${item.id}`, value: feedback, maxLength: 4e3, rows: 2, placeholder: "\u76F4\u63A5\u63CF\u8FF0\u9700\u8981\u5FAE\u8C03\u7684\u4EA4\u4E92\u3001\u8865\u5145\u7684\u89C4\u5219\u6216\u53D1\u73B0\u7684\u95EE\u9898\uFF0CAI \u5C06\u81EA\u52A8\u5224\u65AD\u662F\u4FEE\u590D\u4EE3\u7801\u8FD8\u662F\u5347\u7EA7\u9700\u6C42\u7248\u672C...", onChange: (event) => setFeedback(event.target.value), style: { display: "block", boxSizing: "border-box", width: "100%", margin: "8px 0", background: T.layer, color: T.text, border: `1px solid ${T.line2}`, padding: "8px" } }),
-          h("div", { style: { display: "flex", justifyContent: "flex-end" } }, h("button", { type: "button", style: HUMAN_CONTROL, disabled: busy || !feedback.trim(), onClick: () => send({ action: "feedback", reqId: item.id, feedbackText: feedback }) }, busy ? "\u6B63\u5728\u5206\u6790\u2026" : "\u63D0\u4EA4\u53CD\u9988"))
+          h("div", { style: { display: "flex", justifyContent: "flex-end" } }, h("button", { type: "button", style: HUMAN_CONTROL, disabled: busy || !feedback.trim(), onClick: () => send({ action: "feedback", reqId: item.id, feedbackText: feedback }) }, busy ? "\u63D0\u4EA4\u5904\u7406\u4E2D..." : "\u63D0\u4EA4\u53CD\u9988"))
         ) : h(
           "div",
           { "data-pending-patch": "true" },
           h("p", null, patch.evolutionNote),
+          h(
+            "div",
+            { "data-convergence-coverage": "true", style: { display: "flex", gap: "7px", flexWrap: "wrap", margin: "8px 0 12px", fontSize: "12px", color: T.text2 } },
+            ...[["goal", "\u9884\u671F\u53D8\u5316"], ["problem", "\u4EF7\u503C"], ["acceptance", "\u9A8C\u6536\u6807\u51C6"]].map(([kind, label]) => h("span", { key: kind, style: { border: `1px solid ${updates(kind) ? T.ok : T.warn}`, borderRadius: "999px", padding: "3px 8px", color: updates(kind) ? T.ok : T.warn } }, `${updates(kind) ? "\u5DF2\u66F4\u65B0" : "\u5F85\u6838\u5BF9"}\uFF1A${label}`))
+          ),
           h("details", null, h("summary", null, "\u67E5\u770B\u53D8\u66F4\u524D\u6B63\u6587\u53CA\u9A8C\u6536"), h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, String(patch.beforeBrief ?? "").replace(/<!--\s*alm:meta\b[\s\S]*?-->/g, ""))),
           h("details", null, h("summary", null, "\u67E5\u770B\u53D8\u66F4\u540E\u6B63\u6587\u53CA\u9A8C\u6536"), h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, String(patch.afterBrief ?? "").replace(/<!--\s*alm:meta\b[\s\S]*?-->/g, ""))),
           h(
@@ -4080,10 +4177,16 @@ window.__ModuleLoader__.load({
             h("legend", null, "\u9009\u62E9\u5904\u7406\u65B9\u5F0F"),
             ...[["confirm_converge", "\u786E\u8BA4\u66F4\u65B0\u9700\u6C42\u57FA\u7EBF\u5E76\u7EE7\u7EED\u63A8\u8FDB"], ["repair_only", "\u4EC5\u4F5C\u4E3A\u4EE3\u7801\u95EE\u9898\u4FEE\u590D\uFF08\u4E0D\u4FEE\u6539\u9700\u6C42\u57FA\u7EBF\uFF09"]].map(([value, label]) => h("label", { key: value, style: { display: "block", margin: "8px 0" } }, h("input", { type: "radio", name: `iteration-resolution-${item.id}`, value, checked: resolution === value, onChange: () => setResolution(value) }), " ", label))
           ),
-          h("button", { type: "button", style: HUMAN_PRIMARY, disabled: busy || !resolution, onClick: () => send({ action: "resolve", reqId: item.id, patchId: patch.patchId, patchHash: patch.patchHash, baseRequirementHash: patch.baseRequirementHash, resolution }) }, busy ? "\u6B63\u5728\u6267\u884C\u2026" : "\u786E\u8BA4\u6267\u884C")
+          h("button", { type: "button", style: HUMAN_PRIMARY, disabled: busy || !resolution, onClick: () => send({ action: "resolve", reqId: item.id, patchId: patch.patchId, patchHash: patch.patchHash, baseRequirementHash: patch.baseRequirementHash, resolution }) }, busy ? "\u786E\u8BA4\u5904\u7406\u4E2D..." : "\u786E\u8BA4\u66F4\u65B0\u9700\u6C42\u57FA\u7EBF")
         ),
-        item.iterationRetry ? h("div", null, h("p", null, "\u8FED\u4EE3\u53CD\u9988\u5DF2\u4FDD\u5B58\uFF0C\u7B49\u5F85\u542F\u52A8\u6216\u7EE7\u7EED\u63A8\u8FDB\u3002"), h("button", { type: "button", style: HUMAN_CONTROL, disabled: busy, onClick: () => send({ action: "retry", reqId: item.id }) }, "\u91CD\u8BD5\u63A8\u8FDB"), h("p", { style: { color: T.text2, fontSize: "13px" } }, "\u5982\u679C\u5C1A\u672A\u542F\u52A8\u8FD0\u884C\uFF0C\u8BF7\u4F7F\u7528\u672C\u9875\u201C\u4EA4\u7ED9 AI \u63A8\u8FDB\u201D\u3002")) : null,
-        h("p", { role: "status", "aria-live": "polite", style: { margin: message ? "8px 0 0" : 0 } }, message)
+        item.iterationRetry ? h(
+          "div",
+          null,
+          h("p", null, item.iterationRetry.execution?.deferred === true ? "\u53CD\u9988\u5DF2\u4FDD\u5B58\uFF0C\u4F46 AI \u751F\u6210\u8C03\u6574\u8349\u6848\u8D85\u65F6\u3002" : "\u8FED\u4EE3\u53CD\u9988\u5DF2\u4FDD\u5B58\uFF0C\u7B49\u5F85\u542F\u52A8\u6216\u7EE7\u7EED\u63A8\u8FDB\u3002"),
+          h("button", { type: "button", style: HUMAN_CONTROL, disabled: busy, onClick: () => send({ action: "retry", reqId: item.id }) }, item.iterationRetry.execution?.deferred === true ? "\u91CD\u65B0\u751F\u6210\u8C03\u6574\u8349\u6848" : "\u91CD\u8BD5\u63A8\u8FDB"),
+          h("p", { style: { color: T.text2, fontSize: "13px" } }, item.iterationRetry.execution?.deferred === true ? "\u5C06\u4F7F\u7528\u5DF2\u4FDD\u5B58\u7684\u53CD\u9988\u91CD\u65B0\u751F\u6210\u8349\u6848\uFF0C\u4E0D\u4F1A\u91CD\u590D\u63D0\u4EA4\u5185\u5BB9\u3002" : "\u5982\u679C\u5C1A\u672A\u542F\u52A8\u8FD0\u884C\uFF0C\u8BF7\u4F7F\u7528\u672C\u9875\u201C\u4EA4\u7ED9 AI \u63A8\u8FDB\u201D\u3002")
+        ) : null,
+        busy || message ? h("p", { role: messageTone === "error" ? "alert" : "status", "aria-live": "polite", "data-iteration-feedback-status": messageTone, style: { margin: "8px 0 0", color: busy ? T.text2 : messageTone === "error" ? T.err : messageTone === "success" ? T.ok : void 0, fontWeight: messageTone === "error" || messageTone === "success" ? 600 : 400 } }, busy ? phase : message) : null
       );
     }
     const HUMAN_TABS = [{ id: "requirement", label: "\u9700\u6C42\u6B63\u6587" }, { id: "delivery", label: "AI \u8FDB\u5C55" }, { id: "record", label: "\u5386\u53F2\u8BB0\u5F55" }];
@@ -4111,6 +4214,7 @@ window.__ModuleLoader__.load({
             "div",
             { style: { display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" } },
             decision ? h("button", { style: HUMAN_PRIMARY, disabled: action?.enabled === false, "data-primary-action": action?.id ?? "answer-run", onClick: () => onNavigate("requirement") }, businessDecision ? "\u67E5\u770B\u4E1A\u52A1\u9009\u9879\u5E76\u51B3\u5B9A" : "\u67E5\u770B\u95EE\u9898\u4E0E AI \u5904\u7406\u9009\u9879") : !watch && action?.enabled !== false && handlers[action?.id] ? h("button", { style: HUMAN_PRIMARY, "data-primary-action": action.id, onClick: () => handlers[action.id]() }, action.id === "watch-run" ? "\u67E5\u770B AI \u8FDB\u5C55" : action.label) : null,
+            !decision ? (detail.secondaryActions ?? []).filter((entry) => entry?.id === "run-acceptance" && entry.enabled !== false && handlers[entry.id]).map((entry) => h("button", { key: entry.id, style: HUMAN_CONTROL, "data-secondary-action": entry.id, onClick: () => handlers[entry.id]() }, entry.label)) : null,
             progressPage && onRefresh ? h("button", { style: HUMAN_CONTROL, "data-progress-refresh": "true", onClick: onRefresh }, "\u5237\u65B0\u72B6\u6001") : null
           ),
           action?.enabled === false && action.reason ? h("p", { role: "status", style: { color: T.text2, fontSize: "13px", margin: "8px 0" } }, action.reason) : null,
@@ -4504,7 +4608,7 @@ ${text}`)) continue;
           controller.abort();
           loadMoreRuns.current = null;
         };
-      }, [root, item.id, latestRunId, initialRunId]);
+      }, [root, item.id, latestRunId, initialRunId, segment, refresh]);
       useEffect(() => {
         if (requirementClosed || !runId || runId !== latestRunId || !["queued", "running"].includes(currentStatus) || view !== "conversation") return;
         let alive = true, timer;
@@ -4785,7 +4889,7 @@ ${text}`)) continue;
               output?.nonTextBlocks ? h("p", { style: { color: T.text2, fontSize: "12px" } }, `\u5305\u542B ${output.nonTextBlocks} \u9879\u975E\u6587\u672C\u5185\u5BB9\uFF0C\u5F53\u524D\u672A\u5C55\u793A\u3002`) : null
             );
           }),
-          view === "trace" && projected.systemEvents.length ? h("details", { "data-run-system-events": "true", style: { marginTop: "12px", fontSize: "12px", color: T.text2 } }, h("summary", { style: { cursor: "pointer" } }, `\u5E95\u5C42\u7CFB\u7EDF\u4E8B\u4EF6 (${projected.systemEvents.length} \u6761)`), h("ul", { style: { margin: "8px 0 0", paddingLeft: "18px" } }, projected.systemEvents.map((event) => h("li", { key: `${event.seq}:${event.name}` }, event.name)))) : null,
+          view === "trace" && projected.systemEvents.length ? h("details", { "data-run-system-events": "true", style: { marginTop: "12px", fontSize: "12px", color: T.text2 } }, h("summary", { style: { cursor: "pointer" } }, `\u5E95\u5C42\u7CFB\u7EDF\u4E8B\u4EF6 (${projected.systemEvents.length} \u6761)`), h("ul", { style: { margin: "8px 0 0", paddingLeft: "18px", overflowWrap: "anywhere" } }, projected.systemEvents.map((event) => h("li", { key: `${event.seq}:${event.name}` }, event.name)))) : null,
           view === "conversation" && live && (live.text || live.reasoning) ? h(
             "article",
             { "data-live-attempt": "true", style: { borderTop: `1px solid ${T.line}`, padding: "12px 0", minWidth: 0 } },
@@ -4798,7 +4902,7 @@ ${text}`)) continue;
         )
       );
     }
-    function ArchitectureLedgerPanel({ architecture, release }) {
+    function ArchitectureLedgerPanel({ architecture, release, githubLinks = null }) {
       if (!architecture?.path) return null;
       const sourceControl = release?.sourceControl ?? null;
       const short = (value) => String(value ?? "").slice(0, 7);
@@ -4819,8 +4923,10 @@ ${text}`)) continue;
           architecture.title ? h("strong", { style: { fontSize: "13px" } }, architecture.title) : null,
           list("\u9700\u6C42\u4E0E\u7248\u672C\u57FA\u7EBF", architecture.baseline),
           list("\u67B6\u6784\u4E0E\u6A21\u5757\u53D8\u66F4", architecture.modules, (module) => module.role ? `${module.path}\uFF1A${module.role}` : module.path),
+          githubLinks?.architectureUrl ? h("p", { "data-architecture-synced": "true", style: { margin: "10px 0 0", fontSize: "12px", color: T.ok } }, `\u{1F33F} \u67B6\u6784\u4E0E\u6A21\u5757\u53D8\u66F4\u5DF2\u6807\u8BB0\u5E76\u540C\u6B65\u81F3 GitHub \xB7 ${architecture.modules?.length ?? 0} \u4E2A\u6A21\u5757`) : h("p", { "data-architecture-local": "true", style: { margin: "10px 0 0", fontSize: "12px", color: T.warn } }, "\u26A0 \u67B6\u6784\u6863\u6848\u4EC5\u672C\u5730\u5F52\u6863\uFF0C\u5C1A\u672A\u540C\u6B65\u81F3 GitHub\uFF0C\u94FE\u63A5\u6682\u4E0D\u53EF\u7528"),
           list("\u6570\u636E\u6A21\u578B\u4E0E\u63A5\u53E3\u5951\u7EA6", architecture.contracts),
           list("\u9A8C\u8BC1\u4E0E\u8BC1\u636E\u6458\u8981", architecture.verification),
+          githubLinks?.architectureUrl ? h("p", { style: { margin: "12px 0 0", fontSize: "12px" } }, h(GitHubLinkButton, { href: githubLinks.architectureUrl, compact: true }, "\u2197 \u5728 GitHub \u67E5\u770B\u67B6\u6784\u6863\u6848")) : null,
           sourceControl?.pushedToRemoteDev ? h("p", { "data-dev-commit-badge": "true", style: { margin: "12px 0 0", color: T.ok, fontSize: "12px" } }, `\u{1F33F} GitHub \u8FDC\u7AEF\u5DF2\u540C\u6B65 \xB7 \u5F00\u53D1\u5206\u652F\u63D0\u4EA4 (develop: ${short(sourceControl.devCommitSha)})`) : null,
           sourceControl?.pushedToMain ? h("p", { "data-main-commit-badge": "true", style: { margin: "5px 0 0", color: T.ok, fontSize: "12px" } }, `\u2705 \u4E3B\u5E72\u5408\u5E76\u63D0\u4EA4 (main: ${short(sourceControl.mainMergeCommitSha)})`) : null
         )
@@ -4831,6 +4937,7 @@ ${text}`)) continue;
       const acceptance = detail.summaries?.acceptance ?? {};
       const candidate = detail.summaries?.candidate ?? {};
       const release = detail.summaries?.release ?? null;
+      const githubLinks = detail.githubLinks ?? null;
       const matter = detail.currentMatter ?? {};
       const blueprint = item.run?.blueprint ?? null;
       const diagnostic = detail.executionDiagnostic ?? null;
@@ -4857,7 +4964,8 @@ ${text}`)) continue;
             h("strong", { style: { color: T.text } }, "\u53D1\u5E03\u5F52\u6863\u5DF2\u5B8C\u6210"),
             h("div", { style: { marginTop: "4px" } }, `\u53D1\u5E03\u8BB0\u5F55 ${release.id ?? "\u2014"} \xB7 \u4EA4\u4ED8\u5019\u9009 ${release.candidateId ?? candidate.id ?? "\u2014"}${release.releasedAt ? ` \xB7 ${formatLocalStamp(release.releasedAt)}` : ""}`),
             release.sourceControl?.pushedToRemoteDev ? h("div", { "data-release-dev-commit": "true", style: { marginTop: "5px", color: T.ok } }, `\u{1F33F} \u5F00\u53D1\u5206\u652F\u63D0\u4EA4 (develop: ${(release.sourceControl.devCommitSha ?? "").slice(0, 7)}) \xB7 GitHub \u8FDC\u7AEF\u5DF2\u540C\u6B65`) : null,
-            release.mainMerged ? h("div", { "data-main-merged": "true", style: { marginTop: "5px", color: T.ok } }, `\u2705 \u4EE3\u7801\u4E0E\u67B6\u6784\u6863\u6848\u5DF2\u5408\u5165 GitHub main \u5206\u652F\uFF08Commit: ${(release.sourceControl?.mainMergeCommitSha ?? "").slice(0, 7)} \xB7 \u5206\u652F: ${release.sourceControl?.devBranch ?? "develop"} \u2192 ${release.sourceControl?.mainBranch ?? "main"}\uFF09`) : null
+            release.mainMerged ? h("div", { "data-main-merged": "true", style: { marginTop: "5px", color: T.ok } }, `\u2705 \u4EE3\u7801\u4E0E\u67B6\u6784\u6863\u6848\u5DF2\u5408\u5165 GitHub main \u5206\u652F\uFF08Commit: ${(release.sourceControl?.mainMergeCommitSha ?? "").slice(0, 7)} \xB7 \u5206\u652F: ${release.sourceControl?.devBranch ?? "develop"} \u2192 ${release.sourceControl?.mainBranch ?? "main"}\uFF09`) : null,
+            h(GitHubDeliveryLinks, { links: githubLinks, showCompare: true })
           ) : null,
           diagnostic ? h(
             "div",
@@ -4884,7 +4992,8 @@ ${text}`)) continue;
           acceptance.finishedAt ? h("p", { style: { margin: "5px 0 0", fontSize: "12px", color: T.text2 } }, `\u6700\u8FD1\u6267\u884C\uFF1A${formatLocalStamp(acceptance.finishedAt)}`) : null,
           diagnostic?.log ? h("details", { style: { marginTop: "8px", fontSize: "12px", color: T.text2 } }, h("summary", { style: { cursor: "pointer" } }, "\u67E5\u770B\u5177\u4F53\u62A5\u9519\u65E5\u5FD7\u4E0E\u8BCA\u65AD\u8BE6\u60C5"), h("pre", { style: { margin: "8px 0 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "inherit" } }, diagnostic.log)) : null,
           h("p", { style: { margin: "8px 0 0", fontSize: "13px", color: candidateReady || released ? T.ok : T.text2 } }, released ? `\u4EA4\u4ED8\u5019\u9009 ${release.candidateId ?? candidate.id ?? "\u5DF2\u751F\u6210"} \u5DF2\u5B8C\u6210\u7B7E\u6536\u4E0E\u53D1\u5E03\u5F52\u6863\u3002` : candidate.exists ? candidateReady ? `\u4EA4\u4ED8\u5019\u9009 ${candidate.id ?? "\u5DF2\u751F\u6210"} \u5DF2\u7ED1\u5B9A\u5F53\u524D\u9700\u6C42\u4E0E\u9A8C\u8BC1\u8BC1\u636E\uFF0C\u7B49\u5F85\u4EBA\u5DE5\u7B7E\u6536\u3002` : `\u4EA4\u4ED8\u5019\u9009\uFF1A${candidate.id ?? "\u5DF2\u751F\u6210"}\uFF0C\u9700\u8981\u91CD\u65B0\u6838\u9A8C` : "\u5C1A\u672A\u751F\u6210\u4EA4\u4ED8\u5019\u9009"),
-          h(ArchitectureLedgerPanel, { architecture: detail.record?.architecture, release })
+          h(GitHubDeliveryLinks, { links: githubLinks }),
+          h(ArchitectureLedgerPanel, { architecture: detail.record?.architecture, release, githubLinks })
         )
       );
     }
@@ -4894,6 +5003,8 @@ ${text}`)) continue;
       const [dirty, setDirty] = useState(false);
       const [more, setMore] = useState(false);
       const [runSelection, setRunSelection] = useState(null);
+      const [refreshStatus, setRefreshStatus] = useState(null);
+      const [localPendingPatch, setLocalPendingPatch] = useState(null);
       const selectedRunId = runSelection?.requirementId === item.id && runSelection?.root === (item.root ?? root) ? runSelection.runId : null;
       const mainScroll = useRef(0);
       const titleRef = useRef(null);
@@ -4907,7 +5018,33 @@ ${text}`)) continue;
       useEffect(() => {
         titleRef.current?.focus?.({ preventScroll: true });
       }, [item.id]);
+      useEffect(() => {
+        setRefreshStatus(null);
+      }, [item.id]);
+      useEffect(() => {
+        setLocalPendingPatch(null);
+      }, [item.id, item.revision, item.pendingPatch?.patchHash]);
+      useEffect(() => {
+        if (!localPendingPatch) return;
+        const handle = requestAnimationFrame(() => {
+          const card2 = scrollRef.current?.querySelector?.("[data-pending-patch]");
+          card2?.scrollIntoView?.({ block: "start", behavior: REDUCE_MOTION ? "auto" : "smooth" });
+        });
+        return () => cancelAnimationFrame(handle);
+      }, [localPendingPatch?.patchHash]);
       const matter = detail.currentMatter ?? { kind: detail.question ? "decision" : detail.context?.kind, headline: detail.context?.headline, explanation: detail.context?.explanation, action: detail.primaryAction };
+      const displayItem = localPendingPatch ? { ...item, pendingPatch: localPendingPatch } : item;
+      const refreshDetail = async () => {
+        if (refreshStatus?.busy) return;
+        setRefreshStatus({ busy: true, text: "\u6B63\u5728\u5237\u65B0\u72B6\u6001\u2026" });
+        const result = await onRefresh?.();
+        if (result?.ok === false) setRefreshStatus({ busy: false, error: true, text: `\u5237\u65B0\u5931\u8D25\uFF1A${result.error ?? "\u8BF7\u7A0D\u540E\u91CD\u8BD5"}` });
+        else {
+          const latest = result?.data?.requirements?.find((entry) => entry.id === item.id);
+          const changed = latest && (latest.revision !== item.revision || Boolean(latest.pendingPatch) !== Boolean(item.pendingPatch));
+          setRefreshStatus({ busy: false, text: changed ? "\u72B6\u6001\u5DF2\u5237\u65B0\uFF0C\u9875\u9762\u5DF2\u66F4\u65B0\u4E3A\u6700\u65B0\u7ED3\u679C\u3002" : "\u72B6\u6001\u5DF2\u5237\u65B0\uFF1B\u5F53\u524D\u6CA1\u6709\u65B0\u7684\u53D8\u5316\u3002" });
+        }
+      };
       const leave = (callback) => {
         if (dirty && !window.confirm("\u8FD8\u6709\u672A\u63D0\u4EA4\u7684\u5185\u5BB9\u3002\u653E\u5F03\u8FD9\u4E9B\u8349\u7A3F\u5E76\u79BB\u5F00\uFF1F")) return false;
         setDirty(false);
@@ -4994,6 +5131,11 @@ ${text}`)) continue;
         }, 60);
       });
       const viewRevision = detail.identity?.revision ?? item.revision ?? 1;
+      const githubLinks = detail.githubLinks ?? null;
+      const sidebarRows = [
+        ...[["\u8D1F\u8D23\u4EBA", item.owner || "\u672A\u5206\u914D"], ["\u4F18\u5148\u7EA7", item.priority || "\u672A\u8BBE\u7F6E"], ["\u6765\u6E90", item.sourceSession ? "\u5BF9\u8BDD\u751F\u6210" : item.sources?.map((source) => ({ chat: "\u5BF9\u8BDD\u751F\u6210", manual: "\u624B\u52A8\u521B\u5EFA" })[String(source).toLowerCase()] ?? source).join("\u3001") || "\u672A\u767B\u8BB0"], ["\u5F53\u524D\u4FEE\u8BA2", `v${viewRevision}`], ["\u6700\u8FD1\u66F4\u65B0", detail.identity?.updatedAt ? formatLocalStamp(detail.identity.updatedAt) : "\u6682\u65E0\u8BB0\u5F55"]].map(([label, value]) => h("div", { key: label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", padding: "6px 0", fontSize: "13px", color: T.text2 } }, h("div", null, label), h("div", { style: { color: T.text, overflowWrap: "anywhere", textAlign: "right", minWidth: 0 } }, value))),
+        h(GitHubDeliveryProperties, { key: "github-delivery", links: githubLinks })
+      ];
       const cancelPendingFocus = () => {
         clearTimeout(navigationTimerRef.current);
         clearTimeout(tabFocusTimerRef.current);
@@ -5021,10 +5163,10 @@ ${text}`)) continue;
                 setMore(false);
                 onNavigate("requirement");
               }) }, "\u7F16\u8F91\u9700\u6C42"),
-              h("button", { style: DETAIL_MENU_ITEM, onClick: () => {
+              h("button", { style: DETAIL_MENU_ITEM, disabled: refreshStatus?.busy, onClick: () => {
                 setMore(false);
-                onRefresh?.();
-              } }, "\u5237\u65B0\u72B6\u6001"),
+                void refreshDetail();
+              } }, refreshStatus?.busy ? "\u6B63\u5728\u5237\u65B0\u2026" : "\u5237\u65B0\u72B6\u6001"),
               props.onCancelRun && canCancelRequirementRun(detail.summaries?.run ?? item.run) ? h("button", { style: { ...DETAIL_MENU_ITEM, color: T.err, marginTop: "6px" }, "data-detail-cancel-run": "true", onClick: () => {
                 setMore(false);
                 props.onCancelRun(item);
@@ -5049,7 +5191,8 @@ ${text}`)) continue;
             { className: "v4-reading", "data-progress-reading": tab === "delivery" ? "true" : void 0 },
             h("div", { "data-detail-id": item.id, style: { fontSize: "12px", color: T.text3, marginBottom: "8px", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } }, h("span", null, item.id, " \xB7 ", h("span", { "data-detail-revision": String(viewRevision) }, `v${viewRevision}`)), h("span", { style: { border: `1px solid ${T.line2}`, borderRadius: "999px", padding: "2px 8px", color: T.text2 } }, item.delivery?.label ?? detail.summaries?.delivery?.label ?? "\u5F85\u63A8\u8FDB")),
             h("h1", { ref: titleRef, tabIndex: -1, id: detailTitleId(item), style: { fontFamily: "inherit", fontSize: "20px", fontWeight: 600, lineHeight: 1.45, letterSpacing: 0, margin: "0 0 18px" } }, item.title),
-            item.pendingPatch && (tab === "requirement" || tab === "delivery") ? h(IterationFeedback, { key: item.id, item, root, onRefresh }) : null,
+            refreshStatus ? h("p", { role: refreshStatus.error ? "alert" : "status", "data-detail-refresh-status": "true", style: { margin: "-8px 0 14px", fontSize: "13px", color: refreshStatus.error ? T.err : T.text2 } }, refreshStatus.text) : null,
+            displayItem.pendingPatch && (tab === "requirement" || tab === "delivery") ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
             h("div", { className: "detail-columns" }, h("div", { style: { minWidth: 0 } }, tab !== "requirement" ? h(
               "div",
               null,
@@ -5071,25 +5214,25 @@ ${text}`)) continue;
                 ) : h(
                   "div",
                   null,
-                  h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: props.onRefresh, onOpenSession: props.onOpenSession }),
+                  h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: refreshDetail, onOpenSession: props.onOpenSession }),
                   h(RunObservationPanel, { item, detail, root: item.root ?? root, initialRunId: selectedRunId, onOpenSession: props.onOpenSession })
                 )
               )
             ) : editing ? h(InlineRequirementEditor, { item, root, onDirty: setDirty, onCancel: () => leave(() => setEditing(false)), onDone: () => {
               setDirty(false);
               setEditing(false);
-              onRefresh?.();
+              void refreshDetail();
             } }) : h(
               "div",
               { className: "requirement-body" },
-              h(DetailDescription, { item, detail, root, onRefresh }),
+              h(DetailDescription, { item, detail, root, onRefresh: refreshDetail }),
               h(HumanVerification, { item, detail, matter }),
-              !item.pendingPatch ? h(IterationFeedback, { key: item.id, item, root, onRefresh }) : null
+              !displayItem.pendingPatch ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null
             )), h(
               "aside",
               { className: "detail-sidebar", "aria-label": "\u9700\u6C42\u5C5E\u6027" },
               h("h2", { style: { fontSize: "15px", margin: "0 0 8px" } }, "\u9700\u6C42\u5C5E\u6027"),
-              ...[["\u8D1F\u8D23\u4EBA", item.owner || "\u672A\u5206\u914D"], ["\u4F18\u5148\u7EA7", item.priority || "\u672A\u8BBE\u7F6E"], ["\u6765\u6E90", item.sourceSession ? "\u5BF9\u8BDD\u751F\u6210" : item.sources?.map((source) => ({ chat: "\u5BF9\u8BDD\u751F\u6210", manual: "\u624B\u52A8\u521B\u5EFA" })[String(source).toLowerCase()] ?? source).join("\u3001") || "\u672A\u767B\u8BB0"], ["\u5F53\u524D\u4FEE\u8BA2", `v${viewRevision}`], ["\u6700\u8FD1\u66F4\u65B0", detail.identity?.updatedAt ? formatLocalStamp(detail.identity.updatedAt) : "\u6682\u65E0\u8BB0\u5F55"]].map(([label, value]) => h("div", { key: label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", padding: "6px 0", fontSize: "13px", color: T.text2 } }, h("div", null, label), h("div", { style: { color: T.text, overflowWrap: "anywhere", textAlign: "right", minWidth: 0 } }, value)))
+              ...sidebarRows
             ))
           )
         )
@@ -5425,6 +5568,11 @@ ${text}`)) continue;
       const handlers = {
         "answer-run": () => props.onAnswer && props.onAnswer(item),
         "resume-run": () => props.onResumeRun && props.onResumeRun(item),
+        "run-acceptance": () => props.onAcceptance && props.onAcceptance(item),
+        "narrow-verification": () => writeJson("narrow-verification", { requirementId: item.id, apply: true }, root).then((result) => {
+          props.onRefresh && props.onRefresh();
+          if (result?.verification?.result !== "pass") window.alert("\u9A8C\u6536\u547D\u4EE4\u5DF2\u6536\u7A84\uFF0C\u4F46\u672C\u6B21\u9A8C\u8BC1\u4ECD\u672A\u901A\u8FC7\uFF1B\u8BF7\u67E5\u770B\u9A8C\u8BC1\u8BE6\u60C5\u3002");
+        }).catch((error) => window.alert("\u6536\u7A84\u9A8C\u6536\u547D\u4EE4\u5931\u8D25\uFF1A" + error.message)),
         "continue-run": () => props.onContinueRun && props.onContinueRun(item),
         start: () => props.onStart && props.onStart(item, { isolate: startIsolate }),
         "start-fix": () => props.onStart && props.onStart(item, { isolate: startIsolate }),
@@ -5481,7 +5629,7 @@ ${text}`)) continue;
     function Drawer(props) {
       return h(DrawerContent, props);
     }
-    function useDialogFocus(dialogRef, onClose) {
+    function useDialogFocus(dialogRef, onClose, { closeOnEscape = true } = {}) {
       const closeRef = useRef(onClose);
       closeRef.current = onClose;
       useEffect(() => {
@@ -5492,6 +5640,10 @@ ${text}`)) continue;
           if (dialogs.at(-1) !== dialogRef.current) return;
           if (event.key === "Escape") {
             event.preventDefault();
+            if (!closeOnEscape) {
+              event.stopPropagation();
+              return;
+            }
             closeRef.current();
             return;
           }
@@ -6056,7 +6208,7 @@ ${text}`)) continue;
       const running = state.phase === "running";
       const footer = [
         question ? h("button", { key: "cancel-question", style: button, onClick: onClose }, question.options?.find((option) => option.id === "cancel")?.label ?? "\u5148\u4E0D\u5F00\u59CB") : h("button", { key: "close", style: button, onClick: onClose }, start || state.phase === "error" ? "\u5173\u95ED" : state.phase === "running" ? "\u5173\u95ED\uFF08\u5C1A\u672A\u542F\u52A8\uFF09" : "\u5173\u95ED\uFF08\u542F\u52A8\u8BF7\u6C42\u5DF2\u63D0\u4EA4\uFF09"),
-        question && state.phase === "question" ? h("button", { key: "proceed", style: primary, onClick: proceed }, question.options?.find((option) => option.id === "proceed")?.label ?? "\u5E26\u7740\u95EE\u9898\u4EA4\u7ED9 AI \u63A8\u8FDB") : null
+        question && !start && state.phase !== "starting" ? h("button", { key: "proceed", style: primary, onClick: proceed }, "\u786E\u8BA4\u5E76\u542F\u52A8 AI \u63A8\u8FDB") : null
       ];
       return h(
         ModalShell,
@@ -7297,7 +7449,7 @@ ${c.acceptance.map((row2) => `- \u5F53 ${row2.precondition || "\u2014"}\uFF0C${r
       );
     }
     function draftText(value) {
-      return typeof value === "string" ? value : value === null || value === void 0 ? "" : String(value);
+      return (typeof value === "string" ? value : value === null || value === void 0 ? "" : String(value)).replace(/\$\\(?:right)?arrow\$/g, "\u2192").replace(/\s*->\s*/g, " \u2192 ");
     }
     function draftList(value) {
       if (!Array.isArray(value)) return [];
@@ -11569,12 +11721,20 @@ ${text}`);
       };
       const simpleReview = () => activeItems().length === 1 && routeOf(activeItems()[0]) === "create" && !(activeItems()[0].unknowns ?? []).some((entry) => entry.blocking && (!entry.resolution || entry.resolution === "pending" || entry.resolution === "investigate")) && simpleDraft;
       const grillIsValue = /拷问|grill/i.test(`${simpleDraft?.title ?? ""} ${simpleDraft?.goal ?? ""}`);
+      const selfHealingIntent = /(?:需求插件|插件)/.test(`${session?.input?.text ?? ""} ${simpleDraft?.title ?? ""}`) && /(?:报错|错误|bug)/i.test(`${session?.input?.text ?? ""}`) && /自动修复/.test(`${session?.input?.text ?? ""}`);
+      const grillApplied = session?.grill?.outcome === "applied";
+      const grillFallback = session?.grill?.outcome === "fallback";
+      const grillAvailable = session?.grill?.status === "loaded";
       const titlePreservationRule = /(?:手动修改|自动提炼|覆盖)/.test(`${simpleDraft?.title ?? ""} ${simpleDraft?.problem ?? ""} ${simpleDraft?.goal ?? ""}`);
       const modelGrillQuestions = [
         ...Array.isArray(session?.questionGroup?.questions) ? session.questionGroup.questions : [],
         ...session?.nextQuestion ? [session.nextQuestion] : []
       ].filter((question, index, all) => question?.text && all.findIndex((other) => other?.questionId === question.questionId) === index).filter((question) => question.status !== "answered").slice(0, 3).map((question) => ({ id: `model-${question.questionId}`, question: question.text, options: (question.options ?? []).map((option) => option.label).filter(Boolean) }));
-      const grillQuestions = modelGrillQuestions.length ? modelGrillQuestions : grillIsValue ? [
+      const grillQuestions = modelGrillQuestions.length ? modelGrillQuestions : selfHealingIntent ? [
+        { id: "repair-boundary", question: "\u81EA\u52A8\u4FEE\u590D\u53EF\u4FEE\u6539\u7684\u8303\u56F4\u662F\u4EC0\u4E48\uFF1F", options: ["\u4EC5\u4FEE\u6539\u9700\u6C42\u63D2\u4EF6\u5DE5\u4F5C\u533A\u5E76\u91CD\u542F\u8BE5\u63D2\u4EF6", "\u5141\u8BB8\u4FEE\u6539\u6240\u6709 DSH \u63D2\u4EF6", "\u6BCF\u6B21\u4FEE\u590D\u524D\u8981\u6C42\u4EBA\u5DE5\u786E\u8BA4"] },
+        { id: "repair-failure", question: "\u81EA\u52A8\u4FEE\u590D\u6216\u9A8C\u8BC1\u5931\u8D25\u65F6\u5982\u4F55\u5904\u7406\uFF1F", options: ["\u505C\u6B62\u81EA\u52A8\u4FEE\u590D\uFF0C\u4FDD\u7559\u6545\u969C\u8BC1\u636E\u5E76\u8F6C\u4EBA\u5DE5\u5904\u7406", "\u5728\u76F8\u540C\u7B56\u7565\u4E0B\u989D\u5916\u91CD\u8BD5\u4E00\u6B21", "\u6301\u7EED\u91CD\u8BD5\u76F4\u5230\u6062\u590D"] },
+        { id: "restart-proof", question: "\u63D2\u4EF6\u91CD\u542F\u540E\u4EE5\u4EC0\u4E48\u7ED3\u679C\u8BC1\u660E\u6062\u590D\uFF1F", options: ["\u91CD\u653E\u89E6\u53D1\u6545\u969C\u7684\u5B9A\u5411\u7528\u4F8B\u5E76\u8BB0\u5F55\u7ED3\u679C", "\u4EC5\u786E\u8BA4\u63D2\u4EF6\u8FDB\u7A0B\u5DF2\u542F\u52A8", "\u7531\u7528\u6237\u624B\u52A8\u786E\u8BA4\u529F\u80FD\u6062\u590D"] }
+      ] : grillIsValue ? [
         { id: "value", question: "\u9700\u6C42\u4EF7\u503C\u62F7\u95EE\u4E3B\u8981\u5E2E\u52A9\u89E3\u51B3\u4EC0\u4E48\u95EE\u9898\uFF1F", options: ["\u8BC6\u522B\u7F3A\u5C11\u4E1A\u52A1\u4EF7\u503C\u7684\u9700\u6C42\uFF0C\u907F\u514D\u76F2\u76EE\u5F00\u53D1", "\u660E\u786E\u9700\u6C42\u7684\u53D7\u76CA\u4EBA\u548C\u4F7F\u7528\u573A\u666F", "\u51CF\u5C11\u9700\u6C42\u4E0D\u6E05\u9020\u6210\u7684\u8FD4\u5DE5"] },
         { id: "boundary", question: "\u9700\u6C42\u4EF7\u503C\u4FE1\u606F\u4E0D\u8DB3\u65F6\u5982\u4F55\u5904\u7406\uFF1F", options: ["\u4EF7\u503C\u4F9D\u636E\u4E0D\u8DB3\u65F6\u7EE7\u7EED\u8FFD\u95EE\uFF0C\u5141\u8BB8\u7528\u6237\u8865\u5145", "\u65E0\u6CD5\u5224\u65AD\u4EF7\u503C\u65F6\u6807\u8BB0\u5F85\u786E\u8BA4\uFF0C\u4E0D\u76F4\u63A5\u4E0B\u7ED3\u8BBA", "\u5141\u8BB8\u7528\u6237\u8DF3\u8FC7\u8FFD\u95EE\u5E76\u4FDD\u7559\u672A\u51B3\u95EE\u9898"] },
         { id: "measure", question: "\u5982\u4F55\u68C0\u9A8C\u9700\u6C42\u4EF7\u503C\u62F7\u95EE\u6709\u6548\uFF1F", options: ["\u5C55\u793A\u4EF7\u503C\u5224\u65AD\u4F9D\u636E\u548C\u5F85\u786E\u8BA4\u95EE\u9898", "\u8BB0\u5F55\u53D7\u76CA\u4EBA\u3001\u89E6\u53D1\u573A\u666F\u548C\u9884\u671F\u6536\u76CA", "\u7528\u6237\u786E\u8BA4\u4EF7\u503C\u4E0E\u8FB9\u754C\u540E\u5F62\u6210\u9A8C\u6536\u6807\u51C6"] }
@@ -11661,8 +11821,8 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           h(
             "div",
             { role: "status", style: { display: "flex", alignItems: "center", gap: "8px", color: T.text2, fontSize: "12px" } },
-            h("span", { style: { border: `1px solid ${session?.grill?.status === "loaded" ? T.brand : T.line2}`, color: session?.grill?.status === "loaded" ? T.brand : T.text2, borderRadius: "999px", padding: "3px 8px" } }, session?.grill?.status === "loaded" ? "\u5DF2\u52A0\u8F7D Grill Skill" : "\u672C\u5730\u6F84\u6E05"),
-            session?.grill?.status === "loaded" ? `\u7B2C ${session.grill.round || 1} \u8F6E` : "\u6A21\u578B\u4E0D\u53EF\u7528\u65F6\u4F7F\u7528\u672C\u5730\u52A8\u6001\u5EFA\u8BAE"
+            h("span", { style: { border: `1px solid ${grillApplied ? T.brand : T.line2}`, color: grillApplied ? T.brand : T.text2, borderRadius: "999px", padding: "3px 8px" } }, grillApplied ? "Grill Skill \u5DF2\u53C2\u4E0E\u672C\u8F6E" : grillFallback ? "Grill \u672A\u5B8C\u6210\uFF0C\u672C\u5730\u6F84\u6E05" : "\u672C\u5730\u6F84\u6E05"),
+            grillApplied ? `\u7B2C ${session.grill.round || 1} \u8F6E` : grillFallback ? "\u6A21\u578B\u8C03\u7528\u672A\u5B8C\u6210\uFF1B\u4EE5\u4E0B\u95EE\u9898\u662F\u672C\u5730\u5EFA\u8BAE\uFF0C\u5E76\u975E Grill \u7ED3\u679C" : "\u6A21\u578B\u4E0D\u53EF\u7528\u65F6\u4F7F\u7528\u672C\u5730\u52A8\u6001\u5EFA\u8BAE"
           ),
           h(
             "div",
@@ -11671,13 +11831,13 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
             h("fieldset", { style: { border: 0, padding: 0, margin: 0 } }, h("legend", { style: { color: T.text2, fontSize: "13px", marginBottom: "6px" } }, "\u4F18\u5148\u7EA7"), ...["P0", "P1", "P2"].map((value) => h("button", { key: value, type: "button", "aria-pressed": priorityChoice === value, onClick: () => setPriorityChoice(value), style: { ...button, marginRight: "5px", borderColor: priorityChoice === value ? T.brand : T.line2, color: priorityChoice === value ? T.text : T.text2 } }, value)))
           ),
           h("section", null, h("h3", { style: { fontSize: "15px", margin: "0 0 10px" } }, "\u9700\u6C42\u4EF7\u503C\u4E0E\u8FB9\u754C\u62F7\u95EE"), ...grillQuestions.map((q) => h("div", { key: q.id, style: { marginBottom: "12px" } }, h("div", { style: { fontSize: "13px", marginBottom: "6px" } }, q.question), h("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" } }, ...q.options.map((option) => h("button", { key: option, type: "button", "aria-pressed": grillAnswers[q.id] === option, onClick: () => updateGrill(q.id, option), style: { ...button, borderColor: grillAnswers[q.id] === option ? T.brand : T.line2 } }, option)), h("button", { type: "button", style: button, onClick: () => setGrillCustom((current) => ({ ...current, [q.id]: !current[q.id] })) }, "\u81EA\u5B9A\u4E49\u2026"), grillCustom[q.id] ? h("input", { "aria-label": `${q.question} \u81EA\u5B9A\u4E49\u56DE\u7B54`, value: grillAnswers[q.id] ?? "", placeholder: "\u8F93\u5165\u8865\u5145\u56DE\u7B54", onChange: (event) => updateGrill(q.id, event.target.value), style: { ...input, flex: "1 1 160px", minWidth: 0 } }) : null)))),
-          session?.grill?.status === "loaded" ? h("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px" } }, h("button", { type: "button", style: button, disabled: busy || analysisPending(), onClick: continueGrilling }, "\u7EE7\u7EED\u8FFD\u95EE"), h("button", { type: "button", style: button, onClick: copyGrillCommand }, "\u8F6C\u5165\u4E3B\u5BF9\u8BDD /grilling")) : null,
+          grillAvailable ? h("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px" } }, h("button", { type: "button", style: button, disabled: busy || analysisPending(), onClick: continueGrilling }, grillApplied ? "\u7EE7\u7EED\u8FFD\u95EE" : "\u4F7F\u7528 Grill \u91CD\u8BD5"), h("button", { type: "button", style: button, onClick: copyGrillCommand }, "\u8F6C\u5165\u4E3B\u5BF9\u8BDD /grilling")) : null,
           h(
             "section",
             { style: { display: "grid", gap: "10px" } },
             h("h3", { style: { fontSize: "15px", margin: 0 } }, "\u9700\u6C42\u8349\u7A3F"),
             field("\u9884\u671F\u53D8\u5316", simpleDraft.goal, (value) => setSimpleDraft((d) => ({ ...d, goal: value })), true),
-            field("\u89E3\u51B3\u4EC0\u4E48\u95EE\u9898", simpleDraft.problem, (value) => setSimpleDraft((d) => ({ ...d, problem: value })), true),
+            field("\u4EF7\u503C", simpleDraft.problem, (value) => setSimpleDraft((d) => ({ ...d, problem: value })), true),
             h("div", null, h("div", { style: { fontSize: "13px", color: T.text2, marginBottom: "6px" } }, "\u9A8C\u6536\u6807\u51C6\uFF08\u5EFA\u8BAE\u8349\u7A3F\uFF0C\u8BF7\u6838\u5BF9\uFF09"), ...simpleDraft.acceptance.map((entry, index) => h("div", { key: entry.id ?? index, style: { display: "flex", gap: "6px", marginBottom: "6px" } }, h("input", { "aria-label": `\u9A8C\u6536\u6807\u51C6 ${index + 1}`, value: entry.text, onChange: (event) => setSimpleDraft((d) => ({ ...d, acceptance: d.acceptance.map((v, i) => i === index ? { ...v, text: event.target.value, provenance: "human-edit" } : v) })), style: { ...input, flex: 1, minWidth: 0 } }), h("button", { type: "button", "aria-label": `\u5220\u9664\u9A8C\u6536\u6807\u51C6 ${index + 1}`, style: button, onClick: () => setSimpleDraft((d) => ({ ...d, acceptance: d.acceptance.filter((_, i) => i !== index) })) }, "\u5220\u9664"))), h("button", { type: "button", style: button, onClick: () => setSimpleDraft((d) => ({ ...d, acceptance: [...d.acceptance, { text: "", provenance: "human-edit" }] })) }, "\u65B0\u589E\u9A8C\u6536\u6807\u51C6"))
           )
         );
@@ -14054,18 +14214,19 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
     }
     function readV4Navigation() {
       try {
-        return JSON.parse(sessionStorage.getItem("alm.requirements.navigation.v4") ?? "{}");
+        const value = JSON.parse(sessionStorage.getItem("alm.requirements.navigation.v4") ?? "{}");
+        return value?.viewVersion === NAVIGATION_VERSION ? value : { ...value, filter: void 0 };
       } catch {
         return {};
       }
     }
-    async function saveExchangeFile(format, request) {
+    async function saveExchangeFile(format, request, { suggestedName } = {}) {
       const mime = format === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/json";
       let handle;
       if (typeof window.showSaveFilePicker === "function") {
         try {
           handle = await window.showSaveFilePicker({
-            suggestedName: `requirements.${format}`,
+            suggestedName: suggestedName ?? `requirements.${format}`,
             types: [{ description: format === "xlsx" ? "Excel workbook" : "JSON", accept: { [mime]: [`.${format}`] } }]
           });
         } catch (error) {
@@ -14089,7 +14250,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           }
           throw error;
         }
-        return { message: `\u5DF2\u4FDD\u5B58 ${handle.name}\uFF08${file.bytes} bytes\uFF09\uFF0C\u9644\u4EF6\u4EC5\u542Bmanifest\u3002` };
+        return { message: `\u5DF2\u4FDD\u5B58 ${handle.name}\uFF08${file.bytes} bytes\uFF09\u3002` };
       }
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -14108,103 +14269,329 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
         throw error;
       }
       setTimeout(cleanup, 6e4);
-      return { message: `\u5DF2\u53D1\u8D77\u4E0B\u8F7D ${file.filename}\uFF08${file.bytes} bytes\uFF09\uFF0C\u8BF7\u68C0\u67E5\u6D4F\u89C8\u5668\u4E0B\u8F7D\u8BB0\u5F55\uFF1B\u5C1A\u672A\u786E\u8BA4\u843D\u76D8\u3002\u9644\u4EF6\u4EC5\u542Bmanifest\u3002` };
+      return { message: `\u5DF2\u53D1\u8D77\u4E0B\u8F7D ${file.filename}\uFF08${file.bytes} bytes\uFF09\uFF0C\u8BF7\u68C0\u67E5\u6D4F\u89C8\u5668\u4E0B\u8F7D\u8BB0\u5F55\uFF1B\u5C1A\u672A\u786E\u8BA4\u843D\u76D8\u3002` };
     }
-    function ExchangeModal({ root, onClose, onApplied }) {
+    const EXCHANGE_CLIENT_BUILD = "v3.2026-11-14";
+    const EXCHANGE_FIELD_LABELS = { title: "\u6807\u9898", brief: "\u9700\u6C42\u63CF\u8FF0", priority: "\u4F18\u5148\u7EA7", owner: "\u8D1F\u8D23\u4EBA" };
+    const EXCHANGE_FIELD_TEXT = (fields) => (fields ?? []).map((field) => EXCHANGE_FIELD_LABELS[field] ?? field).join("\u3001");
+    function exchangePreviewSummary(preview) {
+      const changes = Array.isArray(preview?.changes) ? preview.changes : [];
+      const conflicts = Array.isArray(preview?.conflicts) ? preview.conflicts : [];
+      const creates = changes.filter((change) => change?.operation === "create");
+      const updates = changes.filter((change) => change?.operation === "update");
+      const conflictGroups = [...new Set(conflicts.map((entry) => entry?.uid).filter(Boolean))].map((uid) => ({
+        uid,
+        title: conflicts.find((entry) => entry?.uid === uid)?.title ?? uid,
+        fields: [...new Set(conflicts.filter((entry) => entry?.uid === uid).map((entry) => entry.field))]
+      }));
+      return { creates, updates, conflicts: conflictGroups };
+    }
+    const EXCHANGE_ERROR_HINTS = [
+      // Structural failures first: these happen with re-saved, renamed or
+      // hand-assembled files and every one of them has a concrete remedy.
+      [/invalid JSON/i, "JSON \u6587\u4EF6\u89E3\u6790\u5931\u8D25\uFF1A\u5185\u5BB9\u4E0D\u662F\u5408\u6CD5 JSON\uFF08\u5E38\u56E0\u624B\u5DE5\u6539\u8FC7\u6216\u590D\u5236\u4E0D\u5B8C\u6574\uFF09\u3002Excel \u6570\u636E\u8BF7\u7528\u300C\u5BFC\u51FA Excel\u300D\u5F97\u5230\u7684 .xlsx\uFF0C\u6216\u91CD\u65B0\u751F\u6210 JSON \u540E\u518D\u5BFC\u5165\u3002"],
+      [/not a valid \.xlsx package/i, "\u8FD9\u4E0D\u662F .xlsx \u5DE5\u4F5C\u7C3F\uFF08\u53EF\u80FD\u628A .xls / .csv / \u6587\u672C\u6587\u4EF6\u6539\u6210\u4E86 .xlsx \u540E\u7F00\uFF09\u3002\u8BF7\u5728 Excel \u6216 WPS \u4E2D\u6253\u5F00\u540E\u300C\u53E6\u5B58\u4E3A \u2192 Excel \u5DE5\u4F5C\u7C3F(.xlsx)\u300D\uFF0C\u518D\u5BFC\u5165\u3002"],
+      [/unsafe ZIP path|duplicate ZIP path|directory ZIP entry with content/i, "\u6587\u4EF6\u5185\u90E8\u6253\u5305\u7ED3\u6784\u5F02\u5E38\uFF08\u8DEF\u5F84\u91CD\u590D\u6216\u542B\u975E\u6CD5\u76EE\u5F55\uFF09\u3002\u8BF7\u7528 Excel \u6216 WPS \u6253\u5F00\u8BE5\u6587\u4EF6\u540E\u300C\u53E6\u5B58\u4E3A \u2192 Excel \u5DE5\u4F5C\u7C3F(.xlsx)\u300D\uFF0C\u518D\u5BFC\u5165\u3002"],
+      [/truncated ZIP|missing ZIP directory|corrupt ZIP|unsupported ZIP|overlapping ZIP entries|ZIP (?:header|directory|CRC)|ZIP data range/i, "\u6587\u4EF6\u4E0D\u5B8C\u6574\uFF0C\u6216\u4E0D\u662F\u6807\u51C6\u7684\u5DE5\u4F5C\u7C3F\u538B\u7F29\u5305\uFF08\u4E0B\u8F7D\u4E2D\u65AD\u3001\u88AB\u538B\u7F29\u5DE5\u5177\u6539\u5199\u8FC7\uFF09\u3002\u8BF7\u91CD\u65B0\u5BFC\u51FA / \u91CD\u65B0\u4E0B\u8F7D\u6A21\u677F\u540E\u518D\u586B\u5199\u3002"],
+      [/more than 1000 records/i, "\u4E00\u6B21\u6700\u591A\u5BFC\u5165 1000 \u6761\u9700\u6C42\u3002\u8BF7\u5206\u6279\u5BFC\u51FA\u3001\u5206\u6279\u5BFC\u5165\u3002"],
+      [/expanded ZIP exceeds|exceeds 32 MiB/i, "\u6587\u4EF6\u89E3\u538B\u540E\u8D85\u8FC7 32 MiB\u3002\u8BF7\u51CF\u5C11\u6761\u6570\u6216\u7CBE\u7B80\u957F\u63CF\u8FF0\u540E\u5206\u6279\u5BFC\u5165\u3002"],
+      [/cell exceeds Excel text limit/i, "\u67D0\u4E2A\u5355\u5143\u683C\u8D85\u8FC7 Excel \u7684 32767 \u5B57\u4E0A\u9650\u3002\u8BF7\u628A\u957F\u63CF\u8FF0\u62C6\u5230\u300C\u9700\u6C42\u63CF\u8FF0\uFF08\u7EED\uFF09\u300D\u5217\uFF0C\u6216\u7F29\u77ED\u5185\u5BB9\u3002"],
+      [/unexpected worksheet column/i, "\u6709\u4E00\u884C\u8D85\u51FA\u4E86 6 \u5217\u3002\u8BF7\u5220\u9664\u591A\u4F59\u5217\uFF0C\u53EA\u4FDD\u7559\u300C\u9700\u6C42\u7F16\u53F7 / \u9879\u76EE / \u6807\u9898 / \u9700\u6C42\u63CF\u8FF0 / \u4F18\u5148\u7EA7 / \u8D1F\u8D23\u4EBA\u300D\u3002"],
+      [/macros forbidden|external relationships|externalLink|hyperlinks? forbidden|vbaProject|DTD\/entities/i, "\u6587\u4EF6\u91CC\u542B\u5B8F\u3001\u5916\u90E8\u94FE\u63A5\u6216\u8D85\u94FE\u63A5\u3002\u8BF7\u300C\u53E6\u5B58\u4E3A \u2192 Excel \u5DE5\u4F5C\u7C3F(.xlsx)\u300D\uFF0C\u5E76\u53BB\u6389\u94FE\u63A5\u540E\u518D\u5BFC\u5165\u3002"],
+      [/unsupported binary\/macro ZIP part/i, "\u6587\u4EF6\u91CC\u542B\u6709\u56FE\u7247\u7B49\u975E\u6587\u672C\u90E8\u4EF6\u3002\u8BF7\u5220\u9664\u56FE\u7247/\u6279\u6CE8\u540E\u53E6\u5B58\u4E3A .xlsx \u518D\u5BFC\u5165\u3002"],
+      [/unsupported cell type|missing cell reference|duplicate\/out-of-range cell|unsupported worksheet row element|unsupported\/oversized XML|mismatched XML tags|malformed XML|duplicate XML attribute|invalid XML entity/i, "\u5355\u5143\u683C\u7ED3\u6784\u5F02\u5E38\uFF08\u53EF\u80FD\u63D2\u5165\u4E86\u5408\u5E76\u5355\u5143\u683C\u3001\u516C\u5F0F\u6216\u56FE\u7247\uFF09\u3002\u8BF7\u53EA\u5728\u8FD9 6 \u5217\u91CC\u586B\u7EAF\u6587\u672C\uFF0C\u53E6\u5B58\u4E3A .xlsx \u540E\u518D\u5BFC\u5165\u3002"],
+      [/unsupported exchange payload|invalid record|invalid (?:title|brief|priority|owner) type|brief exceeds 1 MiB|title\/owner exceeds limit/i, "\u5DE5\u4F5C\u8868\u91CC\u7684\u5185\u5BB9\u4E0D\u7B26\u5408\u9700\u6C42\u5B57\u6BB5\u9650\u5236\uFF08\u6BD4\u5982\u6807\u9898\u8FC7\u957F\uFF09\u3002\u8BF7\u68C0\u67E5\u300C\u6807\u9898\u300D\u2264200 \u5B57\u3001\u300C\u8D1F\u8D23\u4EBA\u300D\u2264120 \u5B57\u3001\u300C\u9700\u6C42\u63CF\u8FF0\u300D\u22641 MB \u540E\u91CD\u8BD5\u3002"],
+      [/missing metadata digest|metadata digest changed|metadata chunk changed|missing workbook|invalid worksheet relationship/i, "\u8FD9\u4E2A\u6587\u4EF6\u4E0D\u662F\u7531\u300C\u5BFC\u51FA Excel\u300D\u6216\u300C\u4E0B\u8F7D\u5BFC\u5165\u6A21\u677F\u300D\u751F\u6210\u7684\uFF0C\u7F3A\u5C11\u6821\u9A8C\u4FE1\u606F\u3002\u8BF7\u91CD\u65B0\u5BFC\u51FA\u6216\u91CD\u65B0\u4E0B\u8F7D\u6A21\u677F\u540E\u518D\u586B\u5199\u3002"],
+      [/legacy workbook layout/i, "\u8FD9\u662F\u65E7\u7248\u5BFC\u51FA\u7684\u5DE5\u4F5C\u7C3F\uFF08\u9996\u884C\u662F\u7248\u672C\u4FE1\u606F\u3001\u542B\u5DF2\u79FB\u9664\u7684\u5217\uFF09\u3002\u8BF7\u91CD\u65B0\u5BFC\u51FA\u9700\u6C42\u6216\u91CD\u65B0\u4E0B\u8F7D\u6A21\u677F\u540E\u518D\u586B\u5199\u3002"],
+      [/unexpected worksheet\b|missing\/duplicate \w+ sheet/i, "\u627E\u4E0D\u5230\u5FC5\u8981\u7684\u5DE5\u4F5C\u8868\uFF1A\u8BF7\u4FDD\u7559\u300CRequirements\u300D\u548C\u9690\u85CF\u7684\u300C_Metadata\u300D\u4E24\u5F20\u8868\uFF0C\u4E0D\u8981\u5220\u9664\u6216\u6539\u540D\uFF08\u300CBrief\u300D\u8868\u53EA\u662F\u957F\u63CF\u8FF0\u7EED\u5757\uFF0C\u53EF\u7559\u53EF\u5220\uFF09\u3002\u6700\u7701\u4E8B\u7684\u505A\u6CD5\u662F\u91CD\u65B0\u4E0B\u8F7D\u6A21\u677F\u518D\u586B\u5199\u3002"],
+      [/Brief header changed|read-only header changed/i, "\u8868\u5934\u88AB\u6539\u52A8\u4E86\u3002\u8BF7\u4FDD\u7559\u300C\u9700\u6C42\u7F16\u53F7 / \u9879\u76EE / \u6807\u9898 / \u9700\u6C42\u63CF\u8FF0 / \u4F18\u5148\u7EA7 / \u8D1F\u8D23\u4EBA\u300D\u539F\u6837\uFF0C\u53EA\u6539\u8FD9\u56DB\u5217\u7684\u5185\u5BB9\uFF08\u8868\u5934\u6587\u5B57\u4E0D\u80FD\u6539\uFF09\u3002"],
+      [/read-only record identity changed|duplicated/i, "\u540C\u4E00\u6761\u9700\u6C42\u51FA\u73B0\u4E86\u4E24\u6B21\uFF08\u6216\u300C\u9700\u6C42\u7F16\u53F7\u300D\u88AB\u6539\u4E71\uFF09\u3002\u6BCF\u884C\u7684\u9700\u6C42\u7F16\u53F7\u53EA\u80FD\u51FA\u73B0\u4E00\u6B21\uFF0C\u91CD\u590D\u884C\u8BF7\u5220\u9664\u3002"],
+      [/unknown requirement in worksheet/i, "\u8FD9\u4E00\u884C\u7684\u300C\u9700\u6C42\u7F16\u53F7\u300D\u4E0D\u5728\u672C\u6B21\u5BFC\u51FA\u91CC\u3002\u8BF7\u5BF9\u7167\u539F\u59CB\u6587\u4EF6\u6838\u5BF9\uFF1B\u5982\u679C\u8981\u65B0\u589E\u9700\u6C42\uFF0C\u8BF7\u628A\u8BE5\u884C\u300C\u9700\u6C42\u7F16\u53F7\u300D\u6574\u683C\u6E05\u7A7A\u3002"],
+      [/new row needs a title|duplicate new row content/i, "\u300C\u9700\u6C42\u7F16\u53F7\u300D\u4E3A\u7A7A\u7684\u884C\u4F1A\u88AB\u5F53\u4F5C\u65B0\u589E\u9700\u6C42\uFF1A\u5FC5\u987B\u586B\u5199\u300C\u6807\u9898\u300D\uFF0C\u5E76\u4E14\u4E0D\u8981\u590D\u5236\u51FA\u4E24\u884C\u5B8C\u5168\u76F8\u540C\u7684\u5185\u5BB9\u3002"],
+      [/wrong project in worksheet row|wrong project|project mismatch|record project mismatch/i, "\u300C\u9879\u76EE\u300D\u5217\u5FC5\u987B\u4FDD\u6301\u5BFC\u51FA\u65F6\u7684\u9879\u76EE\uFF0C\u4E0D\u80FD\u6539\u6210\u5176\u5B83\u9879\u76EE\u3002"],
+      [/create identity already used|create-conflict/i, "\u8FD9\u6279\u65B0\u589E\u9700\u6C42\u4E4B\u524D\u5DF2\u7528\u4E0D\u540C\u5185\u5BB9\u5BFC\u5165\u8FC7\u3002\u8BF7\u91CD\u65B0\u5BFC\u51FA\u6216\u91CD\u65B0\u4E0B\u8F7D\u6A21\u677F\uFF0C\u53E6\u5B58\u4E3A\u65B0\u6587\u4EF6\u540E\u518D\u5BFC\u5165\u3002"],
+      [/formula-like value|formula-injection|unsafe .*formula/i, "\u5355\u5143\u683C\u4EE5 = + - @ \u5F00\u5934\u4F1A\u88AB\u5F53\u6210\u516C\u5F0F\u3002\u8BF7\u5728\u524D\u9762\u52A0\u4E00\u4E2A\u7A7A\u683C\u6216\u6539\u6210\u666E\u901A\u6587\u5B57\uFF08\u9700\u6C42\u63CF\u8FF0\u91CC\u7684\u300C- \u300D\u5217\u8868\u4E0D\u53D7\u5F71\u54CD\uFF09\u3002"],
+      [/invalid title, priority or brief|invalid title|invalid priority/i, "\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A\uFF1B\u4F18\u5148\u7EA7\u53EA\u80FD\u586B P0 / P1 / P2 / P3\uFF1B\u9700\u6C42\u63CF\u8FF0\u4E0D\u8981\u7559\u7A7A\u884C\u4EE5\u5916\u7684\u63A7\u5236\u5B57\u7B26\u3002"],
+      [/stale-preview|local files changed after preview/i, "\u672C\u5730\u9700\u6C42\u5728\u9884\u89C8\u4E4B\u540E\u53D1\u751F\u4E86\u53D8\u5316\u3002\u8BF7\u91CD\u65B0\u9009\u62E9\u6587\u4EF6\u9884\u89C8\u4E00\u6B21\u518D\u786E\u8BA4\u3002"],
+      [/unfinished exchange transaction|recovery-required/i, "\u4E0A\u6B21\u5199\u5165\u672A\u5B8C\u6210\uFF0C\u9700\u8981\u5148\u6062\u590D\u624D\u80FD\u7EE7\u7EED\u5BFC\u5165\u3002"],
+      [/exchange-locked/i, "\u53E6\u4E00\u4E2A\u5BFC\u5165/\u5BFC\u51FA\u6B63\u5728\u8FDB\u884C\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002"],
+      [/exceeds 8 MiB|file-too-large|超过 8 MiB/i, "\u6587\u4EF6\u8D85\u8FC7 8 MiB \u9650\u5236\u3002\u8BF7\u5206\u6279\u5BFC\u51FA\u6216\u62C6\u5206\u6210\u591A\u4E2A\u6587\u4EF6\u3002"]
+    ];
+    const exchangeErrorHint = (message) => {
+      const text = String(message ?? "").trim().replace(/^file rejected:\s*/i, "");
+      const hit = EXCHANGE_ERROR_HINTS.find(([pattern]) => pattern.test(text));
+      if (hit) return hit[1];
+      if (/invalid requirements xlsx/i.test(text)) {
+        const detail = text.replace(/^invalid requirements xlsx:\s*/i, "");
+        return `\u8FD9\u4E2A\u6587\u4EF6\u65E0\u6CD5\u4F5C\u4E3A\u9700\u6C42\u5DE5\u4F5C\u7C3F\u8BFB\u53D6\u3002\u8BF7\u91CD\u65B0\u4E0B\u8F7D\u5BFC\u5165\u6A21\u677F\uFF0C\u53EA\u586B\u5199\u300C\u6807\u9898 / \u9700\u6C42\u63CF\u8FF0 / \u4F18\u5148\u7EA7 / \u8D1F\u8D23\u4EBA\u300D\u56DB\u5217\u540E\u53E6\u5B58\u4E3A .xlsx \u518D\u5BFC\u5165\u3002\uFF08\u6280\u672F\u4FE1\u606F\uFF1A${detail}\uFF09`;
+      }
+      return text || "\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002";
+    };
+    const exchangeErrorParts = (message) => {
+      const [main, ...rest] = String(message ?? "").split("\uFF08\u6280\u672F\u4FE1\u606F\uFF1A");
+      return { main, tech: rest.join("\uFF08\u6280\u672F\u4FE1\u606F\uFF1A").replace(/）\s*$/, "") };
+    };
+    function ExchangeModal({ root, onClose, onApplied, visibleIds = [] }) {
       const dialogRef = useRef(null);
+      const inputRef = useRef(null);
       const [busy, setBusy] = useState(false);
+      const [scope, setScope] = useState("all");
       const [selected, setSelected] = useState(null);
       const [preview, setPreview] = useState(null);
       const [receipt, setReceipt] = useState(null);
       const [error, setError] = useState("");
+      const [dragging, setDragging] = useState(false);
+      const [hostBuild, setHostBuild] = useState(null);
       const request = async (body) => {
         const response = await fetch(`/api/alm/requirements/exchange?root=${encodeURIComponent(root)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const result = await response.json();
         if (!response.ok && !Array.isArray(result.conflicts)) throw new Error(result.error?.message ?? result.message ?? `HTTP ${response.status}`);
         return result;
       };
+      useEffect(() => {
+        let live = true;
+        request({ action: "version" }).then((result) => {
+          if (live) setHostBuild(typeof result?.build === "string" ? result.build : null);
+        }).catch(() => {
+          if (live) setHostBuild("\u65E7\u7248\u672C");
+        });
+        return () => {
+          live = false;
+        };
+      }, [root]);
       const run = async (fn) => {
         setBusy(true);
         setError("");
         try {
           await fn();
         } catch (e) {
-          setError(e.message);
+          setError(exchangeErrorHint(e.message));
         } finally {
           setBusy(false);
         }
       };
-      const download = (format) => run(async () => {
+      const download = () => run(async () => {
         setReceipt(null);
-        setReceipt(await saveExchangeFile(format, request));
+        if (scope === "filtered" && !visibleIds.length) throw new Error("\u5F53\u524D\u7B5B\u9009\u7ED3\u679C\u4E3A\u7A7A\uFF0C\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u9700\u6C42");
+        const uids = scope === "filtered" ? visibleIds : void 0;
+        const result = await saveExchangeFile("xlsx", (body) => request({ ...body, ...uids ? { uids } : {} }));
+        setReceipt({ message: `${result.message}\u6539\u5B8C\u8FD9\u56DB\u5217\u540E\uFF0C\u4ECE\u5361\u7247\u4E8C\u5BFC\u5165\u5373\u53EF\u3002` });
+      });
+      const downloadTemplate = () => run(async () => {
+        setReceipt(null);
+        const result = await saveExchangeFile("xlsx", () => request({ action: "template" }), { suggestedName: "requirements-template.xlsx" });
+        setReceipt({ message: `${result.message}\u6A21\u677F\u542B 1 \u884C\u793A\u4F8B\uFF08\u300C\u9700\u6C42\u7F16\u53F7\u300D\u7559\u7A7A\u5373\u4E3A\u65B0\u589E\uFF09\uFF1A\u6539\u5199\u4E3A\u771F\u5B9E\u9700\u6C42\uFF0C\u6216\u6574\u884C\u5220\u9664\u540E\u518D\u5BFC\u5165\uFF1B\u8BE5\u6587\u4EF6\u53EA\u7528\u4E8E\u65B0\u589E\u9700\u6C42\u3002` });
       });
       const pick = (file) => run(async () => {
         setPreview(null);
         setReceipt(null);
         setSelected(null);
         if (!file) return;
-        if (file.size > 8 * 1024 * 1024) throw new Error("\u6587\u4EF6\u8D85\u8FC78 MiB\u9650\u5236");
-        const format = file.name.toLowerCase().endsWith(".xlsx") ? "xlsx" : file.name.toLowerCase().endsWith(".json") ? "json" : null;
-        if (!format) throw new Error("\u4EC5\u652F\u6301JSON\u6216.xlsx\u6587\u4EF6");
+        if (file.size > 8 * 1024 * 1024) throw new Error("\u6587\u4EF6\u8D85\u8FC7 8 MiB \u9650\u5236");
+        const name = String(file.name ?? "");
+        const format = name.toLowerCase().endsWith(".xlsx") ? "xlsx" : name.toLowerCase().endsWith(".json") ? "json" : null;
+        if (!format) throw new Error("\u4EC5\u652F\u6301 .xlsx \u6216 .json \u6587\u4EF6");
         const bytes = new Uint8Array(await file.arrayBuffer());
         let binary = "";
         for (let i = 0; i < bytes.length; i += 16384) binary += String.fromCharCode(...bytes.subarray(i, i + 16384));
-        const input2 = { format, filename: file.name, content: btoa(binary) };
+        const input2 = { format, filename: name, content: btoa(binary) };
         const result = await request({ action: "preview", ...input2 });
         setSelected(input2);
         setPreview(result);
       });
+      const openPicker = () => {
+        if (!busy) inputRef.current?.click();
+      };
+      const drop = (event) => {
+        event.preventDefault();
+        setDragging(false);
+        if (busy) return;
+        pick(event.dataTransfer?.files?.[0] ?? null);
+      };
       const apply = () => run(async () => {
         const result = await request({ action: "apply", ...selected, expectedLocalHash: preview.localHash });
         if (result.ok === false) {
           setPreview(result);
           return;
         }
-        setReceipt({ ...result, message: result.idempotent ? "\u56DE\u5BFC\u5B8C\u6210\uFF1A\u65E0\u65B0\u589E\u53D8\u66F4\uFF08\u5E42\u7B49\uFF09\u3002" : "\u56DE\u5BFC\u5B8C\u6210\uFF1A\u6574\u6279\u5DF2\u5E94\u7528\u3002" });
+        const created = (result.changes ?? []).filter((change) => change.operation === "create").length;
+        const updated = (result.changes ?? []).filter((change) => change.operation === "update").length;
+        setReceipt({ ...result, message: result.idempotent ? "\u56DE\u5BFC\u5B8C\u6210\uFF1A\u6CA1\u6709\u9700\u8981\u5199\u5165\u7684\u53D8\u66F4\uFF08\u5E42\u7B49\uFF09\u3002" : `\u56DE\u5BFC\u5B8C\u6210\uFF1A\u65B0\u589E ${created} \u6761\u3001\u66F4\u65B0 ${updated} \u6761\uFF0C\u6574\u6279\u5DF2\u539F\u5B50\u5199\u5165\u3002` });
         setPreview(null);
+        setSelected(null);
         onApplied();
       });
-      useDialogFocus(dialogRef, onClose);
+      useDialogFocus(dialogRef, onClose, { closeOnEscape: false });
+      const card2 = { marginTop: 14, padding: "14px 16px", border: `1px solid ${T.line2}`, borderRadius: 12, background: T.layer2 };
+      const cardTitle = { margin: 0, fontSize: "14px", fontWeight: 600, color: T.text };
+      const hint = { margin: "6px 0 0", fontSize: "12px", color: T.text2, lineHeight: 1.6 };
+      const secondary = (active) => ({ minHeight: "32px", padding: "5px 11px", borderRadius: 8, cursor: busy ? "not-allowed" : "pointer", fontSize: "12.5px", color: active ? T.text : T.text2, background: active ? "rgba(77,107,254,.16)" : "transparent", border: `1px solid ${active ? "rgba(106,140,255,.6)" : T.line2}` });
+      const primaryButton = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, minHeight: "34px", padding: "7px 14px", borderRadius: 8, cursor: busy ? "not-allowed" : "pointer", fontSize: "12.5px", fontWeight: 600, color: T.base, background: T.text, border: "1px solid transparent", whiteSpace: "nowrap" };
+      const ghostButton = { ...primaryButton, color: T.text, background: "transparent", border: `1px solid ${T.line2}`, fontWeight: 500 };
+      const disabledLook = (off) => ({ opacity: off ? 0.5 : 1, cursor: busy || off ? "not-allowed" : "pointer" });
+      const summary = exchangePreviewSummary(preview);
+      const creates = summary.creates;
+      const updates = summary.updates;
+      const conflictGroups = summary.conflicts;
+      const chip = (tone, id, label) => h("span", { "data-exchange-count": id, style: { padding: "3px 9px", borderRadius: 999, fontSize: "12px", fontWeight: 600, color: tone, background: T.layer, border: `1px solid ${T.line2}` } }, label);
+      const row2 = (key, kind, tone, title, detail) => h(
+        "li",
+        { "data-exchange-change": kind, "data-exchange-uid": key, style: { display: "flex", gap: 8, alignItems: "baseline", padding: "6px 0", fontSize: "12.5px", color: T.text, borderTop: `1px solid ${T.line}` } },
+        h("span", { style: { color: tone, fontWeight: 600, flex: "none" } }, kind === "create" ? "\u{1F7E2} \u65B0\u589E" : kind === "update" ? "\u{1F7E1} \u66F4\u65B0" : "\u{1F534} \u51B2\u7A81"),
+        h("span", { style: { minWidth: 0, overflowWrap: "anywhere" } }, title),
+        detail ? h("span", { style: { marginLeft: "auto", color: T.text3, flex: "none" } }, detail) : null
+      );
       return h(
         "div",
-        { style: { position: "fixed", inset: 0, zIndex: 1e3, background: "#0008", display: "grid", placeItems: "center" } },
+        { "data-exchange-modal": "true", style: { position: "fixed", inset: 0, zIndex: 1e3, background: "rgba(5,7,11,.66)", backdropFilter: "blur(6px)", display: "grid", placeItems: "center", padding: "24px" } },
         h(
           "section",
-          { ref: dialogRef, tabIndex: -1, role: "dialog", "aria-modal": "true", "aria-labelledby": "alm-exchange-title", style: { width: "min(820px, 94vw)", maxHeight: "90vh", overflow: "auto", overscrollBehavior: "contain", padding: 24, background: T.bg, color: T.text, border: `1px solid ${T.line}`, borderRadius: 12 } },
-          h("h2", { id: "alm-exchange-title" }, "\u9700\u6C42\u6587\u4EF6\u4EA4\u6362"),
-          h("p", null, "\u4EC5\u4EA4\u6362title / brief / priority / owner\uFF1B\u4E0D\u5BFC\u5165\u6267\u884C\u72B6\u6001\u3001\u8BC1\u636E\u3001\u7B7E\u6536\u6216\u53D1\u5E03\u6388\u6743\u3002\u7F3A\u884C\u4E0D\u5220\u9664\u3002"),
-          h("p", null, "\u65E7\u9879\u76EE\u5148\u70B9\u300C\u521D\u59CB\u5316\u4EA4\u6362\u300D\uFF08\u72EC\u7ACB\u6301\u4E45\u5316\u9879\u76EE\u5BC6\u94A5\uFF09\u3002Excel\u5DF2\u6709\u884C\u4EC5\u7F16\u8F91F-I\u56DB\u5B57\u6BB5\uFF1B\u957F\u6B63\u6587\u7528Brief\u8868C\u5217\uFF0Crecord/chunk\u53EA\u8BFB\u3002\u65B0\u589E\u987B\u5728\u539F\u8BB0\u5F55\u5757\u672B\u5C3E\u540E\u8FFD\u52A0\uFF1AA=create\u3001B\u7A7A\u3001C\u552F\u4E00clientId\u3001D\u9879\u76EEID\u3001E\u7A7A\u3001F-I\u56DB\u503C\uFF0C\u65B0\u6B63\u6587\u965032767\u5B57\u7B26\u3002\u8EAB\u4EFD\u3001\u57FA\u7EBF\u4E0E\u9690\u85CF\u5143\u6570\u636E\u4E0D\u53EF\u4FEE\u6539\u3002\u9644\u4EF6\u4EC5\u542B\u5B89\u5168manifest\u3002"),
+          { ref: dialogRef, tabIndex: -1, role: "dialog", "aria-modal": "true", "aria-labelledby": "alm-exchange-title", style: { width: "min(860px, 96vw)", maxHeight: "90vh", overflow: "auto", overscrollBehavior: "contain", padding: "20px 22px 22px", background: T.layer, color: T.text, border: `1px solid ${T.line2}`, borderRadius: 14, boxShadow: "0 28px 80px rgba(0,0,0,.55)" } },
           h(
             "div",
-            { style: { display: "flex", gap: 12, marginBottom: 16 } },
-            h("button", { disabled: busy, onClick: () => run(async () => {
-              await request({ action: "initialize" });
-              setReceipt({ message: "\u9879\u76EE\u4EA4\u6362\u5DF2\u521D\u59CB\u5316\uFF1B\u5BC6\u94A5\u4FDD\u5B58\u5728\u9879\u76EE\u5185\uFF0C\u4E0D\u5BFC\u51FA\u3001\u4E0D\u8F6E\u6362\u3002\u53EF\u5BFC\u51FA\u6216\u9009\u62E9\u6587\u4EF6\u9884\u89C8\u3002" });
-            }) }, "\u521D\u59CB\u5316\u4EA4\u6362"),
-            h("button", { disabled: busy, onClick: () => download("json") }, "\u5BFC\u51FAJSON"),
-            h("button", { disabled: busy, onClick: () => download("xlsx") }, "\u5BFC\u51FAExcel .xlsx")
+            { style: { display: "flex", alignItems: "center", gap: 12 } },
+            h("h2", { id: "alm-exchange-title", style: { margin: 0, fontSize: "18px", fontWeight: 600 } }, "\u9700\u6C42\u6587\u4EF6\u4EA4\u6362"),
+            h("button", { type: "button", "data-exchange-close": "true", "aria-label": "\u5173\u95ED\u4EA4\u6362\u5F39\u7A97", disabled: busy, onClick: onClose, style: { marginLeft: "auto", minHeight: "32px", padding: "5px 12px", borderRadius: 8, cursor: busy ? "not-allowed" : "pointer", fontSize: "12.5px", color: T.text, background: "transparent", border: `1px solid ${T.line2}` } }, "\u2715 \u5173\u95ED")
           ),
-          h("label", null, "\u9009\u62E9\u6587\u4EF6\u5BFC\u5165\u5E76\u9884\u89C8 ", h("input", { type: "file", accept: ".json,.xlsx", disabled: busy, onChange: (e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            pick(file);
-          } })),
-          busy ? h("p", { role: "status" }, "\u5904\u7406\u4E2D\u2026") : null,
-          error ? h("p", { role: "alert", style: { color: "#d94b4b" } }, error) : null,
-          preview ? h(
+          h("p", { style: hint }, "\u53EA\u4EA4\u6362\u6807\u9898 / \u9700\u6C42\u63CF\u8FF0 / \u4F18\u5148\u7EA7 / \u8D1F\u8D23\u4EBA\uFF1A\u9700\u6C42\u7F16\u53F7\u3001\u72B6\u6001\u4E0E\u7248\u672C\u53EA\u8BFB\uFF1B\u4E0D\u5BFC\u5165\u6267\u884C\u72B6\u6001\u3001\u9A8C\u6536\u8BC1\u636E\u3001\u7B7E\u6536\u6216\u53D1\u5E03\u6388\u6743\uFF1B\u7F3A\u884C\u4E0D\u5220\u9664\u672C\u5730\u9700\u6C42\u3002"),
+          h(
+            "section",
+            { "data-exchange-export": "true", style: card2 },
+            h("h3", { style: cardTitle }, "\u5361\u7247\u4E00 \xB7 \u5BFC\u51FA\u9700\u6C42"),
+            h("p", { style: hint }, "\u5BFC\u51FA\u53EF\u76F4\u63A5\u7F16\u8F91\u7684 Excel\uFF08.xlsx\uFF09\u5DE5\u4F5C\u7C3F\uFF1B\u53EF\u7F16\u8F91\u5217\uFF1A\u6807\u9898 / \u9700\u6C42\u63CF\u8FF0 / \u4F18\u5148\u7EA7 / \u8D1F\u8D23\u4EBA\u3002\u7528\u4E8E\u6279\u91CF\u4FEE\u6539\u5DF2\u6709\u9700\u6C42\u3002"),
+            h(
+              "div",
+              { role: "group", "aria-label": "\u5BFC\u51FA\u8303\u56F4", style: { display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" } },
+              h("button", { type: "button", "data-exchange-scope": "all", "aria-pressed": scope === "all" ? "true" : "false", disabled: busy, onClick: () => setScope("all"), style: secondary(scope === "all") }, "\u5168\u90E8\u9700\u6C42"),
+              h("button", { type: "button", "data-exchange-scope": "filtered", "aria-pressed": scope === "filtered" ? "true" : "false", disabled: busy || !visibleIds.length, title: visibleIds.length ? `\u5BFC\u51FA\u5F53\u524D\u7B5B\u9009\u7684 ${visibleIds.length} \u6761\u9700\u6C42` : "\u5F53\u524D\u7B5B\u9009\u7ED3\u679C\u4E3A\u7A7A", onClick: () => setScope("filtered"), style: secondary(scope === "filtered") }, `\u5F53\u524D\u7B5B\u9009\u7ED3\u679C\uFF08${visibleIds.length} \u6761\uFF09`)
+            ),
+            h(
+              "div",
+              { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" } },
+              h(
+                "button",
+                { type: "button", "data-exchange-export-action": "true", "aria-label": "\u5BFC\u51FA Excel \u5DE5\u4F5C\u7C3F", disabled: busy, onClick: download, style: { ...primaryButton, ...disabledLook(false) } },
+                h(ActionIcon, { name: "download", size: 14 }),
+                h("span", null, "\u5BFC\u51FA Excel (.xlsx)")
+              ),
+              h("span", { style: { ...hint, margin: 0 } }, scope === "filtered" ? `\u5C06\u5BFC\u51FA ${visibleIds.length} \u6761\u5F53\u524D\u7B5B\u9009\u7ED3\u679C` : "\u5C06\u5BFC\u51FA\u5168\u90E8\u9700\u6C42")
+            )
+          ),
+          h(
+            "section",
+            { "data-exchange-import": "true", style: card2 },
+            h("h3", { style: cardTitle }, "\u5361\u7247\u4E8C \xB7 \u5BFC\u5165\u4E0E\u5DEE\u5F02\u9884\u89C8"),
+            h("p", { style: hint }, "\u62D6\u62FD\u6216\u70B9\u51FB\u9009\u62E9 .xlsx / .json \u6587\u4EF6\uFF1A\u5148\u89E3\u6790\u5E76\u5C55\u793A\u53D8\u66F4\u9884\u89C8\uFF0C\u786E\u8BA4\u540E\u6574\u6279\u539F\u5B50\u843D\u76D8\u3002"),
+            h(
+              "div",
+              { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
+              h(
+                "button",
+                { type: "button", "data-exchange-template": "true", "aria-label": "\u4E0B\u8F7D\u5BFC\u5165\u6A21\u677F", disabled: busy, onClick: downloadTemplate, style: { ...ghostButton, ...disabledLook(false) } },
+                h(ActionIcon, { name: "download", size: 14 }),
+                h("span", null, "\u4E0B\u8F7D\u5BFC\u5165\u6A21\u677F (.xlsx)")
+              ),
+              h("span", { style: { ...hint, margin: 0 } }, "\u7B2C\u4E00\u6B21\u65B0\u589E\u9700\u6C42\u65F6\u5148\u4E0B\u8F7D\u6A21\u677F\uFF1B\u6A21\u677F\u53EA\u7528\u4E8E\u65B0\u589E\uFF0C\u4FEE\u6539\u5DF2\u6709\u9700\u6C42\u8BF7\u7528\u5361\u7247\u4E00\u5BFC\u51FA\u3002")
+            ),
+            h("p", { style: { ...hint, margin: "8px 0 0" } }, "\u586B\u5199\u89C4\u5219\uFF1A\u53EA\u6539\u300C\u6807\u9898 / \u9700\u6C42\u63CF\u8FF0 / \u4F18\u5148\u7EA7 / \u8D1F\u8D23\u4EBA\u300D\u56DB\u5217\uFF1B\u65B0\u589E\u9700\u6C42\u8BF7\u5728\u672B\u5C3E\u8FFD\u52A0\u4E00\u884C\u3001\u628A\u300C\u9700\u6C42\u7F16\u53F7\u300D\u7559\u7A7A\u5E76\u586B\u5199\u6807\u9898\uFF1B\u300C\u9879\u76EE\u300D\u5217\u4E0D\u8981\u6539\uFF1B\u6E05\u7A7A\u67D0\u884C\u9700\u6C42\u7F16\u53F7\u7B49\u4E8E\u65B0\u589E\u4E00\u6761\uFF0C\u8BF7\u52FF\u8BEF\u5220\uFF1B\u4F18\u5148\u7EA7\u9650 P0\u2013P3\uFF1B\u6807\u9898 \u2264200 \u5B57\uFF1B\u7F3A\u884C\u4E0D\u4F1A\u5220\u9664\u672C\u5730\u9700\u6C42\u3002"),
+            h("input", { ref: inputRef, type: "file", accept: ".xlsx,.json", "data-exchange-input": "true", style: { display: "none" }, onChange: (event) => {
+              const file = event.target.files?.[0] ?? null;
+              event.target.value = "";
+              pick(file);
+            } }),
+            h(
+              "div",
+              {
+                role: "button",
+                tabIndex: 0,
+                "data-exchange-dropzone": dragging ? "active" : "true",
+                "aria-label": "\u62D6\u62FD\u6216\u70B9\u51FB\u9009\u62E9\u5BFC\u5165\u6587\u4EF6",
+                "aria-disabled": busy ? "true" : "false",
+                onClick: openPicker,
+                onKeyDown: (event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openPicker();
+                  }
+                },
+                onDragOver: (event) => {
+                  event.preventDefault();
+                  if (!busy) setDragging(true);
+                },
+                onDragLeave: () => setDragging(false),
+                onDrop: drop,
+                style: { marginTop: 10, padding: "16px 14px", borderRadius: 10, textAlign: "center", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1, color: T.text2, background: dragging ? "rgba(77,107,254,.12)" : T.layer, border: `1px dashed ${dragging ? "rgba(106,140,255,.75)" : T.line2}` }
+              },
+              h("div", { style: { fontSize: "13px", color: T.text } }, "\u62D6\u62FD .xlsx / .json \u5230\u6B64\u5904\uFF0C\u6216\u70B9\u51FB\u9009\u62E9\u6587\u4EF6"),
+              h("div", { style: hint }, "\u9009\u62E9\u540E\u81EA\u52A8\u89E3\u6790\u5E76\u9884\u89C8\uFF1A\u{1F7E2} \u65B0\u589E \xB7 \u{1F7E1} \u66F4\u65B0 \xB7 \u{1F534} \u51B2\u7A81\uFF1B\u6B64\u6B65\u9AA4\u4E0D\u4F1A\u5199\u5165")
+            ),
+            selected ? h("p", { "data-exchange-selected": "true", style: hint }, `\u5DF2\u9009\u62E9\uFF1A${selected.filename}`) : null,
+            preview ? h(
+              "div",
+              { "data-exchange-preview": preview.ok ? "ready" : "conflict", style: { marginTop: 12 } },
+              h(
+                "div",
+                { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+                chip(T.ok, "create", `\u{1F7E2} \u65B0\u589E ${creates.length} \u6761`),
+                chip(T.warn, "update", `\u{1F7E1} \u66F4\u65B0 ${updates.length} \u6761`),
+                chip(T.err, "conflict", `\u{1F534} \u51B2\u7A81 ${conflictGroups.length} \u6761`)
+              ),
+              h("p", { role: "status", style: hint }, preview.ok ? "\u9884\u89C8\u901A\u8FC7\uFF1A\u786E\u8BA4\u540E\u6574\u6279\u539F\u5B50\u843D\u76D8\u3002" : "\u5B58\u5728\u540C\u5B57\u6BB5\u51B2\u7A81\uFF1A\u4E0D\u4F1A\u5199\u5165\u4EFB\u4F55\u8BB0\u5F55\uFF1B\u8BF7\u5148\u5728 Excel \u4E2D\u4FEE\u6B63\u6216\u91CD\u65B0\u5BFC\u51FA\u540E\u518D\u5BFC\u5165\u3002"),
+              h(
+                "ul",
+                { "data-exchange-changes": "true", style: { listStyle: "none", margin: "8px 0 0", padding: 0, maxHeight: 240, overflow: "auto" } },
+                creates.map((change) => row2(change.uid, "create", T.ok, `${change.uid} ${change.title ?? ""}`.trim(), "\u5168\u90E8\u5B57\u6BB5")),
+                updates.map((change) => row2(change.uid, "update", T.warn, `${change.uid} ${change.title ?? ""}`.trim(), `\u4FEE\u6539\u5B57\u6BB5\uFF1A${EXCHANGE_FIELD_TEXT(change.fields)}`)),
+                conflictGroups.map((group) => row2(group.uid, "conflict", T.err, `${group.uid} ${group.title}`.trim(), `\u51B2\u7A81\u5B57\u6BB5\uFF1A${EXCHANGE_FIELD_TEXT(group.fields)}`))
+              ),
+              h(
+                "div",
+                { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" } },
+                h(
+                  "button",
+                  { type: "button", "data-exchange-apply": "true", disabled: busy || !preview.ok, onClick: apply, style: { ...primaryButton, ...disabledLook(!preview.ok) } },
+                  h(ActionIcon, { name: "check", size: 14 }),
+                  h("span", null, preview.ok ? "\u786E\u8BA4\u5BFC\u5165" : "\u5B58\u5728\u51B2\u7A81\uFF0C\u6682\u4E0D\u53EF\u5BFC\u5165")
+                ),
+                preview.ok ? h("span", { style: { ...hint, margin: 0 } }, "\u5199\u5165\u540E\u53EF\u5728\u5217\u8868\u67E5\u770B\uFF0C\u4E5F\u53EF\u518D\u6B21\u5BFC\u51FA\u6838\u5BF9\u3002") : null
+              )
+            ) : null
+          ),
+          // The receipt belongs to whichever card acted, so it sits between the
+          // cards and the dialog footer instead of inside the import card.
+          receipt ? h(
             "div",
-            null,
-            h("h3", null, preview.ok ? "\u9884\u89C8\u901A\u8FC7\uFF0C\u7B49\u5F85\u786E\u8BA4" : "\u9884\u89C8\u62D2\u7EDD\uFF1A\u51B2\u7A81\u6216\u6821\u9A8C\u5931\u8D25\uFF0C\u672A\u5199\u5165"),
-            h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 280, overflow: "auto" } }, JSON.stringify({ changes: preview.changes, conflicts: preview.conflicts, errors: preview.errors }, null, 2)),
-            h("button", { disabled: busy || !preview.ok, onClick: apply }, "\u786E\u8BA4\u6574\u6279\u5BFC\u5165")
+            { role: "status", "data-exchange-receipt": "true", style: { marginTop: 12, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.line2}`, background: T.layer2 } },
+            h("h4", { style: { margin: 0, fontSize: "13px" } }, "\u7ED3\u679C\u56DE\u6267"),
+            h("p", { style: hint }, receipt.message)
           ) : null,
-          receipt ? h("div", { role: "status" }, h("h3", null, "\u4EA4\u6362\u7ED3\u679C\u56DE\u6267"), h("p", null, receipt.message), h("pre", { style: { whiteSpace: "pre-wrap" } }, JSON.stringify(receipt.created ?? receipt.receipt ?? {}, null, 2))) : null,
-          h("button", { disabled: busy, onClick: onClose, style: { marginTop: 20 } }, "\u5173\u95ED\u4EA4\u6362")
+          busy ? h("p", { role: "status", "data-exchange-busy": "true", style: hint }, "\u5904\u7406\u4E2D\u2026") : null,
+          error ? (() => {
+            const { main, tech } = exchangeErrorParts(error);
+            return h(
+              "div",
+              { role: "alert", "data-exchange-error": "true", style: { display: "flex", gap: 8, alignItems: "flex-start", margin: "12px 0 0", padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.line2}`, background: T.layer2 } },
+              h("span", { style: { flex: "none", display: "inline-flex", color: T.warn, marginTop: 2 } }, h(ActionIcon, { name: "alert", size: 13 })),
+              h(
+                "div",
+                { style: { minWidth: 0 } },
+                h("p", { style: { margin: 0, fontSize: "12.5px", color: T.text, lineHeight: 1.65 } }, main),
+                tech ? h("p", { style: { ...hint, margin: "3px 0 0" } }, `\u6280\u672F\u4FE1\u606F\uFF1A${tech}`) : null
+              )
+            );
+          })() : null,
+          // Diagnostics, not decoration: when this line reports an old host, the
+          // import rules in force are not the ones on screen.
+          h(
+            "p",
+            { "data-exchange-build": "true", style: { ...hint, margin: "14px 0 0", textAlign: "right" } },
+            hostBuild && hostBuild !== EXCHANGE_CLIENT_BUILD ? `\u5DE5\u4F5C\u7C3F\u683C\u5F0F ${EXCHANGE_CLIENT_BUILD} \xB7 \u5BBF\u4E3B\u63D2\u4EF6 ${hostBuild} \u672A\u66F4\u65B0\uFF1A\u8BF7\u5B8C\u5168\u9000\u51FA\u5E76\u91CD\u542F DSH Desktop \u540E\u518D\u5BFC\u5165\u3002` : `\u5DE5\u4F5C\u7C3F\u683C\u5F0F ${EXCHANGE_CLIENT_BUILD}`
+          )
         )
       );
     }
     const NATIVE_SOURCE_BUILD_ID = false ? null : null;
-    const NATIVE_CLIENT_BUILD_ID = true ? "566004fe6ed3d393849079e3c99a60b12f9178e9e49d5f32f67417b281b9fb6b" : null;
+    const NATIVE_CLIENT_BUILD_ID = true ? "ac1771fbdba28e478a398aaebbc675acde276158e29abda58b66a49cbdcfb97a" : null;
     function NativeDeliveryControl({ root, requirementId }) {
       const [job, setJob] = useState(null);
       const [error, setError] = useState(null);
@@ -14297,7 +14684,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       const [keyword, setKeyword] = useState(() => readV4Navigation().keyword ?? "");
       useEffect(() => {
         try {
-          sessionStorage.setItem("alm.requirements.navigation.v4", JSON.stringify({ root, projectId, filter, source, keyword }));
+          sessionStorage.setItem("alm.requirements.navigation.v4", JSON.stringify({ root, projectId, filter, source, keyword, viewVersion: NAVIGATION_VERSION }));
         } catch {
         }
       }, [root, projectId, filter, source, keyword]);
@@ -14548,6 +14935,9 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       const counts = requirementViewCounts(data, keywordMatched);
       const searched = keywordMatched.filter((item) => matchesView(item, filter));
       const visible = searched;
+      const normalizeRoot = (value) => String(value ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      const exchangeRoot = data?.root ?? root;
+      const exportableIds = [...new Set(visible.filter((item) => !item.root || !exchangeRoot || normalizeRoot(item.root) === normalizeRoot(exchangeRoot)).map((item) => item.id))];
       const itemCount = activeItems.length;
       const filtered = filter !== "all" || keyword !== "" || source !== "all";
       const clearFilters = () => {
@@ -14705,7 +15095,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
         h(
           "div",
           { style: { display: "flex", alignItems: "center", gap: "8px" } },
-          h("button", { disabled: !singleWorkspace, onClick: () => setExchangeOpen(true), title: "JSON / Excel\u5B89\u5168\u4EA4\u6362" }, "\u5BFC\u5165 / \u5BFC\u51FA"),
+          h("button", { disabled: !singleWorkspace, onClick: () => setExchangeOpen(true), title: "\u5B89\u5168\u4EA4\u6362\uFF1A\u5BFC\u51FA Excel\uFF0C\u5BFC\u5165\u5E76\u9884\u89C8\u53D8\u66F4" }, "\u5BFC\u5165 / \u5BFC\u51FA"),
           h(ActionButton, {
             label: "\u65B0\u5EFA\u9700\u6C42",
             icon: "plus",
@@ -15283,7 +15673,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
             reload();
           }
         }) : null,
-        exchangeOpen ? h(ExchangeModal, { root: data?.root ?? root, onClose: () => setExchangeOpen(false), onApplied: reload }) : null,
+        exchangeOpen ? h(ExchangeModal, { root: exchangeRoot, visibleIds: exportableIds, onClose: () => setExchangeOpen(false), onApplied: reload }) : null,
         createOpen ? h(IntentModal, {
           root: data?.root ?? root,
           project: data?.project ?? currentProject?.projectId,

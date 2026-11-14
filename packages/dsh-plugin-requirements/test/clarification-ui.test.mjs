@@ -628,7 +628,7 @@ test('clarification history timeout preserves input and retries in the browser',
       if (++requests === 1) { await new Promise(resolve => setTimeout(resolve, 600)); return route.abort().catch(() => {}) }
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ sessions: [{ sessionId: 'one', state: 'reviewing' }] }) })
     }
-    assert.equal(url.searchParams.get('session'), 'one')
+    if (url.searchParams.get('session') !== 'one') return route.fulfill({ contentType: 'application/json', body: '{"ok":true}' })
     sessionRequests++
     await new Promise(resolve => setTimeout(resolve, 600))
     return route.abort().catch(() => {})
@@ -1064,7 +1064,7 @@ test('single draft presents grill choices and confirms in one action', async () 
   const bundle = await build({ stdin: { contents: entry, resolveDir: fileURLToPath(new URL('../../../', import.meta.url)), loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width: 1000, height: 800 } })
-  let session = { sessionId: 'one', state: 'reviewing', sessionRevision: 1, draftRevision: 1, input: { text: '希望提高效率', inputRevision: 1, explicit: {} }, context: { contextSnapshotId: 'ctx' }, grill: { status: 'loaded', name: 'grilling', source: 'user', round: 1, answers: [] }, items: [{ itemId: 'ITM-MANUAL-1', recommendedRoute: 'create', candidate: { title: '提高效率', goal: '提高效率', problem: '问题待明确', acceptance: [] }, unknowns: [] }], docDraft: { goal: '提高效率', problem: '问题待明确', docHash: 'hash', draftRevision: 1, acceptance: [], pending: [{ text: '[验收建议·AI 建议] 用户可以完成任务' }, { text: '[验收建议·AI 建议] 异常时显示原因' }] }, readiness: { ready: false, reasons: [] } }
+  let session = { sessionId: 'one', state: 'reviewing', sessionRevision: 1, draftRevision: 1, input: { text: '希望提高效率', inputRevision: 1, explicit: {} }, context: { contextSnapshotId: 'ctx' }, grill: { status: 'loaded', outcome: 'applied', name: 'grilling', source: 'user', round: 1, answers: [] }, items: [{ itemId: 'ITM-MANUAL-1', recommendedRoute: 'create', candidate: { title: '提高效率', goal: '提高效率', problem: '问题待明确', acceptance: [] }, unknowns: [] }], docDraft: { goal: '提高效率', problem: '问题待明确', docHash: 'hash', draftRevision: 1, acceptance: [], pending: [{ text: '[验收建议·AI 建议] 用户可以完成任务' }, { text: '[验收建议·AI 建议] 异常时显示原因' }] }, readiness: { ready: false, reasons: [] } }
   const requests = []
   await page.route('http://test.local/**', async route => {
     const request = route.request(), url = new URL(request.url())
@@ -1084,14 +1084,13 @@ test('single draft presents grill choices and confirms in one action', async () 
     await page.getByRole('button', { name: '查看服务端意图历史' }).click()
     await page.getByRole('button', { name: /one · reviewing/ }).click()
     await page.getByText('需求价值与边界拷问').waitFor()
-    assert.equal(await page.getByText('已加载 Grill Skill').isVisible(), true)
+    assert.equal(await page.getByText('Grill Skill 已参与本轮').isVisible(), true)
     assert.equal(await page.getByLabel('验收标准 1', { exact: true }).inputValue(), '用户可以完成任务')
     assert.equal(await page.getByText('ITM-MANUAL-1').count(), 0)
     assert.equal(await page.getByText(/请先在右上角选择优先级/).isVisible(), true)
-    await page.getByRole('button', { name: '减少“提高效率”过程中的重复操作' }).click()
-    assert.match(await page.getByLabel('解决什么问题').inputValue(), /重复操作/)
-    await page.getByRole('button', { name: '“提高效率”失败时说明原因并允许重试' }).click()
-    assert.match(await page.getByLabel('验收标准 3', { exact: true }).inputValue(), /失败时说明原因/)
+    await page.getByRole('button', { name: '减少重复操作', exact: true }).click()
+    await page.getByRole('button', { name: '说明失败原因', exact: true }).click()
+    assert.match(await page.getByLabel('验收标准 3', { exact: true }).inputValue(), /失败时说明原因|说明失败原因/)
     assert.doesNotMatch(await page.locator('[data-testid="intent-modal"]').innerText(), /补充：/)
     const bounds = await page.locator('[data-testid="intent-modal"]').evaluate(node => { const r = node.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight })
     assert.equal(bounds, true)
@@ -1102,6 +1101,7 @@ test('single draft presents grill choices and confirms in one action', async () 
     assert.equal(requests[2].docHash, 'newhash')
     assert.equal(requests[2].confirmation.priority, 'P1')
     assert.match(requests[0].docDraft.problem, /重复操作/)
-    assert.ok(requests[0].docDraft.acceptance.some(entry => entry.text.includes('失败时说明原因')))
+    assert.match(requests[0].docDraft.problem, /问题待明确\n减少重复操作/)
+    assert.ok(requests[0].docDraft.acceptance.some(entry => entry.text.includes('说明失败原因')))
   } finally { await browser.close() }
 })

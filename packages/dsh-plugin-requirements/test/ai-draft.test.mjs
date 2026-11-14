@@ -39,6 +39,8 @@ test('runAiDraft returns a candidate draft without formal priority or owner', as
     projectName: '支付平台',
   })
   assert.equal(options.reasoningEffort, 'low')
+  assert.match(options.system, /不超过 50 字/)
+  assert.match(options.system, /不得复制、截断或拼接用户原话/)
   assert.equal(draft.schema, 'alm.ai-draft/v1')
   assert.equal(draft.candidate, true)
   assert.equal(draft.requiresHumanConfirmation, true)
@@ -85,6 +87,13 @@ test('normalizeDraft ignores model-supplied priority and owner, keeping only a s
   assert.equal(draft.sourceRefs[0].ref, '#L1')
   assert.equal(draft.question, null)
   assert.equal(draft.counterexample, null)
+})
+
+test('normalizeDraft limits automatically generated titles to 50 characters', () => {
+  const longTitle = '需求插件能够收集自身开发过程核心数据指标和相关证据，通过数据洞察分析实现插件自身持续迭代优化，并向团队展示改进建议与验证依据'
+  const draft = normalizeDraft({ title: longTitle }, { intent: longTitle })
+  assert.equal(draft.title, longTitle.slice(0, 50))
+  assert.equal(draft.title.length, 50)
 })
 
 test('normalizeDraft marks missing evidence instead of inventing it', () => {

@@ -1,0 +1,13 @@
+[DOCUMENT]
+TITLE: 需求列表默认显示待我处理tab页面
+
+[REQUIREMENT]
+UID: REQ-ALM-015
+TITLE: 需求列表默认显示待我处理tab页面
+PROJECT: ALM
+OWNER: 张浩
+PRIORITY: P2
+REVISION: 1
+CATEGORY: functional
+BRIEF: requirements/briefs/REQ-ALM-015.md
+SOURCE: doc

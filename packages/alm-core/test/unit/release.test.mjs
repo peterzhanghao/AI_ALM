@@ -167,6 +167,26 @@ test('newer drafts retain successful publication and legacy candidates supply re
   }
 })
 
+test('release view exposes persisted main merge credentials from a release record', () => {
+  const root = mkdtempSync(join(tmpdir(), 'alm-release-source-control-'))
+  try {
+    mkdirSync(join(root, '.alm/releases'), { recursive: true })
+    writeFileSync(join(root, '.alm/releases/REL-002.json'), JSON.stringify({
+      schema: 'alm.release/v1', id: 'REL-002', status: 'released', deliveries: [{ requirement: 'REQ-A', candidateId: 'CAND-REQ-A-001' }],
+      sourceControl: {
+        devBranch: 'develop', devCommitSha: '1234567890abcdef', mainBranch: 'main',
+        mainMergeCommitSha: 'abcdef0123456789', pushedToMain: true, pushedToMainAt: '2026-11-11T12:23:49.072Z',
+      },
+    }))
+    const view = releaseViewFor({ root, requirementId: 'REQ-A' })
+    assert.equal(view.mainMerged, true)
+    assert.equal(view.sourceControl.devBranch, 'develop')
+    assert.equal(view.sourceControl.mainMergeCommitSha, 'abcdef0123456789')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('release authorization requires a trusted host human and rejects body labels or automated subjects', () => {
   const root = mkdtempSync(join(tmpdir(), 'alm-release-identity-'))
   try {

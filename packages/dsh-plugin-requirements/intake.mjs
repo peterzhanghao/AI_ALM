@@ -35,7 +35,12 @@ export function extractChat({ markdown }) {
 
 /** Extract only explicitly labelled facts; ambiguous conversation is never guessed. */
 export function crystallizeChatDraft({ summary, messages, draft } = {}) {
-  const clean = value => String(value ?? '').replace(/\r\n?/g, '\n').replace(/^\s*(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*)?(?:用户|助手|user|assistant)\s*[:：]\s*/gim, '').trim()
+  const clean = value => String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\$\\(?:right)?arrow\$/g, '→')
+    .replace(/(^|[^-])\s*->\s*/g, '$1 → ')
+    .replace(/^\s*(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*)?(?:用户|助手|user|assistant)\s*[:：]\s*/gim, '')
+    .trim()
   const text = clean([summary, ...(Array.isArray(messages) ? messages.map(m => typeof m === 'string' ? m : m?.text ?? m?.content ?? '') : [])].filter(Boolean).join('\n'))
   if (text.length > 40000) throw new IntakeError('chat context is too long', { code: 'chat-too-long' })
   const fields = { title: '', goal: '', problem: '', acceptance: [] }

@@ -22,7 +22,10 @@ test('serves the requirements page from the live renderer', async () => {
   assert.equal(response.status, 200)
   assert.match(response.headers.get('content-type'), /text\/html/)
   assert.match(body, /REQ-PAY-001/)
-  assert.match(body, /TEST-PAY-001/)
+  assert.match(body, /REQ-PAY-004/)
+  // Test assets remain coverage evidence, not requirement rows in the list.
+  assert.doesNotMatch(body, /TEST-PAY-001/)
+  assert.match(body, /1 项标准/)
   assert.ok(body.includes('·'), 'summary uses the middle dot separator')
   assert.ok(!body.includes('路'), 'no mojibake separator')
 })

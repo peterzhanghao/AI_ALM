@@ -815,6 +815,8 @@ export function requirements(root, { requirementId = null } = {}) {
   const createdByFile = creationTimes(root, requirementFiles, readContext)
   let actualBranch = null
   try { actualBranch = execFileSync('git', ['branch', '--show-current'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null } catch {}
+  let remoteUrl = null
+  try { remoteUrl = git(root, ['remote', 'get-url', 'origin']) || null } catch {}
   const items = (requirementId === null ? requirementAssets : requirementAssets.filter(asset => asset.id === requirementId))
     .map((asset) => {
       const verifiedBy = asset.links.filter((link) => link.type === 'verified_by').map((link) => link.target)
@@ -932,7 +934,7 @@ export function requirements(root, { requirementId = null } = {}) {
         requirementId: item.id,
         path: item.candidate.architecture?.path ?? item.release.sourceControl?.architectureDocPath ?? null,
       })
-      item.development = { branch: actualBranch, headSha, dedicated: /^(feature|feat|fix|codex|alm)\//.test(actualBranch ?? ''), repository: projectInfo?.repo ?? null, integrationBranch: project?.github?.workflow?.integrationBranch ?? 'develop', releaseBranch: project?.defaultBranch ?? 'main' }
+      item.development = { branch: actualBranch, headSha, remoteUrl, dedicated: /^(feature|feat|fix|codex|alm)\//.test(actualBranch ?? ''), repository: projectInfo?.repo ?? null, integrationBranch: project?.github?.workflow?.integrationBranch ?? 'develop', releaseBranch: project?.defaultBranch ?? 'main' }
       // The canonical rule lives in alm-core's deliveryStateFor: only a round
       // that can actually make progress is 推进中; one parked on a human,
       // paused, failed, cancelled, finished or heartbeat-lost rolls back to

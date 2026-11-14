@@ -15,6 +15,13 @@ import * as core from '../alm-core/src/acceptance/acceptance.mjs'
 const ALLOWED_BINARIES = ['node', 'npm', 'pnpm']
 const MAX_COMMANDS = 10
 const MAX_TIMEOUT = 10 * 60 * 1000
+// Kept in sync with blueprint-guard.mjs. This adapter is deliberately
+// self-contained: a host that has not restarted still caches the old alm-core
+// module, so new core exports cannot be relied on here.
+const VERIFICATION_MAX_FILES = 8
+const VERIFICATION_BASE_TIMEOUT_MS = 30_000
+const VERIFICATION_TIMEOUT_PER_FILE_MS = 15_000
+const VERIFICATION_TIMEOUT_MAX_MS = 180_000
 
 export class RegistryError extends Error {
   constructor(message, { code = 'acceptance-config', status = 400 } = {}) {
@@ -59,6 +66,23 @@ function parseArgs(text) {
   return args
 }
 
+/** Mirror of the core registration guard; this adapter cannot import new core exports. */
+function boundedVerificationCommand(command, timeoutMs, index) {
+  const files = Array.isArray(command) && command[0] === 'node' && command.includes('--test')
+    ? command.slice(command.indexOf('--test') + 1).filter(part => part && !part.startsWith('-'))
+    : []
+  if (files.length === 0) return timeoutMs
+  if (files.length > VERIFICATION_MAX_FILES) {
+    throw new RegistryError(
+      `第 ${index + 1} 条命令包含 ${files.length} 个测试文件，超出单条上限 ${VERIFICATION_MAX_FILES}；请收窄为本需求用例或拆成多条命令。`,
+      { code: 'verification-scale-exceeded', status: 409 },
+    )
+  }
+  const required = Math.min(VERIFICATION_TIMEOUT_MAX_MS,
+    VERIFICATION_BASE_TIMEOUT_MS + (files.length - 1) * VERIFICATION_TIMEOUT_PER_FILE_MS)
+  return Math.max(timeoutMs, required)
+}
+
 function normalize(input) {
   const raw = Array.isArray(input) ? input : [{ id: 'verify', command: input }]
   if (raw.length === 0) throw new RegistryError('至少需要一条验收命令', { code: 'no-commands', status: 409 })
@@ -85,7 +109,8 @@ function normalize(input) {
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT) {
       throw new RegistryError(`第 ${index + 1} 条命令的 timeoutMs 必须在 1-${MAX_TIMEOUT} 之间`, { code: 'invalid-timeout' })
     }
-    return { id: entry?.id ?? `cmd-${index + 1}`, command: [...command], timeoutMs }
+    const boundedTimeoutMs = boundedVerificationCommand(command, timeoutMs, index)
+    return { id: entry?.id ?? `cmd-${index + 1}`, command: [...command], timeoutMs: boundedTimeoutMs }
   })
 }
 

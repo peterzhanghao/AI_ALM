@@ -27,19 +27,18 @@ function item(overrides = {}) {
   }
 }
 
-test('deriveAcceptanceCommand prefers the test script and the detected runner', () => {
+test('deriveAcceptanceCommand produces only requirement-scoped test files', () => {
   const root = repo({
     'package.json': JSON.stringify({ scripts: { test: 'node --test', ci: 'node --test && node bin/alm.mjs' } }),
     'pnpm-lock.yaml': '',
+    'packages/demo/src/feature.mjs': 'export const feature = true\n',
+    'packages/demo/test/feature.test.mjs': "import test from 'node:test'\ntest('feature', () => {})\n",
   })
-  const derived = deriveAcceptanceCommand(root)
-  assert.equal(derived.name, 'test')
-  assert.deepEqual(derived.command, ['pnpm', 'test'])
-  assert.equal(derived.timeoutMs, 600000)
-  assert.match(derived.reason, /scripts\.test/)
-
-  const npmRoot = repo({ 'package.json': JSON.stringify({ scripts: { test: 'node --test' } }), 'package-lock.json': '{}' })
-  assert.deepEqual(deriveAcceptanceCommand(npmRoot).command, ['npm', 'test'])
+  const derived = deriveAcceptanceCommand(root, { investigationEvidence: [{ path: 'packages/demo/src/feature.mjs' }] })
+  assert.deepEqual(derived.command, ['node', '--test', 'packages/demo/test/feature.test.mjs'])
+  assert.equal(derived.timeoutMs, 30000)
+  assert.match(derived.reason, /精准定向/)
+  assert.doesNotMatch(derived.command.join(' '), /pnpm test/)
 
   assert.equal(deriveAcceptanceCommand(repo({ 'package.json': JSON.stringify({ name: 'x' }) })), null)
   assert.equal(deriveAcceptanceCommand(repo()), null)
@@ -53,10 +52,12 @@ test('stepMeta falls back to checked for unknown statuses', () => {
 
 test('startReadiness separates start requirements from release evidence', () => {
   assert.equal(startReadiness(item({ status: 'archived' })).code, 'archived')
-  assert.equal(startReadiness(item({ decision: { state: 'blocked', label: '阻塞', gaps: [{ message: 'x' }] } })).code, 'review-blocked')
-  assert.equal(startReadiness(item({ decision: { state: 'needs-clarification', label: '待澄清', gaps: [] } })).code, 'needs-clarification')
-  assert.equal(startReadiness(item({ review: { stored: false } })).code, 'review-missing')
-  assert.equal(startReadiness(item({ acceptance: { registered: false } })).code, 'acceptance-missing')
+  assert.equal(startReadiness(item({ briefText: '   ' })).code, 'brief-missing')
+  assert.equal(startReadiness(item({ workspace: { healthy: false } })).code, 'workspace-damaged')
+
+  const unreviewed = startReadiness(item({ review: { stored: false }, acceptance: { registered: false, latest: null } }))
+  assert.equal(unreviewed.ready, true)
+  assert.deepEqual(unreviewed.carryOver.map(entry => entry.code), ['review-not-run', 'acceptance-missing', 'acceptance-not-run'])
 
   const ready = startReadiness(item())
   assert.equal(ready.ready, true)
@@ -75,11 +76,12 @@ test('startReadiness separates start requirements from release evidence', () => 
   assert.equal(notRun.carryOver[0].code, 'acceptance-not-run')
 })
 
-test('runPreflight registers a derived acceptance command and carries a failing run into development', async () => {
-  const root = repo({ 'package.json': JSON.stringify({ scripts: { test: 'node --test' } }), 'pnpm-lock.yaml': '' })
+test('runPreflight registers a derived acceptance command without running it before development', async () => {
+  const root = repo({ 'package.json': JSON.stringify({ scripts: { test: 'node --test' } }), 'pnpm-lock.yaml': '', 'packages/demo/src/feature.mjs': 'export const feature = true\n', 'packages/demo/test/feature.test.mjs': "import test from 'node:test'\ntest('feature', () => {})\n" })
   let itemState = item({
     decision: { state: 'acceptance-missing', label: '未登记验收命令', gaps: [{ code: 'acceptance-missing', message: '未登记验收命令' }], topGap: { code: 'acceptance-missing', message: '未登记验收命令' } },
     acceptance: { registered: false, latest: null },
+    investigationEvidence: [{ path: 'packages/demo/src/feature.mjs' }],
   })
   const calls = []
   const deps = {
@@ -92,11 +94,7 @@ test('runPreflight registers a derived acceptance command and carries a failing 
       calls.push(['applyAcceptanceConfig', commands])
       itemState = { ...itemState, acceptance: { registered: true, latest: null } }
     },
-    runAcceptance: () => {
-      calls.push('runAcceptance')
-      itemState = { ...itemState, acceptance: { registered: true, latest: { result: 'fail', current: true, commands: 1, finishedAt: '2026-01-01T00:00:00.000Z', file: '.alm/acceptance/REQ-T-001/def.json' } } }
-      return { result: 'fail', evidence: { result: 'fail', file: '.alm/acceptance/REQ-T-001/def.json', commands: [{ id: 'cmd-1' }] } }
-    },
+    runAcceptance: () => { throw new Error('must not execute acceptance before development') },
   }
   const record = await runPreflight({ root, requirementId: 'REQ-T-001', apply: true, deps })
 
@@ -104,13 +102,57 @@ test('runPreflight registers a derived acceptance command and carries a failing 
   assert.equal(record.applied, true)
   assert.deepEqual(record.steps.map((step) => step.code), ['review-check', 'acceptance-configure', 'acceptance-run'])
   assert.equal(record.steps[1].status, 'fixed')
-  assert.match(record.steps[1].detail, /scripts\.test/)
+  assert.match(record.steps[1].detail, /精准定向/)
   assert.equal(record.steps[2].status, 'carry-over')
   assert.equal(record.readiness.ready, true)
-  assert.equal(record.carryOver[0].code, 'acceptance-failed')
+  assert.equal(record.carryOver[0].code, 'acceptance-not-run')
   assert.equal(record.question, null)
-  assert.equal(calls.filter((entry) => entry === 'runAcceptance').length, 1)
-  assert.deepEqual(calls.find((entry) => Array.isArray(entry))[1], [{ id: 'cmd-1', command: ['pnpm', 'test'], timeoutMs: 600000 }])
+  assert.equal(calls.filter((entry) => entry === 'runAcceptance').length, 0)
+  assert.deepEqual(calls.find((entry) => Array.isArray(entry))[1], [{ id: 'cmd-1', command: ['node', '--test', 'packages/demo/test/feature.test.mjs'], timeoutMs: 30000 }])
+})
+
+test('runPreflight replaces a legacy generic pnpm test binding with the targeted set', async () => {
+  const root = repo({
+    'packages/demo/src/feature.mjs': 'export const feature = true\n',
+    'packages/demo/test/feature.test.mjs': "import test from 'node:test'\ntest('feature', () => {})\n",
+  })
+  let itemState = item({
+    acceptance: { registered: true, commands: [{ id: 'cmd-1', command: ['pnpm', 'test'] }], latest: { result: 'fail', current: true } },
+    investigationEvidence: [{ path: 'packages/demo/src/feature.mjs' }],
+  })
+  const updates = []
+  const record = await runPreflight({ root, requirementId: 'REQ-T-001', apply: true, deps: {
+    inspect: () => ({ requirements: [itemState] }),
+    applyAcceptanceConfig: commands => {
+      updates.push(commands)
+      itemState = { ...itemState, acceptance: { registered: true, commands, latest: null } }
+    },
+  } })
+  assert.deepEqual(updates, [[{ id: 'cmd-1', command: ['node', '--test', 'packages/demo/test/feature.test.mjs'], timeoutMs: 30000 }]])
+  assert.equal(record.steps.find(step => step.code === 'acceptance-configure')?.status, 'fixed')
+  assert.doesNotMatch(updates[0][0].command.join(' '), /pnpm test/)
+})
+
+test('runPreflight replaces an oversized fixed-budget binding instead of repeating its timeout', async () => {
+  const root = repo({
+    'packages/demo/src/feature.mjs': 'export const feature = true\n',
+    'packages/demo/test/feature.test.mjs': "import test from 'node:test'\ntest('feature', () => {})\n",
+  })
+  const wide = Array.from({ length: 51 }, (_, index) => `packages/demo/test/feature-${index}.test.mjs`)
+  let itemState = item({
+    acceptance: { registered: true, commands: [{ id: 'cmd-1', command: ['node', '--test', ...wide], timeoutMs: 30000 }], latest: { result: 'fail', current: true } },
+    investigationEvidence: [{ path: 'packages/demo/src/feature.mjs' }],
+  })
+  const updates = []
+  await runPreflight({ root, requirementId: 'REQ-T-001', apply: true, deps: {
+    inspect: () => ({ requirements: [itemState] }),
+    applyAcceptanceConfig: commands => {
+      updates.push(commands)
+      itemState = { ...itemState, acceptance: { registered: true, commands, latest: null } }
+    },
+  } })
+  assert.equal(updates.length, 1)
+  assert.deepEqual(updates[0], [{ id: 'cmd-1', command: ['node', '--test', 'packages/demo/test/feature.test.mjs'], timeoutMs: 30000 }])
 })
 
 test('runPreflight carries a known failing run instead of re-running it', async () => {
@@ -138,7 +180,31 @@ test('runPreflight carries a known failing run instead of re-running it', async 
   assert.equal(record.question, null)
 })
 
-test('runPreflight asks the user only for a review blocker and skips execution in preview mode', async () => {
+test('runPreflight starts an unreviewed requirement with a failed acceptance as development carry-over', async () => {
+  const root = repo({ 'package.json': JSON.stringify({ scripts: { test: 'node --test' } }) })
+  const unreviewed = item({
+    decision: { state: 'failed', label: '执行失败', gaps: [{ code: 'acceptance-failed', message: '验收执行失败，不能视为通过' }], topGap: { code: 'acceptance-failed', message: '验收执行失败，不能视为通过' } },
+    review: { stored: false },
+    acceptance: { registered: true, latest: { result: 'fail', current: true, commands: 1, finishedAt: '2026-01-01T00:00:00.000Z', file: '.alm/acceptance/REQ-T-001/abc.json' } },
+  })
+  const record = await runPreflight({
+    root,
+    requirementId: 'REQ-T-001',
+    apply: true,
+    deps: {
+      inspect: () => ({ requirements: [unreviewed] }),
+      applyAcceptanceConfig: () => { throw new Error('already registered') },
+      runAcceptance: () => { throw new Error('known failed acceptance must not rerun before development') },
+    },
+  })
+  assert.equal(record.readiness.ready, true, JSON.stringify(record))
+  assert.equal(record.question, null)
+  assert.equal(record.steps.find(step => step.code === 'review-run')?.status, 'carry-over')
+  assert.ok(record.carryOver.some(entry => entry.code === 'review-not-run'))
+  assert.ok(record.carryOver.some(entry => entry.code === 'acceptance-failed'))
+})
+
+test('runPreflight carries an old review blocker into development and skips execution in preview mode', async () => {
   const root = repo({ 'package.json': JSON.stringify({ scripts: { test: 'node --test' } }) })
   const blocked = item({
     decision: { state: 'blocked', label: '评审阻塞', gaps: [{ code: 'review-blocked', message: '评审有 2 个阻塞项' }], topGap: { code: 'review-blocked', message: '评审有 2 个阻塞项' } },
@@ -155,8 +221,8 @@ test('runPreflight asks the user only for a review blocker and skips execution i
     },
   }
   const record = await runPreflight({ root, requirementId: 'REQ-T-001', apply: false, deps })
-  assert.equal(record.question.code, 'review-blocked')
-  assert.deepEqual(record.question.options.map((option) => option.id), ['proceed', 'cancel'])
+  assert.equal(record.readiness.ready, true)
+  assert.equal(record.question, null)
   assert.equal(record.steps.some((step) => step.code === 'acceptance-run'), false)
 })
 

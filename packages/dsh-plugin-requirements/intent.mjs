@@ -94,9 +94,18 @@ function normalizeGrillAnswers(value) {
 }
 
 function grillState(skill, previous, answers = []) {
-  if (!skill) return { status: 'local', name: null, source: null, wrapper: null, round: previous?.round ?? 0, answers: previous?.answers ?? [] }
+  if (!skill) return { status: 'local', outcome: 'unavailable', name: null, source: null, wrapper: null, round: previous?.round ?? 0, answers: previous?.answers ?? [] }
   const history = [...(Array.isArray(previous?.answers) ? previous.answers : []), ...answers].slice(-12)
-  return { status: 'loaded', name: skill.name, source: skill.source, wrapper: skill.wrapper ?? null, round: Math.max(1, Number(previous?.round ?? 0) + (answers.length ? 1 : 0)), answers: history }
+  return { status: 'loaded', outcome: 'pending', failureCode: null, name: skill.name, source: skill.source, wrapper: skill.wrapper ?? null, round: Math.max(1, Number(previous?.round ?? 0) + (answers.length ? 1 : 0)), answers: history }
+}
+
+function localGrillState(grill, outcome) {
+  if (grill?.status !== 'loaded') return grill
+  return {
+    ...grill,
+    outcome,
+    failureCode: outcome === 'fallback' ? 'ai-call-failed' : null,
+  }
 }
 
 function grillPrompt(skill, state) {
@@ -847,13 +856,31 @@ function ensureManualStub(session) {
 
 function suggestedLocalDraft(raw, draft, structured) {
   const cleanRaw = raw.replace(/^(?:我希望|希望|我想|请|需要)\s*/, '').trim()
+  const autoTitleLimit = 50
   const conciseTitle = (value) => {
     const normalized = String(value ?? '').replace(/\s+/g, ' ').trim()
-    if (normalized.length <= 28) return normalized
+    if (normalized.length <= autoTitleLimit) return normalized
     const firstClause = normalized.split(/[。！？；;\n]/)[0]?.trim() || normalized
-    const preferred = firstClause.length > 28 ? firstClause.slice(0, 28) : firstClause
+    const preferred = firstClause.length >= autoTitleLimit ? firstClause.slice(0, autoTitleLimit - 1) : firstClause
     return `${preferred.replace(/[，,、\s]+$/, '')}…`
   }
+  const distilledTitle = (() => {
+    // A fallback title must remain searchable.  A character limit only prevents
+    // overflow; it cannot turn a long user sentence into a requirement name.
+    const describesPlugin = /需求插件|插件/.test(cleanRaw)
+    const hasEvidence = /(?:数据指标|核心指标|指标)/.test(cleanRaw) && /证据/.test(cleanRaw)
+    const hasInsight = /洞察|分析/.test(cleanRaw)
+    const hasIteration = /迭代|优化/.test(cleanRaw)
+    return describesPlugin && hasEvidence && hasInsight && hasIteration
+      ? '需求插件效能数据洞察与迭代优化'
+      : null
+  })()
+  const selfHealingTitle = /需求插件|插件/.test(cleanRaw)
+    && /(?:报错|错误|bug)/i.test(cleanRaw)
+    && /自动修复/.test(cleanRaw)
+    && /(?:自动重启|重启)/.test(cleanRaw)
+    ? '需求插件故障自动修复与重启'
+    : null
   const goal = draft.goal || cleanRaw
   // Commas in Chinese conditional clauses carry the rule itself.  Never turn
   // “如果…，就…” into separate acceptance fragments; only sentence/list
@@ -866,11 +893,15 @@ function suggestedLocalDraft(raw, draft, structured) {
   const cleaned = clauses.map(s => s.replace(/^(?:我希望|希望|能够|可以|支持|需要|让用户能够)\s*/, ''))
   const valueGrill = /拷问|grill/i.test(raw) && /需求|价值/.test(raw)
   const descriptive = [context, ...cleaned].filter(Boolean).join('，')
-  const title = conciseTitle(draft.title || titleOverride || (valueGrill ? '需求澄清支持拷问 Skills 评估需求价值' : descriptive) || '待澄清需求')
+  const title = conciseTitle(draft.title || titleOverride || (valueGrill ? '需求澄清支持拷问 Skills 评估需求价值' : selfHealingTitle || distilledTitle || descriptive) || '待澄清需求')
   const inferred = valueGrill ? [
     '在需求澄清阶段支持使用拷问 Skills 对需求进行追问。',
     '通过追问识别需求的业务价值，并向用户展示评估结果。',
     '用户可以补充回答并确认需求的价值与边界。',
+  ] : selfHealingTitle ? [
+    '需求插件功能发生非网络错误时，系统应收集可用于定位的故障证据并启动自动修复。',
+    '自动修复完成后，系统应重启需求插件并记录恢复验证结果。',
+    '无法自动修复或恢复验证失败时，系统应保留故障证据并交由人工处理。',
   ] : titleOverride
     ? ['当用户手动修改过需求标题后，AI 自动提炼不得覆盖该标题。']
     : cleaned.map(clause => `${context ? `${context}：` : ''}${clause.replace(/[。！？]$/, '')}。`).filter(s => s.length > 4)
@@ -885,12 +916,12 @@ function suggestedLocalDraft(raw, draft, structured) {
   return { title, goal, problem, acceptance }
 }
 
-async function localIntentDraft({ root, session, draft, structured, now }) {
+async function localIntentDraft({ root, session, draft, structured, now, grillOutcome = 'not-needed' }) {
   const raw = String(session.input?.text ?? '').trim()
   const { title, goal, problem, acceptance } = suggestedLocalDraft(raw, draft, structured)
   const item = { ...manualStubItem(session), userProblem: problem, desiredOutcome: goal,
     candidate: { title, problem, goal, acceptance: acceptance.map(entry => ({ expected: entry.text, judgement: entry.text })) } }
-  const base = { ...session, items: [item], state: 'ready_for_confirmation', error: null, analysisRetryRequired: false, nextQuestion: null }
+  const base = { ...session, grill: localGrillState(session.grill, grillOutcome), items: [item], state: 'ready_for_confirmation', error: null, analysisRetryRequired: false, nextQuestion: null }
   const next = await core.setDocDraft({ root, session: base, patch: false, now: now(), docDraft: { title, goal, problem, acceptance, pending: [] } })
   const readiness = readinessFor(next, next.context, null, root)
   return { ok: true, session: projectSession(next, readiness), readiness, localFallback: !structured }
@@ -1400,7 +1431,7 @@ async function runAnalysis({
     let timeout
     const output = await Promise.race([
       streamOutput({ stream, selection, messages: messagesToSend, signal: controller.signal, onFirstToken: () => { if (firstTokenAt === null) firstTokenAt = Date.now() } }),
-      new Promise((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new IntentHttpError('ai-call-failed', 'AI 调用超时', { status: 502 })) }, 8000) }),
+      new Promise((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new IntentHttpError('ai-call-failed', 'AI 调用超时', { status: 502 })) }, grillInstruction ? 20_000 : 8_000) }),
     ]).finally(() => clearTimeout(timeout))
     const modelMs = Date.now() - streamStartedAt
     if (Number.isFinite(modelMs) && modelMs >= 0) timing.modelMs = (timing.modelMs ?? 0) + Math.round(modelMs)
@@ -1522,7 +1553,7 @@ async function runAnalysis({
     try {
       applied = await withIntentSessionLock(root, session.sessionId, async () => {
         const latest = await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId, baseSessionRevision })
-        return core.recordAnalysis({
+        const recorded = await core.recordAnalysis({
           root,
           // A failed attempt marked the session with a transient error; a
           // successful retry clears it so the UI never shows a stale failure.
@@ -1536,6 +1567,9 @@ async function runAnalysis({
           ...(baseSessionRevision === undefined ? {} : { baseSessionRevision }),
           timing: timingSnapshot(),
         })
+        return grillSkill && recorded?.grill?.status === 'loaded'
+          ? persist(root, { ...recorded, grill: { ...recorded.grill, outcome: 'applied', failureCode: null } })
+          : recorded
       })
     } catch (error) {
       throw toIntentHttpError(error, 'ai-invalid-output')
@@ -2001,7 +2035,7 @@ async function handleAnalyze({ root, body, resolveAiSelection, aiStreamFor, now 
       if (creatingSession && !selectedRequirementId) return withIntentSessionLock(root, session.sessionId, async () => {
         const latest = await requireSession(root, session.sessionId)
         assertSameRevision(latest)
-        return withMatchedReq(await localIntentDraft({ root, session: latest, draft: localDraft, structured: false, now }))
+        return withMatchedReq(await localIntentDraft({ root, session: latest, draft: localDraft, structured: false, now, grillOutcome: 'fallback' }))
       })
     }
     throw error
@@ -2098,7 +2132,6 @@ async function handleAnswer({ root, body, resolveAiSelection, aiStreamFor, now }
   // the authoritative answer text remains in core's immutable answer journal.
   if (recorded.changed !== false && next.grill?.status === 'loaded') {
     next = await persist(root, { ...next, grill: { ...next.grill, round: Math.max(1, Number(next.grill.round ?? 1) + 1) } })
-    saved = true
   }
 
   // Idempotent replay (identical answers already active): nothing changed, so

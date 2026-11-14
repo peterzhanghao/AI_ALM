@@ -80,7 +80,7 @@ test('delivery progress renders the structured architecture ledger and Git commi
     acceptance: { registered: true, latest: { result: 'pass', current: true, complete: true } },
     candidate: { exists: true, id: 'CAND-REQ-LEDGER-001', current: true },
     decision: { state: 'verified' },
-    release: { exists: true, id: 'REL-LEDGER', status: 'released', sourceControl: { devBranch: 'develop', devCommitSha: '1234567890abcdef', mainBranch: 'main', mainMergeCommitSha: 'abcdef0123456789', pushedToRemoteDev: true, pushedToMain: true } },
+    release: { exists: true, id: 'REL-LEDGER', status: 'released', sourceControl: { remoteUrl: 'https://github.com/peterzhanghao/AI_ALM.git', devBranch: 'develop', devCommitSha: '1234567890abcdef', mainBranch: 'main', mainMergeCommitSha: 'abcdef0123456789', pushedToRemoteDev: true, pushedToMain: true } },
     architectureLedger: { path: 'requirements/architecture/REQ-LEDGER-001-design.md', title: 'REQ-LEDGER-001 架构与数据模型交付档案', baseline: ['需求：REQ-LEDGER-001 · v1'], modules: [{ path: 'packages/alm-core/src/requirements/release.mjs', role: '需求领域模型、验证与交付状态' }], contracts: ['沿用既有数据与接口契约。'], verification: ['AC-01：通过'] },
   })
   const entry = `import React from 'react'; import {createRoot} from 'react-dom/client'; window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestProgress = ExecutionProgress;\n' + marker)} const item=${JSON.stringify(item)}, detail=${JSON.stringify(detail)}; createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestProgress,{item,detail,root:'D:/test',handlers:{},onRefresh:()=>{}}));`
@@ -94,6 +94,11 @@ test('delivery progress renders the structured architecture ledger and Git commi
     assert.equal(await page.getByText('packages/alm-core/src/requirements/release.mjs：需求领域模型、验证与交付状态').isVisible(), true)
     assert.equal(await page.locator('[data-dev-commit-badge]').isVisible(), true)
     assert.equal(await page.locator('[data-main-commit-badge]').isVisible(), true)
+    const githubLinks = page.locator('[data-release-summary] [data-github-delivery-links] a')
+    assert.equal(await githubLinks.count(), 3)
+    assert.equal(await githubLinks.first().getAttribute('target'), '_blank')
+    assert.equal(await githubLinks.first().getAttribute('rel'), 'noopener')
+    assert.match(await githubLinks.first().getAttribute('href'), /github\.com\/peterzhanghao\/AI_ALM\/commit\/abcdef0123456789$/)
   } finally { await browser.close() }
 })
 
@@ -556,7 +561,7 @@ test('list and timeline present real origin, pending confirmation and human-read
     assert.match(await diff.innerText(), /旧目标.*新目标/s)
     assert.doesNotMatch(await diff.innerText(), /docHashChanged|featureIds|查看相关分区/)
     assert.equal(await diff.getByText('保持', { exact: true }).first().isVisible(), false)
-    await diff.getByText(/查看完整验收标准对比/).click()
-    assert.equal(await diff.getByText(/AC-02 · 保持/).count(), 2)
+    assert.equal(await diff.getByText(/查看完整验收标准对比/).count(), 0)
+    assert.equal(await diff.getByText(/AC-02 · 保持/).count(), 0)
   } finally { await browser.close() }
 })

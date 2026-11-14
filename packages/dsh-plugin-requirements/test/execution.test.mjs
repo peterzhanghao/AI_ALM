@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import RequirementsService from '../index.js'
@@ -202,11 +203,9 @@ test('start creates one host session, records the run and never duplicates it', 
     assert.match(text, /REQ-PAY-001/)
     assert.match(text, /node --test/)
     assert.match(text, /decision\.md/)
-    assert.ok(text.includes(`本次运行：${execution.runId}`))
     assert.ok(text.includes(`.alm/runs/${execution.runId}-decision.md`))
-    assert.ok(text.includes('## 决策 N：<问题>'))
-    assert.ok(text.includes('## 等待期间我还能做什么'))
-    assert.ok(text.includes('不要把技术方案 A/B/C 交给产品经理'))
+    assert.match(text, /严禁删改验收标准/)
+    assert.match(text, /完成后输出简明中文总结/)
 
     const runFile = join(root, '.alm/runs', `${execution.runId}.json`)
     assert.equal(existsSync(runFile), true)
@@ -397,8 +396,7 @@ test('answering a decision request continues the same host session', async () =>
     assert.equal(followed[1].role, 'user')
     assert.match(followed[1].content[0].text, /选 A：接受范围内门禁证据/)
     assert.ok(followed[1].content[0].text.includes(`.alm/runs/${execution.runId}-decision.md`))
-    assert.ok(followed[1].content[0].text.includes('## 决策 N：<问题>'))
-    assert.ok(followed[1].content[0].text.includes('产品经理只决定'))
+    assert.ok(followed[1].content[0].text.includes('- 本次续跑指令：选 A：接受范围内门禁证据'))
 
     const stored = JSON.parse(readFileSync(join(root, '.alm/runs', execution.runId + '.json'), 'utf8'))
     assert.equal(stored.answers.length, 1)
@@ -533,6 +531,9 @@ test('a delivery run keeps a heartbeat while the agent works and stops it when t
 
 test('a restart starts a new run from the previous checkpoint instead of faking the old one', async () => {
   const root = tempRoot()
+  execFileSync('git', ['init', '-q'], { cwd: root })
+  execFileSync('git', ['add', '-A'], { cwd: root })
+  execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init'], { cwd: root })
   const presets = { resolve: async (name) => ({ id: name }), mount: async () => {} }
   const makeAgents = (calls) => ({
     async create(options) {
@@ -560,16 +561,15 @@ test('a restart starts a new run from the previous checkpoint instead of faking 
   const calls = []
   const two = service({ agents: makeAgents(calls), presets })
   try {
-    const restarted = await two.instance.restartDeliveryRun({ root, requirementId: item.id })
+    const restarted = await two.instance.restartDeliveryRun({ root, requirementId: item.id, authorizationSubject: { id: 'human:local', kind: 'human' } })
     assert.equal(restarted.restarted, true)
     assert.equal(restarted.previousRunId, previousRunId)
     assert.notEqual(restarted.runId, previousRunId)
     const text = calls[0].content[0].text
-    assert.match(text, /从中断处继续/)
+    assert.match(text, /上一轮中断原因/)
     assert.match(text, /会话在宿主重启时中断/)
     assert.ok(text.includes(`.alm/runs/${restarted.runId}-decision.md`))
-    assert.ok(text.includes('## 决策 N：<问题>'))
-    assert.ok(text.includes('产品经理只决定'))
+    assert.ok(text.includes('- 本次续跑指令：上一轮中断原因'))
   } finally {
     two.dispose()
     rmSync(root, { recursive: true, force: true })

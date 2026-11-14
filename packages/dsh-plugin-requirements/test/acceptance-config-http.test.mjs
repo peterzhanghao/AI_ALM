@@ -76,6 +76,11 @@ test('acceptance-config registers a command registry and then acceptance can run
       assert.equal(unsafe.payload.error.code, 'test-scope-required')
       assert.equal(existsSync(plan), false)
 
+      const generic = await post('acceptance-config', { requirementId: 'REQ-PAY-001', commands: ['pnpm test'] })
+      assert.equal(generic.status, 409)
+      assert.equal(generic.payload.error.code, 'generic-test-command')
+      assert.equal(existsSync(plan), false)
+
       const preview = await post('acceptance-config', {
         requirementId: 'REQ-PAY-001',
         commands: ['node --test test/requirement.test.mjs'],
@@ -101,6 +106,32 @@ test('acceptance-config registers a command registry and then acceptance can run
       assert.equal(rejected.status, 400)
       assert.equal(rejected.payload.error.code, 'binary-not-allowed')
       assert.deepEqual(JSON.parse(readFileSync(plan, 'utf8')).commands[0].command, ['node', '-e', 'process.exit(0)'])
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('acceptance-config rejects oversized test sets and lifts an insufficient budget', async () => {
+  const dir = tempFixture('alm-acceptance-scale-')
+  try {
+    await withService(dir, async ({ post }) => {
+      const files = Array.from({ length: 9 }, (_, index) => `test/case-${index}.test.mjs`)
+      const rejected = await post('acceptance-config', {
+        requirementId: 'REQ-PAY-001',
+        commands: [{ id: 'wide', command: ['node', '--test', ...files], timeoutMs: 30000 }],
+        apply: true,
+      })
+      assert.equal(rejected.status, 409)
+      assert.equal(rejected.payload.error.code, 'verification-scale-exceeded')
+      assert.equal(existsSync(join(dir, '.alm/acceptance/REQ-PAY-001.json')), false)
+
+      const preview = await post('acceptance-config', {
+        requirementId: 'REQ-PAY-001',
+        commands: [{ id: 'focused', command: ['node', '--test', ...files.slice(0, 4)], timeoutMs: 1000 }],
+      })
+      assert.equal(preview.status, 200)
+      assert.equal(preview.payload.commands[0].timeoutMs, 75000)
     })
   } finally {
     rmSync(dir, { recursive: true, force: true })
