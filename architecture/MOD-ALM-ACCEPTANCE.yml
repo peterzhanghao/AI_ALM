@@ -1,0 +1,12 @@
+schema_version: 1
+id: MOD-ALM-ACCEPTANCE
+type: module
+title: 验收执行与证据链
+status: accepted
+owner: alm-core
+role: 定向验收命令的执行、证据落盘与重绑定
+paths:
+  - packages/alm-core/src/acceptance/
+tests:
+  - packages/alm-core/test/unit/acceptance.test.mjs
+links: []

@@ -13,12 +13,12 @@ import { acceptanceSummary } from '../alm-core/src/acceptance/acceptance.mjs'
 import { candidateView, worktreeSnapshot } from '../alm-core/src/requirements/candidate.mjs'
 import { DELIVERY_LABELS, deliveryStateFor, isClosed, readClosure } from '../alm-core/src/requirements/delivery.mjs'
 import { releaseViewFor } from '../alm-core/src/requirements/release.mjs'
-import { readArchitectureLedger } from '../alm-core/src/requirements/arch-ledger.mjs'
 import { defectView, failureDiagnosis, listFailures } from '../alm-core/src/requirements/failure.mjs'
 import { runView, readRun } from '../alm-core/src/requirements/run.mjs'
 import { listSpecConvergences, pendingSpecDeltas, readIterationRetry, requirementSpecContext } from '../alm-core/src/requirements/convergence.mjs'
 import { resolveRunDecision } from '../alm-core/src/requirements/run-decision.mjs'
 import { inspectBlueprintScope, readBlueprint } from '../alm-core/src/requirements/blueprint-guard.mjs'
+import * as turnBriefCore from '../alm-core/src/requirements/turn-brief.mjs'
 import { presentDecisionRequest } from '../alm-core/src/requirements/decision-presentation.mjs'
 import { signoffView } from '../alm-core/src/requirements/signoff.mjs'
 import { decideEvidence } from '../alm-core/src/evidence/decision.mjs'
@@ -914,7 +914,22 @@ export function requirements(root, { requirementId = null } = {}) {
             }
           } catch {}
         }
-        item.run.autoAdvance = readRun(root, item.run.id)?.checkpoint?.autoAdvance ?? null
+        const storedRun = readRun(root, item.run.id)
+        item.run.autoAdvance = storedRun?.checkpoint?.autoAdvance ?? null
+        // Two-phase delivery: the plan checkpoint is the whole reason the page
+        // can show a pending方案 and offer one confirmation click instead of
+        // silently burning a turn on implementation.
+        const plan = storedRun?.checkpoint?.plan ?? null
+        const planText = (value) => (typeof value === 'string' && value.trim() ? value : null)
+        item.run.plan = plan && plan.required === true
+          ? {
+              required: true,
+              status: planText(plan.status) ?? 'pending',
+              summary: planText(plan.summary),
+              approvedAt: planText(plan.approvedAt),
+              phase: planText(storedRun?.phase),
+            }
+          : null
         try {
           const failure = listFailures(root, { requirement: item.id, limit: 1 }).at(-1)
           if (failure) item.run.failureDiagnostic = failureDiagnosis(failure)
@@ -929,11 +944,42 @@ export function requirements(root, { requirementId = null } = {}) {
         ? rejectionReview({ root, run: readRun(root, item.run.id), asset, assets, snapshot: readContext.worktreeSnapshot(root) })
         : { allowed: false, binding: null }
       item.release = releaseViewFor({ root, requirementId: item.id })
-      item.architectureLedger = readArchitectureLedger({
-        root,
-        requirementId: item.id,
-        path: item.candidate.architecture?.path ?? item.release.sourceControl?.architectureDocPath ?? null,
-      })
+      // Architecture is a module-level record carried by the candidate and the
+      // delivery commit, not a per-requirement document on disk.
+      const architectureRecord = item.candidate?.architecture ?? null
+      // White box for the delivery turn: while a run is active the page shows
+      // exactly the instruction that was (or will be) dispatched, or why the
+      // requirement cannot be dispatched at all.
+      if (item.run?.exists) {
+        try {
+          const preview = turnBriefCore.previewTurnBrief({
+            root,
+            requirementId: item.id,
+            item,
+            docView: item.docView ?? null,
+            commands: item.acceptance?.commands ?? [],
+            phase: item.run.phase === 'plan-review' ? 'plan' : null,
+          })
+          item.executionBrief = {
+            ok: preview.ok,
+            text: preview.text ?? null,
+            chars: preview.meta?.chars ?? null,
+            anchors: preview.meta?.anchors ?? [],
+            reason: preview.ok ? null : preview.reason,
+            phase: preview.meta?.phase ?? null,
+          }
+        } catch { item.executionBrief = null }
+      }
+      item.architectureLedger = architectureRecord?.changed
+        ? {
+            path: architectureRecord.path ?? null,
+            title: '架构影响（模块级）',
+            baseline: [`需求：${item.id}`],
+            modules: (architectureRecord.modules ?? []).map(entry => ({ path: entry.id, role: entry.role, title: entry.title })),
+            contracts: [],
+            verification: architectureRecord.reason ? [architectureRecord.reason] : [],
+          }
+        : null
       item.development = { branch: actualBranch, headSha, remoteUrl, dedicated: /^(feature|feat|fix|codex|alm)\//.test(actualBranch ?? ''), repository: projectInfo?.repo ?? null, integrationBranch: project?.github?.workflow?.integrationBranch ?? 'develop', releaseBranch: project?.defaultBranch ?? 'main' }
       // The canonical rule lives in alm-core's deliveryStateFor: only a round
       // that can actually make progress is 推进中; one parked on a human,

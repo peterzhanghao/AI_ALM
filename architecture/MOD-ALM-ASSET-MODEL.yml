@@ -1,0 +1,13 @@
+schema_version: 1
+id: MOD-ALM-ASSET-MODEL
+type: module
+title: 资产模型与解析
+status: accepted
+owner: alm-core
+role: 资产类型、字段校验、YAML/SDoc/Markdown 解析
+paths:
+  - packages/alm-core/src/model/
+  - packages/alm-core/src/parse/
+tests:
+  - packages/alm-core/test/unit/parse/sdoc.test.mjs
+links: []

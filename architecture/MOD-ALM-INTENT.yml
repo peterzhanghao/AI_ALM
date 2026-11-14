@@ -1,0 +1,13 @@
+schema_version: 1
+id: MOD-ALM-INTENT
+type: module
+title: 意图分析与需求结晶
+status: accepted
+owner: alm-core
+role: 对话意图结构化、澄清与需求文档生成
+paths:
+  - packages/alm-core/src/intent/
+  - packages/alm-core/src/intake/
+tests:
+  - packages/alm-core/test/unit/intent-analysis.test.mjs
+links: []

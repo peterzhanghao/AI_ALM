@@ -1,0 +1,13 @@
+schema_version: 1
+id: MOD-ALM-INDEX
+type: module
+title: 索引与命令编排
+status: accepted
+owner: alm-core
+role: 资产索引、影响闭包与 CLI 命令编排
+paths:
+  - packages/alm-core/src/index/
+  - packages/alm-core/src/commands.mjs
+tests:
+  - packages/alm-core/test/unit/index.test.mjs
+links: []

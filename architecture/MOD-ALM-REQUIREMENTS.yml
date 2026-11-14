@@ -1,0 +1,19 @@
+schema_version: 1
+id: MOD-ALM-REQUIREMENTS
+type: module
+title: 需求领域与交付生命周期
+status: accepted
+owner: alm-core
+role: 需求的采纳、交付候选、执行蓝图、架构影响与分支同步
+paths:
+  - packages/alm-core/src/requirements/
+entries:
+  - packages/alm-core/src/requirements/candidate.mjs
+  - packages/alm-core/src/requirements/turn-brief.mjs
+  - packages/alm-core/src/requirements/architecture-impact.mjs
+tests:
+  - packages/alm-core/test/unit/candidate-dev-sync.test.mjs
+  - packages/alm-core/test/unit/delivery-scope.test.mjs
+  - packages/alm-core/test/unit/turn-brief.test.mjs
+  - packages/alm-core/test/unit/architecture-impact.test.mjs
+links: []

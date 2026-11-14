@@ -1,0 +1,13 @@
+schema_version: 1
+id: MOD-ALM-WORKSPACE
+type: module
+title: 工作区与 CLI 入口
+status: accepted
+owner: alm-core
+role: 工作区边界、项目配置与命令行入口
+paths:
+  - packages/alm-core/src/workspace/
+  - packages/alm-core/src/project/
+  - packages/alm-core/src/cli.mjs
+tests: []
+links: []

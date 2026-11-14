@@ -41,9 +41,11 @@ test('candidate writes architecture ledger and commits then pushes its scoped de
   assert.equal(candidate.development.devBranch, 'develop')
   assert.match(candidate.development.devCommitSha, /^[a-f0-9]{40}$/)
   assert.equal(candidate.devCommitSha, candidate.development.devCommitSha)
-  assert.equal(existsSync(join(root, 'requirements/architecture/REQ-DEV-001-design.md')), true)
-  assert.match(readFileSync(join(root, 'requirements/architecture/REQ-DEV-001-design.md'), 'utf8'), /架构与数据模型交付档案/)
-  assert.match(readFileSync(join(root, 'requirements/architecture/ARCHITECTURE-LEDGER.md'), 'utf8'), /REQ-DEV-001/)
+  // Architecture is a module-level record on the candidate and the commit
+  // trailer. A per-requirement Markdown snapshot is deliberately not written.
+  assert.equal(existsSync(join(root, 'requirements/architecture')), false)
+  assert.equal(candidate.architecture.changed, false)
+  assert.match(git(root, ['log', '-1', '--format=%B']), /Architecture-Impact: none/)
   assert.equal(git(root, ['log', '-1', '--format=%s']), 'REQ-DEV-001: 同步需求开发分支')
   assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/develop']), candidate.development.devCommitSha)
   const repeated = createCandidate({
@@ -122,15 +124,22 @@ test('real src diff, directory authorization and architecture archive share one 
   writeFileSync(join(root, '.workbuddy/memory/2026-11-14.md'), 'local notes\n')
   mkdirSync(join(root, 'fixtures/order-refund/.alm/failures'), { recursive: true })
   writeFileSync(join(root, 'fixtures/order-refund/.alm/failures/FAIL-REQ-ALM-006-001.json'), '{}')
+  // A module registry turns architecture impact into a module-level fact.
+  mkdirSync(join(root, 'architecture'), { recursive: true })
+  writeFileSync(join(root, 'architecture/MOD-DEV-IMPL.yml'), [
+    'schema_version: 1', 'id: MOD-DEV-IMPL', 'type: module', 'title: 示例实现模块',
+    'status: accepted', 'owner: dev', 'paths:', '  - implementation.mjs', 'tests: []', 'links: []', '',
+  ].join('\n'))
 
   const asset = {
     id: 'REQ-DEV-004', title: '真实改动自动归档', source: { path: 'implementation.mjs' },
     extra: { revision: 1, brief: 'requirements/briefs/REQ-DEV-004.md' },
-    doc: { goal: '按真实改动生成架构档案并提交', acceptance: [{ id: 'AC-01', text: 'src 改动进入提交。' }] },
+    doc: { goal: '按真实改动生成模块级架构影响并提交', acceptance: [{ id: 'AC-01', text: 'src 改动进入提交。' }] },
+    links: [{ type: 'allocated_to', target: 'MOD-DEV-IMPL' }],
   }
   const scope = collectDeliveryScope({
     root,
-    allowedPaths: ['packages/', 'requirements/', 'implementation.mjs', 'package.json'],
+    allowedPaths: ['packages/', 'requirements/', 'architecture/', 'implementation.mjs', 'package.json'],
     requirementId: asset.id,
   })
   assert.equal(scope.ok, true, JSON.stringify(scope.foreign))
@@ -151,12 +160,15 @@ test('real src diff, directory authorization and architecture archive share one 
   assert.equal(candidate.development.requiresReverification, true)
   assert.equal(candidate.architecture.synced, true)
   assert.equal(candidate.architecture.changed, true)
+  assert.deepEqual(candidate.architecture.moduleIds, ['MOD-DEV-IMPL'])
+  assert.equal(candidate.architecture.path, 'architecture/MOD-DEV-IMPL.yml')
   assert.equal(git(root, ['log', '-1', '--format=%s']), 'REQ-DEV-004: 真实改动自动归档')
+  assert.match(git(root, ['log', '-1', '--format=%B']), /Architecture-Impact: MOD-DEV-IMPL/)
   const committed = git(root, ['show', '--pretty=', '--name-only', 'HEAD'])
   assert.match(committed, /implementation\.mjs/)
-  assert.match(committed, /REQ-DEV-004-design\.md/)
-  assert.match(committed, /ARCHITECTURE-LEDGER\.md/)
-  const ledger = readFileSync(join(root, 'requirements/architecture/REQ-DEV-004-design.md'), 'utf8')
-  assert.match(ledger, /implementation\.mjs/)
-  assert.doesNotMatch(ledger, /never-changed\.test\.mjs/)
+  // No per-requirement architecture document is generated any more.
+  assert.doesNotMatch(committed, /design\.md/)
+  assert.doesNotMatch(committed, /ARCHITECTURE-LEDGER\.md/)
+  // A test file that never changed is never claimed as impact.
+  assert.doesNotMatch(git(root, ['log', '-1', '--format=%B']), /never-changed/)
 })

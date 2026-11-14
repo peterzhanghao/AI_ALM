@@ -244,35 +244,41 @@ test('buildExecutionPrompt embeds the confirmed baseline, change and verificatio
     },
     executionFacts: { allowedPaths: ['packages/refund'], humanAnswers: [], evidence: null, commandLines: ['node --test'] },
   })
-  assert.match(prompt, /^# 需求交付任务：REQ-PAY-004 \(修订版本 v3\) — 支持部分退款/)
-  assert.match(prompt, /- 核心目标：同一订单与幂等键只产生一张退款单。/)
-  assert.match(prompt, /- AC-01: 退款成功/)
-  assert.match(prompt, /- 允许修改的模块\/文件范围：`packages\/refund`/)
-  assert.match(prompt, /`node --test`/)
+  assert.match(prompt, /^# REQ-PAY-004 — 支持部分退款/)
+  assert.match(prompt, /目标：同一订单与幂等键只产生一张退款单。/)
+  assert.match(prompt, /AC-01 退款成功/)
   assert.match(prompt, /开始交付变更 CHG-001/)
+  assert.match(prompt, /验证：只运行 node --test/)
+  assert.match(prompt, /不要运行全量测试/)
   assert.doesNotMatch(prompt, /docHash/)
+  // The contract is a short instruction, not a file dump.
+  assert.ok(prompt.length <= 900, `prompt stays within budget, got ${prompt.length}`)
 })
 
 test('buildExecutionPrompt never embeds an oversized legacy brief body', () => {
-  const body = 'x'.repeat(60001)
+  const body = `# 目标\n\n保持退款幂等。\n\n# 验收\n\n重复提交只产生一张退款单。\n\n${'x'.repeat(60001)}`
   const prompt = buildExecutionPrompt({
     requirementId: 'REQ-PAY-004',
     item: { revision: 1, briefText: body },
     acceptanceCommands: [],
   })
-  assert.ok(!prompt.includes(body), 'a legacy brief body is not copied into the task brief')
-  assert.ok(prompt.length < 60001)
+  assert.ok(!prompt.includes('x'.repeat(200)), 'a legacy brief body is not copied into the task brief')
+  assert.ok(prompt.length <= 900, `prompt stays within budget, got ${prompt.length}`)
 })
 
 test('buildExecutionPrompt keeps a 12000 character legacy brief out of the prompt end to end', () => {
-  const body = `START-MARKER-${'a'.repeat(12000)}-END-MARKER`
+  const body = `# 目标\n\n保持退款幂等。\n\n# 验收\n\n重复提交只产生一张退款单。\n\n${'a'.repeat(12000)}`
   const prompt = buildExecutionPrompt({
     requirementId: 'REQ-PAY-004',
     item: { revision: 2, briefText: body },
     acceptanceCommands: [],
   })
-  assert.ok(!prompt.includes('START-MARKER-'))
+  // Neither the raw body nor a long run of it survives the contract.
   assert.ok(!prompt.includes(body))
+  assert.ok(!prompt.includes('a'.repeat(400)))
+  assert.ok(prompt.length <= 900, `prompt stays within budget, got ${prompt.length}`)
+  assert.match(prompt, /目标：保持退款幂等。/)
+  assert.match(prompt, /AC-01 重复提交只产生一张退款单。/)
 })
 
 test('createRun stores the requirement binding and runView exposes it', () => {

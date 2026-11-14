@@ -26,11 +26,22 @@ const runtimePath = path => /^(?:\.alm\/|artifacts\/|validation\/|tmp\/|\.tmp\/)
  * A commit is created in the worktree that owns the integration branch, so an
  * isolated agent worktree on another branch cannot silently commit elsewhere.
  */
-export function syncDevelopmentBranch({ root, requirementId, revision, candidateId, title, paths = [], scope = null, branch = 'develop', remote = 'origin', push = true } = {}) {
+export function syncDevelopmentBranch({ root, requirementId, revision, candidateId, title, paths = [], scope = null, architecture = null, branch = 'develop', remote = 'origin', push = true } = {}) {
   const repo = resolve(root)
   const base = {
     devBranch: branch, remote, devCommitSha: null, pushedToRemoteDev: false, reason: null, stagedPaths: [],
     committed: false, requiresReverification: false, unattributedPaths: [], noisePaths: [], worktreeRoot: null,
+    architectureTrailer: architecture?.trailer ?? null,
+  }
+  // A delivery that moved a module the requirement never claimed is rejected
+  // before anything is staged: the declaration and the change disagree, and
+  // guessing which one is right is how architecture records rot.
+  if (architecture?.blocking === true) {
+    const modules = (architecture.undeclared ?? []).join('、')
+    return {
+      ...base,
+      reason: `实现改动了需求未声明的模块（${modules}），请先在需求文档补充 allocated_to 关系后重新验收`,
+    }
   }
   if (!git(repo, ['rev-parse', '--is-inside-work-tree'], { allowFailure: true })) return { ...base, reason: '当前工作区不是 Git 仓库' }
   const target = developWorktree(repo, branch)
@@ -81,7 +92,11 @@ export function syncDevelopmentBranch({ root, requirementId, revision, candidate
   const requirementLabel = String(requirementId ?? 'REQ').replace(/[\r\n:]+/g, ' ').trim() || 'REQ'
   const subject = String(title ?? '').replace(/[\r\n]+/g, ' ').trim() || '未命名需求'
   try {
-    git(target, ['commit', '-m', `${requirementLabel}: ${subject}`])
+    // The subject stays searchable by requirement; the architecture trailer is
+    // the machine-readable record that replaces the old per-requirement file.
+    const message = [`${requirementLabel}: ${subject}`]
+    if (architecture?.trailer) message.push(architecture.trailer)
+    git(target, ['commit', '-m', message[0], ...(message[1] ? ['-m', message[1]] : [])])
   } catch (error) {
     git(target, ['reset', '--', ...toStage], { allowFailure: true })
     return { ...base, worktreeRoot: target, reason: `创建开发提交失败：${error.message}` }

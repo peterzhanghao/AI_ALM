@@ -58,6 +58,7 @@ const ACTION_LABELS = {
   'create-candidate': '生成交付候选',
   'narrow-verification': '收窄验收命令并重新验证',
   'start-fix': '🔧 让 AI 自动修复未通过项',
+  'approve-plan': '✓ 确认方案并开始实现',
   start: '交给 AI 推进',
 }
 
@@ -74,6 +75,9 @@ const ACTION_BY_KIND = {
   'acceptance-failed': 'start-fix',
   'run-rolled-back': 'start',
   'not-started': 'start',
+  // Two-phase delivery: the plan turn is done and the only way forward is one
+  // human confirmation, so it is the primary action rather than a secondary one.
+  'plan-review': 'approve-plan',
 }
 
 const RUN_REASON_LABELS = {
@@ -390,6 +394,17 @@ function summarizeRun(item) {
     sessionId: exists ? textOrNull(run.sessionId) : null,
     status: exists ? textOrNull(run.status) : null,
     phase: exists ? textOrNull(run.phase) : null,
+    // Two-phase delivery checkpoint: exposed so the drawer can explain why the
+    // turn stopped and offer exactly one confirmation.
+    plan: exists && run.plan && typeof run.plan === 'object' && run.plan.required === true
+      ? {
+          required: true,
+          status: textOrNull(run.plan.status) ?? 'pending',
+          summary: textOrNull(run.plan.summary),
+          approvedAt: textOrNull(run.plan.approvedAt),
+          approved: run.plan.status === 'approved',
+        }
+      : null,
     active: exists && run.active === true,
     stale: exists && run.stale === true,
     awaitingAnswer: exists && run.awaitingAnswer === true,
@@ -700,6 +715,12 @@ function resolveFocus(item, summaries, decision) {
   // failed. Surface the run controls first; reporting a historical result as
   // the primary state used to hide the only way out of review-result.
   if (run.exists && (run.status === 'failed' || run.stale)) return { kind: 'run-interrupted', headline: '等待恢复推进或重新验证', tone: 'danger' }
+  // Two-phase delivery: the plan turn landed but nothing may be written until a
+  // human confirms the approach. This is the one extra click, so it has to be
+  // the loudest thing on the page instead of a buried note.
+  if (run.exists && run.plan?.required === true && run.plan.status !== 'approved' && !isLiveRun(run)) {
+    return { kind: 'plan-review', headline: '方案已就绪，等待确认', tone: 'attention' }
+  }
   if (run.exists && run.idleHandback) {
     if (acceptancePassed(acceptance) && summaries.candidate?.exists !== true) {
       return { kind: 'candidate-pending', headline: '等待生成交付候选', tone: 'attention' }
@@ -780,6 +801,11 @@ function buildExplanation(item, summaries, decision, focus) {
       break
     case 'run-idle-handback':
       explanation = `运行 ${runLabel} 已把控制权交回，等待你决定下一步。`
+      break
+    case 'plan-review':
+      // Name the exact cost of the confirmation so the click is informed: the
+      // next turn writes code and runs the targeted verification.
+      explanation = `运行 ${runLabel} 只做了方案，没有改任何文件。确认后同一会话继续实现并运行定向验证；不确认就保持零改动。`
       break
     case 'awaiting-acceptance':
       explanation = candidate.exists
@@ -954,6 +980,9 @@ function actionAvailability(id, target) {
   // Preflight decides whether a fix may start, so the button itself never
   // disables.
   if (id === 'start-fix' || id === 'start') return { enabled: true, reason: null }
+  // Confirming a plan carries its own guard: the backend re-reads the checkpoint,
+  // so the button never needs to disable itself on stale page data.
+  if (id === 'approve-plan') return { enabled: true, reason: null }
   return { enabled: false, reason: '不支持的动作' }
 }
 
@@ -1377,6 +1406,19 @@ export function deriveDetailView(item, options = {}) {
     summaries,
     githubLinks,
     executionDiagnostic,
+    // White box for the dispatched turn: the drawer shows the exact text the AI
+    // receives, or the honest reason the requirement cannot be dispatched yet.
+    // Built upstream by the brief compiler so the page never re-renders prompts.
+    executionBrief: source.executionBrief && typeof source.executionBrief === 'object'
+      ? {
+          ok: source.executionBrief.ok === true,
+          text: textOrNull(source.executionBrief.text),
+          chars: intOrNull(source.executionBrief.chars),
+          anchors: asArray(source.executionBrief.anchors).map(textOrNull).filter(Boolean),
+          reason: textOrNull(source.executionBrief.reason),
+          phase: textOrNull(source.executionBrief.phase),
+        }
+      : null,
     tabs: {
       requirement: { badge: null },
       // Only items that need a human right now contribute, and a closed defect

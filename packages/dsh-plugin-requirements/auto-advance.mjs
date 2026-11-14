@@ -16,6 +16,9 @@ export function nextAutomaticAction({ run, pendingDecision, carrier, repairPendi
   const state = run?.checkpoint?.autoAdvance
   if (!state?.authorized || state.authorization?.source !== 'start-v4') return { action: 'stop', reason: 'not-authorized' }
   if (!['running', 'waiting-input'].includes(run.status)) return { action: 'stop', reason: 'run-not-active' }
+  // A plan-first round never auto-advances into implementation: that transition
+  // is the human's confirmation, not a budget-driven continuation.
+  if (run.checkpoint?.plan?.required === true && run.checkpoint.plan.status !== 'approved') return { action: 'stop', reason: 'plan-not-approved' }
   if (pendingDecision) return { action: 'decision', reason: 'human-decision-required' }
   if (run.checkpoint?.decisionReframe) return { action: 'stop', reason: 'decision-options-requested' }
   if (!carrier) return { action: 'stop', reason: 'no-authorized-carrier' }

@@ -6,6 +6,7 @@ export const BLUEPRINT_SCHEMA = 'alm.execution-blueprint/v1'
 export const WORKSPACE_IMPLEMENTATION_AUTHORIZATION = Object.freeze([
   'packages/',
   'requirements/',
+  'architecture/',
   'tests/',
   '.alm/',
   'package.json',
@@ -191,31 +192,12 @@ function layerFor(path) {
   return 'application'
 }
 
-function acceptedPaths(root, { asset, investigationEvidence, commands }) {
+function acceptedPaths(root, { asset, investigationEvidence }) {
+  // Only the requirement's own assets and evidence belong here. A verification
+  // command's test files used to be folded in as "allowed changes", which then
+  // fed `deriveVerificationCommand` more sources and grew the blueprint on every
+  // round — a two-line requirement ended up authorizing 59 files.
   const paths = sourcePaths({ asset, investigationEvidence })
-  const hasInvestigationScope = Array.isArray(investigationEvidence) && investigationEvidence.some(entry => Boolean(typeof entry === 'string' ? entry : entry?.path))
-  for (const entry of commands ?? []) {
-    const command = Array.isArray(entry?.command) ? entry.command : []
-    const marker = command.indexOf('--test')
-    if (marker >= 0) {
-      for (const argument of command.slice(marker + 1)) {
-        const safe = insideRoot(root, argument)
-        if (safe && existsSync(join(root, safe))) paths.push(safe)
-      }
-    }
-    // Non-test Node assertions (for example `node tests/check.cjs`) still
-    // identify the verification boundary and are safe to record as a path.
-    for (const argument of command.slice(1)) {
-      const safe = insideRoot(root, argument)
-      if (safe && existsSync(join(root, safe))) paths.push(safe)
-    }
-  }
-  // A newly crystallized requirement can legitimately have no investigation
-  // record yet. In that narrow case retain a conservative conventional source
-  // boundary for a root-level tests/ command, rather than creating a blueprint
-  // that makes every implementation edit an immediate decision. Explicit
-  // investigation evidence always wins and stays file-granular.
-  if (!hasInvestigationScope && paths.some(path => normalizedPath(path).startsWith('tests/')) && existsSync(join(root, 'src'))) paths.push('src/')
   return [...new Set(paths.map(path => insideRoot(root, path)).filter(Boolean))]
 }
 
@@ -227,10 +209,19 @@ export function createBlueprint({ root, runId, requirementId, asset = null, inve
   if (!/^RUN-[A-Za-z0-9-]+$/.test(String(runId ?? ''))) throw new Error('invalid runId')
   const commands = Array.isArray(acceptance?.commands) ? acceptance.commands : []
   const allowedPaths = [...new Set([
-    ...acceptedPaths(root, { asset, investigationEvidence, commands }),
+    ...acceptedPaths(root, { asset, investigationEvidence }),
     ...WORKSPACE_IMPLEMENTATION_AUTHORIZATION,
   ])]
   const acceptanceEntries = Array.isArray(asset?.doc?.acceptance) ? asset.doc.acceptance : []
+  // An oversized registered command is re-derived to a bounded set instead of
+  // being inherited: a legacy 51-file command must not define this round's scope.
+  const normalizedCommands = commands.map((entry) => {
+    const command = Array.isArray(entry?.command) ? entry.command : []
+    const diagnosis = verificationCommandDiagnosis(command, entry?.timeoutMs)
+    if (!diagnosis.oversized) return entry
+    const derived = deriveVerificationCommand({ root, investigationEvidence, asset, changedFiles: [] })
+    return derived ? { ...entry, command: derived.command, timeoutMs: derived.timeoutMs, derivedFrom: diagnosis } : entry
+  })
   return {
     schema: BLUEPRINT_SCHEMA,
     scopeMode: 'advisory',
@@ -243,13 +234,16 @@ export function createBlueprint({ root, runId, requirementId, asset = null, inve
     requirementId,
     createdAt: new Date().toISOString(),
     allowedPaths,
+    // Verification paths are recorded separately so they can never be mistaken
+    // for implementation scope.
+    verificationPaths: testFilesFromCommands(root, normalizedCommands),
     layers: [...new Set(allowedPaths.map(layerFor))],
     acVerificationMap: acceptanceEntries.map((entry, index) => ({
       id: entry?.id ?? `AC-${String(index + 1).padStart(2, '0')}`,
       check: entry?.text ?? entry?.content ?? '',
       commands: commands.map(command => command.id),
     })),
-    commands: commands.map(entry => ({ id: entry.id, command: entry.command })),
+    commands: normalizedCommands.map(entry => ({ id: entry.id, command: entry.command, ...(entry.timeoutMs ? { timeoutMs: entry.timeoutMs } : {}) })),
     baseline: baseline ? { treeHash: baseline.treeHash ?? null, files: baseline.files ?? [] } : null,
     approvedExpansions: [],
   }

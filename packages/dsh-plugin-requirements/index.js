@@ -33,6 +33,9 @@ import * as runCore from '../alm-core/src/requirements/run.mjs'
 import * as convergenceCore from '../alm-core/src/requirements/convergence.mjs'
 import * as matcherCore from '../alm-core/src/requirements/matcher.mjs'
 import * as blueprintCore from '../alm-core/src/requirements/blueprint-guard.mjs'
+// Namespace import for the turn-brief compiler: same stale-module-cache reason
+// as the other alm-core modules added after a host was started.
+import * as turnBriefCore from '../alm-core/src/requirements/turn-brief.mjs'
 // Namespace imports for the description document contract: query, detail and the
 // execution prompt all read the same parsed document instead of re-guessing
 // headings. Kept namespace-style for the same stale-module-cache reason.
@@ -64,16 +67,18 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 const NATIVE_SOURCE_BUILD_ID = typeof __ALM_SOURCE_BUILD_ID__ === 'string' ? __ALM_SOURCE_BUILD_ID__ : null
 const NATIVE_CLIENT_BUILD_ID = typeof __ALM_CLIENT_BUILD_ID__ === 'string' ? __ALM_CLIENT_BUILD_ID__ : null
 /** Prompt for resuming a round whose carrier process died mid-turn. */
-function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null }) {
+function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null, root = null }) {
   const reason = promptSafeText(previous?.failure?.message)
-  return promptTaskBrief({
+  const brief = buildExecutionPrompt({
     requirementId,
     runId,
     item,
-    restarted: true,
+    root,
     executionFacts,
-    answer: reason ? `上一轮中断原因：${reason}；按已批准范围恢复推进。` : '按已批准范围恢复推进。',
+    degraded: true,
   })
+  if (!reason) return `${brief}\n断点续跑：保留已落盘改动，先核对当前工作区再继续。`
+  return `${brief}\n上一轮中断原因：${reason}；保留已落盘改动，先核对当前工作区再继续。`
 }
 
 /** A live delivery turn beats every 45s; the reader calls it dead after 10min. */
@@ -165,75 +170,6 @@ function promptEvidenceSummary(root, run) {
   return `上次验证未通过：${log || command}`
 }
 
-function promptRequirementDocument(item, docView = null) {
-  const doc = docView?.doc && typeof docView.doc === 'object'
-    ? docView.doc
-    : item?.docView?.doc && typeof item.docView.doc === 'object'
-      ? item.docView.doc
-      : null
-  const acceptance = Array.isArray(doc?.acceptance)
-    ? doc.acceptance.filter(entry => entry?.id).map(entry => ({ id: entry.id, text: promptSafeText(entry.text ?? entry.content) })).filter(entry => entry.text)
-    : []
-  return {
-    title: promptSafeText(item?.title ?? doc?.title) || null,
-    revision: doc?.revision ?? item?.revision ?? null,
-    goal: promptSafeText(doc?.goal ?? item?.goal) || null,
-    problem: promptSafeText(doc?.problem ?? item?.problem) || null,
-    acceptance,
-  }
-}
-
-function promptTaskBrief({ requirementId, item, docView = null, executionFacts = null, executionContext = '', runId = null, answer = null, restarted = false } = {}) {
-  const document = promptRequirementDocument(item, docView)
-  const title = document.title ? ` — ${document.title}` : ''
-  const revision = document.revision ?? 1
-  const goal = document.goal ?? document.problem ?? '按当前需求基线完成实现并验证。'
-  const acceptance = document.acceptance.length
-    ? document.acceptance.map(entry => `- ${entry.id}: ${entry.text}`).join('\n')
-    : '- 以需求文档中已确认的验收要求为准。'
-  const facts = executionFacts ?? { allowedPaths: [], humanAnswers: [], evidence: null, commandLines: [] }
-  const authorization = facts.humanAnswers?.length
-    ? facts.humanAnswers.map(value => `- 已批准决策：${value}`).join('\n')
-    : '- 没有额外业务决策；按当前需求边界执行。'
-  const allowedPaths = facts.allowedPaths?.length
-    ? `- 允许修改的模块/文件范围：${facts.allowedPaths.map(path => `\`${path}\``).join('、')}`
-    : '- 允许修改范围以当前执行蓝图为准。'
-  const verification = facts.evidence ? `- 上次验证状态：${facts.evidence}` : '- 上次验证状态：尚无可用结论，先运行定向验证。'
-  const commands = facts.commandLines?.length
-    ? facts.commandLines.map(command => `  \`${command}\``).join('\n')
-    : '  （尚未登记定向验证命令）'
-  const lines = [
-    `# 需求交付任务：${requirementId} (修订版本 v${revision})${title}`,
-    '',
-    '## 一、当前已确认的需求基线（最高优先级）',
-    `- 核心目标：${goal}`,
-    '- 功能与验收标准 (AC)：',
-    acceptance,
-    '',
-    '## 二、生效中的人类决策与授权范围（已批准，请直接执行，勿重复提问）',
-    authorization,
-    allowedPaths,
-    executionFacts ? null : executionContext || null,
-    '',
-    '## 三、当前工作区进度与待解决缺口（本轮聚焦任务）',
-    restarted ? '- 本轮为断点续跑：保留已落盘改动，先核对当前工作区再继续。' : '- 本轮为同一运行的恢复推进：不要重做已完成工作。',
-    answer ? `- 本次续跑指令：${promptSafeText(answer)}` : null,
-    verification,
-    '- 本轮明确动作：',
-    '  1. 检查并补齐尚未通过的 AC 实现与对应单元测试。',
-    '  2. 只运行本需求绑定的精准定向验证命令；严禁在单需求交付中运行 pnpm test、npm test 或其他无关全局历史测试套件：',
-    commands,
-    '  3. 验证通过后生成交付候选，并输出简明中文总结。',
-    '',
-    '## 四、协作与决策边界（仅在遇到全新业务分歧时使用）',
-    '- 在已批准范围内自主检查、修改代码、补测试并只运行绑定的精准定向验收命令。',
-    '- 严禁删改验收标准或用技术实现问题反复请求已回答的业务决定。',
-    `- 只有全新的业务规则、范围或不可逆操作取舍，才写入 .alm/runs/${runId ?? '当前运行'}-decision.md。`,
-    '',
-    '完成后输出简明中文总结：完成的修改、运行的验证命令及结果、仍存在的阻塞。',
-  ]
-  return lines.filter(line => line !== null).join('\n')
-}
 
 /** Build only the execution facts an agent needs; hashes and checkpoint JSON stay on disk. */
 export function buildExecutionPromptFacts({ root, runId = null, answers = null, acceptanceCommands = null } = {}) {
@@ -248,7 +184,10 @@ export function buildExecutionPromptFacts({ root, runId = null, answers = null, 
     : acceptanceCore.readAcceptanceConfig(root, run?.requirement ?? '')?.commands ?? []
   const commandLines = commands.map(entry => promptCommandLine(entry?.command ?? entry)).filter(Boolean)
   const evidence = promptEvidenceSummary(root, run)
-  return { allowedPaths, humanAnswers, evidence, commandLines }
+  // A plan-first delivery runs one plan-only turn before any implementation.
+  const plan = run?.checkpoint?.plan ?? null
+  const phase = plan?.required === true && plan.status !== 'approved' ? 'plan' : 'implement'
+  return { allowedPaths, humanAnswers, evidence, commandLines, phase, handoff: run?.checkpoint?.handoff ?? null }
 }
 
 export function buildExecutionContext(options = {}) {
@@ -398,20 +337,52 @@ function buildAnalysisPrompt(failure) {
 
 
 /**
- * The prompt is the whole task handoff: the host session starts with no
- * context, so it must say where the requirement lives, what was agreed, how
- * to verify, and when to stop instead of guessing. Business decisions are
- * escalated, never invented.
+ * Phase of the next turn. A delivery starts with a plan-only turn unless the
+ * human has already approved the plan; everything else is implementation.
  */
-export function buildExecutionPrompt({ requirementId, changeId, runId, item, acceptanceCommands, docView = null, executionContext = null, executionFacts = null }) {
-  return promptTaskBrief({
+function turnPhaseFor(executionFacts = null, override = null) {
+  if (override === 'plan' || override === 'implement') return override
+  return executionFacts?.phase === 'plan' ? 'plan' : 'implement'
+}
+
+/**
+ * The prompt is a short, human-shaped instruction compiled from the requirement
+ * itself (see alm-core turn-brief). It replaces the old rigid template whose
+ * goal/acceptance sections rendered as placeholders whenever the requirement was
+ * stored as metadata plus a brief.
+ */
+export function buildExecutionPrompt({ requirementId, changeId, runId, item, acceptanceCommands, docView = null, executionContext = null, executionFacts = null, root = null, phase = null, override = null, degraded = false }) {
+  const compiled = turnBriefCore.compileTurnBrief({
+    root: root ?? item?.root ?? resolve(process.cwd()),
     requirementId,
+    asset: item?.asset ?? null,
     item,
     docView,
+    commands: acceptanceCommands ?? [],
+    facts: executionFacts,
+    phase: turnPhaseFor(executionFacts, phase),
     runId,
-    executionContext,
-    executionFacts,
     answer: changeId ? `开始交付变更 ${changeId}` : null,
+    handoff: executionFacts?.handoff ?? null,
+    override,
+    degraded,
+  })
+  return compiled.text
+}
+
+/** Non-throwing variant for the UI preview: shows why a turn cannot be sent. */
+export function previewExecutionPrompt(options = {}) {
+  return turnBriefCore.previewTurnBrief({
+    root: options.root ?? resolve(process.cwd()),
+    requirementId: options.requirementId,
+    asset: options.asset ?? null,
+    item: options.item ?? null,
+    docView: options.docView ?? null,
+    commands: options.acceptanceCommands ?? [],
+    facts: options.executionFacts ?? null,
+    phase: turnPhaseFor(options.executionFacts, options.phase),
+    runId: options.runId ?? null,
+    override: options.override ?? null,
   })
 }
 
@@ -420,8 +391,22 @@ export function buildExecutionPrompt({ requirementId, changeId, runId, item, acc
  * earlier. The answer is the authorization boundary for the next stretch of
  * work, so it is quoted verbatim instead of being summarized by the plugin.
  */
-export function buildResumePrompt({ requirementId, runId, item, docView = null, answer, restarted, executionContext = null, executionFacts = null }) {
-  return promptTaskBrief({ requirementId, item, docView, runId, answer, restarted, executionContext, executionFacts })
+export function buildResumePrompt({ requirementId, runId, item, docView = null, answer, restarted, executionContext = null, executionFacts = null, root = null, phase = null }) {
+  const compiled = buildExecutionPrompt({
+    requirementId,
+    runId,
+    item,
+    docView,
+    root,
+    phase,
+    executionContext,
+    executionFacts,
+    degraded: true,
+  })
+  const note = restarted
+    ? '断点续跑：保留已落盘改动，先核对当前工作区再继续。'
+    : '继续上一轮，不要重做已完成的工作。'
+  return [compiled, '', `上一轮结论：${promptSafeText(answer) || '按已批准范围继续'}`, note].join('\n')
 }
 
 /**
@@ -717,6 +702,10 @@ export default class RequirementsService {
       ['/api/alm/requirements/candidate', 'candidate'],
       ['/api/alm/requirements/release', 'release'],
       ['/api/alm/requirements/run', 'run'],
+      // L3 white box: preview the exact turn instruction, and the one-click
+      // confirmation that ends the plan turn.
+      ['/api/alm/requirements/brief-preview', 'brief-preview'],
+      ['/api/alm/requirements/approve-plan', 'approve-plan'],
     ]) {
       webServer.register({
         kind: 'exact',
@@ -1660,7 +1649,11 @@ export default class RequirementsService {
     finally { this.startingRuns.delete(key) }
   }
 
-  async startDeliveryRunUnlocked({ root, requirementId, changeId, item, restartFrom = null, autoAdvance = false, authorizationSubject = null }) {
+  async startDeliveryRunUnlocked({ root, requirementId, changeId, item, restartFrom = null, autoAdvance = false, authorizationSubject = null, planFirst = true }) {
+    // A restart already knows the direction from the previous round; only a
+    // first start spends a turn aligning on the plan. A fully authorized
+    // auto-advance round is already the human's standing approval.
+    if (restartFrom || autoAdvance) planFirst = false
     this.reconcileRuns(root)
     const runModuleReady = typeof runCore.createRun === 'function' && typeof runCore.updateRun === 'function'
     if (!runModuleReady) return { scheduled: false, reason: 'module-stale', message: '执行记录模块不可用，需重启宿主' }
@@ -1715,16 +1708,31 @@ export default class RequirementsService {
     let handle = null
     try {
       const resolved = await presets.resolve('standard')
-      // Validate the whole document before creating a carrier. The actual
-      // handoff below uses only the persisted run ID, never a guessed ID.
-      if (!restartFrom) buildExecutionPrompt({
+      // L0 gate: a requirement without a goal and acceptance cannot be
+      // dispatched. Refusing here is cheaper and more honest than sending a
+      // placeholder-filled prompt that the agent has to guess around.
+      if (!restartFrom) {
+        try {
+          buildExecutionPrompt({
             requirementId,
             changeId,
             runId: null,
             item,
             docView,
+            root,
             acceptanceCommands: item?.acceptance?.commands ?? [],
           })
+        } catch (error) {
+          if (error?.code !== 'brief-insufficient') throw error
+          return {
+            scheduled: false,
+            reason: 'brief-insufficient',
+            message: error.message,
+            detail: error.detail ?? [],
+            hint: '在需求简报中补充「目标：」「验收：」两行后重试',
+          }
+        }
+      }
       handle = await agents.create({
         sessionId,
         agentOptions: { provider: selection.provider, model: selection.model, ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }) },
@@ -1769,8 +1777,15 @@ export default class RequirementsService {
     try {
       run = runCore.createRun({
         root, requirementId, changeId, carrier: 'dsh-session', sessionId,
-        phase: 'implement', status: 'running', requirementRevision, requirementDocHash, acceptanceIds,
-        checkpoint: automaticAuthorization ? { autoAdvance: automaticAuthorization } : null,
+        phase: planFirst ? 'plan' : 'implement', status: 'running', requirementRevision, requirementDocHash, acceptanceIds,
+        // A plan-first round spends one cheap turn aligning on "which files,
+        // what change, which risk" before any edit. That is the rhythm a human
+        // uses, and it makes a wrong direction cost ninety seconds, not a
+        // twenty-minute implementation.
+        checkpoint: {
+          ...(automaticAuthorization ? { autoAdvance: automaticAuthorization } : {}),
+          ...(planFirst ? { plan: { required: true, status: 'pending', approvedAt: null, summary: null } } : {}),
+        },
       })
       if (!run.created) {
         handle?.dispose?.()
@@ -1819,10 +1834,10 @@ export default class RequirementsService {
     const message = {
       id: randomUUID(), role: 'user',
       content: [{ type: 'text', text: restartFrom ? buildRestartPrompt({
-        requirementId, runId: run.run.id, previous: restartFrom, item: latestItem,
+        requirementId, runId: run.run.id, previous: restartFrom, item: latestItem, root,
         executionFacts: buildExecutionPromptFacts({ root, runId: run.run.id, acceptanceCommands: latestItem?.acceptance?.commands ?? [] }),
       }) : buildExecutionPrompt({
-        requirementId, changeId, runId: run.run.id, item, docView, acceptanceCommands: item?.acceptance?.commands ?? [],
+        requirementId, changeId, runId: run.run.id, item, docView, root, acceptanceCommands: item?.acceptance?.commands ?? [],
         executionFacts: buildExecutionPromptFacts({ root, runId: run.run.id, acceptanceCommands: item?.acceptance?.commands ?? [] }),
       }) }],
       source: { kind: 'user' },
@@ -2168,16 +2183,67 @@ export default class RequirementsService {
       }
     }
     const pending = this.hasPendingDecision(root, latest)
+    // A plan-first round parks on an explicit yes/no instead of sliding into
+    // implementation: the human confirms three bullets, not a 20-minute diff.
+    const planPending = latest.checkpoint?.plan?.required === true && latest.checkpoint.plan.status !== 'approved'
     try {
-      runCore.updateRun({ root, runId, expectedRun: latest, status: 'waiting-input', phase: pending ? 'awaiting-human' : 'review-result',
+      runCore.updateRun({ root, runId, expectedRun: latest, status: 'waiting-input', phase: pending ? 'awaiting-human' : (planPending ? 'plan-review' : 'review-result'),
         checkpoint: pending ? latest.checkpoint : { ...latest.checkpoint, decision: null },
-        note: pending ? 'agent requested a new human decision' : 'agent went idle: verify delivery facts', apply: true })
+        note: pending ? 'agent requested a new human decision' : (planPending ? '方案已就绪，确认后进入实现' : 'agent went idle: verify delivery facts'), apply: true })
     } catch (error) {
       if (error?.code === 'run-changed') return
       throw error
     }
     if (latest.checkpoint?.autoAdvance?.authorized) this.scheduleAutomaticAdvance(root, runId)
     return 'done'
+  }
+
+  /**
+   * Approve the plan-only turn and continue into implementation in the same
+   * conversation. This is the "one extra click" half of the two-phase rhythm:
+   * the human reads three bullets and says go, instead of discovering a wrong
+   * direction after a long implementation turn.
+   */
+  async approveDeliveryPlan({ root, requirementId, actor = 'human:local', subject = null }) {
+    const active = (typeof runCore.resumableRunFor === 'function' ? runCore.resumableRunFor(root, requirementId) : null)
+      ?? (typeof runCore.activeRunFor === 'function' ? runCore.activeRunFor(root, requirementId) : null)
+    if (!active) return { approved: false, reason: 'no-active-run', message: '当前没有等待确认的方案；请先交给 AI 推进' }
+    const plan = active.checkpoint?.plan
+    if (!plan?.required) return { approved: false, reason: 'no-plan', message: '本轮没有需要确认的方案' }
+    if (plan.status === 'approved') return { approved: true, reused: true, runId: active.id, message: '方案已确认，正在实现' }
+    if (active.status !== 'waiting-input' || active.phase !== 'plan-review') {
+      return { approved: false, reason: 'plan-not-ready', message: '方案还没有生成完成，请等待本轮结束' }
+    }
+    try {
+      runCore.updateRun({
+        root, runId: active.id, expectedRun: active,
+        checkpoint: { ...active.checkpoint, plan: { ...plan, status: 'approved', approvedAt: new Date().toISOString() } },
+        note: '人工确认方案，进入实现', apply: true,
+      })
+    } catch (error) {
+      return { approved: false, reason: error?.code ?? 'run-changed', message: '运行记录已变化，请刷新后重试' }
+    }
+    const resumed = await this.resumeDeliveryRun({
+      root, requirementId, answer: '方案已确认，按该方案进入实现', actor, continuing: false, subject,
+    }).catch((error) => ({ resumed: false, reason: error?.code ?? 'resume-failed', message: error?.message ?? '续跑未能启动' }))
+    return { approved: true, runId: active.id, ...resumed }
+  }
+
+  /**
+   * L3 white box: show exactly the instruction that will be dispatched, or the
+   * reason it cannot be dispatched. The human sees the gap before paying for it.
+   */
+  previewExecutionBrief({ root, requirementId, phase = null } = {}) {
+    const item = this.requirementItem(root, requirementId)
+    const preview = previewExecutionPrompt({
+      root,
+      requirementId,
+      item,
+      docView: item?.docView ?? null,
+      acceptanceCommands: item?.acceptance?.commands ?? [],
+      phase,
+    })
+    return { ...preview, schema: 'alm.execution-brief-preview/v1', requirement: requirementId }
   }
 
   runDecision({ root, requirementId }) {
@@ -3954,6 +4020,19 @@ export default class RequirementsService {
         const child = spawn(command, [target], { detached: true, stdio: 'ignore' })
         child.unref()
         payload = { ok: true, root: target, command }
+      } else if (action === 'brief-preview') {
+        payload = {
+          ok: true,
+          ...this.previewExecutionBrief({ root, requirementId: body.requirementId, phase: body.phase ?? null }),
+        }
+      } else if (action === 'approve-plan') {
+        const approved = await this.approveDeliveryPlan({
+          root,
+          requirementId: body.requirementId,
+          actor: this.humanSubjectFor(req).id,
+          subject: this.humanSubjectFor(req),
+        })
+        payload = { ok: approved.approved !== false, ...approved }
       } else if (action === 'start') {
         const startSubject = body.apply === true && body.autoAdvance === true ? this.humanSubjectFor(req) : null
         let startItem = null

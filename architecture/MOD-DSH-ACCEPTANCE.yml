@@ -1,0 +1,11 @@
+schema_version: 1
+id: MOD-DSH-ACCEPTANCE
+type: module
+title: 验收插件
+status: accepted
+owner: dsh-plugin-acceptance
+role: 验收命令登记、执行与结果呈现
+paths:
+  - packages/dsh-plugin-acceptance/
+tests: []
+links: []

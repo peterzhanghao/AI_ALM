@@ -1,0 +1,11 @@
+schema_version: 1
+id: MOD-DSH-ARCHITECTURE
+type: module
+title: 架构插件
+status: accepted
+owner: dsh-plugin-architecture
+role: 模块关系、影响闭包与架构视图
+paths:
+  - packages/dsh-plugin-architecture/
+tests: []
+links: []

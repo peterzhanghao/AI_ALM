@@ -1,0 +1,12 @@
+schema_version: 1
+id: MOD-ALM-TASKS
+type: module
+title: 任务卡与执行提示
+status: accepted
+owner: alm-core
+role: 由需求与关系生成可执行任务卡
+paths:
+  - packages/alm-core/src/tasks/
+tests:
+  - packages/alm-core/test/unit/tasks.test.mjs
+links: []

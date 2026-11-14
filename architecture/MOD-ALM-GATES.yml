@@ -1,0 +1,11 @@
+schema_version: 1
+id: MOD-ALM-GATES
+type: module
+title: 资产门禁规则
+status: accepted
+owner: alm-core
+role: Id/关系/覆盖度/状态等校验规则包
+paths:
+  - packages/alm-core/src/gates/
+tests: []
+links: []

@@ -35,7 +35,7 @@ function fixtureRepo() {
       '',
     ].join('\n'),
   )
-  writeFileSync(join(root, 'requirements', 'briefs', 'REQ-PAY-001.md'), '# 目标\n\n列表按创建时间倒序。\n')
+  writeFileSync(join(root, 'requirements', 'briefs', 'REQ-PAY-001.md'), '# 目标\n\n列表按创建时间倒序。\n\n# 验收\n\n进入列表时按创建时间倒序排列。\n')
   writeFileSync(join(root, 'README.md'), '# fixture\n')
   mkdirSync(join(root, 'packages', 'demo', 'test'), { recursive: true })
   writeFileSync(join(root, 'packages', 'demo', 'index.js'), 'export default 1\n')
@@ -319,13 +319,12 @@ test('execution and resume prompts render a concise task brief without metadata 
     const resume = buildResumePrompt({ requirementId: run.requirement, runId: run.id, item, answer: '按已批准范围恢复推进。', restarted: false, executionFacts: { allowedPaths: ['packages/demo/index.js'], humanAnswers: ['选 A — 允许扩大到实现所需的需求插件文件'], evidence: '验证命令超时（30000ms）', commandLines: ['node --test packages/demo/test/index.test.mjs'] } })
     for (const text of [prompt, resume]) {
       assert.doesNotMatch(text, /alm:meta|baselineFingerprint|sha256:|a{64}|最新检查点：\{/i)
-      assert.match(text, /^# 需求交付任务：REQ-PAY-001 \(修订版本 v2\)/)
-      assert.match(text, /AC-04: 手动修改标题后不被自动覆盖/)
-      assert.match(text, /允许扩大到实现所需的需求插件文件/)
-      assert.match(text, /packages\/demo\/index\.js/)
-      assert.match(text, /验证命令超时|专项验证/)
+      assert.match(text, /^# REQ-PAY-001 — 需求列表长标题自动提炼与主操作按钮语义优化/)
+      assert.match(text, /验收：AC-04 手动修改标题后不被自动覆盖/)
+      assert.match(text, /已确认的决策：.*允许扩大到实现所需的需求插件文件/)
+      assert.match(text, /上次验证：.*验证命令超时/)
       assert.match(text, /node --test packages\/demo\/test\/index\.test\.mjs/)
-      assert.match(text, /严禁在单需求交付中运行 pnpm test/)
+      assert.match(text, /不要运行全量测试/)
     }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
@@ -347,8 +346,8 @@ test('continue API sends the concise task brief instead of the legacy checkpoint
       assert.equal(response.status, 200, await response.text())
       assert.equal(followed.length, 2)
       const prompt = followed[1].content[0].text
-      assert.match(prompt, /^# 需求交付任务：REQ-PAY-001 \(修订版本 v1\)/)
-      assert.match(prompt, /本轮明确动作/)
+      assert.match(prompt, /^# REQ-PAY-001 — 列表按创建时间倒序/)
+      assert.match(prompt, /验收：AC-01 进入列表时按创建时间倒序排列/)
       assert.doesNotMatch(prompt, /最新检查点：|既往人类回答|docHash|alm:meta|不代表新的人工批准/)
     }, { peer: { principal: { kind: 'human', id: 'human:test' } } })
   } finally { rmSync(root, { recursive: true, force: true }) }

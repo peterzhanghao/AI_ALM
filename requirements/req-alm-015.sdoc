@@ -11,3 +11,11 @@ REVISION: 1
 CATEGORY: functional
 BRIEF: requirements/briefs/REQ-ALM-015.md
 SOURCE: doc
+
+[RELATION]
+Type: allocated_to
+Value: MOD-DSH-REQUIREMENTS
+
+[RELATION]
+Type: allocated_to
+Value: MOD-ALM-REQUIREMENTS

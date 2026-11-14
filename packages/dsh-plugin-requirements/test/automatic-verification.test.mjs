@@ -10,7 +10,8 @@ import * as acceptance from '../../alm-core/src/acceptance/acceptance.mjs'
 const id = 'REQ-REAL-001'
 function fixture(t, command = ['node', 'tests/check.cjs'], timeoutMs = 10000) {
   const root = mkdtempSync(join(tmpdir(), 'alm-host-verification-'))
-  for (const dir of ['requirements', 'tests', 'src']) mkdirSync(join(root, dir))
+  for (const dir of ['requirements', 'requirements/briefs', 'tests', 'src']) mkdirSync(join(root, dir))
+  writeFileSync(join(root, 'requirements/briefs', `${id}.md`), '# 目标\n\n返回 42。\n\n# 验收\n\n- AC-01 src/value.cjs 导出 42。\n')
   writeFileSync(join(root, 'requirements/r.sdoc'), '[DOCUMENT]\nTITLE: Test\n\n[REQUIREMENT]\nUID: '+id+'\nTITLE: Return 42\nOWNER: test\nPRIORITY: P1\nCATEGORY: functional\nREVISION: 1\n\n[RELATION]\nType: verified_by\nValue: TEST-REAL-001\n')
   writeFileSync(join(root, 'tests/t.sdoc'), '[DOCUMENT]\nTITLE: Tests\n\n[REQUIREMENT]\nUID: TEST-REAL-001\nTITLE: Check 42\nOWNER: test\nSTATUS: proposed\n')
   writeFileSync(join(root, 'src/value.cjs'), 'module.exports=0\n')

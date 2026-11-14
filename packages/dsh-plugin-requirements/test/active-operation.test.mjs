@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import RequirementsService from '../index.js'
@@ -8,6 +8,11 @@ import * as runs from '../../alm-core/src/requirements/run.mjs'
 
 function fixture(t, status = 'running') {
   const root = mkdtempSync(join(tmpdir(), 'alm-busy-'))
+  // A dispatchable requirement needs a goal and acceptance in its brief.
+  mkdirSync(join(root, 'requirements/briefs'), { recursive: true })
+  for (const id of ['REQ-1', 'REQ-2']) {
+    writeFileSync(join(root, 'requirements/briefs', `${id}.md`), '# 目标\n\n完成测试\n\n# 验收\n\n- AC-01 验证成功\n')
+  }
   const instance = Object.create(RequirementsService.prototype)
   Object.assign(instance, { root, activeRuns: new Map(), runHeartbeats: new Map(), startingRuns: new Map(), rootFor: () => root, monitorWriteFailure: () => ({}) })
   const run = runs.createRun({ root, requirementId: 'REQ-1', carrier: 'mock' }).run

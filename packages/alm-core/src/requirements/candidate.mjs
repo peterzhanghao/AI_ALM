@@ -5,7 +5,8 @@ import { loadRepo } from '../parse/load.mjs'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { requirementContentHash, sha256 } from '../model/content-hash.mjs'
-import { writeArchitectureLedger } from './arch-ledger.mjs'
+import { buildArchitectureArchive } from './arch-ledger.mjs'
+import { buildArchitectureRecord } from './architecture-impact.mjs'
 import { syncDevelopmentBranch } from './dev-branch-sync.mjs'
 
 /**
@@ -78,16 +79,22 @@ export function createCandidate({ root, asset, acceptance = null, actor = 'ai:ad
     let architecture = null
     let devSync = null
     if (development?.enabled === true) {
-      architecture = writeArchitectureLedger({
+      // Architecture impact is derived from the real diff and stated at module
+      // granularity. No per-requirement architecture file is generated: a small
+      // feature no longer rewrites an eighty-line document.
+      const impact = buildArchitectureRecord({
         root: repo,
         asset,
-        requirement: development.requirement ?? null,
-        acceptance,
-        // Record only files that really changed. Acceptance command paths used
-        // to be archived as "module changes" even when they were untouched.
-        implementationPaths: development.scope
-          ? (development.scope.owned.length ? development.scope.owned : null)
-          : (development.paths ?? []),
+        changedPaths: development.scope ? [...development.scope.owned] : null,
+        declaredModules: development.declaredModules ?? null,
+      })
+      architecture = buildArchitectureArchive({
+        root: repo,
+        asset,
+        impact,
+        // Post-commit re-verification runs on a clean worktree; keep the modules
+        // the delivery commit already claimed instead of erasing them.
+        carryModules: latestCandidate(repo, asset.id)?.architecture?.moduleIds ?? [],
       })
       devSync = syncDevelopmentBranch({
         root: repo,
@@ -98,8 +105,9 @@ export function createCandidate({ root, asset, acceptance = null, actor = 'ai:ad
         branch: development.branch ?? 'develop',
         remote: development.remote ?? 'origin',
         scope: development.scope ?? null,
+        architecture,
         push: development.push ?? true,
-        paths: [...(development.paths ?? []), architecture.path, architecture.indexPath],
+        paths: development.paths ?? [],
       })
     }
     const snapshot = worktreeSnapshot(repo)

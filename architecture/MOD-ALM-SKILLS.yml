@@ -1,0 +1,11 @@
+schema_version: 1
+id: MOD-ALM-SKILLS
+type: module
+title: ALM 技能定义
+status: accepted
+owner: alm-skills
+role: 需求/架构/验收的作业规范与格式约定
+paths:
+  - packages/alm-skills/
+tests: []
+links: []

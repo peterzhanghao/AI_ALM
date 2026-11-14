@@ -1,0 +1,18 @@
+schema_version: 1
+id: MOD-DSH-REQUIREMENTS
+type: module
+title: 需求插件（宿主与视图）
+status: accepted
+owner: dsh-plugin-requirements
+role: 需求列表、详情视图、交付推进与 GitHub 链接
+paths:
+  - packages/dsh-plugin-requirements/
+entries:
+  - packages/dsh-plugin-requirements/client-source.js
+  - packages/dsh-plugin-requirements/index.js
+tests:
+  - packages/dsh-plugin-requirements/test/default-view.test.mjs
+  - packages/dsh-plugin-requirements/test/plan-approval.test.mjs
+  - packages/dsh-plugin-requirements/test/query-sort.test.mjs
+  - packages/dsh-plugin-requirements/test/list-query-axes.test.mjs
+links: []

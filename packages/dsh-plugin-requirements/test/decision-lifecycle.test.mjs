@@ -165,7 +165,7 @@ test('answer consumes exact decision, preserves checkpoint/history and idle beco
   assert.equal(run.checkpoint.resolvedDecisions.length, 1)
   assert.equal(run.answers[0].text, 'Allow scoped review')
   assert.equal(run.phase, 'review-result')
-  assert.match(messages[0].content[0].text, /已批准决策/)
+  assert.match(messages[0].content[0].text, /已确认的决策/)
   assert.match(messages[0].content[0].text, /Allow scoped review/)
   assert.equal(runs.runView({ root: f.root, requirementId: 'REQ-1' }).awaitingAnswer, false)
   const continued = await f.instance.resumeDeliveryRun({ root: f.root, requirementId: 'REQ-1', continuing: true })

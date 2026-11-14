@@ -2790,6 +2790,7 @@ window.__ModuleLoader__.load({
       const closed = item?.closed === true || delivery.key === "closed";
       const waiting = Boolean(run && (run.awaitingAnswer === true || run.awaitingAnswer === void 0 && run.status === "waiting-input" && Boolean(decision)));
       const idleHandback = Boolean(run && (run.idleHandback === true || run.awaitingAnswer === void 0 && run.status === "waiting-input" && !decision));
+      const planPending = Boolean(run && run.plan && run.plan.required === true && run.plan.status !== "approved");
       const stale = Boolean(run && run.stale === true);
       const active = Boolean(run && run.active === true);
       const acceptanceResult = acceptance?.result ?? null;
@@ -2803,6 +2804,7 @@ window.__ModuleLoader__.load({
         if (waiting) primaryAction = { id: "answer-run", label: "\u56DE\u7B54\u5E76\u7EE7\u7EED", enabled: Boolean(run?.id), reason: run?.id ? null : "\u672A\u627E\u5230\u51B3\u7B56\u8FD0\u884C\u53F7", target: { runId: run?.id ?? null } };
         else if (stale) primaryAction = { id: "resume-run", label: "\u6062\u590D\u63A8\u8FDB", enabled: Boolean(run?.id), reason: run?.id ? null : "\u672A\u627E\u5230\u53EF\u6062\u590D\u7684\u8FD0\u884C\u53F7", target: { runId: run?.id ?? null } };
         else if (active) primaryAction = { id: "watch-run", label: "\u67E5\u770B\u8FD0\u884C", enabled: true, reason: null, target: { runId: run?.id ?? null } };
+        else if (planPending) primaryAction = { id: "approve-plan", label: "\u786E\u8BA4\u65B9\u6848\u5E76\u5F00\u59CB\u5B9E\u73B0", enabled: true, reason: null, target: { runId: run?.id ?? null } };
         else if (idleHandback) {
           primaryAction = acceptancePassedCurrent ? { id: "create-candidate", label: "\u751F\u6210\u4EA4\u4ED8\u5019\u9009", enabled: true, reason: null, target: {} } : { id: "continue-run", label: "\u7EE7\u7EED\u63A8\u8FDB", enabled: true, reason: null, target: { runId: run?.id ?? null } };
         } else if (delivery.key === "awaiting-acceptance") primaryAction = { id: "signoff", label: "\u9A8C\u6536\u4EA4\u4ED8", enabled: true, reason: null, target: { candidateId: candidate?.id ?? null } };
@@ -2815,12 +2817,13 @@ window.__ModuleLoader__.load({
         else primaryAction = { id: "start", label: "\u4EA4\u7ED9 AI \u63A8\u8FDB", enabled: true, reason: null, target: {} };
       }
       const explanation = closed ? "\u8BE5\u9700\u6C42\u5DF2\u5173\u95ED\uFF0C\u53EA\u4FDD\u7559\u8BB0\u5F55\u3002" : delivery.reason ? String(delivery.reason) : "\u5BBF\u4E3B\u672A\u63D0\u4F9B\u8BE6\u60C5\u6295\u5F71\uFF0C\u4EE5\u4E0B\u4E3A\u517C\u5BB9\u89C6\u56FE\u3002";
-      const contextKind = closed ? "closed" : waiting ? "answer" : stale ? "run-interrupted" : active ? "run-active" : idleHandback ? acceptancePassedCurrent ? "candidate-pending" : "run-idle-handback" : delivery.key === "awaiting-acceptance" ? "awaiting-acceptance" : accepted && released ? "released" : accepted ? "accepted" : blockedFeedback ? "needs-attention" : acceptanceRegistered && acceptanceResult !== "pass" ? "acceptance-failed" : delivery.key === "pending" && String(delivery.source ?? "").startsWith("run-") ? "run-rolled-back" : "not-started";
+      const contextKind = closed ? "closed" : waiting ? "answer" : stale ? "run-interrupted" : active ? "run-active" : planPending ? "plan-review" : idleHandback ? acceptancePassedCurrent ? "candidate-pending" : "run-idle-handback" : delivery.key === "awaiting-acceptance" ? "awaiting-acceptance" : accepted && released ? "released" : accepted ? "accepted" : blockedFeedback ? "needs-attention" : acceptanceRegistered && acceptanceResult !== "pass" ? "acceptance-failed" : delivery.key === "pending" && String(delivery.source ?? "").startsWith("run-") ? "run-rolled-back" : "not-started";
       const headlines = {
         closed: "\u5DF2\u5173\u95ED",
         answer: "\u9700\u8981\u4F60\u56DE\u7B54",
         "run-interrupted": "\u63A8\u8FDB\u5DF2\u4E2D\u65AD",
         "run-active": "AI \u6B63\u5728\u5F00\u53D1",
+        "plan-review": "\u65B9\u6848\u5DF2\u5C31\u7EEA\uFF0C\u7B49\u5F85\u786E\u8BA4",
         "run-idle-handback": "\u7B49\u5F85\u4F60\u51B3\u5B9A\u4E0B\u4E00\u6B65",
         "candidate-pending": "\u7B49\u5F85\u751F\u6210\u4EA4\u4ED8\u5019\u9009",
         "awaiting-acceptance": "\u7B49\u5F85\u9A8C\u6536",
@@ -3453,6 +3456,7 @@ window.__ModuleLoader__.load({
       const relatedDefects = defects.related ?? [];
       const closedHistory = defects.closedHistory ?? [];
       const acceptanceState = humanAcceptanceState(acceptance);
+      const executionBrief = detail.executionBrief ?? null;
       const relationIds = relationRows(detail.record?.relations ?? []);
       const traceLink = h(TraceLink, { onClick: onTrace });
       return h(
@@ -3485,6 +3489,7 @@ window.__ModuleLoader__.load({
             h(DetailRow, { label: "\u8FD0\u884C" }, run.exists ? [run.id, run.label ?? run.status, run.phase].filter(Boolean).join(" \xB7 ") : "\u5F53\u524D\u6CA1\u6709\u6D3B\u52A8\u8FD0\u884C"),
             run.exists && run.lastActivityAt ? h(DetailRow, { label: "\u6700\u540E\u6D3B\u52A8" }, formatLocalStamp(run.lastActivityAt)) : null,
             run.failure?.message ? h(DetailRow, { label: "\u5931\u8D25\u539F\u56E0" }, h("span", { style: { color: T.err } }, run.failure.message)) : null,
+            run.plan ? h(DetailRow, { label: "\u65B9\u6848\u786E\u8BA4" }, run.plan.approved ? "\u5DF2\u786E\u8BA4\uFF0C\u6309\u65B9\u6848\u5B9E\u73B0" : "\u7B49\u5F85\u4F60\u786E\u8BA4\u65B9\u6848") : null,
             candidate.exists ? h(DetailRow, { label: "\u4EA4\u4ED8\u5019\u9009" }, `${candidate.id ?? "\u5019\u9009"}${candidate.current === false ? "\uFF08\u975E\u5F53\u524D\uFF09" : candidate.current === null ? "\uFF08\u6709\u6548\u6027\u672A\u77E5\uFF09" : ""}`) : null
           ),
           h(
@@ -3493,6 +3498,50 @@ window.__ModuleLoader__.load({
             h("button", { type: "button", "data-detail-secondary": "refresh", onClick: () => onRefresh && onRefresh(), style: DETAIL_GHOST }, "\u5237\u65B0\u72B6\u6001")
           )
         ),
+        executionBrief ? h(
+          DetailBlock,
+          {
+            key: "brief",
+            title: "\u672C\u6B21\u5C06\u53D1\u7ED9 AI \u7684\u6307\u4EE4",
+            sectionId: "delivery-brief",
+            anchor: "delivery-brief",
+            aside: h(
+              "span",
+              { style: { fontSize: "11.5px", color: executionBrief.ok ? T.text3 : T.warn } },
+              executionBrief.ok ? `${executionBrief.chars ?? 0} \u5B57\u7B26` : "\u6682\u4E0D\u53EF\u6D3E\u53D1"
+            )
+          },
+          executionBrief.ok ? h(
+            "div",
+            { "data-execution-brief": "true", "data-execution-brief-chars": String(executionBrief.chars ?? ""), style: { minWidth: 0 } },
+            h(
+              "p",
+              { style: DETAIL_SMALL },
+              `\u9636\u6BB5\uFF1A${executionBrief.phase === "plan" ? "\u53EA\u51FA\u65B9\u6848\uFF0C\u4E0D\u5199\u4EE3\u7801" : "\u5B9E\u73B0"} \xB7 \u5165\u53E3\u6587\u4EF6 ${executionBrief.anchors.length} \u4E2A\u3002\u53EA\u7ED9\u5FC5\u8981\u4E0A\u4E0B\u6587\uFF1A\u76EE\u6807\u3001\u9A8C\u6536\u3001\u7EA6\u675F\u3001\u5C11\u91CF\u5165\u53E3\u6587\u4EF6\u4E0E\u5B9A\u5411\u9A8C\u8BC1\u547D\u4EE4\uFF0C\u4E0D\u542B\u5168\u91CF\u6D4B\u8BD5\u6E05\u5355\u3002`
+            ),
+            executionBrief.anchors.length ? h(
+              "ul",
+              { style: { margin: "6px 0 0", paddingLeft: "18px", fontSize: "11.5px", lineHeight: 1.7, color: T.text2 } },
+              executionBrief.anchors.map((anchor, index) => h("li", { key: index, style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", wordBreak: "break-all" } }, anchor))
+            ) : null,
+            h(
+              "pre",
+              { style: { margin: "8px 0 0", padding: "10px 12px", background: T.layer2, border: `1px solid ${T.line}`, borderRadius: "8px", fontSize: "11.5px", lineHeight: 1.65, color: T.text, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: "260px", overflow: "auto" } },
+              executionBrief.text ?? ""
+            ),
+            h(
+              "div",
+              { style: { display: "flex", gap: "8px", marginTop: "8px", flexWrap: "wrap" } },
+              h(CopyTextButton, { value: executionBrief.text ?? "", label: "\u590D\u5236\u6307\u4EE4" })
+            )
+          ) : h(
+            "div",
+            { "data-execution-brief": "false", style: { padding: "10px 12px", borderLeft: `3px solid ${T.warn}`, background: "rgba(231,176,75,.06)", borderRadius: "0 8px 8px 0", minWidth: 0 } },
+            h("p", { style: { margin: 0, fontSize: "12.5px", color: T.warn, fontWeight: 600 } }, "\u9700\u6C42\u4FE1\u606F\u4E0D\u8DB3\uFF0C\u672C\u8F6E\u4E0D\u4F1A\u6D3E\u53D1"),
+            executionBrief.reason ? h("p", { style: { margin: "4px 0 0", fontSize: "12px", lineHeight: 1.7, color: T.text2 } }, executionBrief.reason) : null,
+            h("p", { style: { margin: "4px 0 0", ...DETAIL_SMALL } }, "\u8865\u4E0A\u9700\u6C42\u76EE\u6807\u4E0E\u9A8C\u6536\u6807\u51C6\uFF08\u6216\u5728 brief \u4E2D\u5199\u6E05\uFF09\u540E\u5373\u53EF\u6D3E\u53D1\uFF1B\u7F3A\u5C11\u76EE\u6807\u7684\u6D3E\u53D1\u53EA\u4F1A\u6362\u6765\u4E00\u6BB5\u731C\u65B9\u5411\u7684\u5B9E\u73B0\u3002")
+          )
+        ) : null,
         showQuestion ? h(
           "section",
           { key: "question", "data-detail-anchor": "delivery-question", tabIndex: -1, style: { marginTop: "16px", padding: "12px 14px", borderLeft: `3px solid ${T.warn}`, background: "rgba(231,176,75,.06)", borderRadius: "0 8px 8px 0" } },
@@ -5584,6 +5633,14 @@ ${text}`)) continue;
         release: () => props.onRelease && props.onRelease(item),
         "execute-release": () => props.onRelease && props.onRelease(item),
         "create-candidate": () => writeJson("candidate", { requirementId: item.id }, root).then(() => props.onRefresh && props.onRefresh()).catch((error) => window.alert("\u751F\u6210\u4EA4\u4ED8\u5019\u9009\u5931\u8D25\uFF1A" + error.message)),
+        // Two-phase delivery: one click turns the reviewed plan into an
+        // implementation turn inside the same conversation.
+        "approve-plan": () => writeJson("approve-plan", { requirementId: item.id, apply: true }, root).then((result) => {
+          props.onRefresh && props.onRefresh();
+          if (result?.resumed === false) {
+            window.alert("\u65B9\u6848\u5DF2\u786E\u8BA4\uFF0C\u4F46\u7EED\u8DD1\u672A\u542F\u52A8\uFF1A" + (result?.message ?? result?.reason ?? "\u8BF7\u67E5\u770B\u8FD0\u884C\u8BE6\u60C5"));
+          }
+        }).catch((error) => window.alert("\u786E\u8BA4\u65B9\u6848\u5931\u8D25\uFF1A" + error.message)),
         refresh: () => props.onRefresh && props.onRefresh(),
         "open-record": () => setTab("record")
       };
@@ -14591,7 +14648,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       );
     }
     const NATIVE_SOURCE_BUILD_ID = false ? null : null;
-    const NATIVE_CLIENT_BUILD_ID = true ? "ac1771fbdba28e478a398aaebbc675acde276158e29abda58b66a49cbdcfb97a" : null;
+    const NATIVE_CLIENT_BUILD_ID = true ? "7e6532ad8b52720cf0ef4dbaf30e142340cb3a9ec62ebbba7239d42f0903b4de" : null;
     function NativeDeliveryControl({ root, requirementId }) {
       const [job, setJob] = useState(null);
       const [error, setError] = useState(null);

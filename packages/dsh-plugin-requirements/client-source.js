@@ -3099,6 +3099,9 @@ window.__ModuleLoader__.load({
       const closed = item?.closed === true || delivery.key === 'closed'
       const waiting = Boolean(run && (run.awaitingAnswer === true || (run.awaitingAnswer === undefined && run.status === 'waiting-input' && Boolean(decision))))
       const idleHandback = Boolean(run && (run.idleHandback === true || (run.awaitingAnswer === undefined && run.status === 'waiting-input' && !decision)))
+      // Two-phase delivery: a plan-only turn parks on an unapproved checkpoint.
+      // The fallback projection must not read that as a plain hand-back.
+      const planPending = Boolean(run && run.plan && run.plan.required === true && run.plan.status !== 'approved')
       const stale = Boolean(run && run.stale === true)
       const active = Boolean(run && run.active === true)
       const acceptanceResult = acceptance?.result ?? null
@@ -3112,6 +3115,7 @@ window.__ModuleLoader__.load({
         if (waiting) primaryAction = { id: 'answer-run', label: '回答并继续', enabled: Boolean(run?.id), reason: run?.id ? null : '未找到决策运行号', target: { runId: run?.id ?? null } }
         else if (stale) primaryAction = { id: 'resume-run', label: '恢复推进', enabled: Boolean(run?.id), reason: run?.id ? null : '未找到可恢复的运行号', target: { runId: run?.id ?? null } }
         else if (active) primaryAction = { id: 'watch-run', label: '查看运行', enabled: true, reason: null, target: { runId: run?.id ?? null } }
+        else if (planPending) primaryAction = { id: 'approve-plan', label: '确认方案并开始实现', enabled: true, reason: null, target: { runId: run?.id ?? null } }
         else if (idleHandback) {
           primaryAction = acceptancePassedCurrent
             ? { id: 'create-candidate', label: '生成交付候选', enabled: true, reason: null, target: {} }
@@ -3135,6 +3139,7 @@ window.__ModuleLoader__.load({
         : waiting ? 'answer'
           : stale ? 'run-interrupted'
             : active ? 'run-active'
+              : planPending ? 'plan-review'
               : idleHandback ? (acceptancePassedCurrent ? 'candidate-pending' : 'run-idle-handback')
                 : delivery.key === 'awaiting-acceptance' ? 'awaiting-acceptance'
                   : accepted && released ? 'released'
@@ -3148,6 +3153,7 @@ window.__ModuleLoader__.load({
         answer: '需要你回答',
         'run-interrupted': '推进已中断',
         'run-active': 'AI 正在开发',
+        'plan-review': '方案已就绪，等待确认',
         'run-idle-handback': '等待你决定下一步',
         'candidate-pending': '等待生成交付候选',
         'awaiting-acceptance': '等待验收',
@@ -3836,6 +3842,9 @@ window.__ModuleLoader__.load({
       const relatedDefects = defects.related ?? []
       const closedHistory = defects.closedHistory ?? []
       const acceptanceState = humanAcceptanceState(acceptance)
+      // L3 white box: the exact instruction the delivery turn receives, or the
+      // honest reason it cannot be dispatched at all.
+      const executionBrief = detail.executionBrief ?? null
       const relationIds = relationRows(detail.record?.relations ?? [])
       const traceLink = h(TraceLink, { onClick: onTrace })
       return h(
@@ -3866,6 +3875,9 @@ window.__ModuleLoader__.load({
             h(DetailRow, { label: '运行' }, run.exists ? [run.id, run.label ?? run.status, run.phase].filter(Boolean).join(' · ') : '当前没有活动运行'),
             run.exists && run.lastActivityAt ? h(DetailRow, { label: '最后活动' }, formatLocalStamp(run.lastActivityAt)) : null,
             run.failure?.message ? h(DetailRow, { label: '失败原因' }, h('span', { style: { color: T.err } }, run.failure.message)) : null,
+            run.plan
+              ? h(DetailRow, { label: '方案确认' }, run.plan.approved ? '已确认，按方案实现' : '等待你确认方案')
+              : null,
             candidate.exists ? h(DetailRow, { label: '交付候选' }, `${candidate.id ?? '候选'}${candidate.current === false ? '（非当前）' : candidate.current === null ? '（有效性未知）' : ''}`) : null,
           ),
           h(
@@ -3874,6 +3886,56 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', 'data-detail-secondary': 'refresh', onClick: () => onRefresh && onRefresh(), style: DETAIL_GHOST }, '刷新状态'),
           ),
         ),
+        executionBrief
+          ? h(
+              DetailBlock,
+              {
+                key: 'brief',
+                title: '本次将发给 AI 的指令',
+                sectionId: 'delivery-brief',
+                anchor: 'delivery-brief',
+                aside: h(
+                  'span',
+                  { style: { fontSize: '11.5px', color: executionBrief.ok ? T.text3 : T.warn } },
+                  executionBrief.ok ? `${executionBrief.chars ?? 0} 字符` : '暂不可派发',
+                ),
+              },
+              executionBrief.ok
+                ? h(
+                    'div',
+                    { 'data-execution-brief': 'true', 'data-execution-brief-chars': String(executionBrief.chars ?? ''), style: { minWidth: 0 } },
+                    h(
+                      'p',
+                      { style: DETAIL_SMALL },
+                      `阶段：${executionBrief.phase === 'plan' ? '只出方案，不写代码' : '实现'} · 入口文件 ${executionBrief.anchors.length} 个。只给必要上下文：目标、验收、约束、少量入口文件与定向验证命令，不含全量测试清单。`,
+                    ),
+                    executionBrief.anchors.length
+                      ? h(
+                          'ul',
+                          { style: { margin: '6px 0 0', paddingLeft: '18px', fontSize: '11.5px', lineHeight: 1.7, color: T.text2 } },
+                          executionBrief.anchors.map((anchor, index) => h('li', { key: index, style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', wordBreak: 'break-all' } }, anchor)),
+                        )
+                      : null,
+                    h(
+                      'pre',
+                      { style: { margin: '8px 0 0', padding: '10px 12px', background: T.layer2, border: `1px solid ${T.line}`, borderRadius: '8px', fontSize: '11.5px', lineHeight: 1.65, color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '260px', overflow: 'auto' } },
+                      executionBrief.text ?? '',
+                    ),
+                    h(
+                      'div',
+                      { style: { display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' } },
+                      h(CopyTextButton, { value: executionBrief.text ?? '', label: '复制指令' }),
+                    ),
+                  )
+                : h(
+                    'div',
+                    { 'data-execution-brief': 'false', style: { padding: '10px 12px', borderLeft: `3px solid ${T.warn}`, background: 'rgba(231,176,75,.06)', borderRadius: '0 8px 8px 0', minWidth: 0 } },
+                    h('p', { style: { margin: 0, fontSize: '12.5px', color: T.warn, fontWeight: 600 } }, '需求信息不足，本轮不会派发'),
+                    executionBrief.reason ? h('p', { style: { margin: '4px 0 0', fontSize: '12px', lineHeight: 1.7, color: T.text2 } }, executionBrief.reason) : null,
+                    h('p', { style: { margin: '4px 0 0', ...DETAIL_SMALL } }, '补上需求目标与验收标准（或在 brief 中写清）后即可派发；缺少目标的派发只会换来一段猜方向的实现。'),
+                  ),
+            )
+          : null,
         showQuestion
           ? h(
               'section',
@@ -5736,6 +5798,17 @@ window.__ModuleLoader__.load({
           writeJson('candidate', { requirementId: item.id }, root)
             .then(() => props.onRefresh && props.onRefresh())
             .catch((error) => window.alert('生成交付候选失败：' + error.message)),
+        // Two-phase delivery: one click turns the reviewed plan into an
+        // implementation turn inside the same conversation.
+        'approve-plan': () =>
+          writeJson('approve-plan', { requirementId: item.id, apply: true }, root)
+            .then((result) => {
+              props.onRefresh && props.onRefresh()
+              if (result?.resumed === false) {
+                window.alert('方案已确认，但续跑未启动：' + (result?.message ?? result?.reason ?? '请查看运行详情'))
+              }
+            })
+            .catch((error) => window.alert('确认方案失败：' + error.message)),
         refresh: () => props.onRefresh && props.onRefresh(),
         'open-record': () => setTab('record'),
       }

@@ -204,8 +204,9 @@ test('start creates one host session, records the run and never duplicates it', 
     assert.match(text, /node --test/)
     assert.match(text, /decision\.md/)
     assert.ok(text.includes(`.alm/runs/${execution.runId}-decision.md`))
-    assert.match(text, /严禁删改验收标准/)
-    assert.match(text, /完成后输出简明中文总结/)
+    assert.match(text, /边界：只改与目标直接相关/)
+    assert.match(text, /完成标志/)
+    assert.ok(text.length <= 900, `prompt stays within the contract budget, got ${text.length}`)
 
     const runFile = join(root, '.alm/runs', `${execution.runId}.json`)
     assert.equal(existsSync(runFile), true)
@@ -266,7 +267,9 @@ test('an idle agent closes the run as waiting for the human', async () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     const stored = JSON.parse(readFileSync(join(root, '.alm/runs', `${execution.runId}.json`), 'utf8'))
     assert.equal(stored.status, 'waiting-input')
-    assert.equal(stored.phase, 'review-result')
+    // A first start parks on the plan turn: the human confirms three bullets
+    // before any implementation happens.
+    assert.equal(stored.phase, 'plan-review')
     assert.equal(runCore.runView({ root, requirementId: item.id }).awaitingAnswer, false)
   } finally {
     dispose()
@@ -354,7 +357,7 @@ test('a delivery session runs without approval prompts inside the workspace boun
     ])
     const stored = JSON.parse(readFileSync(join(root, '.alm/runs', execution.runId + '.json'), 'utf8'))
     assert.equal(stored.status, 'running', 'a dispatched run must not keep reporting queued')
-    assert.equal(stored.phase, 'implement')
+    assert.equal(stored.phase, 'plan')
   } finally {
     dispose()
     rmSync(root, { recursive: true, force: true })
@@ -396,7 +399,7 @@ test('answering a decision request continues the same host session', async () =>
     assert.equal(followed[1].role, 'user')
     assert.match(followed[1].content[0].text, /选 A：接受范围内门禁证据/)
     assert.ok(followed[1].content[0].text.includes(`.alm/runs/${execution.runId}-decision.md`))
-    assert.ok(followed[1].content[0].text.includes('- 本次续跑指令：选 A：接受范围内门禁证据'))
+    assert.ok(followed[1].content[0].text.includes('上一轮结论：选 A：接受范围内门禁证据'))
 
     const stored = JSON.parse(readFileSync(join(root, '.alm/runs', execution.runId + '.json'), 'utf8'))
     assert.equal(stored.answers.length, 1)
@@ -569,7 +572,7 @@ test('a restart starts a new run from the previous checkpoint instead of faking 
     assert.match(text, /上一轮中断原因/)
     assert.match(text, /会话在宿主重启时中断/)
     assert.ok(text.includes(`.alm/runs/${restarted.runId}-decision.md`))
-    assert.ok(text.includes('- 本次续跑指令：上一轮中断原因'))
+    assert.ok(text.includes('上一轮中断原因：'))
   } finally {
     two.dispose()
     rmSync(root, { recursive: true, force: true })

@@ -66,7 +66,9 @@ export function mergeDevelopmentToMain({ root, requirementId, revision = null, d
     pushedToRemoteDev: false,
     pushedToMain: false,
     pushedToMainAt: null,
-    architectureDocPath: `requirements/architecture/${requirementId}-design.md`,
+    // Architecture is recorded as a module-level delta on the candidate and the
+    // delivery commit trailer; there is no per-requirement document to link.
+    architectureDocPath: null,
     reason: null,
   }
   if (!git(repo, ['rev-parse', '--is-inside-work-tree'], { allowFailure: true })) return gitIntegrationFailure(base, '当前工作区不是 Git 仓库')

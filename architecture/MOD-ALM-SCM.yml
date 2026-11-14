@@ -1,0 +1,11 @@
+schema_version: 1
+id: MOD-ALM-SCM
+type: module
+title: 源码管理适配
+status: accepted
+owner: alm-scm
+role: 分支、提交与远端同步适配
+paths:
+  - packages/alm-scm/
+tests: []
+links: []

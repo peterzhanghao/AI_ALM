@@ -7,8 +7,14 @@ import RequirementsService from '../index.js'
 import * as runs from '../../alm-core/src/requirements/run.mjs'
 
 const requirementId = 'REQ-PAY-001'
+/** A dispatchable requirement carries a goal and acceptance in its brief. */
+function seedBrief(root) {
+  mkdirSync(join(root, 'requirements/briefs'), { recursive: true })
+  writeFileSync(join(root, 'requirements/briefs', `${requirementId}.md`), '# 目标\n\n完成测试\n\n# 验收\n\n- AC-01 验证成功\n')
+}
 function fixture(t, { status = 'waiting-input', followup = () => Promise.resolve() } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'alm-in-place-repair-'))
+  seedBrief(root)
   const instance = Object.create(RequirementsService.prototype)
   Object.assign(instance, { root, activeRuns: new Map(), runHeartbeats: new Map(), pendingRepairs: new Map(), repairJobs: new Map(), disposed: false })
   const run = runs.createRun({ root, requirementId, carrier: 'test-only', sessionId: 'mock-session' }).run
@@ -28,7 +34,8 @@ function fail(f, code = 'assertion-failed', extra = {}) {
 async function settled(f) { await Promise.all([...f.instance.repairJobs.values()]) }
 function noNewRequirement(f) {
   assert.equal(existsSync(join(f.root, '.alm/defects')), false)
-  assert.equal(existsSync(join(f.root, 'requirements')), false)
+  // The seeded brief is fixture input; automation must not add any asset.
+  assert.deepEqual(readdirSync(join(f.root, 'requirements/briefs')), [`${requirementId}.md`])
 }
 function acceptance() { return { result: 'fail', evidencePath: '.alm/evidence/acceptance.json', evidence: { commands: [{ id: 'unit', command: ['node', '--test'], exitCode: 1, stderr: 'assertion failed' }] } } }
 
@@ -161,6 +168,7 @@ test('interrupted durable repair does not automatically retry after reconstructi
 
 test('initial delivery followup rejection reaches monitoring and bounded repair on the same carrier', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'alm-initial-reject-repair-'))
+  seedBrief(root)
   const messages = []
   const disposers = []
   let created = 0
