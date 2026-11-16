@@ -1,0 +1,1591 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 需求插件 · 列表 + 详情 重构原型 v4</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115;
+    --layer: #14171c;
+    --layer2: #171b21;
+    --line: #232830;
+    --line2: #2e343d;
+    --text: #f2f4f7;
+    --text2: #9aa3ae;
+    --text3: #6b7480;
+    --brand: #4d6bfe;
+    --ok: #35c47a;
+    --ok-fg: #8fe0b4;
+    --warn: #e7b04b;
+    --warn-fg: #f0cf8d;
+    --err: #ff8b8b;
+    --link: #a8bbff;
+    --diff-add: #5fd39a;
+    --diff-del: #ff8b8b;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; font-size: 14px; line-height: 1.6; }
+  button, input, textarea, select { font-family: inherit; }
+  button { cursor: pointer; }
+  [hidden] { display: none !important; }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .app { display: flex; height: 100vh; overflow: hidden; }
+
+  .sidebar { width: 232px; flex: none; border-right: 1px solid var(--line); background: #0b0d11; padding: 14px 12px; display: flex; flex-direction: column; gap: 14px; }
+  .brand { display: flex; align-items: center; gap: 8px; padding: 2px 6px; }
+  .brand-mark { width: 20px; height: 20px; border-radius: 6px; background: var(--text); color: #0b0d11; font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+  .brand-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand-tag { font-size: 9px; letter-spacing: .08em; color: var(--text3); border: 1px solid var(--line2); border-radius: 4px; padding: 1px 4px; }
+  .newchat { border: 1px solid var(--line2); background: var(--layer); color: var(--text2); border-radius: 999px; padding: 8px 12px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .newchat:hover { color: var(--text); border-color: #3a4049; }
+  .navgroup { display: grid; gap: 2px; }
+  .navitem { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; color: var(--text2); font-size: 13px; }
+  .navitem.active { background: #1b1f26; color: var(--text); }
+  .navitem .ico { width: 14px; text-align: center; color: var(--text3); font-size: 12px; }
+  .navitem.active .ico { color: var(--text2); }
+  .navbadge { margin-left: auto; font-size: 10.5px; background: rgba(231,176,75,.16); color: var(--warn-fg); border-radius: 999px; padding: 0 6px; }
+  .sectitle { display: flex; align-items: center; gap: 8px; color: var(--text3); font-size: 11.5px; padding: 8px 10px 2px; }
+  .tree { display: grid; gap: 1px; overflow: hidden; }
+  .tree a { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border-radius: 8px; color: var(--text2); font-size: 12.5px; text-decoration: none; }
+  .tree a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree a i { margin-left: auto; font-style: normal; color: var(--text3); font-size: 11px; flex: none; }
+  .tree a:hover { background: #15191f; color: var(--text); }
+  .sidefoot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); color: var(--text2); font-size: 12.5px; }
+  .avatar { width: 22px; height: 22px; border-radius: 50%; background: #2a3039; display: grid; place-items: center; font-size: 11px; color: var(--text2); }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+  .protobar { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 16px; background: #12151a; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--text3); }
+  .protobar b { color: var(--text2); font-weight: 500; }
+  .plink { border: 1px solid var(--line2); background: transparent; color: var(--text2); border-radius: 6px; padding: 2px 8px; font-size: 11.5px; }
+  .plink.on { background: #222834; color: var(--text); border-color: #39414d; }
+  .plink:hover { color: var(--text); }
+  .switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--text2); cursor: pointer; user-select: none; }
+  .switch input { accent-color: var(--brand); }
+
+  .btn { border: 1px solid var(--line2); background: var(--layer); color: var(--text); border-radius: 7px; padding: 8px 14px; font-size: 13px; font-weight: 500; min-height: 38px; }
+  .btn:hover { background: #1b1f26; }
+  .btn.primary { background: var(--brand); border-color: transparent; color: #fff; font-weight: 600; }
+  .btn.primary:hover { background: #5c78ff; }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--text2); min-height: 32px; padding: 4px 8px; }
+  .btn.ghost:hover { background: #171b21; color: var(--text); }
+  .btn.danger { color: var(--err); border-color: rgba(255,139,139,.4); background: rgba(255,139,139,.08); }
+  .btn.sm { min-height: 30px; padding: 4px 10px; font-size: 12.5px; border-radius: 6px; }
+  .btn.xs { min-height: 26px; padding: 2px 8px; font-size: 12px; border-radius: 5px; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .spacer { flex: 1; }
+  .seg { display: inline-flex; gap: 2px; padding: 2px; background: #0d1014; border: 1px solid var(--line); border-radius: 8px; }
+  .seg button { border: 0; background: transparent; color: var(--text2); font-size: 12px; padding: 4px 10px; border-radius: 6px; }
+  .seg button.on { background: #222834; color: var(--text); }
+
+  /* ============ 列表页 ============ */
+  .listhead { flex: none; padding: 16px 24px 0; border-bottom: 1px solid var(--line); background: var(--bg); }
+  .ltitle { display: flex; align-items: center; gap: 10px; }
+  .ltitle h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+  .lcnt { font-size: 12.5px; color: var(--text3); }
+  .wsbar { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .wssel { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--layer); border-radius: 7px; padding: 0 10px; height: 32px; font-size: 12.5px; color: var(--text3); }
+  .wssel b { color: var(--text); font-weight: 500; }
+  .wssel .repo { font-size: 11px; color: var(--ok-fg); border-left: 1px solid var(--line2); padding-left: 8px; }
+  .summary { margin: 12px 0 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text2); }
+  .summary b { color: var(--text); font-weight: 600; }
+  .summary .hot { color: var(--warn-fg); }
+  .summary .dim { color: var(--text3); }
+
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 0 10px; }
+  .search { display: flex; align-items: center; gap: 7px; background: #101318; border: 1px solid var(--line2); border-radius: 8px; padding: 0 10px; height: 34px; width: 300px; }
+  .search span { color: var(--text3); font-size: 12px; }
+  .search input { background: transparent; border: 0; color: var(--text); font-size: 13px; outline: none; width: 100%; }
+  .search input::placeholder { color: var(--text3); }
+  .sources { display: flex; align-items: center; gap: 4px; }
+  .srclabel { font-size: 12px; color: var(--text3); padding-right: 2px; }
+  .fchip { border: 1px solid transparent; background: transparent; color: var(--text2); border-radius: 6px; padding: 4px 9px; font-size: 12.5px; }
+  .fchip:hover { background: #171b21; color: var(--text); }
+  .fchip.on { background: #1e2430; border-color: var(--line2); color: var(--text); }
+  .sel { background: #101318; border: 1px solid var(--line2); color: var(--text2); border-radius: 7px; height: 32px; padding: 0 8px; font-size: 12.5px; }
+  .filterline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0 0; font-size: 12px; color: var(--text3); }
+  .activefilter { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line2); border-radius: 999px; padding: 2px 8px; color: var(--text2); }
+  .activefilter button { border: 0; background: transparent; color: var(--text3); font-size: 12px; padding: 0; }
+  .activefilter button:hover { color: var(--text); }
+
+  .listscroll { flex: 1; min-height: 0; overflow-y: auto; }
+  .groups { padding: 4px 24px 80px; }
+  .ghead { display: flex; align-items: center; gap: 9px; padding: 18px 0 8px; }
+  .gsig { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .gname { font-size: 13px; font-weight: 600; color: var(--text); }
+  .gcount { font-size: 11.5px; color: var(--text2); border: 1px solid var(--line2); border-radius: 999px; padding: 0 6px; min-width: 20px; text-align: center; }
+  .ghint { font-size: 12px; color: var(--text3); }
+  .gempty { font-size: 12.5px; color: var(--text3); border: 1px dashed var(--line2); border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
+
+  .qrow { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 12px 11px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--layer); }
+  .qrow + .qrow { margin-top: 6px; }
+  .qrow:hover { background: #171b21; border-color: var(--line2); }
+  .qrow.need::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--warn); border-radius: 9px 0 0 9px; }
+  .qrow.need.decide::before { background: var(--brand); }
+  .qrow.picked { border-color: var(--brand); background: #161b26; }
+  .qcheck { appearance: none; width: 15px; height: 15px; border: 1.5px solid #3a424e; border-radius: 4px; background: #0d1014; margin: 0; position: relative; flex: none; }
+  .qcheck:hover { border-color: #4c5665; }
+  .qcheck:checked { background: var(--brand); border-color: var(--brand); }
+  .qcheck:checked::after { content: ""; position: absolute; left: 3.6px; top: 0.6px; width: 5px; height: 9px; border-right: 1.6px solid #fff; border-bottom: 1.6px solid #fff; transform: rotate(40deg); }
+  .qmain { min-width: 0; cursor: pointer; }
+  .qtitle { font-size: 14px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qrow.closed .qtitle { color: var(--text2); font-weight: 400; }
+  .qmeta { margin-top: 3px; font-size: 12px; color: var(--text3); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .qmeta .dot { width: 3px; height: 3px; border-radius: 50%; background: #47505c; }
+  .qmeta .wait { color: var(--warn-fg); }
+  .qmeta .wait.bad { color: var(--err); }
+  .qmeta .act { color: var(--text2); }
+  .qright { display: flex; align-items: center; gap: 8px; }
+  .flag { font-size: 11.5px; border-radius: 5px; padding: 1px 7px; white-space: nowrap; border: 1px solid var(--line2); color: var(--text2); }
+  .flag.quiet { border-color: transparent; color: var(--text3); padding-left: 0; }
+  .flag.warn { color: var(--warn-fg); border-color: rgba(231,176,75,.42); background: rgba(231,176,75,.07); }
+  .flag.brand { color: var(--link); border-color: rgba(168,187,255,.3); background: rgba(77,107,254,.08); }
+  .flag.ok { color: var(--ok-fg); border-color: rgba(53,196,122,.3); background: rgba(53,196,122,.06); }
+  .morebtn { border: 1px solid transparent; background: transparent; color: var(--text3); border-radius: 6px; width: 26px; height: 26px; line-height: 1; font-size: 14px; }
+  .morebtn:hover { background: #1e242c; color: var(--text); }
+
+  .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px 24px 60px; }
+  .bcol { background: #101318; border: 1px solid var(--line); border-radius: 10px; padding: 10px; min-height: 180px; }
+  .bcol h3 { margin: 0 0 2px; font-size: 12.5px; color: var(--text); display: flex; align-items: center; gap: 7px; font-weight: 600; }
+  .bcol .bhint { font-size: 11.5px; color: var(--text3); margin: 0 0 8px; }
+  .bcard { background: var(--layer); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; margin-top: 7px; cursor: pointer; }
+  .bcard:hover { border-color: var(--line2); background: #171b21; }
+  .bcard .bt { font-size: 12.5px; line-height: 1.5; color: var(--text); }
+  .bcard .bm { margin-top: 5px; font-size: 11px; color: var(--text3); display: flex; gap: 6px; flex-wrap: wrap; }
+  .bempty { font-size: 11.5px; color: var(--text3); border: 1px dashed var(--line2); border-radius: 7px; padding: 10px; text-align: center; margin-top: 7px; }
+
+  .bulk { position: fixed; left: calc(232px + 50%); transform: translateX(-50%); bottom: 18px; display: flex; align-items: center; gap: 8px; background: #1c2330; border: 1px solid var(--line2); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; color: var(--text2); z-index: 20; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  .bulk b { color: var(--text); }
+
+  /* ============ 详情页 ============ */
+  .topnav { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+  .crumb { font-size: 12px; color: var(--text3); display: flex; align-items: center; gap: 8px; }
+  .crumb .tag { font-size: 11px; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; }
+
+  .dheadwrap { padding: 18px 24px 0; max-width: 1264px; }
+  .idline { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text3); flex-wrap: wrap; }
+  .pill { border: 1px solid var(--line2); border-radius: 999px; padding: 2px 8px; color: var(--text2); font-size: 11.5px; }
+  .verlink { border: 0; background: transparent; color: var(--link); font-size: 12px; padding: 0; text-decoration: underline dotted; text-underline-offset: 3px; }
+  h1.title { margin: 6px 0 4px; font-size: 20px; font-weight: 600; line-height: 1.45; }
+  .subtitle { margin: 0; font-size: 13px; color: var(--text3); }
+
+  .tabs { flex: none; display: flex; gap: 4px; padding: 6px 24px 0; border-bottom: 1px solid var(--line); }
+  .tabs button { min-height: 40px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text2); font-size: 13.5px; padding: 6px 12px; }
+  .tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--brand); }
+
+  .band { position: sticky; top: 0; z-index: 6; padding: 12px 24px; background: rgba(15,17,21,.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  .bandin { max-width: 1216px; display: flex; align-items: center; gap: 14px; border: 1px solid var(--line2); border-radius: 10px; padding: 10px 14px; background: var(--layer); border-left-width: 3px; }
+  .band[data-tone="warn"] .bandin { border-left-color: var(--warn); background: rgba(231,176,75,.05); }
+  .band[data-tone="brand"] .bandin { border-left-color: var(--brand); background: rgba(77,107,254,.05); }
+  .band[data-tone="ok"] .bandin { border-left-color: var(--ok); background: rgba(53,196,122,.05); }
+  .band[data-tone="idle"] .bandin { border-left-color: var(--text3); }
+  .band .btag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
+  .band[data-tone="warn"] .btag { color: var(--warn-fg); background: rgba(231,176,75,.12); }
+  .band[data-tone="brand"] .btag { color: #c9d4ff; background: rgba(77,107,254,.16); }
+  .band[data-tone="ok"] .btag { color: var(--ok-fg); background: rgba(53,196,122,.12); }
+  .band[data-tone="idle"] .btag { color: var(--text2); background: #1e242c; }
+  .bmain { min-width: 0; flex: 1; }
+  .bhead { font-size: 13.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bmeta { margin-top: 2px; font-size: 12px; color: var(--text3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .bmeta .need { color: var(--warn-fg); }
+  .bmeta .needno { color: var(--ok-fg); }
+  .bprog { flex: none; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text3); }
+  .bar { width: 74px; height: 5px; border-radius: 3px; background: #262c35; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--ok); }
+  .bar.part i { background: var(--warn); }
+  .bact { flex: none; display: flex; gap: 6px; }
+
+  .reading { max-width: 1264px; padding: 20px 24px 72px; display: grid; grid-template-columns: minmax(0, 1fr) 244px; gap: 28px; align-items: start; }
+  @media (max-width: 1180px) { .reading { grid-template-columns: minmax(0, 1fr); } .rail { position: static !important; } }
+
+  .section { margin-top: 24px; }
+  .section:first-child { margin-top: 0; }
+  .section > h2, .h-title { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .section > h2 .sub, .h-title .sub { font-size: 12px; color: var(--text3); font-weight: 400; }
+  .lede { margin: 0; font-size: 14px; line-height: 1.9; color: var(--text2); }
+  .lede strong { color: var(--text); font-weight: 500; }
+
+  .bullets { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .bullets li { position: relative; padding-left: 15px; font-size: 13.5px; color: var(--text2); line-height: 1.75; }
+  .bullets li::before { content: ""; position: absolute; left: 3px; top: 9px; width: 5px; height: 5px; border-radius: 1px; background: var(--line2); }
+
+  .acrow { display: flex; gap: 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--layer); align-items: flex-start; }
+  .acrow + .acrow { margin-top: 6px; }
+  .acrow.flash { border-color: var(--brand); background: rgba(77,107,254,.1); }
+  .acid { font-size: 11.5px; color: var(--text3); flex: none; width: 44px; font-variant-numeric: tabular-nums; padding-top: 2px; }
+  .actext { flex: 1; font-size: 13.5px; line-height: 1.7; }
+  .actext small { display: block; margin-top: 2px; color: var(--text3); font-size: 12px; }
+  .acstate { flex: none; font-size: 12px; white-space: nowrap; padding-top: 2px; }
+  .acstate.ok { color: var(--ok-fg); }
+  .acstate.warn { color: var(--warn-fg); }
+  .acstate.idle { color: var(--text3); }
+  .acrow.passed { background: transparent; border-color: transparent; padding: 4px 12px; }
+  .acrow.passed .actext { color: var(--text3); font-size: 12.5px; }
+
+  .pending { margin-top: 14px; border: 1px solid rgba(77,107,254,.35); border-left: 3px solid var(--brand); border-radius: 8px; background: rgba(77,107,254,.07); padding: 12px 14px; }
+  .pending h3 { margin: 0; font-size: 14px; font-weight: 600; }
+  .pending p { margin: 5px 0 0; font-size: 13px; color: var(--text2); line-height: 1.8; }
+
+  .feedback .modes { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .modebtn { border: 1px solid var(--line2); background: transparent; color: var(--text2); border-radius: 7px; padding: 6px 10px; font-size: 12.5px; }
+  .modebtn.on { border-color: var(--brand); background: rgba(77,107,254,.12); color: var(--text); }
+  .feedback .hintline { font-size: 12px; color: var(--text3); margin: 0 0 8px; }
+  .feedback textarea { width: 100%; min-height: 84px; resize: vertical; background: #101318; border: 1px solid var(--line2); border-radius: 8px; color: var(--text); font-size: 13.5px; padding: 10px 12px; line-height: 1.7; }
+  .feedback textarea::placeholder { color: var(--text3); }
+  .feedback .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .hint { font-size: 12.5px; color: var(--text3); }
+  .sent { border: 1px solid rgba(53,196,122,.3); background: rgba(53,196,122,.07); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; color: var(--text2); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  .fold { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text2); min-height: 34px; }
+  .fold > summary::-webkit-details-marker { display: none; }
+  .fold > summary::before { content: "▸"; font-size: 11px; color: var(--text3); margin-right: 2px; }
+  .fold[open] > summary::before { content: "▾"; }
+  .fold > summary .sub { color: var(--text3); font-size: 12px; }
+  .foldbody { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--layer); padding: 12px 14px; }
+  .kv { display: flex; justify-content: space-between; gap: 16px; font-size: 12.5px; padding: 5px 0; color: var(--text3); border-bottom: 1px dashed rgba(46,52,61,.6); }
+  .kv:last-of-type { border-bottom: 0; }
+  .kv b { color: var(--text2); font-weight: 400; text-align: right; word-break: break-word; }
+  .foldbody .foot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .foldbody .foot button { min-height: 30px; padding: 4px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--line2); background: transparent; color: var(--text2); }
+  .foldbody .foot button:hover { color: var(--text); background: #1b1f26; }
+  .foldbody code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+  /* 进展：位置 + 验收进度 + 卡点 + 接下来 */
+  .where { border: 1px solid var(--line); border-radius: 10px; background: var(--layer); padding: 14px 16px; }
+  .stepper { display: grid; grid-template-columns: repeat(5, 1fr); position: relative; margin-top: 4px; }
+  .stepper::before { content: ""; position: absolute; left: 10%; right: 10%; top: 6px; height: 1px; background: var(--line2); }
+  .step { position: relative; display: grid; justify-items: center; gap: 7px; text-align: center; }
+  .dot { width: 13px; height: 13px; border-radius: 50%; background: var(--layer); border: 1.5px solid var(--line2); position: relative; z-index: 1; }
+  .step.done .dot { background: var(--brand); border-color: var(--brand); }
+  .step.done .dot::after { content: ""; position: absolute; inset: 0; margin: 3px auto auto; width: 5px; height: 3px; border-left: 1.5px solid #fff; border-bottom: 1.5px solid #fff; transform: rotate(-45deg); }
+  .step.now .dot { background: var(--layer); border-color: var(--brand); box-shadow: 0 0 0 3px rgba(77,107,254,.18); }
+  .step.hold .dot { background: var(--warn); border-color: var(--warn); box-shadow: 0 0 0 3px rgba(231,176,75,.16); }
+  .step span { font-size: 11.5px; color: var(--text3); }
+  .step.done span { color: var(--text2); }
+  .step.now span, .step.hold span { color: var(--text); font-weight: 500; }
+  .wherecap { margin: 12px 0 0; font-size: 12px; color: var(--text3); }
+
+  .acbar { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .acbar .lbl { font-size: 12.5px; color: var(--text2); }
+  .acbar .track { flex: 1; height: 6px; border-radius: 3px; background: #262c35; overflow: hidden; display: flex; }
+  .acbar .track i { display: block; height: 100%; }
+  .acbar .track .p { background: var(--ok); }
+  .acbar .track .f { background: var(--warn); }
+  .acbar .num { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .blocker { margin-top: 16px; border: 1px solid rgba(231,176,75,.28); border-left: 3px solid var(--warn); border-radius: 8px; background: rgba(231,176,75,.05); padding: 13px 15px; }
+  .blocker .kicker { font-size: 11.5px; color: var(--warn-fg); }
+  .blocker h3 { margin: 4px 0 0; font-size: 14.5px; font-weight: 600; }
+  .blocker p { margin: 6px 0 0; font-size: 13.5px; color: var(--text2); line-height: 1.8; }
+  .blocker .impact { color: var(--text); }
+  .techcause { margin-top: 10px; }
+  .techcause > summary { cursor: pointer; font-size: 12.5px; color: var(--text3); list-style: none; }
+  .techcause > summary::-webkit-details-marker { display: none; }
+  .techcause > summary::before { content: "▸"; font-size: 11px; margin-right: 3px; }
+  .techcause[open] > summary::before { content: "▾"; }
+  .techcause .body { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--layer2); font-size: 12.5px; color: var(--text2); line-height: 1.75; word-break: break-word; }
+  .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+  .next { list-style: none; margin: 6px 0 0; padding: 0; position: relative; }
+  .next li { position: relative; padding: 0 0 14px 22px; font-size: 13.5px; color: var(--text2); line-height: 1.7; }
+  .next li::before { content: ""; position: absolute; left: 4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--line2); background: var(--bg); }
+  .next li::after { content: ""; position: absolute; left: 7px; top: 17px; bottom: 0; width: 1px; background: var(--line2); }
+  .next li:last-child::after { display: none; }
+  .next li:first-child::before { border-color: var(--brand); background: var(--brand); }
+  .next li b { color: var(--text); font-weight: 500; }
+  .next li em { font-style: normal; color: var(--text3); font-size: 12px; }
+
+  .deliver { margin-top: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--layer); padding: 14px 16px; }
+  .deliver h3 { margin: 0; font-size: 14px; font-weight: 600; }
+  .deliver p { margin: 6px 0 0; font-size: 13.5px; color: var(--text2); line-height: 1.8; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; background: var(--layer2); }
+  .chip b { color: var(--text); font-weight: 500; }
+  .chip.dot-ok::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .chip.dot-warn::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+  .stepskicker { margin: 16px 0 0; font-size: 12px; color: var(--text3); }
+  .bizsteps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 7px; }
+  .bizsteps li { display: flex; align-items: baseline; gap: 9px; font-size: 13.5px; color: var(--text3); }
+  .bizsteps li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--line2); flex: none; transform: translateY(-1px); }
+  .bizsteps li.done { color: var(--text2); }
+  .bizsteps li.done::before { background: var(--ok); border-color: var(--ok); }
+  .bizsteps li.doing { color: var(--text); }
+  .bizsteps li.doing::before { background: var(--brand); border-color: var(--brand); }
+
+  .histline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text2); padding: 0 0 10px; }
+  .tag { font-size: 11px; border: 1px solid var(--line2); color: var(--text3); border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+  .tag.auto { color: var(--link); border-color: rgba(168,187,255,.3); }
+  .history { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 12px; align-items: start; }
+  @media (max-width: 1040px) { .history { grid-template-columns: minmax(0, 1fr); } }
+  .vlist { border: 1px solid var(--line); border-radius: 10px; background: var(--layer); overflow: hidden; }
+  .vitem { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 9px 11px; color: var(--text2); }
+  .vitem:last-child { border-bottom: 0; }
+  .vitem:hover { background: #171b21; }
+  .vitem[aria-selected="true"] { background: #1a2130; box-shadow: inset 3px 0 0 var(--brand); }
+  .v-top { display: flex; align-items: baseline; gap: 8px; }
+  .v-id { font-size: 12.5px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .v-at { margin-left: auto; font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
+  .v-title { margin-top: 3px; font-size: 12px; color: var(--text2); line-height: 1.55; }
+  .v-meta { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; color: var(--text3); }
+  .stat { font-variant-numeric: tabular-nums; }
+  .stat .a { color: var(--diff-add); }
+  .stat .d { color: var(--diff-del); margin-left: 5px; }
+
+  .diffpanel { border: 1px solid var(--line); border-radius: 10px; background: var(--layer); overflow: hidden; min-width: 0; }
+  .dhead { display: flex; align-items: center; gap: 8px; row-gap: 6px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text2); }
+  .dhead .dtitle { font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .dhead .dtools { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .dhead .seg button { font-size: 11.5px; padding: 3px 8px; }
+  .dbody { font-family: var(--mono); font-size: 12px; line-height: 1.9; overflow-x: auto; color: var(--text2); }
+  .empty { padding: 26px 16px; text-align: center; color: var(--text3); font-size: 13px; }
+  .empty b { display: block; color: var(--text2); font-size: 13.5px; font-weight: 500; margin-bottom: 4px; }
+  .hunk { display: flex; align-items: center; gap: 8px; padding: 5px 12px; background: #12161d; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-family: var(--font); font-size: 12px; color: var(--text3); }
+  .hunk b { color: var(--text2); font-weight: 500; }
+  .hunk.flash { background: rgba(77,107,254,.16); }
+  .hunk .hstat { margin-left: auto; display: inline-flex; gap: 8px; font-variant-numeric: tabular-nums; }
+  .hunk .hstat .a { color: var(--diff-add); }
+  .hunk .hstat .d { color: var(--diff-del); }
+  .hunk .hstat .p { color: var(--text3); }
+  .vlisthint { padding: 7px 11px; font-size: 11px; color: var(--text3); background: #12151a; }
+  .dline { display: grid; grid-template-columns: 32px 32px 16px minmax(0, 1fr); white-space: pre-wrap; word-break: break-word; }
+  .dline .ln { color: #48505c; text-align: right; padding-right: 8px; font-size: 11px; user-select: none; }
+  .dline .sign { color: #5b6472; text-align: center; user-select: none; }
+  .dline .txt { padding-right: 12px; }
+  .dline.add { background: rgba(53,196,122,.09); }
+  .dline.add .sign { color: var(--diff-add); }
+  .dline.del { background: rgba(255,139,139,.08); }
+  .dline.del .sign { color: var(--diff-del); }
+  .dline.del .txt { color: #d8a3a3; }
+  .dbody.only .dline.ctx { display: none; }
+  mark.addw { background: rgba(53,196,122,.26); color: #d3f7e4; border-radius: 2px; }
+  mark.delw { background: rgba(255,139,139,.24); color: #ffdada; border-radius: 2px; }
+  .dfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text3); }
+  .restore { border: 1px solid var(--line2); background: transparent; color: var(--text2); border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+  .restore:hover { color: var(--text); border-color: #3a4049; }
+  .restore.confirm { color: var(--warn-fg); border-color: rgba(231,176,75,.5); background: rgba(231,176,75,.08); }
+  .dimpact { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; font-size: 12px; color: var(--warn-fg); background: rgba(231,176,75,.06); border-bottom: 1px solid var(--line); }
+  .dimpact:empty { display: none; }
+  .dimpact .ib { border: 1px solid rgba(231,176,75,.45); border-radius: 4px; padding: 0 5px; font-size: 11px; flex: none; }
+  .aclink { border: 1px solid rgba(231,176,75,.4); background: transparent; color: var(--warn-fg); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+  .aclink:hover { background: rgba(231,176,75,.14); }
+  .linkbtn { border: 0; background: transparent; color: var(--link); font-size: 12px; padding: 0; text-decoration: underline dotted; text-underline-offset: 3px; }
+  .tabdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); margin-left: 6px; vertical-align: middle; }
+
+  .restorebox { margin-top: 12px; border: 1px solid rgba(231,176,75,.35); border-radius: 8px; background: rgba(231,176,75,.06); padding: 10px 12px; font-size: 12.5px; color: var(--warn-fg); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .archive { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .muted { color: var(--text3); font-size: 12.5px; }
+
+  .rail { border: 1px solid var(--line); border-radius: 10px; background: var(--layer); padding: 12px 14px; position: sticky; top: 96px; }
+  .rail h2 { margin: 0 0 8px; font-size: 12px; color: var(--text3); font-weight: 500; letter-spacing: .02em; }
+  .rail .needbox { border-radius: 7px; padding: 9px 10px; font-size: 12.5px; line-height: 1.6; margin-bottom: 12px; }
+  .rail .needbox.yes { background: rgba(231,176,75,.08); border: 1px solid rgba(231,176,75,.28); color: var(--warn-fg); }
+  .rail .needbox.no { background: rgba(53,196,122,.06); border: 1px solid rgba(53,196,122,.25); color: var(--ok-fg); }
+  .rail .needbox b { display: block; font-size: 13px; margin-bottom: 2px; color: var(--text); }
+  .rail .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; font-size: 12.5px; color: var(--text2); }
+  .rail .row b { color: var(--text); font-weight: 400; text-align: right; }
+  .raildiv { height: 1px; background: var(--line); margin: 10px 0; }
+  .rail .nextstep { font-size: 12.5px; color: var(--text2); line-height: 1.7; }
+  .rail .nextstep b { color: var(--text); font-weight: 500; }
+  .railbtns { display: flex; gap: 6px; margin-top: 10px; }
+  .railbtns .btn { flex: 1; justify-content: center; }
+
+  .note { display: none; margin-top: 10px; padding: 7px 10px; border: 1px dashed #3b4658; border-radius: 7px; background: rgba(77,107,254,.06); color: var(--link); font-size: 12px; line-height: 1.7; }
+  body.notes .note { display: block; }
+  .note i { font-style: normal; color: #c9d4ff; font-weight: 600; margin-right: 4px; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: #1c2330; border: 1px solid var(--line2); color: var(--text); font-size: 13px; padding: 9px 14px; border-radius: 8px; opacity: 0; pointer-events: none; transition: opacity 180ms; z-index: 40; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body data-tab="list">
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">d</div>
+      <div class="brand-name">deepseek</div>
+      <div class="brand-tag">HARNESS</div>
+    </div>
+    <button class="newchat"><span>+</span> 新会话</button>
+    <div class="navgroup">
+      <div class="navitem"><span class="ico">◈</span> 插件</div>
+      <div class="navitem"><span class="ico">◷</span> 自动化任务</div>
+      <div class="navitem active"><span class="ico">▤</span> 需求<span class="navbadge" id="navbadge">2</span></div>
+      <div class="navitem"><span class="ico">⋯</span> 更多</div>
+    </div>
+    <div class="sectitle">工作区 <span style="margin-left:auto">＋</span></div>
+    <div class="tree">
+      <a><span>DSH 需求插件跨智能体 JSON 与 E…</span><i>刚刚</i></a>
+      <a><span>归档版本徽章跳转历史 Diff 需求</span><i>5 天</i></a>
+      <a><span>需求列表标题操作优化</span><i>6 天</i></a>
+      <a><span>需求插件重构任务开发</span><i>9 天</i></a>
+      <a><span>展开其余 11 个会话</span></a>
+    </div>
+    <div class="sidefoot"><div class="avatar">张</div> 张浩</div>
+  </aside>
+
+  <main class="main">
+    <div class="protobar">
+      <b>原型演示</b>
+      <button class="plink" data-open="list">需求列表</button>
+      <button class="plink" data-open="REQ-ALM-006">006 卡住了</button>
+      <button class="plink" data-open="REQ-ALM-003">003 待你决定</button>
+      <button class="plink" data-open="REQ-ALM-015">015 待开始</button>
+      <button class="plink" data-open="REQ-ALM-016">016 在跑</button>
+      <button class="plink" data-open="REQ-ALM-012">012 已上线</button>
+      <label class="switch"><input type="checkbox" id="notes"> 显示评审标注</label>
+    </div>
+
+    <!-- ================= 列表 ================= -->
+    <section class="view" id="view-list">
+      <header class="listhead">
+        <div class="ltitle">
+          <h1>需求</h1>
+          <span class="lcnt" id="lcnt">10 条</span>
+          <div class="wsbar">
+            <span class="wssel">工作区 <b>DSH (ALM)</b><span class="repo">已关联仓库</span> ▾</span>
+            <button class="btn sm">导入 / 导出</button>
+            <button class="btn sm primary">+ 新增需求</button>
+          </div>
+        </div>
+        <p class="summary" id="summary"></p>
+        <div class="toolbar">
+          <label class="search"><span>⌕</span><input id="q" placeholder="搜索标题、需求 ID 或负责人"></label>
+          <div class="sources" id="sources"></div>
+          <div class="spacer"></div>
+          <div class="seg" id="listviewseg"><button data-view="queue" class="on">队列</button><button data-view="board">看板</button></div>
+          <select class="sel" id="sortsel" aria-label="排序">
+            <option value="need">排序：需要我优先</option>
+            <option value="recent">排序：最近更新</option>
+            <option value="stale">排序：等最久的在前</option>
+          </select>
+          <label class="switch" style="margin-left:0"><input type="checkbox" id="mineOnly"> 只看我的</label>
+        </div>
+        <div class="filterline" id="filterline"></div>
+      </header>
+      <div class="listscroll" id="listScroll">
+        <div class="groups" id="groups"></div>
+        <div class="board" id="board" hidden></div>
+        <div class="note" id="listNotes" style="margin:0 24px 8px">①原来顶部有 8 个页签，其中 5 个是 0（待我处理 0 / AI 推进中 0 / 待验收 0 / 已验收 0 / 数据异常 0）。零值页签不是导航，是状态枚举的投影。改成 4 个分组后，页签条消失，信息不减反增：每组带数量，还带「为什么它们在这一组」。<br>②原来「全部 10」与标题旁「8 条」两个计数源并存。现在全部计数由一处派生。</div>
+      </div>
+      <div class="bulk" id="bulk" hidden></div>
+      
+    </section>
+
+    <!-- ================= 详情 ================= -->
+    <section class="view" id="view-detail" hidden>
+      <nav class="topnav">
+        <button class="btn ghost" id="backBtn">← 需求列表</button>
+        <span class="crumb" id="crumb"></span>
+        <div class="spacer"></div>
+        <button class="btn sm" id="copyBtn">复制进展摘要</button>
+        <button class="btn sm" id="navaction">更多 ▾</button>
+      </nav>
+
+      <div class="scroll" id="scroll">
+        <div class="dheadwrap">
+          <div class="idline" id="idline"></div>
+          <h1 class="title" id="dtitle"></h1>
+          <p class="subtitle" id="dsubtitle"></p>
+        </div>
+
+        <div class="tabs" id="tabs" role="tablist" aria-label="需求页签">
+          <button data-tab="requirement" role="tab" aria-selected="true">需求正文</button>
+          <button data-tab="progress" role="tab" aria-selected="false">AI 进展<span class="tabdot" id="progressDot" hidden></span></button>
+          <button data-tab="record" role="tab" aria-selected="false">历史记录</button>
+        </div>
+
+        <div class="band" id="band" data-tone="warn"></div>
+
+        <article class="reading">
+          <div>
+            <!-- 正文 -->
+            <section class="pane" data-pane="requirement">
+              <div class="section">
+                <h2>要解决的问题</h2>
+                <p class="lede">运营和客服需要把需求数据在浏览器里导出成 Excel，再交给另一个智能体批量导入。现在两边格式对不上——导出的表头导不回去，只能人工改一遍。这条需求把导入导出打通，<strong>并且保证导入前先校验权限和表头</strong>，出错时不会把整批数据写脏。</p>
+                <div class="note"><i>①</i>原来这里是「原始需求」「AI 整理需求」两张卡并排，且首卡正文写的是「需求内容已由 AI 整理」这种元说明。改成一段结论 + 原文折叠。</div>
+                <details class="fold" style="border-top:0;margin-top:12px;padding-top:0">
+                  <summary>原始对话与 AI 整理说明 <span class="sub">2026-11-12 从对话整理</span></summary>
+                  <div class="foldbody" style="font-size:13px;color:var(--text2);line-height:1.9">
+                    我要做一个需求插件的导入导出：需求能导成 Excel 给不装 DSH 的同事看，他们改完还能导回来；另外几个智能体之间也要能互相传需求 JSON。注意别把没权限的字段带出去，导错了整批别写进去。CSV 先不用管。
+                  </div>
+                </details>
+              </div>
+
+              <div class="pending" id="pendingBlock" hidden>
+                <h3 id="pendingTitle"></h3>
+                <p id="pendingDesc"></p>
+                <div class="actions" style="margin-top:10px"><button class="btn primary" data-goto="progress">去 AI 进展决定</button></div>
+              </div>
+
+              <div class="section">
+                <h2><span id="ach2">完成的标准</span> <span class="sub" id="acsb">8 项 · 5 项已通过 · 1 项未通过 · 2 项待验证</span></h2>
+                <div class="gempty" id="acplaceholder" hidden style="margin-bottom:8px"></div>
+                <div id="acblock">
+                <div class="acrow" id="ac-AC-03">
+                  <div class="acid">AC-03</div>
+                  <div class="actext">导出的表头与导入模板保持同一版本
+                    <small>卡在这里：模板 v3 比导出器 v4 少了 2 个字段</small>
+                  </div>
+                  <div class="acstate warn">未通过</div>
+                </div>
+                <div class="acrow" id="ac-AC-06">
+                  <div class="acid">AC-06</div>
+                  <div class="actext">同一个需求重复导入不会产生重复记录</div>
+                  <div class="acstate idle">待验证</div>
+                </div>
+                <div class="acrow" id="ac-AC-07">
+                  <div class="acid">AC-07</div>
+                  <div class="actext">导入过程可中断，中断后不留半成品数据</div>
+                  <div class="acstate idle">待验证</div>
+                </div>
+                <details class="fold" style="margin-top:8px;border-top:0;padding-top:0">
+                  <summary>5 项已通过 <span class="sub">AC-01、AC-02、AC-04、AC-05、AC-08 · 点开看证据</span></summary>
+                  <div style="margin-top:6px">
+                    <div class="acrow passed" id="ac-AC-01"><div class="acid">AC-01</div><div class="actext">导出的 Excel 能原样导回，数据不丢失、不改值</div><div class="acstate ok">已通过</div></div>
+                    <div class="acrow passed" id="ac-AC-02"><div class="acid">AC-02</div><div class="actext">导入前先校验表头，不一致时整批不写库</div><div class="acstate ok">已通过</div></div>
+                    <div class="acrow passed" id="ac-AC-04"><div class="acid">AC-04</div><div class="actext">没有权限的字段不出现在导出文件里</div><div class="acstate ok">已通过</div></div>
+                    <div class="acrow passed" id="ac-AC-05"><div class="acid">AC-05</div><div class="actext">导入失败的记录单独列出，可下载处理</div><div class="acstate ok">已通过</div></div>
+                    <div class="acrow passed" id="ac-AC-08"><div class="acid">AC-08</div><div class="actext">智能体之间交换的 JSON 带版本号，旧版本可识别</div><div class="acstate ok">已通过</div></div>
+                  </div>
+                </details>
+                <div class="note"><i>②</i>上一版把 8 条验收全列出来，其中 5 条已通过占掉半屏。更严重的是：标题写「6 项已通过 · 2 项待重跑」，逐条看却是 4 通过、1 未通过、3 待验证——统计和明细各算一套。这版默认只列没过的 3 条，通过项折叠，且统计由逐条状态算出来。</div>
+                </div>
+              </div>
+
+              <div class="section">
+                <h2>这次不做</h2>
+                <ul class="bullets">
+                  <li>不改动现有权限模型，只在导入导出时读取判断</li>
+                  <li>不与第三方系统实时对接，仍是文件交换</li>
+                  <li>不做历史数据的批量清洗，只处理本次导入</li>
+                </ul>
+              </div>
+
+              <div class="section">
+                <h2>我要改这条需求</h2>
+                <div class="feedback" id="feedbackBox">
+                  <div class="modes">
+                    <button class="modebtn on" data-mode="change">补充或修改需求</button>
+                    <button class="modebtn" data-mode="challenge">质疑某条验收标准</button>
+                  </div>
+                  <p class="hintline" id="modehint">会生成 v5，并作废当前 5 项已通过的验证结论——AI 需要重新跑一遍。</p>
+                  <textarea placeholder="写清楚希望改什么、为什么。"></textarea>
+                  <div class="row">
+                    <button class="btn" id="sendFeedback">提交给 AI</button>
+                    <span class="hint">处理结果会出现在「AI 进展」。</span>
+                  </div>
+                </div>
+                <div class="note"><i>③</i>上一版把「质疑验收标准」和「改需求」合成一个输入框，但这两件事的后果完全不同：改需求会作废验证结论，质疑标准只是讨论。这里拆成两个动作，并各自说清后果。</div>
+              </div>
+
+              <details class="fold">
+                <summary>技术细节 <span class="sub">验收证据、数据契约、代码位置</span></summary>
+                <div class="foldbody">
+                  <div class="kv"><span>验收用例</span><b>TEST-ALM-REQUIREMENTS-ROUND-TRIP / EXCHANGE / SECURITY</b></div>
+                  <div class="kv"><span>涉及模块</span><b>MOD-DSH-REQUIREMENTS · MOD-ALM-REQUIREMENTS（4 个文件）</b></div>
+                  <div class="kv"><span>数据契约</span><b>exchange.schema.v3 · 表头模板 template.v3</b></div>
+                  <div class="kv"><span>交付候选</span><b>CAND-REQ-ALM-006-004 · 8 条断言记录</b></div>
+                  <div class="kv"><span>代码位置</span><b>develop @ 7f3a9c2 · 已推送</b></div>
+                  <div class="foot"><button>查看验收原始输出</button><button>查看数据契约</button><button>查看交付证据</button></div>
+                </div>
+                <div class="note"><i>④</i>上一版有两个折叠入口：正文叫「技术附录」，进展叫「技术明细」。同一页两种命名，等于两套信息架构。统一成「技术细节」，内部按验收证据 / 契约 / 代码三段。</div>
+              </details>
+            </section>
+
+            <!-- 进展 -->
+            <section class="pane" data-pane="progress" hidden>
+              <div class="where">
+                <div class="stepper" id="stepper" role="list" aria-label="推进阶段"></div>
+                <div class="note"><i>①</i>上一版把阶段条当进度条用：需求改过之后阶段会回退，用户看到「进度条倒回去了」，会以为出了问题。现在阶段只标位置，进度用「通过了几项验收」表达——它只在结论作废时才下降，而作废必须是一件被明确告知的事。</div>
+              </div>
+
+              <div class="progress" id="progress"></div>
+
+              <div class="section">
+                <h2>接下来会发生什么</h2>
+                <ol class="next" id="nextsteps"></ol>
+              </div>
+
+              <details class="fold" id="tech">
+                <summary>技术细节 <span class="sub">运行记录、日志、分支、用量</span></summary>
+                <div class="foldbody">
+                  <div class="kv"><span>当前运行</span><b>RUN-006 · 第 1 段 · 378 个工程动作 · 修改 65 个文件</b></div>
+                  <div class="kv"><span>代码位置</span><b>develop @ 7f3a9c2 · 已推送远端</b></div>
+                  <div class="kv"><span>修改范围</span><b>锁定 8 个模块，实际改动未越界</b></div>
+                  <div class="kv"><span>最近验证</span><b>2026-11-14 07:58:20 · excel-roundtrip 退出码 1</b></div>
+                  <div class="kv"><span>会话</span><b>DSH 会话 · 2026-11-12 19:47:22 → 2026-11-14 07:53:34</b></div>
+                  <div class="foot">
+                    <button>打开运行记录</button><button>查看报错日志</button><button>Token 用量</button><button>在 DSH 中打开会话</button>
+                  </div>
+                </div>
+                <div class="note"><i>②</i>运行记录、工具轨迹、commit、候选编号整体折叠，入口与正文页同名，都是「技术细节」。</div>
+              </details>
+            </section>
+
+            <!-- 历史 -->
+            <section class="pane" data-pane="record" hidden>
+              <div class="histline">
+                <span>当前 <b>v4</b> · 2026-11-14 07:57 由张浩修改 · 补充安全约束与导出格式，新增 2 条验收</span>
+                <button class="linkbtn" data-goto="progress">这一版之后重跑验证未通过 →</button>
+              </div>
+              <div class="history">
+                <div class="vlist" id="vlist" role="listbox" aria-label="版本列表"></div>
+                <div class="diffpanel">
+                  <div class="dhead" id="dhead"></div>
+                  <div class="dimpact" id="dimpact"></div>
+                  <div class="dbody" id="dbody"></div>
+                  <div class="dfoot" id="dfoot"></div>
+                </div>
+              </div>
+              <div class="note"><i>①</i>上一版历史页顶部有一张「当前 v4」摘要卡，说的内容和下面的 diff 头重复。现在合成一行，版本列表左移成细导航，屏幕全给差异本身。</div>
+              <div class="note"><i>②</i>差异头部的「影响」条可以点：点 AC-03 直接跳回正文那一条，并高亮。历史页要回答的不是「改了什么字」，而是「改完哪条验收作废了」。</div>
+
+              <details class="fold">
+                <summary>技术记录 <span class="sub">修订标识、提交、关联运行</span></summary>
+                <div class="foldbody">
+                  <div class="kv"><span>修订标识</span><b>REV-REQ-ALM-006-4 · a91c3f2</b></div>
+                  <div class="kv"><span>提交</span><b>feat(requirements): consolidate delivery lifecycle and DSI runtime integration</b></div>
+                  <div class="kv"><span>关联运行</span><b>RUN-006（等待输入）· RUN-005（已结束）</b></div>
+                  <div class="kv"><span>变更文件</span><b>2 个 · exchange.mjs、client-source.js</b></div>
+                  <div class="foot"><button>查看完整修订 Diff</button><button>导出历史记录</button></div>
+                </div>
+              </details>
+
+              <div class="archive">
+                <button class="btn sm" id="archiveBtn">归档这条需求</button>
+                <button class="btn sm ghost">查看已归档版本（2）</button>
+                <span class="muted">归档后不再参与推进，可在「已归档」里恢复。</span>
+              </div>
+            </section>
+          </div>
+
+          <aside class="rail" id="rail" aria-label="需求状态"></aside>
+        </article>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ========================= 数据 ========================= */
+const GROUPS = [
+  { key: 'need', name: '需要你处理', hint: '不处理会一直停着', sig: 'var(--warn)' },
+  { key: 'doing', name: 'AI 在跑', hint: '不用你盯，跑完会说', sig: 'var(--brand)' },
+  { key: 'idle', name: '待开始', hint: '按优先级排队', sig: '#47505c' },
+  { key: 'closed', name: '已关闭', hint: '只看，不再推进', sig: '#2f3742' },
+];
+
+const REQS = [
+  {
+    id: 'REQ-ALM-006', title: '跨智能体 JSON 与 Excel 安全导入导出',
+    orig: 'DSH 需求插件跨智能体 JSON 与 Excel 安全导入导出',
+    sub: '导入前校验表头与权限，导出文件不带无权限字段',
+    source: '对话生成', owner: 'team-pay', ver: 'v4', prio: 'P2',
+    state: 'blocked', group: 'need', acPass: 5, acTotal: 8,
+    flag: '卡在 AC-03', flagTone: 'warn', cta: '去处理',
+    meta: ['5/8 项验收通过', '3 分钟前停在「表头校验」'], recent: 5, stale: 0,
+  },
+  {
+    id: 'REQ-ALM-003', title: '决策请求里不要出现技术细节',
+    orig: '决策请求中的内容过于技术化，对于不懂代码和不需要知道具体开发过程用户来说，决策请求应该给出明确的决…',
+    sub: '把命令、路径、错误码收进折叠，只留决策本身',
+    source: '反馈', owner: 'team-pay', ver: 'v2', prio: 'P1',
+    state: 'decide', group: 'need', acPass: 0, acTotal: 3,
+    flag: '等你回答 1 个问题', flagTone: 'brand', cta: '去回答',
+    meta: ['3 项验收标准', '12 分钟前 AI 问了一个问题'], recent: 4, stale: 0,
+  },
+  {
+    id: 'REQ-ALM-016', title: '导入失败的记录可以单独下载',
+    orig: '导入失败清单需要支持下载后离线处理',
+    sub: '失败行连同原因导出成表格，不夹在整批里',
+    source: '缺陷', owner: 'team-pay', ver: 'v1', prio: 'P1',
+    state: 'running', group: 'doing', acPass: 2, acTotal: 4,
+    flag: '第 2 步 / 共 3 步', flagTone: 'brand', cta: '看进展',
+    meta: ['2/4 项验收通过', '1 分钟前正在改失败清单导出'], recent: 6, stale: 0,
+  },
+  {
+    id: 'REQ-ALM-015', title: '需求列表默认打开「待我处理」',
+    orig: '需求列表默认显示待我处理 tab 页面',
+    sub: '打开就落在有事可做的那一屏，而不是全部',
+    source: '手动创建', owner: '张浩', ver: 'v1', prio: 'P2',
+    state: 'idle', group: 'idle', acPass: 0, acTotal: 0,
+    flag: '还没定验收标准', flagTone: '', cta: '交给 AI',
+    meta: ['验收标准还没定', '已放置 2 天'], recent: 3, stale: 2,
+  },
+  {
+    id: 'REQ-ALM-011', title: '长标题自动提纯，主按钮语义收敛',
+    orig: '需求列表长标题自动提纯与主操作按钮语义优化',
+    sub: '标题压到一行能读完，主按钮说清点了会发生什么',
+    source: '对话生成', owner: 'team-pay', ver: 'v2', prio: 'P2',
+    state: 'idle', group: 'idle', acPass: 0, acTotal: 5,
+    flag: '待细化', flagTone: '', cta: '交给 AI',
+    meta: ['5 项验收标准', '已放置 5 天'], recent: 2, stale: 5,
+  },
+  {
+    id: 'REQ-ALM-010', title: '未选项目时的空状态与引导',
+    orig: '需求页未选项目的未加载语义与原生项目选择引导',
+    sub: '没选项目时别显示空列表，直接给选择入口',
+    source: '对话生成', owner: 'team-pay', ver: 'v1', prio: 'P3',
+    state: 'idle', group: 'idle', acPass: 0, acTotal: 3,
+    flag: '待细化', flagTone: '', cta: '交给 AI',
+    meta: ['3 项验收标准', '已放置 5 天'], recent: 2, stale: 5,
+  },
+  {
+    id: 'REQ-ALM-009', title: '同一会话内安全恢复历史意图',
+    orig: '原生意图服务端历史发现与同 session 安全恢复',
+    sub: '换设备回到会话时，能接上之前的意图而不是重开',
+    source: '对话生成', owner: 'team-pay', ver: 'v1', prio: 'P2',
+    state: 'idle', group: 'idle', acPass: 0, acTotal: 5,
+    flag: '待细化', flagTone: '', cta: '交给 AI',
+    meta: ['5 项验收标准', '已放置 5 天'], recent: 2, stale: 5,
+  },
+  {
+    id: 'REQ-ALM-008', title: '去掉交付视图的强制五视角评审',
+    orig: '移除需求交付视图五视角强制评审残留并保持真实门禁',
+    sub: '评审改成可选，门禁只看验收是否真的通过',
+    source: '对话生成', owner: 'team-pay', ver: 'v1', prio: 'P3',
+    state: 'idle', group: 'idle', acPass: 0, acTotal: 1,
+    flag: '待细化', flagTone: '', cta: '交给 AI',
+    meta: ['1 项验收标准', '已放置 5 天'], recent: 2, stale: 5,
+  },
+  {
+    id: 'REQ-ALM-001', title: '需求查询条件与列表优化',
+    orig: '需求查询条件和列表优化',
+    sub: '查询条件可组合，列表能记住上次的筛选',
+    source: '对话生成', owner: '张浩', ver: 'v1', prio: 'P3',
+    state: 'closed', group: 'closed', acPass: 0, acTotal: 0,
+    flag: '与 012 重复', flagTone: '', cta: '',
+    meta: ['已关闭 5 天', '原因：与 012 重复'], recent: 1, stale: 0,
+  },
+  {
+    id: 'REQ-ALM-012', title: '需求列表收敛变更状态与版本徽章',
+    orig: '需求列表展示收敛变更状态与版本徽章',
+    sub: '版本徽章只在有差异时出现，不常驻',
+    source: '对话生成', owner: 'team-pay', ver: 'v5', prio: 'P2',
+    state: 'released', group: 'closed', acPass: 10, acTotal: 10,
+    flag: '已上线', flagTone: 'ok', cta: '',
+    meta: ['10 项验收全部通过', '5 天前上线'], recent: 1, stale: 0,
+  },
+];
+
+/* ========================= 状态叙述 ========================= */
+const STAGES = ['需求确认', '开发', '验证', '待验收', '已上线'];
+
+const STATES = {
+  idle: {
+    stage: 0, tone: 'idle', label: '待开始', need: '要你：决定什么时候开始',
+    headline: '还没交给 AI 推进',
+    meta: '验收标准还没定 · 创建于 2 天前',
+    nav: '交给 AI 推进',
+    ac: [0, 0],
+    next: [['你点「交给 AI 推进」', '现在'], ['AI 先补验收标准，你来确认', '约 3 分钟'], ['确认后开始开发', '—']],
+    railNext: 'AI 先拟验收标准',
+    rail: '这条需求已整理好，但还没有验收标准。交给 AI 后它会先拟一版标准给你确认。',
+    cta: '交给 AI 推进',
+  },
+  running: {
+    stage: 1, tone: 'brand', label: '进行中', need: '不用你：AI 在做',
+    headline: 'AI 正在做第 2 步：导出与模板对齐',
+    meta: '最近动作 1 分钟前 · 第 2 步 / 共 3 步',
+    nav: '暂停本轮',
+    ac: [2, 4],
+    acNote: '剩下 AC-03、AC-04 还在跑，其余通过。',
+    next: [['AI 完成失败清单导出', '在跑'], ['自动跑 4 项验收', '约 2 分钟'], ['全部通过后进入「待验收」，通知你', '自动']],
+    railNext: 'AI 跑完 → 你验收',
+    rail: '不需要你操作。跑完或卡住都会在这里提示，也会推到需求列表。',
+    cta: '暂停本轮',
+    steps: [['done', '导入：表头校验与权限检查'], ['doing', '导出：失败清单单独成表'], ['todo', '4 项验收重跑']],
+  },
+  blocked: {
+    stage: 2, tone: 'warn', label: '卡住了', need: '要你：点一下「重新验证」',
+    headline: 'AI 停在「表头校验」：导出模板和导入模板对不上',
+    meta: '需要你做一件事，其余交给 AI · 最近动作 3 分钟前',
+    nav: '继续推进',
+    ac: [5, 8],
+    acNote: '没过的 3 项：AC-03 未通过，AC-06、AC-07 待验证。',
+    next: [['你点「让 AI 修复并重跑验证」', '现在'], ['AI 补 template 缺失的 2 个字段，重跑 8 项验收', '约 4 分钟，不动主体代码'], ['仍有效的 5 项不再重跑，只补 AC-03 与 2 项待验证', '自动'], ['全部通过后进入「待验收」，通知你', '自动']],
+    railNext: 'AI 修表头 → 重跑 → 你验收',
+    rail: '只差一步：点一下重新验证。修表头是 AI 的活，不需要你判断业务。',
+    cta: '让 AI 修复并重跑验证',
+    secondary: '只重跑验证',
+    steps: [['done', '导入：表头校验与权限检查'], ['done', '导入失败清单可下载'], ['doing', '导出：Excel 生成与模板对齐']],
+    blocker: {
+      kicker: '卡在哪',
+      title: '导出表头比导入模板多 2 个字段',
+      body: '模板还停在 v3，导出器已经按 v4 生成。所以「导出的表头与导入模板同版本」这条过不了，其他 5 项不受影响。',
+      impact: '受影响：AC-03「导出的表头与导入模板保持同一版本」',
+      tech: '验收命令 <code>node scripts/verify.mjs --suite excel-roundtrip</code> 退出码 1；schema v3 与 exporter v4 表头字段差 <code>exported_at</code>、<code>revision</code>；涉及 <code>template.mjs</code>、<code>exporter.mjs</code>。',
+    },
+  },
+  decide: {
+    stage: 1, tone: 'brand', label: '待你决定', need: '要你：回答一个问题',
+    headline: 'AI 问你：决策请求里要不要保留命令原文？',
+    meta: '需要你做一个业务判断 · 最近动作 12 分钟前',
+    nav: '查看并决定',
+    ac: [0, 3],
+    acNote: '3 项都还没验证，等这个问题定了才开跑。',
+    next: [['你选一个答案', '现在'], ['AI 按答案改决策请求的展示规则', '约 6 分钟'], ['补 3 项验收标准并自测', '自动']],
+    railNext: '你回答 → AI 改规则',
+    rail: '这个问题只有你能答：保留命令原文对排查有用，但会让不看代码的人读不下去。',
+    cta: '查看并决定',
+    decide: {
+      question: '决策请求里，要不要保留导致这个决策的命令原文？',
+      options: ['保留，但默认折叠', '完全不显示', '只在出错时显示'],
+    },
+  },
+  accept: {
+    stage: 3, tone: 'ok', label: '待验收', need: '要你：验收',
+    headline: '做完了，8 项验收全部通过',
+    meta: '等你确认实际效果 · 最近动作 昨天 07:58',
+    nav: '验收',
+    ac: [8, 8],
+    acNote: '8 项全部通过。',
+    next: [['你查看结果并验收', '现在'], ['签收后进入「已上线」', '你确认后'], ['发布记录归档，本页转为查看', '自动']],
+    railNext: '你验收 → 上线',
+    rail: 'AI 已经把活干完并自检通过。你只需要确认效果符合预期。',
+    cta: '查看结果并验收',
+    secondary: '让 AI 再检查一遍',
+    deliver: {
+      title: '这一版做了什么',
+      desc: '支持 JSON 与 Excel 双向导入导出，导入前校验表头与权限，失败记录单独成表可下载，不中断整批。',
+      chips: [['dot-ok', '8 项验收 <b>全部通过</b>'], ['dot-ok', '覆盖主流程与异常路径']],
+    },
+  },
+  closed: {
+    stage: 3, tone: 'idle', label: '已关闭', need: '不用你',
+    headline: '已关闭：与 REQ-ALM-012 重复，内容已并入那条需求',
+    meta: '2026-11-11 由张浩关闭 · 未产生交付',
+    nav: '更多',
+    ac: [0, 0],
+    railNext: '无后续动作',
+    next: [['已关闭，内容并入 REQ-ALM-012', '2026-11-11']],
+    rail: '这条需求不再推进。如果想重开，从这里恢复并指定新的负责人。',
+    cta: '',
+  },
+  released: {
+    stage: 5, tone: 'ok', label: '已上线', need: '不用你',
+    headline: '已上线，本页转为记录查看',
+    meta: '2026-11-11 20:23 上线',
+    nav: '更多',
+    ac: [10, 10],
+    acNote: '10 项全部通过。',
+    next: [['已上线，无后续动作', '2026-11-11']],
+    railNext: '无',
+    rail: '这条需求已经完成，验收结论与发布记录已归档。',
+    cta: '',
+    deliver: {
+      title: '上线结果',
+      desc: '10 项验收全部通过，代码已合入主干，发布记录已归档。',
+      chips: [['dot-ok', '<b>10 项验收</b> 全部通过'], ['dot-ok', '已合入主干']],
+    },
+  },
+};
+
+/* ========================= 通用 ========================= */
+const $ = id => document.getElementById(id);
+const toastEl = $('toast');
+let toastTimer;
+function toast(message) {
+  toastEl.textContent = message;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+}
+
+/* ========================= 列表 ========================= */
+const listState = { q: '', source: '全部', sort: 'need', mine: false, view: 'queue', selected: new Set() };
+const SOURCES = ['全部', '手动创建', '对话生成', '缺陷', '反馈'];
+
+function matches(req) {
+  if (listState.source !== '全部' && req.source !== listState.source) return false;
+  if (listState.mine && req.owner !== '张浩') return false;
+  if (!listState.q) return true;
+  const q = listState.q.toLowerCase();
+  return req.title.toLowerCase().includes(q) || req.id.toLowerCase().includes(q) || req.owner.toLowerCase().includes(q) || req.orig.toLowerCase().includes(q);
+}
+
+function sorted(list) {
+  const copy = [...list];
+  if (listState.sort === 'need') {
+    const rank = { blocked: 0, decide: 1, running: 2, idle: 3, accept: 4, released: 5, closed: 6 };
+    copy.sort((a, b) => (rank[a.state] - rank[b.state]) || (b.recent - a.recent));
+  } else if (listState.sort === 'recent') {
+    copy.sort((a, b) => b.recent - a.recent);
+  } else {
+    copy.sort((a, b) => b.stale - a.stale || (a.state === 'closed') - (b.state === 'closed'));
+  }
+  return copy;
+}
+
+function renderSummary() {
+  const need = REQS.filter(r => r.group === 'need').length;
+  const doing = REQS.filter(r => r.group === 'doing').length;
+  const idle6 = REQS.filter(r => r.group === 'idle');
+  const closed = REQS.filter(r => r.group === 'closed').length;
+  const stale = idle6.filter(r => r.stale >= 5).length;
+  $('lcnt').textContent = REQS.length + ' 条';
+  $('summary').innerHTML = `<span><b>${need}</b> 条需要你处理</span><span class="dot">·</span>` +
+    `<span><b>${doing}</b> 条 AI 在跑</span><span class="dot">·</span>` +
+    `<span><b>${idle6.length}</b> 条待开始</span><span class="dot">·</span>` +
+    `<span class="dim">${closed} 条已关闭</span>` +
+    (stale ? `<span class="hot">待开始里有 ${stale} 条已经放了 5 天没动</span>` : '');
+  $('filterline').innerHTML = (() => {
+    const chips = [];
+    if (listState.source !== '全部') chips.push(`<span class="activefilter">来源：${listState.source}<button data-clear="source">×</button></span>`);
+    if (listState.q) chips.push(`<span class="activefilter">搜索：${listState.q}<button data-clear="q">×</button></span>`);
+    if (listState.mine) chips.push(`<span class="activefilter">只看我的<button data-clear="mine">×</button></span>`);
+    const shown = REQS.filter(matches).length;
+    return chips.length
+      ? `<span>筛选后 ${shown} 条</span>${chips.join('')}<button class="linkbtn" data-clear="all">清除全部</button>`
+      : `<span>共 ${REQS.length} 条，按「需要我优先」排列</span>`;
+  })();
+}
+
+function rowHtml(req) {
+  const isNeed = req.group === 'need';
+  const waitCls = req.stale >= 5 ? 'wait bad' : (req.stale >= 3 ? 'wait' : '');
+  const meta = [`<span>${req.source}</span>`, `<span>${req.owner}</span>`, ...req.meta.map(m => `<span>${m}</span>`)]
+    .join('<span class="dot"></span>');
+  const flag = req.flag ? `<span class="flag ${req.flagTone || 'quiet'}">${req.flag}</span>` : '';
+  const cta = req.cta ? `<button class="btn xs ${isNeed || req.state === 'running' ? 'primary' : ''}" data-act="${req.id}">${req.cta}</button>` : '';
+  return `<div class="qrow ${req.group === 'need' ? 'need' : ''} ${req.state === 'decide' ? 'decide' : ''} ${req.group === 'closed' ? 'closed' : ''} ${listState.selected.has(req.id) ? 'picked' : ''}" data-id="${req.id}">
+    ${req.group === 'closed' ? '<span></span>' : `<input class="qcheck" type="checkbox" ${listState.selected.has(req.id) ? 'checked' : ''} aria-label="选择 ${req.title}">`}
+    <div class="qmain" data-openrow="${req.id}" title="${req.orig}">
+      <div class="qtitle">${req.title}</div>
+      <div class="qmeta">${meta}</div>
+    </div>
+    <div class="qright">${flag}${cta}<button class="morebtn" title="更多">⋯</button></div>
+  </div>`;
+}
+
+function renderList() {
+  const list = sorted(REQS.filter(matches));
+  const host = $('groups');
+  host.innerHTML = GROUPS.map(group => {
+    const items = list.filter(r => r.group === group.key);
+    const total = REQS.filter(r => r.group === group.key).length;
+    const empty = `<div class="gempty">这一组没有符合条件的需求 ${group.key === 'doing' ? '<button class="linkbtn" data-bulkchange="1">把待开始的交给 AI</button>' : ''}</div>`;
+    return `<div class="ghead"><span class="gsig" style="background:${group.sig}"></span><span class="gname">${group.name}</span><span class="gcount">${total}</span><span class="ghint">${group.hint}</span></div>
+      ${items.length ? items.map(rowHtml).join('') : empty}`;
+  }).join('');
+  $('board').innerHTML = renderBoard(list);
+  renderSummary();
+  renderBulk();
+}
+
+function renderBoard(list) {
+  return GROUPS.map(group => {
+    const items = list.filter(r => r.group === group.key);
+    return `<div class="bcol">
+      <h3><span class="gsig" style="background:${group.sig}"></span>${group.name} <span class="gcount">${items.length}</span></h3>
+      <p class="bhint">${group.hint}</p>
+      ${items.length ? items.map(r => `<div class="bcard" data-openrow="${r.id}"><div class="bt">${r.title}</div><div class="bm"><span>${r.owner}</span><span>·</span><span>${r.meta[0]}</span></div></div>`).join('') : '<div class="bempty">—</div>'}
+    </div>`;
+  }).join('');
+}
+
+function renderBulk() {
+  const n = listState.selected.size;
+  const bulk = $('bulk');
+  bulk.hidden = n === 0;
+  if (!n) return;
+  bulk.innerHTML = `<span>已选 <b>${n}</b> 条</span><button class="btn xs primary" data-bulk="push">交给 AI 推进</button><button class="btn xs" data-bulk="assign">指派</button><button class="btn xs" data-bulk="close">关闭</button><button class="btn xs ghost" data-bulk="clear">取消</button>`;
+}
+
+$('groups').addEventListener('click', event => {
+  const check = event.target.closest('.qcheck');
+  if (check) {
+    const row = check.closest('.qrow');
+    if (check.checked) listState.selected.add(row.dataset.id); else listState.selected.delete(row.dataset.id);
+    row.classList.toggle('picked', check.checked);
+    renderBulk();
+    return;
+  }
+  const row = event.target.closest('[data-openrow]');
+  if (row) { openReq(row.dataset.openrow); return; }
+  const act = event.target.closest('[data-act]');
+  if (act) { openReq(act.dataset.act); return; }
+  const more = event.target.closest('.morebtn');
+  if (more) { toast('原型演示：更多 · 指派、关闭、复制链接、归档'); return; }
+  if (event.target.closest('[data-bulkchange]')) toast('原型演示：批量把待开始的需求交给 AI');
+});
+
+$('board').addEventListener('click', event => {
+  const card = event.target.closest('[data-openrow]');
+  if (card) openReq(card.dataset.openrow);
+});
+
+$('bulk').addEventListener('click', event => {
+  const button = event.target.closest('[data-bulk]');
+  if (!button) return;
+  if (button.dataset.bulk === 'clear') { listState.selected.clear(); renderList(); return; }
+  toast('原型演示：' + button.textContent + ' · ' + listState.selected.size + ' 条');
+});
+
+$('sources').innerHTML = '<span class="srclabel">来源</span>' + SOURCES.map(s => `<button class="fchip ${s === '全部' ? 'on' : ''}" data-source="${s}">${s}</button>`).join('');
+$('sources').addEventListener('click', event => {
+  const button = event.target.closest('[data-source]');
+  if (!button) return;
+  listState.source = button.dataset.source;
+  [...$('sources').querySelectorAll('.fchip')].forEach(b => b.classList.toggle('on', b === button));
+  renderList();
+});
+
+$('q').addEventListener('input', event => { listState.q = event.target.value.trim(); renderList(); });
+$('mineOnly').addEventListener('change', event => { listState.mine = event.target.checked; renderList(); });
+$('sortsel').addEventListener('change', event => { listState.sort = event.target.value; renderList(); });
+$('listviewseg').addEventListener('click', event => {
+  const button = event.target.closest('[data-view]');
+  if (!button) return;
+  listState.view = button.dataset.view;
+  [...$('listviewseg').querySelectorAll('button')].forEach(b => b.classList.toggle('on', b === button));
+  $('groups').hidden = listState.view !== 'queue';
+  $('board').hidden = listState.view !== 'board';
+});
+$('filterline').addEventListener('click', event => {
+  const button = event.target.closest('[data-clear]');
+  if (!button) return;
+  const what = button.dataset.clear;
+  if (what === 'source' || what === 'all') { listState.source = '全部'; [...$('sources').querySelectorAll('.fchip')].forEach(b => b.classList.toggle('on', b.dataset.source === '全部')); }
+  if (what === 'q' || what === 'all') { listState.q = ''; $('q').value = ''; }
+  if (what === 'mine' || what === 'all') { listState.mine = false; $('mineOnly').checked = false; }
+  renderList();
+});
+
+/* ========================= 详情 ========================= */
+let currentReq = 'REQ-ALM-006';
+let currentTab = 'requirement';
+const scrollMemory = {};
+const listScrollTop = { value: 0 };
+let notesOn = false;
+
+function reqById(id) { return REQS.find(r => r.id === id) || REQS[0]; }
+
+function renderStepper(state) {
+  $('stepper').innerHTML = STAGES.map((label, index) => {
+    let cls = '';
+    if (index < state.stage) cls = 'done';
+    else if (index === state.stage) cls = state.tone === 'warn' ? 'hold' : (state.tone === 'idle' ? '' : 'now');
+    if (state.stage === 0 && index === 0 && state.tone === 'idle') cls = 'now';
+    return `<div class="step ${cls}" role="listitem"><div class="dot"></div><span>${label}</span></div>`;
+  }).join('');
+}
+
+function renderProgress(state) {
+  const parts = [];
+  const ac = state.ac;
+  if (state.steps) parts.push(`<p class="stepskicker">这一轮在做</p><ul class="bizsteps">${state.steps.map(([kind, text]) => `<li class="${kind}">${text}</li>`).join('')}</ul>`);
+  if (state.blocker) {
+    parts.push(`<div class="blocker">
+      <div class="kicker">${state.blocker.kicker}</div>
+      <h3>${state.blocker.title}</h3>
+      <p>${state.blocker.body}</p>
+      <p class="impact">${state.blocker.impact}</p>
+      <details class="techcause"><summary>查看技术原因（给研发看）</summary><div class="body">${state.blocker.tech}</div></details>
+    </div>`);
+  }
+  if (state.decide) {
+    parts.push(`<div class="deliver"><h3>${state.decide.question}</h3><p>选定后 AI 会按这一条处理同类情况，不再每次问你。</p>
+      <div class="actions">${state.decide.options.map(o => `<button class="btn">${o}</button>`).join('')}</div></div>`);
+  }
+  if (ac[1] && ac[0] < ac[1]) {
+    const failed = ac[1] - ac[0];
+    parts.push(`<div class="deliver"><h3>验收分布</h3>
+      <p>${state.acNote || `${ac[0]} 项通过，${failed} 项还没过。`}</p>
+      <div class="chips"><span class="chip dot-ok"><b>${ac[0]}</b> 项已通过</span>${failed ? `<span class="chip dot-warn"><b>${failed}</b> 项没过</span>` : ''}</div>
+      ${failed ? `<div class="actions"><button class="btn sm" data-goto="requirement">到正文看这 ${failed} 条</button></div>` : ''}
+      </div>`);
+  }
+  if (state.deliver) {
+    const chips = state.deliver.chips.map(([kind, text]) => `<span class="chip ${kind}">${text}</span>`).join('');
+    parts.push(`<div class="deliver"><h3>${state.deliver.title}</h3><p>${state.deliver.desc}</p><div class="chips">${chips}</div></div>`);
+  }
+  if (state.cta) {
+    const secondary = state.secondary ? `<button class="btn">${state.secondary}</button>` : '';
+    parts.push(`<div class="actions"><button class="btn primary">${state.cta}</button>${secondary}</div>`);
+  }
+  $('progress').innerHTML = parts.join('');
+}
+
+function renderBand(state) {
+  const ac = state.ac;
+  const prog = ac[1] ? `<span class="bprog"><span class="bar"><i style="width:${ac[0] / ac[1] * 100}%;background:var(--ok)"></i></span>${ac[0]}/${ac[1]} 项验收</span>` : '';
+  const act = state.cta ? `<button class="btn xs primary">${state.cta}</button>` : '';
+  $('band').dataset.tone = state.tone;
+  $('band').innerHTML = `<div class="bandin">
+    <span class="btag">${state.label}</span>
+    <div class="bmain">
+      <div class="bhead">${state.headline}</div>
+      <div class="bmeta"><span class="${state.tone === 'ok' || state.tone === 'idle' ? 'needno' : 'need'}">${state.need}</span><span>·</span><span>${state.meta}</span></div>
+    </div>
+    ${prog}
+    <div class="bact">${act}</div>
+  </div>`;
+}
+
+function renderRail(state) {
+  const req = reqById(currentReq);
+  const yes = ['blocked', 'decide', 'accept', 'idle'].includes(req.state);
+  $('rail').innerHTML = `
+    <h2>这条需求现在</h2>
+    <div class="needbox ${yes ? 'yes' : 'no'}"><b>${state.need}</b>${state.rail}</div>
+    <div class="row"><span>验收</span><b>${state.ac[1] ? state.ac[0] + ' / ' + state.ac[1] + ' 项通过' : '还没定标准'}</b></div>
+    <div class="row"><span>下一步</span><b>${state.railNext || state.next[0][0]}</b></div>
+    <div class="raildiv"></div>
+    <h2>归属</h2>
+    <div class="row"><span>负责人</span><b>${req.owner}</b></div>
+    <div class="row"><span>优先级</span><b>${req.prio}</b></div>
+    <div class="row"><span>来源</span><b>${req.source}</b></div>
+    <div class="row"><span>版本</span><b>${req.ver}</b></div>
+    <div class="raildiv"></div>
+    <div class="railbtns"><button class="btn sm" id="railTech">打开技术细节</button></div>
+    <div class="note">评审注：右栏原来只放负责人/优先级/来源/更新时间——这些全是静态属性。现在第一块回答「要不要我、下一步是什么」，属性降到最后。</div>`;
+  $('railTech')?.addEventListener('click', () => {
+    showTab('progress');
+    const fold = $('tech');
+    if (fold) { fold.open = true; fold.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  });
+}
+
+function renderNext(state) {
+  const box = $('nextsteps');
+  const section = box.closest('.section');
+  if (state.next.length < 2) { section.hidden = true; return; }
+  section.hidden = false;
+  box.innerHTML = state.next.map(([text, when]) => `<li><b>${text}</b> <em>${when}</em></li>`).join('');
+}
+
+function applyState(key) {
+  const req = reqById(currentReq);
+  const state = STATES[req.state] || STATES[key] || STATES.blocked;
+  renderStepper(state);
+  renderBand(state);
+  renderProgress(state);
+  renderNext(state);
+  renderRail(state);
+  $('dtitle').textContent = req.title;
+  $('dsubtitle').innerHTML = req.sub + (req.id !== 'REQ-ALM-006' ? ' <span style="color:var(--text3)">· 原型样本：正文与历史内容以 006 为例，这里只看状态差异</span>' : '');
+  $('idline').innerHTML = `<span>${req.id}</span><span>·</span><span>${req.ver}</span><span>·</span>
+    <button class="verlink" data-goto="record" data-version="${req.ver === 'v1' ? 'v1' : 'v4'}">看这一版的改动</button>
+    <span class="pill">${state.label}</span>
+    <span class="pill">${req.prio}</span>`;
+  $('navaction').textContent = '更多 ▾';
+  const pending = STATES[req.state] && STATES[req.state].decide;
+  const real = req.id === 'REQ-ALM-006';
+  $('acblock').hidden = !real;
+  $('acplaceholder').hidden = real;
+  if (!real) {
+    $('acplaceholder').textContent = state.ac[1]
+      ? `这条需求的 ${state.ac[1]} 项验收标准没有做进原型，完整样例请看 006。`
+      : '这条需求还没有验收标准。交给 AI 推进后，它会先拟一版给你确认。';
+    $('acsb').textContent = state.ac[1] ? `${state.ac[1]} 项（原型未展开）` : '还没定';
+  } else {
+    $('acsb').textContent = '8 项 · 5 项已通过 · 1 项未通过 · 2 项待验证';
+  }
+  $('pendingBlock').hidden = !pending;
+  syncModeHint();
+  if (pending) {
+    $('pendingTitle').textContent = '需要你确认：' + pending.question;
+    $('pendingDesc').textContent = '三个选项：' + pending.options.join(' / ') + '。选定后 AI 会继续，后续同类情况按这一条处理。';
+  }
+  $('progressDot').hidden = !['blocked', 'decide'].includes(req.state);
+  $('crumb').innerHTML = `<span>${req.owner}</span><span>·</span><span>${req.source}</span>`;
+  document.title = req.title + ' · DSH 需求';
+}
+
+function showTab(tab, version) {
+  scrollMemory[currentTab] = $('scroll').scrollTop;
+  currentTab = tab;
+  document.body.dataset.tab = tab;
+  [...$('tabs').querySelectorAll('button')].forEach(button => {
+    const on = button.dataset.tab === tab;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-selected', String(on));
+  });
+  document.querySelectorAll('.pane').forEach(pane => { pane.hidden = pane.dataset.pane !== tab; });
+  $('scroll').scrollTop = version ? 0 : (scrollMemory[tab] ?? 0);
+  if (tab === 'record' && version) selectVersion(version, false);
+}
+
+$('tabs').addEventListener('click', event => {
+  const button = event.target.closest('button[data-tab]');
+  if (button) showTab(button.dataset.tab);
+});
+$('tabs').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+  const order = ['requirement', 'progress', 'record'];
+  const i = order.indexOf(currentTab);
+  const next = event.key === 'ArrowLeft' ? order[Math.max(0, i - 1)] : order[Math.min(order.length - 1, i + 1)];
+  event.preventDefault();
+  if (next === currentTab) return;
+  showTab(next);
+  $('tabs').querySelector(`[data-tab="${next}"]`).focus();
+});
+
+document.addEventListener('click', event => {
+  const jump = event.target.closest('[data-goto]');
+  if (jump) { showTab(jump.dataset.goto, jump.dataset.version); return; }
+  const ac = event.target.closest('[data-aclink]');
+  if (ac) {
+    showTab('requirement');
+    const target = document.getElementById('ac-' + ac.dataset.aclink);
+    if (target) {
+      const fold = target.closest('details');
+      if (fold) fold.open = true;
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      target.classList.add('flash');
+      setTimeout(() => target.classList.remove('flash'), 1400);
+    }
+  }
+});
+
+/* 视图切换 */
+function showView(view) {
+  $('view-list').hidden = view !== 'list';
+  $('view-detail').hidden = view !== 'detail';
+  document.body.dataset.tab = view === 'list' ? 'list' : currentTab;
+}
+
+function openReq(id) {
+  if (!$('view-list').hidden) listScrollTop.value = $('listScroll').scrollTop;
+  currentReq = id;
+  applyState(REQS.find(r => r.id === id)?.state || 'blocked');
+  showView('detail');
+  currentTab = 'requirement';
+  [...$('tabs').querySelectorAll('button')].forEach(b => {
+    const on = b.dataset.tab === 'requirement';
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  document.querySelectorAll('.pane').forEach(p => { p.hidden = p.dataset.pane !== 'requirement'; });
+  $('scroll').scrollTop = 0;
+  history.replaceState(null, '', '#/req/' + id);
+  document.querySelectorAll('.plink').forEach(b => b.classList.toggle('on', b.dataset.open === id));
+  document.title = reqById(id).title + ' · DSH 需求';
+}
+
+function backToList() {
+  showView('list');
+  renderList();
+  const target = listScrollTop.value;
+  requestAnimationFrame(() => { $('listScroll').scrollTop = target; });
+  history.replaceState(null, '', '#/list');
+  document.querySelectorAll('.plink').forEach(b => b.classList.toggle('on', b.dataset.open === 'list'));
+  document.title = '需求 · DSH';
+}
+
+$('backBtn').addEventListener('click', backToList);
+document.querySelectorAll('[data-open]').forEach(button => {
+  button.addEventListener('click', () => {
+    const v = button.dataset.open;
+    if (v === 'list') backToList(); else openReq(v);
+  });
+});
+
+/* 复制摘要 */
+function copySummary() {
+  const req = reqById(currentReq);
+  const state = STATES[req.state];
+  const text = `【${req.id}】${req.title}\n状态：${state.label}｜${state.headline}\n要不要你：${state.need}\n验收：${state.ac[0]}/${state.ac[1] || '—'} 项通过`;
+  navigator.clipboard?.writeText(text).then(() => toast('已复制，可直接贴到周报或群里'), () => toast('已生成摘要，可手动复制'));
+}
+$('copyBtn').addEventListener('click', copySummary);
+
+/* 反馈 */
+let feedbackMode = 'change';
+function syncModeHint() {
+  const passed = reqById(currentReq).acPass;
+  $('modehint').textContent = feedbackMode === 'change'
+    ? (passed ? `会生成新版本，并作废当前 ${passed} 项已通过的验证结论——AI 需要重新跑一遍。` : '会生成新版本，AI 会按新内容重新推进一遍。')
+    : '只讨论这一条标准，不会生成新版本，也不会作废已有验证结论。';
+  document.querySelectorAll('.modebtn').forEach(b => b.classList.toggle('on', b.dataset.mode === feedbackMode));
+}
+document.querySelectorAll('.modebtn').forEach(button => {
+  button.addEventListener('click', () => { feedbackMode = button.dataset.mode; syncModeHint(); });
+});
+$('sendFeedback').addEventListener('click', () => {
+  const text = document.querySelector('#feedbackBox textarea').value.trim();
+  $('feedbackBox').innerHTML = `<div class="sent"><span>${text ? '已提交。' : '已提交（空内容，原型演示）。'}${feedbackMode === 'change' ? 'AI 会生成 v5 并重跑验证' : '这一条验收进入讨论'}，结果会出现在「AI 进展」。</span><button class="btn xs" data-goto="progress">去 AI 进展</button></div>`;
+  toast('已提交');
+});
+
+$('navaction').addEventListener('click', () => toast('原型演示：更多操作（归档、复制链接、导出这条需求）'));
+
+/* 归档 */
+$('archiveBtn').addEventListener('click', event => {
+  const button = event.currentTarget;
+  if (button.dataset.armed !== '1') {
+    button.dataset.armed = '1';
+    button.classList.add('danger');
+    button.textContent = '确认归档';
+    if (!document.getElementById('archiveCancel')) {
+      const cancel = document.createElement('button');
+      cancel.className = 'btn sm ghost';
+      cancel.id = 'archiveCancel';
+      cancel.textContent = '取消';
+      cancel.addEventListener('click', () => {
+        button.dataset.armed = '0';
+        button.classList.remove('danger');
+        button.textContent = '归档这条需求';
+        cancel.remove();
+      });
+      button.after(cancel);
+    }
+    return;
+  }
+  button.dataset.armed = '0';
+  button.classList.remove('danger');
+  button.textContent = '归档这条需求';
+  document.getElementById('archiveCancel')?.remove();
+  toast('原型演示：归档需二次确认，此处不执行');
+});
+
+/* ========================= 版本差异 ========================= */
+const VERSIONS = [
+  {
+    id: 'v4', at: '2026-11-14 07:57', author: '张浩', source: '人工编辑',
+    title: '补充安全约束与导出格式，新增 2 条验收', add: 6, del: 2, prev: 'v3',
+    impact: '这次改动影响 3 条验收：重跑后 1 条未通过，另 2 条与 5 项旧结论都还成立。',
+    impacts: ['AC-01', 'AC-03', 'AC-04'],
+    hunks: [
+      { section: '背景', oldStart: 1, newStart: 1, lines: [
+        ['ctx', '运营和客服需要把需求数据在浏览器里导出成 Excel，再交给另一个智能体批量导入。'],
+        ['del', '两边格式对不上时，由人工改表修正。'],
+        ['add', '两边格式<mark class="addw">必须一致</mark>；不一致时<mark class="addw">只能人工改表，成本高且容易出错</mark>。'],
+      ]},
+      { section: '约束', oldStart: 9, newStart: 9, lines: [
+        ['ctx', '不改动现有权限模型，只在导入导出时读取判断。'],
+        ['add', '导出的文件不得包含调用者无权限的字段。（对应 AC-04）'],
+        ['add', 'Excel 表头必须与导入模板保持同一版本。（对应 AC-03）'],
+      ]},
+      { section: '验收标准', oldStart: 15, newStart: 18, lines: [
+        ['ctx', 'AC-01 导出的 Excel 能原样导回，数据不丢失、不改值'],
+        ['ctx', 'AC-02 导入前先校验表头，不一致时整批不写库'],
+        ['add', 'AC-03 导出的表头与导入模板保持同一版本'],
+        ['add', 'AC-04 没有权限的字段不出现在导出文件里'],
+      ]},
+      { section: '不包含', oldStart: 27, newStart: 32, lines: [
+        ['ctx', '不与第三方系统实时对接，仍是文件交换。'],
+        ['del', '暂不支持 CSV 以外的格式。'],
+        ['add', '不做 CSV，导出与导入仅支持 <mark class="addw">xlsx</mark>。'],
+      ]},
+    ],
+  },
+  {
+    id: 'v3', at: '2026-11-12 22:02', author: '对话生成', source: '对话生成',
+    title: '增加「导出能原样导回」的要求', add: 3, del: 1, prev: 'v2',
+    impact: '新增 2 条验收标准，需要重新验证一次才能交付。',
+    impacts: ['AC-01', 'AC-02'],
+    hunks: [
+      { section: '范围', oldStart: 4, newStart: 4, lines: [
+        ['ctx', '支持需求导出为 Excel 表格。'],
+        ['del', '导出文件中包含标题、负责人、验收标准三列。'],
+        ['add', '导出文件中包含标题、负责人、验收标准三列，<mark class="addw">且可原样导回</mark>。'],
+      ]},
+      { section: '验收标准', oldStart: 15, newStart: 15, lines: [
+        ['add', 'AC-01 导出的 Excel 能原样导回，数据不丢失、不改值'],
+        ['add', 'AC-02 导入前先校验表头，不一致时整批不写库'],
+      ]},
+    ],
+  },
+  {
+    id: 'v2', at: '2026-11-12 15:06', author: '张浩', source: '人工编辑',
+    title: '明确不影响现有权限模型', add: 2, del: 0, prev: 'v1',
+    impact: '只补约束，没有新增验收，原验证结论仍有效。',
+    impacts: [],
+    hunks: [
+      { section: '约束', oldStart: 7, newStart: 7, lines: [
+        ['add', '不改动现有权限模型，只在导入导出时读取判断。'],
+        ['add', '导出内容与页面显示保持一致，不做额外脱敏。'],
+      ]},
+    ],
+  },
+  {
+    id: 'v1', at: '2026-11-12 15:00', author: 'AI 整理', source: 'AI 整理',
+    title: '首次整理成结构化描述', add: 0, del: 0, prev: null,
+    empty: { title: 'v1 是最早的一版，没有可对比的上一版', desc: '这一版由 AI 从对话里整理出背景、范围与约束，还没有验收标准。' },
+  },
+  {
+    id: '创建', at: '2026-11-12 06:22', author: '张浩', source: '对话生成',
+    title: '从一次关于导入导出的对话创建', add: 0, del: 0, prev: null,
+    empty: { title: '创建时只有一段对话记录', desc: '这条需求是 2026-11-12 06:22 从对话里生成的，随后由 AI 整理成 v1。' },
+  },
+];
+
+let selectedVersion = 'v4';
+let onlyChanges = false;
+let hunkIndex = -1;
+
+function renderVlist() {
+  $('vlist').innerHTML = VERSIONS.map(version => {
+    const stat = version.add || version.del
+      ? `<span class="stat"><span class="a">+${version.add}</span><span class="d">−${version.del}</span></span>`
+      : '<span class="stat" style="color:var(--text3)">初始</span>';
+    return `<button class="vitem" role="option" data-version="${version.id}" aria-selected="${version.id === selectedVersion}">
+      <div class="v-top"><span class="v-id">${version.id}</span><span class="v-at">${version.at.slice(5, 16)}</span></div>
+      <div class="v-title">${version.title}</div>
+      <div class="v-meta"><span class="tag${version.source === '对话生成' ? ' auto' : ''}">${version.source}</span>${stat}</div>
+    </button>`;
+  }).join('') + '<div class="vlisthint">↑ ↓ 切换版本，选中即对比</div>';
+}
+
+function renderDiff() {
+  const version = VERSIONS.find(v => v.id === selectedVersion);
+  const isCurrent = version.id === VERSIONS[0].id;
+  const stat = version.add || version.del
+    ? `<span class="stat"><span class="a">+${version.add}</span><span class="d">−${version.del}</span></span>` : '';
+
+  $('dhead').innerHTML = `<span class="dtitle">${version.prev ? `${version.prev} → ${version.id}` : version.id}</span>
+    <span class="tag">${version.source} · ${version.author}</span>
+    <span class="tag">${version.at}</span>${stat}
+    ${version.hunks ? `<div class="dtools"><div class="seg" id="diffseg"><button data-view="unified" class="${onlyChanges ? '' : 'on'}">完整</button><button data-view="only" class="${onlyChanges ? 'on' : ''}">只看改动</button></div>
+    <button class="btn xs" id="prevHunk">↑ 上一处</button><button class="btn xs" id="nextHunk">下一处 ↓</button></div>` : ''}`;
+
+  if (!version.hunks) {
+    $('dimpact').innerHTML = '';
+    $('dbody').innerHTML = `<div class="empty"><b>${version.empty.title}</b>${version.empty.desc}</div>`;
+    $('dfoot').innerHTML = `<span>这是记录的起点，没有可对比的改动。</span><span style="flex:1"></span><button class="btn xs">查看这一版的完整内容</button>`;
+    return;
+  }
+
+  let html = '';
+  version.hunks.forEach((hunk, hunkIdx) => {
+    const adds = hunk.lines.filter(l => l[0] === 'add').length;
+    const dels = hunk.lines.filter(l => l[0] === 'del').length;
+    const pairs = hunk.lines.filter((l, i) => l[0] === 'del' && hunk.lines[i + 1] && hunk.lines[i + 1][0] === 'add').length;
+    html += `<div class="hunk" data-hunk="${hunkIdx}"><span>@@</span><b>${hunk.section}</b><span>@@</span>
+      <span class="hstat">${adds ? `<span class="a">+${adds}</span>` : ''}${dels ? `<span class="d">−${dels}</span>` : ''}${pairs ? `<span class="p">${pairs} 处修改</span>` : ''}</span></div>`;
+    let oldNo = hunk.oldStart, newNo = hunk.newStart;
+    for (const [kind, text] of hunk.lines) {
+      if (kind === 'ctx') { html += `<div class="dline ctx"><span class="ln">${oldNo}</span><span class="ln">${newNo}</span><span class="sign"> </span><span class="txt">${text}</span></div>`; oldNo++; newNo++; }
+      else if (kind === 'del') { html += `<div class="dline del"><span class="ln">${oldNo}</span><span class="ln"></span><span class="sign">−</span><span class="txt">${text}</span></div>`; oldNo++; }
+      else { html += `<div class="dline add"><span class="ln"></span><span class="ln">${newNo}</span><span class="sign">＋</span><span class="txt">${text}</span></div>`; newNo++; }
+    }
+  });
+  $('dbody').innerHTML = html;
+  $('dbody').classList.toggle('only', onlyChanges);
+
+  $('dimpact').innerHTML = version.impact
+    ? `<span class="ib">影响</span>${(version.impacts || []).map(a => `<button class="aclink" data-aclink="${a}">${a}</button>`).join('')}<span>${version.impact}</span><button class="linkbtn" data-goto="progress">去 AI 进展查看</button>`
+    : '';
+
+  $('dfoot').innerHTML = isCurrent
+    ? `<span>这是当前版本，对比的是 ${version.prev}。</span><span style="flex:1"></span><button class="btn xs" disabled>恢复到此版本</button>`
+    : `<span>对比基准：${version.prev}（上一版）。</span><span style="flex:1"></span><button class="btn xs restore" id="restoreBtn">恢复到此版本…</button>`;
+
+  const restore = $('restoreBtn');
+  if (restore) {
+    restore.addEventListener('click', () => {
+      if (restore.dataset.armed !== '1') {
+        restore.dataset.armed = '1';
+        restore.classList.add('confirm');
+        restore.textContent = `确认恢复到 ${version.id}`;
+        const box = document.createElement('div');
+        box.className = 'restorebox';
+        box.id = 'restoreBox';
+        box.innerHTML = `恢复会生成 v5；<b>当前 5 项已通过的验证结论会作废</b>，AI 需要重新验证。历史不会删除。`;
+        document.getElementById('dfoot').after(box);
+        return;
+      }
+      restore.dataset.armed = '0';
+      restore.classList.remove('confirm');
+      restore.textContent = '恢复到此版本…';
+      document.getElementById('restoreBox')?.remove();
+      toast(`原型演示：将基于 ${version.id} 生成 v5`);
+    });
+  }
+  $('nextHunk')?.addEventListener('click', () => jumpHunk(1));
+  $('prevHunk')?.addEventListener('click', () => jumpHunk(-1));
+  document.querySelectorAll('#diffseg button').forEach(button => {
+    button.addEventListener('click', () => { onlyChanges = button.dataset.view === 'only'; renderDiff(); });
+  });
+}
+
+function jumpHunk(direction) {
+  const hunks = [...$('dbody').querySelectorAll('.hunk')];
+  if (!hunks.length) return;
+  hunkIndex = Math.min(hunks.length - 1, Math.max(0, hunkIndex + direction));
+  const target = hunks[hunkIndex];
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.classList.add('flash');
+  setTimeout(() => target.classList.remove('flash'), 900);
+}
+
+function selectVersion(id, focus = true) {
+  selectedVersion = id;
+  hunkIndex = -1;
+  renderVlist();
+  renderDiff();
+  if (focus) $('vlist').querySelector(`[data-version="${id}"]`)?.focus({ preventScroll: true });
+}
+
+$('vlist').addEventListener('click', event => {
+  const item = event.target.closest('[data-version]');
+  if (item) selectVersion(item.dataset.version);
+});
+$('vlist').addEventListener('keydown', event => {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const i = VERSIONS.findIndex(v => v.id === selectedVersion);
+  let next = i;
+  if (event.key === 'ArrowDown') next = Math.min(VERSIONS.length - 1, i + 1);
+  if (event.key === 'ArrowUp') next = Math.max(0, i - 1);
+  if (event.key === 'Home') next = 0;
+  if (event.key === 'End') next = VERSIONS.length - 1;
+  if (next !== i) selectVersion(VERSIONS[next].id);
+});
+
+/* 标注 */
+$('notes').addEventListener('change', event => {
+  document.body.classList.toggle('notes', event.target.checked);
+});
+
+$('listScroll').addEventListener('scroll', () => { listScrollTop.value = $('listScroll').scrollTop; });
+
+/* 快捷键 */
+document.addEventListener('keydown', event => {
+  if (event.key === '/' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName) && !$('view-list').hidden) {
+    event.preventDefault();
+    $('q').focus();
+  }
+  if (event.key === 'Escape') {
+    if (!$('view-list').hidden && (listState.q || listState.source !== '全部')) {
+      listState.q = ''; $('q').value = ''; listState.source = '全部';
+      [...$('sources').querySelectorAll('.fchip')].forEach(b => b.classList.toggle('on', b.dataset.source === '全部'));
+      renderList();
+    } else if (!$('view-detail').hidden && currentTab !== 'requirement') {
+      showTab('requirement');
+    }
+  }
+});
+
+/* ========================= 启动 ========================= */
+renderList();
+applyState('blocked');
+renderVlist();
+renderDiff();
+showTab('requirement');
+
+function route() {
+  const match = location.hash.match(/^#\/req\/([\w-]+)(?:\/(requirement|progress|record))?(?:\/(.+))?$/);
+  if (match) {
+    openReq(match[1]);
+    if (match[2]) showTab(match[2], match[3] ? decodeURIComponent(match[3]) : undefined);
+  } else {
+    backToList();
+  }
+}
+route();
+window.addEventListener('hashchange', route);
+</script>
+</body>
+</html>
