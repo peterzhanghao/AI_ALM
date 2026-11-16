@@ -18,6 +18,7 @@ function fragment(startMarker, endMarker) {
 function resetHarness() {
   const state = { filter: 'anomalies', source: 'defect', keyword: 'old' }
   const context = vm.createContext({
+    DEFAULT_REQUIREMENT_VIEW: 'todo',
     setFilter: value => { state.filter = value },
     setSource: value => { state.source = value },
     setKeyword: value => { state.keyword = value },
@@ -26,7 +27,7 @@ function resetHarness() {
   return { state, context }
 }
 
-const cleared = { filter: 'all', source: 'all', keyword: '' }
+const cleared = { filter: 'todo', source: 'all', keyword: '' }
 
 test('one-click reset clears every list restriction, including source and anomalies', () => {
   const { state, context } = resetHarness()
@@ -54,6 +55,21 @@ test('created requirement reveal clears all filters before dismissing its notice
   reveal.props.onClick()
   assert.deepEqual(state, cleared)
   assert.equal(dismissed, true)
+})
+
+test('empty result guidance points at history when only archived rows match', () => {
+  const context = vm.createContext({
+    T: {}, DEFAULT_REQUIREMENT_VIEW: 'todo', FILTERS: [['archived', '已归档']], SOURCE_FILTERS: [['all', '全部']],
+    h(type, props, ...children) { return { type, props, children } },
+  })
+  vm.runInContext(fragment('    function NoResults(', '    function AnomalyNotice(') + '\nthis.empty = NoResults', context)
+  let shown = 0
+  const node = context.empty({ filter: 'todo', keyword: 'REQ-ALM-012', source: 'all', onClear: () => {}, archivedMatches: 2, onShowArchived: () => { shown++ } })
+  const hint = node.children.find(child => child.type === 'p' && child.children[0].includes('已归档里有 2 条'))
+  assert.ok(hint, 'the empty state names where the record went')
+  const jump = hint.children.find(child => child.type === 'button')
+  jump.props.onClick()
+  assert.equal(shown, 1)
 })
 
 test('empty result guidance invokes the same complete reset', () => {
@@ -107,7 +123,9 @@ test('requirement rows defer offscreen rendering without removing table rows fro
   const row = fragment("    function RequirementRow(", "    function RequirementTable(")
   assert.match(row, /role: 'row'/)
   assert.match(row, /contentVisibility: 'auto'/)
-  assert.match(row, /containIntrinsicSize: `auto \$\{mobile \? 76 : 80\}px`/)
+  // The row is two lines now, so the intrinsic size follows the row height
+  // constant instead of a hard-coded 76/80 pair.
+  assert.match(row, /containIntrinsicSize: `auto \$\{mobile \? \d+ : \d+\}px`/)
 })
 
 test('create completion requests a fresh payload without a page reload', () => {
@@ -124,7 +142,12 @@ test('create completion requests a fresh payload without a page reload', () => {
 test('acceptance count falls back to legacy brief and never reports zero', () => {
   const context = vm.createContext({})
   vm.runInContext(fragment('    function acceptanceLabel(', '    function duplicateCountFor(') + '\nthis.label = acceptanceLabel', context)
-  assert.equal(context.label({ briefText: '## 验收标准\n- 第一项\n- 第二项\n## 其他\n- 不计入' }), '2 项标准')
+  assert.equal(context.label({ briefText: '## 验收标准\n- 第一项\n- 第二项\n## 其他\n- 不计入' }), '2 项验收 · 待验证')
   assert.equal(context.label({ briefText: '## 验收标准\n完成走查' }), '正文内含')
   assert.equal(context.label({ briefText: '## 目标\n功能' }), '待细化')
+  assert.equal(context.label({ delivery: { key: 'accepted' }, briefText: '## 验收标准\n- 第一项' }), '1 项验收 · 已通过')
+  assert.equal(
+    context.label({ acceptance: { latest: { result: 'fail', current: true } }, briefText: '## 验收标准\n- 第一项' }),
+    '1 项验收 · 未通过',
+  )
 })

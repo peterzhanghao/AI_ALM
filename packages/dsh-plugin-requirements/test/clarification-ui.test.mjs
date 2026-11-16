@@ -1057,14 +1057,35 @@ test('long intent and chat text remain readable and the dialog actions stay reac
 })
 
 
-test('single draft presents grill choices and confirms in one action', async () => {
+test('grill options render only when the labels actually exclude each other', async () => {
   const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
   const marker = '    return {\n      inject:'
   const entry = `import React from 'react'; import {createRoot} from 'react-dom/client'; window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestIntent = IntentModal;\n' + marker)} createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestIntent,{root:'D:/test',project:'A',projectId:'A',onClose(){}}));`
   const bundle = await build({ stdin: { contents: entry, resolveDir: fileURLToPath(new URL('../../../', import.meta.url)), loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({ viewport: { width: 1000, height: 800 } })
-  let session = { sessionId: 'one', state: 'reviewing', sessionRevision: 1, draftRevision: 1, input: { text: '希望提高效率', inputRevision: 1, explicit: {} }, context: { contextSnapshotId: 'ctx' }, grill: { status: 'loaded', outcome: 'applied', name: 'grilling', source: 'user', round: 1, answers: [] }, items: [{ itemId: 'ITM-MANUAL-1', recommendedRoute: 'create', candidate: { title: '提高效率', goal: '提高效率', problem: '问题待明确', acceptance: [] }, unknowns: [] }], docDraft: { goal: '提高效率', problem: '问题待明确', docHash: 'hash', draftRevision: 1, acceptance: [], pending: [{ text: '[验收建议·AI 建议] 用户可以完成任务' }, { text: '[验收建议·AI 建议] 异常时显示原因' }] }, readiness: { ready: false, reasons: [] } }
+  let session = {
+    sessionId: 'one', state: 'reviewing', sessionRevision: 1, draftRevision: 1,
+    input: { text: '希望提高效率', inputRevision: 1, explicit: {} },
+    context: { contextSnapshotId: 'ctx' },
+    grill: { status: 'loaded', outcome: 'applied', name: 'grilling', source: 'user', round: 1, answers: [] },
+    questionGroup: { questions: [
+      { questionId: 'Q-1', text: '标题被 AI 覆盖后，用户怎么拿回原值？', status: 'open', allowFreeText: true, options: [
+        { id: 'o1', label: '保留手动标题，AI 不再覆盖' },
+        { id: 'o2', label: '允许一键恢复原始标题' },
+        // Same decision, different wording: rendering it twice would look like
+        // three choices while there are only two.
+        { id: 'o3', label: '允许一键恢复原始标题' },
+      ] },
+      { questionId: 'Q-2', text: '验收看哪一步？', status: 'open', allowFreeText: true, options: [
+        { id: 'p1', label: '编辑后刷新仍保留' },
+        { id: 'p2', label: '重新打开后仍保留' },
+      ] },
+    ] },
+    items: [{ itemId: 'ITM-MANUAL-1', recommendedRoute: 'create', candidate: { title: '提高效率', goal: '提高效率', problem: '问题待明确', acceptance: [] }, unknowns: [] }],
+    docDraft: { goal: '提高效率', problem: '问题待明确', docHash: 'hash', draftRevision: 1, acceptance: [], pending: [{ text: '[验收建议·AI 建议] 用户可以完成任务' }, { text: '[验收建议·AI 建议] 异常时显示原因' }] },
+    readiness: { ready: false, reasons: [] },
+  }
   const requests = []
   await page.route('http://test.local/**', async route => {
     const request = route.request(), url = new URL(request.url())
@@ -1088,9 +1109,15 @@ test('single draft presents grill choices and confirms in one action', async () 
     assert.equal(await page.getByLabel('验收标准 1', { exact: true }).inputValue(), '用户可以完成任务')
     assert.equal(await page.getByText('ITM-MANUAL-1').count(), 0)
     assert.equal(await page.getByText(/请先在右上角选择优先级/).isVisible(), true)
-    await page.getByRole('button', { name: '减少重复操作', exact: true }).click()
-    await page.getByRole('button', { name: '说明失败原因', exact: true }).click()
-    assert.match(await page.getByLabel('验收标准 3', { exact: true }).inputValue(), /失败时说明原因|说明失败原因/)
+    // The duplicated label is rendered once: two real choices, not three.
+    assert.equal(await page.getByRole('button', { name: '允许一键恢复原始标题', exact: true }).count(), 1)
+    // The generic local fallback ("减少重复操作" / "提高完成效率") must not appear
+    // when Grill returned real questions.
+    assert.equal(await page.getByRole('button', { name: '减少重复操作', exact: true }).count(), 0)
+    await page.getByRole('button', { name: '保留手动标题，AI 不再覆盖', exact: true }).click()
+    await page.getByRole('button', { name: '编辑后刷新仍保留', exact: true }).click()
+    assert.equal(await page.getByLabel('验收标准 3', { exact: true }).inputValue(), '保留手动标题，AI 不再覆盖')
+    assert.equal(await page.getByLabel('验收标准 4', { exact: true }).inputValue(), '编辑后刷新仍保留')
     assert.doesNotMatch(await page.locator('[data-testid="intent-modal"]').innerText(), /补充：/)
     const bounds = await page.locator('[data-testid="intent-modal"]').evaluate(node => { const r = node.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight })
     assert.equal(bounds, true)
@@ -1100,8 +1127,55 @@ test('single draft presents grill choices and confirms in one action', async () 
     assert.deepEqual(requests.map(body => body.action), ['set-doc-draft', 'edit', 'confirm'])
     assert.equal(requests[2].docHash, 'newhash')
     assert.equal(requests[2].confirmation.priority, 'P1')
-    assert.match(requests[0].docDraft.problem, /重复操作/)
-    assert.match(requests[0].docDraft.problem, /问题待明确\n减少重复操作/)
-    assert.ok(requests[0].docDraft.acceptance.some(entry => entry.text.includes('说明失败原因')))
+    assert.ok(requests[0].docDraft.acceptance.some(entry => entry.text === '保留手动标题，AI 不再覆盖'))
+    assert.ok(requests[0].docDraft.acceptance.some(entry => entry.text === '编辑后刷新仍保留'))
+  } finally { await browser.close() }
+})
+
+test('a fallback round asks an open question instead of inventing three options', async () => {
+  const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+  const marker = '    return {\n      inject:'
+  const entry = `import React from 'react'; import {createRoot} from 'react-dom/client'; window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestIntent = IntentModal;\n' + marker)} createRoot(document.getElementById('root')).render(React.createElement(globalThis.TestIntent,{root:'D:/test',project:'A',projectId:'A',onClose(){}}));`
+  const bundle = await build({ stdin: { contents: entry, resolveDir: fileURLToPath(new URL('../../../', import.meta.url)), loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
+  const browser = await chromium.launch({ headless: true })
+  const page = await browser.newPage({ viewport: { width: 1000, height: 800 } })
+  const session = {
+    sessionId: 'two', state: 'reviewing', sessionRevision: 1, draftRevision: 1,
+    input: { text: '需求列表：待办和待处理tab页重复，删除待处理tab页', inputRevision: 1, explicit: {} },
+    context: { contextSnapshotId: 'ctx' },
+    // Measured on a real round: the model was cut off at 20s, so the panel used
+    // to show three generic "good practice" options that changed nothing.
+    grill: { status: 'loaded', outcome: 'fallback', failureCode: 'ai-call-failed', name: 'grilling', source: 'user', round: 1, answers: [] },
+    items: [{ itemId: 'ITM-MANUAL-1', recommendedRoute: 'create', candidate: { title: '删除重复的需求列表标签页', goal: '删除重复的待处理标签页', problem: '待办和待处理重复', acceptance: [] }, unknowns: [] }],
+    docDraft: { goal: '删除重复的待处理标签页', problem: '待办和待处理重复', docHash: 'hash', draftRevision: 1, acceptance: [], pending: [{ text: '[验收建议·AI 建议] 需求列表只剩一个待办标签页' }] },
+    readiness: { ready: false, reasons: [] },
+  }
+  await page.route('http://test.local/**', async route => {
+    const request = route.request(), url = new URL(request.url())
+    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div><script type="module" src="/app.js"></script>' })
+    if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0].text })
+    if (url.searchParams.get('action') === 'history') return route.fulfill({ json: { sessions: [{ sessionId: 'two', state: 'reviewing' }] } })
+    const body = request.method() === 'POST' ? request.postDataJSON() : {}
+    if (body.action === 'load') return route.fulfill({ json: { session } })
+    return route.fulfill({ json: { session } })
+  })
+  try {
+    await page.goto('http://test.local/')
+    await page.getByRole('button', { name: '查看服务端意图历史' }).click()
+    await page.getByRole('button', { name: /two · reviewing/ }).click()
+    await page.getByText('补充一句现状').waitFor()
+    assert.equal(await page.getByText('Grill 本轮未完成').isVisible(), true)
+    assert.match(await page.locator('[data-testid="intent-modal"]').innerText(), /本轮不给选择题/)
+    // No fabricated choice survives: neither the old generic trio nor a
+    // relabelled version of it.
+    for (const bogus of ['减少重复操作', '避免信息遗漏', '提高完成效率', '说明失败原因', '保留已有内容', '允许用户重试']) {
+      assert.equal(await page.getByRole('button', { name: bogus, exact: true }).count(), 0, bogus)
+    }
+    // The open question is optional: nothing blocks on filling it in.
+    const input = page.getByLabel(/回答$/, { exact: false }).first()
+    assert.equal(await input.isVisible(), true)
+    assert.equal(await page.getByText(/请先在右上角选择优先级/).isVisible(), true)
+    assert.equal(await page.getByRole('button', { name: '自定义…', exact: true }).count(), 0)
+
   } finally { await browser.close() }
 })

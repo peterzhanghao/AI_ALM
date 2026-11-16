@@ -154,12 +154,19 @@ test('accepted and candidate-ready ACs use green delivery labels and natural num
   const rendered = ui.HumanVerification({ item: {}, detail })
   const cards = nodes(rendered).filter(node => node.props?.['data-detail-ac'])
   assert.deepEqual(cards.map(card => card.props['data-detail-ac']), ['AC-02', 'AC-06', 'AC-11'])
-  assert.match(visibleText(rendered), /🟢 已验收/)
+  // All three passed, so the list folds them behind one caption: the number in
+  // the caption is derived from the same rows, never counted twice.
+  assert.match(visibleText(rendered), /完成的标准3 项 · 3 项已通过/)
+  const folds = nodes(rendered).filter(node => node.props?.['data-passed-acceptance'])
+  assert.equal(folds.length, 1)
+  assert.equal(nodes(folds[0]).filter(node => node.props?.['data-detail-ac']).length, 3)
   const pending = ui.HumanVerification({ item: {}, detail: {
-    content: { doc: { acceptance: [{ id: 'AC-01', text: '待签收。' }] } },
-    verificationSummary: { criteria: [{ id: 'AC-01', status: 'verified' }] },
+    content: { doc: { acceptance: [{ id: 'AC-01', text: '待签收。' }, { id: 'AC-02', text: '未过。' }] } },
+    verificationSummary: { criteria: [{ id: 'AC-01', status: 'verified' }, { id: 'AC-02', status: 'failed' }] },
   } })
-  assert.match(visibleText(pending), /🟢 已验证（待签收）/)
+  // An open criterion stays visible and carries its own state word.
+  assert.match(visibleText(pending), /AC-02未通过未过。/)
+  assert.match(visibleText(pending), /2 项 · 1 项已通过 · 1 项未通过或待验证/)
 })
 
 test('GitHub delivery properties use safe external links for branches and commit', () => {

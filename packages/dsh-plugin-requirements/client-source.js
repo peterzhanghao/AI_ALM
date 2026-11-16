@@ -40,24 +40,39 @@ window.__ModuleLoader__.load({
     }
 
     // Work views, not lifecycle states: they may overlap ("待验收" is also part
-    // of "待我处理"), and their counts never need to add up to the total.
-    // REQ-ALM-015: entering the plugin lands on human work first. The server
-    // already returns requirements newest-first, so this view preserves that
-    // creation-time-descending order instead of re-sorting rows here.
-    const DEFAULT_REQUIREMENT_VIEW = 'mine'
+    // of "待办"), and their counts never need to add up to the total.
+    //
+    // 待办 is the whole open funnel: a requirement waiting on a human and one
+    // waiting on the AI are two halves of the same list, so they live in one
+    // view whose default order answers "谁能让这一行往前走". A separate
+    // 待我处理 tab used to sit next to it and contained a subset of the same
+    // rows, so the same work appeared twice under two names; the queue inside
+    // 待办 already puts human work first. 待验收 stays because it is the one
+    // cut a person actively works through.
+    //
+    // 已归档 holds both terminal deliveries (已验收 / 已关闭). A closed or signed-off
+    // record is history, not work: leaving it in the list body is what made the
+    // old list look like a log viewer. It stays one click away, read-only.
+    const DEFAULT_REQUIREMENT_VIEW = 'todo'
     // Bumped when the persisted default changes; old sessions must not keep the
-    // previous default alive after an upgrade.
-    const NAVIGATION_VERSION = 5
+    // previous default alive after an upgrade. 6 → 7 retires the 待我处理 tab:
+    // a session that persisted `filter: 'mine'` would otherwise open a list
+    // filtered by a view that no tab can highlight or clear.
+    const NAVIGATION_VERSION = 7
     const FILTERS = [
-      ['all', '全部'],
-      ['mine', '待我处理'],
-      ['pending', '待推进'],
-      ['running', 'AI 推进中'],
+      ['todo', '待办'],
       ['awaiting', '待验收'],
-      ['accepted', '已验收'],
-      ['closed', '已关闭'],
+      ['archived', '已归档'],
       ['anomalies', '数据异常'],
     ]
+    // Each tab has to say what it contains, otherwise the labels are two
+    // names for a feeling. The hint is the tab's accessible description.
+    const FILTER_HINTS = {
+      todo: '所有还没结束的需求：等你处理的排在最前，然后是 AI 正在推进的',
+      awaiting: 'AI 已经做完并自检通过，只差你签收',
+      archived: '已验收与已关闭，只读，不再出现在待办里',
+      anomalies: '数据本身有问题（ID 重复、关系悬空），会让人看错判断',
+    }
 
     // Source is a second, orthogonal axis: a defect requirement still belongs to
     // every work view above. `manual` is the complement of the machine-recorded
@@ -510,6 +525,25 @@ window.__ModuleLoader__.load({
       return state === 'blocked' || state === 'needs-clarification'
     }
 
+    // A delivery status says what the system did; a lane says what the row wants
+    // from a person. The list groups by lane so that "待推进" stops hiding three
+    // different situations (blocked on you / being worked on / not started) behind
+    // one label, which is why the old list looked like a pile.
+    const LANES = [
+      ['need', '需要你处理', '回答或确认后 AI 才能继续'],
+      ['running', 'AI 在跑', '不用你操作，跑完或卡住都会回到这里'],
+      ['todo', '待开始', '已经整理好，等你决定什么时候交给 AI'],
+      ['done', '已归档', '已验收或已关闭，只读保留'],
+    ]
+
+    function workLane(item) {
+      const delivery = deliveryOf(item)
+      if (delivery.key === 'accepted' || delivery.key === 'closed') return 'done'
+      if (needsHuman(item)) return 'need'
+      if (delivery.key === 'in-progress' || isExecutingRequirement(item)) return 'running'
+      return 'todo'
+    }
+
     function isExecutingRequirement(item) {
       const run = item?.detailView?.summaries?.run ?? item?.run
       return run?.exists === true && run.active === true && run.stale !== true &&
@@ -517,16 +551,118 @@ window.__ModuleLoader__.load({
         (run.status === 'running' || run.status === 'queued')
     }
 
+    /**
+     * Terminal deliveries leave the funnel. 已验收 is terminal for this list even
+     * though it can still be released: nobody has to push it forward here.
+     */
+    function isArchivedRequirement(item) {
+      const key = deliveryOf(item).key
+      return key === 'accepted' || key === 'closed'
+    }
+
     function matchesView(item, view) {
       if (view === 'anomalies') return (item.anomalies?.length ?? 0) > 0
-      if (view === 'pending') return deliveryOf(item).key === 'pending'
       if (view === 'all') return true
-      if (view === 'mine') return needsHuman(item)
-      if (view === 'running') return deliveryOf(item).key === 'in-progress'
+      if (view === 'archived') return isArchivedRequirement(item)
+      if (view === 'todo') return !isArchivedRequirement(item)
       if (view === 'awaiting') return deliveryOf(item).key === 'awaiting-acceptance'
+      // Retired view ids stay resolvable: a session or deep link written by the
+      // previous version must show the rows it names instead of an empty list.
+      // None of them is rendered as a tab any more, so `mine` (which used to
+      // duplicate most of 待办) no longer gets a tab of its own.
+      if (view === 'mine') return !isArchivedRequirement(item) && needsHuman(item)
+      if (view === 'pending') return deliveryOf(item).key === 'pending'
+      if (view === 'running') return deliveryOf(item).key === 'in-progress'
       if (view === 'accepted') return deliveryOf(item).key === 'accepted'
       if (view === 'closed') return deliveryOf(item).key === 'closed'
       return true
+    }
+
+    // Default order: 需要我优先. The rank answers one question — who can move this
+    // row forward — so a requirement waiting on a human never sinks below a row
+    // the AI is already busy with. Within a rank, the row that has been sitting
+    // untouched longest goes first: a five-day-old 待办 is the one that needs
+    // attention, not today's run. Creation time breaks the remaining ties so the
+    // order is reproducible rather than incidental.
+    function requirementUrgency(item) {
+      const key = deliveryOf(item).key
+      if (key === 'awaiting-acceptance') return 0 // only a signature is missing
+      if (needsHuman(item)) return 1 // decision, blocker, clarification, defect
+      if (key === 'in-progress') return 2 // AI is working
+      return 3 // nothing started yet
+    }
+
+    function lastActivityOf(item) {
+      const stamp = Date.parse(item?.updatedAt ?? item?.createdAt ?? '')
+      return Number.isFinite(stamp) ? stamp : null
+    }
+
+    function compareIds(left, right) {
+      const byKey = String(left?.occurrenceKey ?? left?.id ?? '').localeCompare(String(right?.occurrenceKey ?? right?.id ?? ''))
+      if (byKey !== 0) return byKey
+      return String(left?.id ?? '').localeCompare(String(right?.id ?? ''))
+    }
+
+    function sortByUrgency(items = []) {
+      return [...items].sort((left, right) => {
+        const byRank = requirementUrgency(left) - requirementUrgency(right)
+        if (byRank !== 0) return byRank
+        const leftActivity = lastActivityOf(left)
+        const rightActivity = lastActivityOf(right)
+        // Oldest activity first; a row with no timestamp is the least known and
+        // therefore the most likely to be forgotten.
+        if (leftActivity !== rightActivity) {
+          if (leftActivity === null) return -1
+          if (rightActivity === null) return 1
+          return leftActivity - rightActivity
+        }
+        return compareIds(left, right)
+      })
+    }
+
+    /** Archived records are history: newest activity first, like a ledger. */
+    function sortByRecency(items = []) {
+      return [...items].sort((left, right) => {
+        const leftActivity = lastActivityOf(left)
+        const rightActivity = lastActivityOf(right)
+        if (leftActivity !== rightActivity) {
+          if (leftActivity === null) return 1
+          if (rightActivity === null) return -1
+          return rightActivity - leftActivity
+        }
+        return compareIds(left, right)
+      })
+    }
+
+    function sortForView(items, view) {
+      return view === 'archived' ? sortByRecency(items) : sortByUrgency(items)
+    }
+
+    /** Longest silence first: the row nobody touched is the one to look at. */
+    function sortByStale(items = []) {
+      return [...items].sort((left, right) => {
+        const leftIdle = idleDaysOf(left)
+        const rightIdle = idleDaysOf(right)
+        if (leftIdle !== rightIdle) {
+          if (leftIdle === null) return 1
+          if (rightIdle === null) return -1
+          return rightIdle - leftIdle
+        }
+        return compareIds(left, right)
+      })
+    }
+
+    function sortForMode(items, mode, view) {
+      if (mode === 'recent') return sortByRecency(items)
+      if (mode === 'stale') return sortByStale(items)
+      return sortForView(items, view)
+    }
+
+    /** Whole days since the last real activity; null when the date is unknown. */
+    function idleDaysOf(item) {
+      const activity = lastActivityOf(item)
+      if (activity === null) return null
+      return Math.max(0, Math.floor((Date.now() - activity) / 86400000))
     }
 
     const REL_LABELS = {
@@ -537,6 +673,17 @@ window.__ModuleLoader__.load({
       verified_by: '验收',
       supersedes: '替代',
       parent_of: '子需求',
+    }
+
+    /** Group colour, kept out of LANES so the lane list stays plain data. */
+    const LANE_TONE = { need: T.warn, running: T.brand, todo: '#47505c', done: '#2f3742' }
+    function laneTone(id) {
+      return LANE_TONE[id] ?? T.line2
+    }
+
+    const SORT_OPTIONS = [['need', '需要我优先'], ['recent', '最近更新'], ['stale', '等最久的在前']]
+    function sortLabel(mode) {
+      return (SORT_OPTIONS.find(([id]) => id === mode) ?? SORT_OPTIONS[0])[1]
     }
 
     const VERDICT = {
@@ -754,11 +901,12 @@ window.__ModuleLoader__.load({
             display: 'inline-flex',
             alignItems: 'center',
             gap: '6px',
-            fontSize: '12px',
-            padding: '2px 0',
-            borderRadius: '4px',
+            fontSize: '11.5px',
+            padding: '1px 8px',
+            borderRadius: '6px',
             color: tone.color,
-            background: 'transparent',
+            background: 'rgba(255,255,255,.03)',
+            border: `1px solid ${T.line2}`,
             whiteSpace: 'nowrap',
           },
         },
@@ -1742,11 +1890,13 @@ window.__ModuleLoader__.load({
 
     // data must already be masked to the current request scope by useRequirements.
     // An empty loaded array is real zero; missing data is never an empty result.
-    function requirementViewCounts(data, keywordMatched) {
+    // `rows` is the source-filtered set, never the keyword-filtered one: a tab
+    // count answers "how much work is left here", not "how many match my search".
+    function requirementViewCounts(data, rows) {
       const loaded = Array.isArray(data?.requirements)
       const counts = {}
       for (const [id] of FILTERS) {
-        counts[id] = !loaded ? '—' : id === 'all' ? keywordMatched.length : keywordMatched.filter((item) => matchesView(item, id)).length
+        counts[id] = !loaded ? '—' : rows.filter((item) => matchesView(item, id)).length
       }
       return counts
     }
@@ -1871,10 +2021,25 @@ window.__ModuleLoader__.load({
     /** Acceptance join is a plain count: the list does not fake a drill-down. */
     function acceptanceLabel(item) {
       const count = item.detailView?.content?.doc?.acceptance?.length ?? item.docView?.doc?.acceptance?.length ?? item.detailView?.content?.acceptanceCriteria?.length ?? 0
-      if (count > 0) return `${count} 项标准`
+      if (count > 0) return `${count} 项验收 · ${acceptanceState(item)}`
       const section = String(item.briefText ?? '').match(/^#{1,6}\s*(?:验收标准|交付验证|验收要求)[^\n]*\n([\s\S]*?)(?=^#{1,6}\s|(?![\s\S]))/m)?.[1] ?? ''
       const entries = section.match(/^\s*(?:[-*+]\s+|\d+[.)、]\s*|AC[- ]?\d+[:：.、\s])/gmi) ?? []
-      return entries.length ? `${entries.length} 项标准` : section.trim() ? '正文内含' : '待细化'
+      return entries.length ? `${entries.length} 项验收 · ${acceptanceState(item)}` : section.trim() ? '正文内含' : '待细化'
+    }
+
+    /**
+     * One verification state for every AC: evidence is bound to commands, not to
+     * individual criteria, so "5/8 通过" would be a number no source can back.
+     * The count and the state are both real; the split is not.
+     */
+    function acceptanceState(item) {
+      const key = item?.delivery?.key ?? (item?.closed === true ? 'closed' : 'pending')
+      if (key === 'accepted' || key === 'closed') return '已通过'
+      const latest = item?.acceptance?.latest ?? null
+      if (!latest) return '待验证'
+      if (latest.result === 'pass' && latest.current === true && latest.complete === true) return '待签收'
+      if (latest.result && latest.result !== 'pass') return latest.current === true ? '未通过' : '需重验'
+      return '待验证'
     }
 
     function duplicateCountFor(item, duplicateCounts) {
@@ -1945,8 +2110,10 @@ window.__ModuleLoader__.load({
       if (delivery.key === 'awaiting-acceptance') return { label: '验收交付', icon: 'check', run: () => (onSignoff ?? onOpen)(item) }
       if (delivery.key === 'accepted') return { label: '查看', icon: 'eye', run: () => onOpen(item) }
       if (delivery.key === 'in-progress') return { label: '查看推进', icon: 'eye', run: () => onOpen(item) }
-      if (delivery.key === 'pending') return { label: '进入需求', icon: 'chevron', iconOnly: true, run: () => onOpen(item) }
-      if (!decision) return { label: '打开', icon: 'eye', run: () => onOpen(item) }
+      // A bare chevron is only honest when the row has nothing to decide: as
+      // soon as a human is needed the button has to say what it asks for.
+      if (delivery.key === 'pending' && !needsHuman(item)) return { label: '打开', icon: 'eye', run: () => onOpen(item) }
+      if (!decision) return needsHuman(item) ? { label: '去处理', icon: 'alert', run: () => onOpen(item) } : { label: '打开', icon: 'eye', run: () => onOpen(item) }
       const code = decision.topGap?.code ?? ''
       if (decision.state === 'blocked' || decision.state === 'needs-clarification') {
         return { label: '处理', icon: 'alert', run: () => onOpen(item) }
@@ -1959,13 +2126,13 @@ window.__ModuleLoader__.load({
         if (code === 'review-not-run' || code === 'review-not-accepted' || code === 'coverage-incomplete') {
           return { label: '打开', icon: 'eye', run: () => onOpen(item) }
         }
-        return { label: '打开', icon: 'eye', run: () => onOpen(item) }
+        return needsHuman(item) ? { label: '去处理', icon: 'alert', run: () => onOpen(item) } : { label: '打开', icon: 'eye', run: () => onOpen(item) }
       }
       if (decision.state === 'verified') return { label: '查看', icon: 'eye', run: () => onOpen(item) }
       return { label: '打开', icon: 'eye', run: () => onOpen(item) }
     }
 
-    function RequirementRow({ item, narrow, mobile, showProject, selected = false, duplicateCounts, actionHandlers }) {
+    function RequirementRow({ item, narrow, mobile, showProject, selected = false, duplicateCounts, actionHandlers, picked = false, onToggle = null }) {
       const key = item.occurrenceKey ?? item.id
       const decision = item.decision ?? null
       const anomaly = anomalyLine(item, duplicateCounts)
@@ -1974,9 +2141,14 @@ window.__ModuleLoader__.load({
       const occurrences = Number(defect?.occurrenceCount ?? 0)
       const action = rowAction(item, actionHandlers)
       const executing = isExecutingRequirement(item)
+      const idleDays = isArchivedRequirement(item) ? null : idleDaysOf(item)
       const githubLinks = item.detailView?.githubLinks ?? null
       const [hover, setHover] = useState(false)
       const open = () => actionHandlers.onOpen(item)
+      const lane = workLane(item)
+      // The lane already says a human is needed; a second badge would repeat the
+      // group header. The row says it once, on the button that does the work.
+      const primaryTone = lane === 'need' || lane === 'running'
       const actionButton = h(
         'button',
         {
@@ -1987,17 +2159,21 @@ window.__ModuleLoader__.load({
           },
           title: action.label,
           'aria-label': `${action.label}：${item.title}`,
+          'data-row-action': action.label,
           style: {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '5px',
             height: '28px',
-            padding: '0 9px',
-            border: `1px solid ${T.line2}`,
+            padding: action.iconOnly ? 0 : '0 10px',
+            width: action.iconOnly ? '28px' : undefined,
+            justifyContent: 'center',
+            border: `1px solid ${primaryTone ? T.brand : T.line2}`,
             borderRadius: '7px',
-            background: action.label === '去确认' ? 'rgba(231,176,75,.12)' : 'transparent',
-            color: action.label === '去确认' ? T.warn : action.icon === 'alert' ? T.err : T.text2,
+            background: primaryTone ? T.brand : 'transparent',
+            color: primaryTone ? '#fff' : action.icon === 'alert' ? T.err : T.text2,
             fontSize: '11.5px',
+            fontWeight: primaryTone ? 500 : 400,
             whiteSpace: 'nowrap',
             cursor: 'pointer',
           },
@@ -2070,42 +2246,110 @@ window.__ModuleLoader__.load({
         h('summary', { 'aria-label': `更多操作：${item.title}`, title: '更多操作', style: { cursor: 'pointer', listStyle: 'none', padding: '6px', color: T.text2, borderRadius: '6px' } }, h(ActionIcon, { name: 'more', size: 16 })),
         h('div', { style: { display: 'flex', gap: '6px', padding: '6px 0' } }, archiveButton, removeButton),
       )
+      const updatedSpan =
+        item.updatedAt || item.createdAt
+          ? h(
+              'span',
+              {
+                title: idleDays !== null ? `最近一次动静在 ${idleDays} 天前` : '最近更新',
+                style: { color: T.text3, fontSize: '11.5px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' },
+              },
+              formatLocalStamp(item.updatedAt ?? item.createdAt).slice(0, 16),
+              idleDays !== null && idleDays >= 2
+                ? h('span', { 'data-idle-days': idleDays, style: { marginLeft: '5px', color: idleDays >= 5 ? T.err : T.warn } }, `· ${idleDays} 天没动`)
+                : null,
+            )
+          : null
+      const meta = [
+        isDefect(item)
+          ? h(DefectPill, null)
+          : h('span', { style: { fontSize: '11px', color: T.text3, whiteSpace: 'nowrap' } }, isChatSource(item) ? '💬 对话生成' : isFeedbackSource(item) ? '反馈' : '✍️ 手动创建'),
+        h('code', { style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '11px', color: T.text3 } }, item.id),
+        h(
+          'span',
+          {
+            title: item.specConvergences?.length ? [...item.specConvergences].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote || '需求已演进' : '需求版本',
+            tabIndex: 0,
+            style: Number(item.revision) > 1
+              ? { color: '#8bd5f5', background: 'rgba(63,160,205,.14)', border: '1px solid rgba(106,190,225,.4)', borderRadius: '999px', padding: '0 6px', fontSize: '10.5px', whiteSpace: 'nowrap' }
+              : { color: T.text3, fontSize: '11px', whiteSpace: 'nowrap' },
+          },
+          `v${item.revision ?? 1}${Number(item.revision) > 1 ? ' · 已演进' : ''}`,
+        ),
+        item.pendingPatch ? h('span', { style: { color: T.warn, fontSize: '11px', fontWeight: 600 } }, '● 待确认变更') : null,
+        h('span', { style: { color: item.owner ? T.text2 : T.text3, fontSize: '11.5px', whiteSpace: 'nowrap' } }, item.owner || '未分配'),
+        h('span', { style: { color: T.text3, fontSize: '11.5px', whiteSpace: 'nowrap' } }, acceptanceLabel(item)),
+        githubLinks?.devBranchUrl ? h(GitHubLinkButton, { href: githubLinks.devBranchUrl, compact: true, title: '在 GitHub 查看开发分支' }, `🌿 ${githubLinks.devBranch ?? 'develop'}`) : null,
+        githubLinks?.mainBranchUrl && githubLinks.mainMergeCommitSha ? h(GitHubLinkButton, { href: githubLinks.mainBranchUrl, compact: true, title: '在 GitHub 查看主干分支' }, `✅ ${githubLinks.mainBranch ?? 'main'}`) : null,
+        defect?.impact?.stage ? h('span', { style: { color: T.text3, fontSize: '11px' } }, `失败于${defectStageText(item)}`) : null,
+        defect && occurrences > 1 ? h('span', { style: { color: T.text2, fontSize: '11px', fontVariantNumeric: 'tabular-nums' } }, `×${occurrences}`) : null,
+        defect?.regressionSuspected ? h('span', { style: { color: T.warn, fontSize: '11px' } }, '疑似回归') : null,
+        showProject && item.projectName ? h('span', { style: { color: T.text3, fontSize: '11px' } }, item.projectName) : null,
+        check.label !== '待验证' && ['verified', 'failed'].includes(decision?.state)
+          ? h(
+              'span',
+              { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', color: check.tone === 'neutral' ? T.text2 : checkToneColor(check.tone), fontSize: '11px', fontWeight: 500 } },
+              h('span', { style: { width: '5px', height: '5px', borderRadius: '50%', background: checkToneColor(check.tone), flex: 'none' } }),
+              check.label,
+            )
+          : null,
+        updatedSpan,
+      ].filter(Boolean)
+      const selectControl = onToggle
+        ? h('input', {
+            type: 'checkbox',
+            className: 'req-pick',
+            checked: picked,
+            'data-pick': key,
+            'aria-label': `选择 ${item.title}`,
+            onClick: (event) => event.stopPropagation(),
+            onChange: () => onToggle(item),
+            style: { accentColor: T.brand, width: '15px', height: '15px', marginTop: '3px', flex: 'none', cursor: 'pointer' },
+          })
+        : h('span', { style: { width: '3px', flex: 'none' } })
       return h(
         'div',
         {
           role: 'row',
           'data-req': key,
+          'data-lane': lane,
           style: {
-            display: 'grid',
-            gridTemplateColumns: listColumns(narrow, mobile),
-            columnGap: '14px',
-            alignItems: 'center',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '11px',
             boxSizing: 'border-box',
-            minHeight: mobile ? '76px' : '80px',
+            minHeight: mobile ? '62px' : '64px',
             contentVisibility: 'auto',
-            containIntrinsicSize: `auto ${mobile ? 76 : 80}px`,
-            padding: mobile ? '12px 14px' : '13px 18px',
-            borderTop: `1px solid ${T.line}`,
-            background: selected ? T.layer2 : 'transparent',
-            boxShadow: selected ? `inset 2px 0 0 ${T.brand}` : 'none',
+            containIntrinsicSize: `auto ${mobile ? 62 : 64}px`,
+            margin: '0 0 6px',
+            padding: mobile ? '10px 12px' : '12px 14px',
+            // One card per requirement, with the lane colour on the edge: the
+            // group header says why the row is here, the edge says it again in
+            // peripheral vision while the eye is on the title.
+            border: `1px solid ${T.line}`,
+            borderLeft: `3px solid ${laneTone(lane)}`,
+            borderRadius: '10px',
+            background: selected || picked ? T.layer2 : T.layer,
+            boxShadow: selected ? `inset 0 0 0 1px ${T.brand}` : 'none',
             cursor: 'pointer',
-            transition: REDUCE_MOTION ? 'none' : 'background-color 140ms ease',
+            transition: REDUCE_MOTION ? 'none' : 'background-color 140ms ease, border-color 140ms ease',
           },
           'aria-selected': selected,
           onMouseEnter: (event) => {
-            if (!selected) event.currentTarget.style.background = T.layer2
+            if (!selected && !picked) event.currentTarget.style.background = T.layer2
           },
           onMouseLeave: (event) => {
-            event.currentTarget.style.background = selected ? T.layer2 : 'transparent'
+            event.currentTarget.style.background = selected || picked ? T.layer2 : T.layer
           },
           onClick: open,
         },
+        selectControl,
         h(
           'div',
-          { role: 'cell', style: { minWidth: 0 } },
+          { role: 'cell', style: { minWidth: 0, flex: '1 1 auto' } },
           h(
             'div',
-            { style: { display: 'flex', alignItems: 'baseline', gap: '8px', minWidth: 0 } },
+            { style: { display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 } },
             h(
               'button',
               {
@@ -2121,6 +2365,7 @@ window.__ModuleLoader__.load({
                 title: item.title,
                 style: {
                   display: 'block',
+                  flex: '0 1 auto',
                   minWidth: 0,
                   maxWidth: '100%',
                   overflow: 'hidden',
@@ -2133,7 +2378,7 @@ window.__ModuleLoader__.load({
                   background: 'transparent',
                   color: T.text,
                   fontFamily: 'inherit',
-                  fontSize: '14px',
+                  fontSize: '13.5px',
                   fontWeight: 600,
                   letterSpacing: '-.005em',
                   textAlign: 'left',
@@ -2148,175 +2393,166 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { style: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, marginTop: '5px', flexWrap: 'wrap', overflowWrap: 'anywhere' } },
-            isDefect(item) ? h(DefectPill, null) : h('span', { style: { fontSize: '11px', color: T.text2, whiteSpace: 'nowrap' } }, isChatSource(item) ? '💬 对话生成' : isFeedbackSource(item) ? '反馈' : '✍️ 手动创建'),
-            h(
-              'code',
-              { style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '11.5px', color: T.text2 } },
-              item.id,
-            ),
-            h('span', { title: item.specConvergences?.length ? [...item.specConvergences].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote || '需求已演进' : '需求版本', tabIndex: 0, style: Number(item.revision) > 1 ? { color: '#8bd5f5', background: 'rgba(63,160,205,.14)', border: '1px solid rgba(106,190,225,.4)', borderRadius: '999px', padding: '1px 7px', fontSize: '11px', whiteSpace: 'nowrap' } : { color: T.text3, fontSize: '11px' } }, `v${item.revision ?? 1}${Number(item.revision) > 1 ? ' · 已演进' : ''}`),
-            item.pendingPatch ? h('span', { style: { color: T.warn, fontSize: '11px', fontWeight: 600 } }, '● 待确认变更') : null,
-            githubLinks?.devBranchUrl ? h(GitHubLinkButton, { href: githubLinks.devBranchUrl, compact: true, title: '在 GitHub 查看开发分支' }, `🌿 ${githubLinks.devBranch ?? 'develop'}`) : null,
-            githubLinks?.mainBranchUrl && githubLinks.mainMergeCommitSha ? h(GitHubLinkButton, { href: githubLinks.mainBranchUrl, compact: true, title: '在 GitHub 查看主干分支' }, `✅ ${githubLinks.mainBranch ?? 'main'}`) : null,
-            defect?.impact?.stage ? h('span', { style: { color: T.text3, fontSize: '11px' } }, `失败于${defectStageText(item)}`) : null,
-            defect && occurrences > 1
-              ? h('span', { style: { color: T.text2, fontSize: '11px', fontVariantNumeric: 'tabular-nums' } }, `×${occurrences}`)
-              : null,
-            defect?.regressionSuspected ? h('span', { style: { color: T.warn, fontSize: '11px' } }, '疑似回归') : null,
-            showProject && item.projectName ? h('span', { style: { color: T.text3, fontSize: '11px' } }, item.projectName) : null,
-            mobile ? h(DeliveryPill, { item }) : null,
-            mobile && check.label !== '待验证'
-              ? h(
-                  'span',
-                  { style: { display: 'inline-flex', alignItems: 'center', gap: '5px', color: check.tone === 'neutral' ? T.text2 : checkToneColor(check.tone), fontSize: '11.5px', fontWeight: 500 } },
-                  h('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: checkToneColor(check.tone), flex: 'none' } }),
-                  check.label,
-                )
-              : null,
+            { style: { display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, marginTop: '4px', flexWrap: 'wrap', overflowWrap: 'anywhere' } },
+            ...meta.reduce((acc, node, index) => (index === 0
+              ? [node]
+              : acc.concat(h('span', { key: `sep-${index}`, 'aria-hidden': 'true', style: { color: T.line2, fontSize: '11px' } }, '·'), node)), []),
           ),
-          anomaly
-            ? h(
-                'div',
-                { style: { marginTop: '3px', color: T.err, fontSize: '11.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
-                anomaly,
-              )
-            : item.duplicateCount > 1
-              ? null
-              : null,
+          anomaly ? h('div', { style: { marginTop: '3px', color: T.err, fontSize: '11.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, anomaly) : null,
         ),
-        mobile ? null : h('div', { role: 'cell', style: listCell() }, h(DeliveryPill, { item })),
-        narrow || mobile
-          ? null
-          : h(
-              'div',
-              { role: 'cell', style: listCell({ color: item.owner ? T.text2 : T.text3, fontSize: '12.5px' }) },
-              item.owner || '未分配',
-            ),
-        narrow || mobile
-          ? null
-          : h(
-              'div',
-              {
-                role: 'cell',
-                style: listCell({ color: (item.verifiedBy?.length ?? 0) > 0 ? T.text2 : T.text3, fontSize: '12.5px' }),
-                title: '需求中的验收标准数量',
-              },
-              acceptanceLabel(item),
-            ),
-        mobile
-          ? h(
-              'div',
-              { role: 'cell', style: listCell({ justifyContent: 'flex-end', gap: '6px' }) },
-              actionButton,
-              secondaryActions,
-            )
-          : h(
-              'div',
-              { role: 'cell', style: listCell({ flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }) },
-              h('span', { title: '最近更新', style: { color: T.text2, fontSize: '12px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, item.updatedAt || item.createdAt ? formatLocalStamp(item.updatedAt ?? item.createdAt).slice(0, 16) : '—'),
-              check.label !== '待验证' && ['verified', 'failed'].includes(decision?.state) ? h('span', { style: { color: checkToneColor(check.tone), fontSize: '11px' } }, check.label) : null,
-            ),
-        mobile ? null : h('div', { role: 'cell', style: listCell({ justifyContent: 'flex-end', gap: '6px' }) }, actionButton, secondaryActions),
+        // State and action share one cluster on the right: the pill says where
+        // the record stands, the button says what the reader can do about it.
+        h('div', { role: 'cell', style: { display: 'flex', alignItems: 'center', gap: '8px', flex: 'none' } }, h(DeliveryPill, { item }), actionButton, secondaryActions),
       )
     }
 
-    // `contained` renders the table inside the workbench list scroller, which
-    // already owns the border, background and rounded corners. The header row
-    // stays sticky inside that scroller (stickyTop 0), which is what keeps the
-    // column titles visible while the rows scroll.
-    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, onAiReview, onAcceptance, onArchive, onRemove, duplicateCounts, emptyNode, stickyTop = 0, contained = false, onDefect }) {
-      const columns = listColumns(narrow, mobile)
-      const actionHandlers = { onOpen, onAiReview, onAcceptance, onArchive, onRemove, onDefect }
-      const headerCell = (label, extra) =>
-        h(
+    // The board answers a different question than the queue: not "what next",
+    // but "where is the pile". Same lanes, so a row cannot be in one place in
+    // the queue and another on the board.
+    function RequirementBoard({ items, onOpen, narrow, mobile, showEmpty = false }) {
+      const lanes = LANES
+        .filter(([id]) => id !== 'done' || items.some((item) => workLane(item) === 'done'))
+        .filter(([id]) => showEmpty ? true : items.some((item) => workLane(item) === id))
+      const columns = Math.max(1, Math.min(lanes.length, narrow || mobile ? (mobile ? 1 : 2) : 4))
+      const card = (item) => {
+        const key = item.occurrenceKey ?? item.id
+        const idle = isArchivedRequirement(item) ? null : idleDaysOf(item)
+        return h(
           'div',
-          { role: 'columnheader', style: { minWidth: 0, fontSize: '11px', color: T.text3, fontWeight: 500, letterSpacing: '.02em', ...extra } },
-          label,
+          {
+            key,
+            'data-req': key,
+            role: 'button',
+            tabIndex: 0,
+            onClick: () => onOpen(item),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onOpen(item)
+              }
+            },
+            style: { border: `1px solid ${T.line}`, borderRadius: '8px', background: T.base, padding: '8px 9px', marginBottom: '6px', cursor: 'pointer', minWidth: 0 },
+          },
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'flex-start', gap: '6px' } },
+            h(
+              'span',
+              { style: { flex: '1 1 auto', minWidth: 0, color: T.text, fontSize: '12.5px', fontWeight: 600, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } },
+              item.title,
+            ),
+            workLane(item) === 'need'
+              ? h('span', { style: { flex: 'none', borderRadius: '999px', padding: '0 5px', fontSize: '10px', color: T.warn, background: 'rgba(231,176,75,.14)', border: '1px solid rgba(231,176,75,.35)' } }, '需要你')
+              : null,
+          ),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: '7px', marginTop: '5px', flexWrap: 'wrap', color: T.text3, fontSize: '11px' } },
+            h('code', { style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' } }, item.id),
+            h('span', null, item.owner || '未分配'),
+            h('span', null, acceptanceLabel(item)),
+            idle !== null && idle >= 2 ? h('span', { style: { color: idle >= 5 ? T.err : T.warn } }, `${idle} 天没动`) : null,
+          ),
         )
+      }
+      return h(
+        'div',
+        { 'data-list-board': 'true', style: { display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: '10px', paddingBottom: '12px' } },
+        lanes.map(([id, label, hint]) => {
+          const list = items.filter((item) => workLane(item) === id)
+          return h(
+            'div',
+            { key: id, 'data-board-column': id, style: { background: T.layer, border: `1px solid ${T.line}`, borderRadius: '10px', padding: '8px', minHeight: '132px', minWidth: 0 } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'baseline', gap: '7px', padding: '1px 3px 8px' } },
+              h('span', { style: { fontSize: '12px', fontWeight: 600, color: T.text } }, label),
+              h('span', { style: { fontSize: '11px', color: T.text3, fontVariantNumeric: 'tabular-nums' } }, list.length),
+              h('span', { style: { fontSize: '11px', color: T.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, hint),
+            ),
+            list.length ? list.map(card) : h('p', { style: { margin: '4px 3px 8px', color: T.text3, fontSize: '11.5px' } }, '没有'),
+          )
+        }),
+      )
+    }
+
+    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, onAiReview, onAcceptance, onArchive, onRemove, duplicateCounts, emptyNode, stickyTop = 0, contained = false, onDefect, grouped = false, picked = null, onTogglePick = null }) {
+      const actionHandlers = { onOpen, onAiReview, onAcceptance, onArchive, onRemove, onDefect }
+      const row = (item) =>
+        h(RequirementRow, {
+          key: item.occurrenceKey ?? item.id,
+          item,
+          narrow,
+          mobile,
+          showProject,
+          duplicateCounts,
+          actionHandlers,
+          selected: selectedKey === (item.occurrenceKey ?? item.id),
+          picked: Boolean(picked?.has(item.occurrenceKey ?? item.id)),
+          // Archived rows are history: selecting them for bulk work would offer
+          // actions that do not exist for a closed requirement.
+          onToggle: workLane(item) === 'done' ? null : onTogglePick,
+        })
+      // Grouping explains why a row is here; the tab explains how much work is
+      // here. Inside a single-lane slice (待验收/已归档) a header per
+      // lane would repeat the tab, so groups only render in 待办.
+      const laneGroups = grouped
+        ? LANES.map(([id, label, hint]) => ({ id, label, hint, list: items.filter((item) => workLane(item) === id) })).filter((lane) => lane.list.length > 0)
+        : null
       return h(
         'div',
         {
           role: 'table',
           'aria-label': '需求列表',
-          style: contained
-            ? { overflow: 'visible' }
-            : { border: `1px solid ${T.line}`, borderRadius: '12px', background: T.layer, overflow: 'visible' },
+          style: { overflow: 'visible' },
         },
-        h(
-          'div',
-          {
-            role: 'row',
-            style: {
-              display: 'grid',
-              gridTemplateColumns: columns,
-              columnGap: '14px',
-              alignItems: 'center',
-              padding: mobile ? '9px 14px' : '9px 18px',
-              background: contained ? T.layer : T.base,
-              borderBottom: `1px solid ${T.line}`,
-              borderTopLeftRadius: contained ? 0 : '12px',
-              borderTopRightRadius: contained ? 0 : '12px',
-              position: 'sticky',
-              top: `${stickyTop}px`,
-              zIndex: 15,
-            },
-          },
-          headerCell('需求'),
-          mobile ? null : headerCell('交付状态'),
-          narrow || mobile ? null : headerCell('负责人'),
-          narrow || mobile ? null : headerCell('验收标准'),
-          mobile ? null : headerCell('最近更新'),
-          headerCell('操作', { textAlign: 'right' }),
-        ),
-        items.length > 0
-          ? items.map((item) =>
-              h(RequirementRow, {
-                key: item.occurrenceKey ?? item.id,
-                item,
-                narrow,
-                mobile,
-                showProject,
-                duplicateCounts,
-                actionHandlers,
-                selected: selectedKey === (item.occurrenceKey ?? item.id),
-              }),
-            )
-          : emptyNode ?? null,
+        laneGroups
+          ? laneGroups.map((lane) => [
+              h(
+                'div',
+                {
+                  key: `lane-${lane.id}`,
+                  'data-lane-header': lane.id,
+                  style: { display: 'flex', alignItems: 'baseline', gap: '8px', padding: '14px 2px 9px' },
+                },
+                h('span', { 'aria-hidden': 'true', style: { width: '7px', height: '7px', borderRadius: '50%', background: laneTone(lane.id), alignSelf: 'center', flex: 'none' } }),
+                h('span', { style: { color: T.text, fontSize: '12.5px', fontWeight: 600 } }, lane.label),
+                h('span', { style: { color: T.text2, fontSize: '11px', fontVariantNumeric: 'tabular-nums', background: T.layer2, borderRadius: '999px', padding: '0 7px', lineHeight: '16px' } }, lane.list.length),
+                h('span', { style: { color: T.text3, fontSize: '11.5px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, lane.hint),
+              ),
+              ...lane.list.map(row),
+            ])
+          : items.length > 0
+            ? items.map(row)
+            : (emptyNode ?? null),
       )
     }
 
-
     function SkeletonTable({ narrow, mobile }) {
-      const columns = listColumns(narrow, mobile)
       const row = (index) =>
         h(
           'div',
           {
             key: index,
-            style: { display: 'grid', gridTemplateColumns: columns, columnGap: '14px', alignItems: 'center', minHeight: mobile ? '76px' : '80px', padding: mobile ? '12px 14px' : '13px 18px', boxSizing: 'border-box', borderTop: `1px solid ${T.line}` },
+            style: { display: 'flex', alignItems: 'flex-start', gap: '11px', minHeight: '64px', padding: mobile ? '10px 12px' : '11px 16px', boxSizing: 'border-box', borderTop: `1px solid ${T.line}` },
           },
+          h('div', { style: { width: '15px', height: '15px', borderRadius: '4px', background: T.layer2, marginTop: '3px', flex: 'none' } }),
           h(
             'div',
-            null,
-            h('div', { style: { width: `${48 + ((index * 17) % 30)}%`, height: '12px', borderRadius: '5px', background: T.layer2 } }),
-            h('div', { style: { width: '110px', height: '9px', borderRadius: '4px', background: T.layer2, marginTop: '8px' } }),
+            { style: { flex: '1 1 auto', minWidth: 0 } },
+            h('div', { style: { width: `${44 + ((index * 17) % 28)}%`, height: '12px', borderRadius: '5px', background: T.layer2 } }),
+            h('div', { style: { width: '150px', height: '9px', borderRadius: '4px', background: T.layer2, marginTop: '9px' } }),
           ),
-          mobile ? null : h('div', { style: { width: '58px', height: '18px', borderRadius: '999px', background: T.layer2 } }),
-          narrow || mobile ? null : h('div', { style: { width: '46px', height: '10px', borderRadius: '4px', background: T.layer2 } }),
-          narrow || mobile ? null : h('div', { style: { width: '34px', height: '10px', borderRadius: '4px', background: T.layer2 } }),
-          mobile ? null : h('div', { style: { width: '72px', height: '18px', borderRadius: '999px', background: T.layer2 } }),
-          h('div', { style: { justifySelf: 'end', width: '46px', height: '22px', borderRadius: '6px', background: T.layer2 } }),
+          h('div', { style: { width: '46px', height: '22px', borderRadius: '6px', background: T.layer2, flex: 'none' } }),
         )
       return h(
         'div',
         { 'aria-busy': 'true', 'aria-label': '正在读取需求', style: { border: `1px solid ${T.line}`, borderRadius: '12px', background: T.layer, overflow: 'hidden' } },
-        h('div', { style: { height: '35px', borderBottom: `1px solid ${T.line}`, background: T.base } }),
-        [0, 1, 2, 3, 4, 5, 6, 7].map(row),
+        [0, 1, 2, 3, 4, 5].map(row),
       )
     }
 
-    function NoResults({ filter, keyword, source, onClear }) {
+    function NoResults({ filter, keyword, source, onClear, archivedMatches = 0, onShowArchived }) {
       return h(
         'div',
         { style: { textAlign: 'center', padding: '54px 24px' } },
@@ -2324,7 +2560,7 @@ window.__ModuleLoader__.load({
         h(
           'p',
           { style: { margin: '7px 0 18px', color: T.text2, fontSize: '12.5px' } },
-          [filter !== 'all' ? `视图：${(FILTERS.find(([id]) => id === filter) ?? [])[1] ?? filter}` : null, source && source !== 'all' ? `来源：${(SOURCE_FILTERS.find(([id]) => id === source) ?? [])[1] ?? source}` : null, keyword ? `搜索：${keyword}` : null]
+          [filter !== DEFAULT_REQUIREMENT_VIEW ? `视图：${(FILTERS.find(([id]) => id === filter) ?? [])[1] ?? filter}` : null, source && source !== 'all' ? `来源：${(SOURCE_FILTERS.find(([id]) => id === source) ?? [])[1] ?? source}` : null, keyword ? `搜索：${keyword}` : null]
             .filter(Boolean)
             .join(' · ') || '当前筛选下没有记录。',
         ),
@@ -2337,6 +2573,23 @@ window.__ModuleLoader__.load({
           },
           '清除筛选',
         ),
+        archivedMatches > 0
+          ? h(
+              'p',
+              { style: { margin: '16px 0 0', color: T.text3, fontSize: '12px' } },
+              `待办里没有，已归档里有 ${archivedMatches} 条相符的记录。`,
+              h(
+                'button',
+                {
+                  type: 'button',
+                  'data-show-archived': 'true',
+                  onClick: onShowArchived,
+                  style: { marginLeft: '6px', border: 0, padding: 0, background: 'transparent', color: T.brand, fontSize: '12px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' },
+                },
+                '去已归档查看',
+              ),
+            )
+          : null,
       )
     }
 
@@ -4188,16 +4441,20 @@ window.__ModuleLoader__.load({
       const changes = []
       for (const [id, text] of right) if (!left.has(id)) changes.push({ type: 'added', id, after: text }); else if (left.get(id) !== text) changes.push({ type: 'modified', id, before: left.get(id), after: text })
       for (const [id, text] of left) if (!right.has(id)) changes.push({ type: 'removed', id, before: text })
-      const fields = [['title', '标题'], ['goal', '预期变化'], ['problem', '价值']].flatMap(([field, label]) => {
+      const fields = [['title', '标题'], ['goal', '预期变化'], ['problem', '要解决的问题']].flatMap(([field, label]) => {
         const a = delta.beforeDocument?.[field], b = delta.afterDocument?.[field]
         return typeof a === 'string' && typeof b === 'string' && a !== b ? [{ label, before: a, after: b }] : []
       })
       const count = type => changes.filter(entry => entry.type === type).length + (type === 'modified' ? fields.length : 0)
-      const box = (label, value, color) => h('div', { style: { borderLeft: `3px solid ${color}`, padding: '6px 10px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: T.layer } }, h('strong', null, label), ' ', value || '—')
+      // Same convention as a code diff: red for what the old version said, green
+      // for what it says now, both on a tinted ground so the pair reads at a
+      // glance instead of needing to compare two paragraphs word by word.
+      const box = (sign, label, value, tone) => h('div', { style: { borderLeft: `3px solid ${tone}`, padding: '6px 10px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: tone === T.err ? 'rgba(255,139,139,.08)' : 'rgba(53,196,122,.08)', color: T.text } },
+        h('strong', { style: { color: tone, fontWeight: 600 } }, sign, ' ', label), ' ', value || '—')
       return h('div', { 'data-visual-spec-diff': 'true', style: { margin: '10px 0', padding: '12px', border: `1px solid ${T.line}`, borderRadius: '8px' } },
         h('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' } }, h('strong', null, `版本对比${delta.beforeRevision && delta.revision ? ` (v${delta.beforeRevision} → v${delta.revision})` : ''}`), h('span', { style: { color: T.ok } }, `+${count('added')} 新增`), h('span', { style: { color: T.warn } }, `~${count('modified')} 修改`), h('span', { style: { color: T.err } }, `-${count('removed')} 移除`)),
-        fields.map(field => h('div', { key: field.label, style: { marginBottom: '10px' } }, h('strong', null, field.label), box('修改前：', field.before, T.err), box('修改后：', field.after, T.ok))),
-        changes.map(change => h('div', { key: change.id, style: { borderLeft: `3px solid ${change.type === 'added' ? T.ok : change.type === 'removed' ? T.err : T.warn}`, padding: '8px 10px', margin: '6px 0', background: T.layer, overflowWrap: 'anywhere' } }, h('strong', { style: { color: change.type === 'added' ? T.ok : change.type === 'removed' ? T.err : T.warn } }, `${change.type === 'added' ? '+ 新增' : change.type === 'removed' ? '- 移除' : '~ 修改'} ${change.id}`), change.type === 'modified' ? h('div', null, box('修改前：', change.before, T.err), box('修改后：', change.after, T.ok)) : h('div', { style: { textDecoration: change.type === 'removed' ? 'line-through' : 'none' } }, change.after ?? change.before))),
+        fields.map(field => h('div', { key: field.label, style: { marginBottom: '10px' } }, h('strong', null, field.label), box('−', '修改前', field.before, T.err), box('+', '修改后', field.after, T.ok))),
+        changes.map(change => h('div', { key: change.id, style: { borderLeft: `3px solid ${change.type === 'added' ? T.ok : change.type === 'removed' ? T.err : T.warn}`, padding: '8px 10px', margin: '6px 0', background: change.type === 'added' ? 'rgba(53,196,122,.06)' : change.type === 'removed' ? 'rgba(255,139,139,.06)' : T.layer, overflowWrap: 'anywhere' } }, h('strong', { style: { color: change.type === 'added' ? T.ok : change.type === 'removed' ? T.err : T.warn } }, `${change.type === 'added' ? '+ 新增' : change.type === 'removed' ? '- 移除' : '~ 修改'} ${change.id}`), change.type === 'modified' ? h('div', null, box('−', '修改前', change.before, T.err), box('+', '修改后', change.after, T.ok)) : h('div', { style: { padding: '4px 2px', textDecoration: change.type === 'removed' ? 'line-through' : 'none', color: change.type === 'removed' ? T.err : T.ok } }, change.after ?? change.before))),
         !fields.length && !changes.length ? h('p', { style: DETAIL_SMALL }, '本次未记录可展示的需求或验收变更。') : null,
       )
     }
@@ -4254,7 +4511,9 @@ window.__ModuleLoader__.load({
             h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, h('span', { style: { color: appearance.color, background: T.layer2, border: `1px solid ${appearance.color}`, borderRadius: '999px', padding: '1px 7px', fontSize: '11px', fontWeight: 600 } }, appearance.label), h('time', { dateTime: entry.at, style: { color: T.text3, fontSize: '11px', flex: 'none' } }, formatLocalStamp(entry.at))),
             h('div', { style: { color: T.text, marginTop: '3px', fontWeight: 600, overflowWrap: 'anywhere' } }, entry.title ?? entry.kind ?? '事件'),
             entry.detail ? h('div', { style: { color: T.text3, fontSize: '11.5px', marginTop: '3px', overflowWrap: 'anywhere' } }, entry.detail) : null,
-            entry.specDelta ? h('details', { style: { marginTop: '7px' } }, h('summary', { style: { cursor: 'pointer' } }, '查看需求与验收变更'), h(VisualSpecDiff, { delta: entry.specDelta })) : null,
+            // The newest change is the reason this tab was opened; showing the
+            // diff without a click saves a step and reads like a commit.
+            entry.specDelta ? h('details', { open: index === 0, 'data-spec-delta': 'true', style: { marginTop: '7px' } }, h('summary', { style: { cursor: 'pointer' } }, '需求与验收变更'), h(VisualSpecDiff, { delta: entry.specDelta })) : null,
           )
         })) : h('p', { style: DETAIL_SMALL }, '暂无历史记录。'),
       )
@@ -4426,8 +4685,10 @@ window.__ModuleLoader__.load({
         addLegacy(doc.goal, '预期变化')
         addLegacy(doc.problem, '价值')
       } else {
+        // Problem first: a reader needs the problem before the outcome. The
+        // pair used to read 预期变化 / 价值, which names the fields, not the work.
+        add('要解决的问题', doc.problem)
         add('预期变化', doc.goal)
-        add('价值', doc.problem)
       }
       return blocks.sort((a, b) => Number(b.title === '预期变化') - Number(a.title === '预期变化'))
     }
@@ -4470,7 +4731,7 @@ window.__ModuleLoader__.load({
         .replace(/`([^`]+)`/g, '$1')
         .replace(/\*\*([^*]+)\*\*/g, '$1')
         .trim()
-      const rows = (label, values) => values.length ? h('div', { style: { marginTop: '16px' } }, h('h3', { style: { margin: 0, fontSize: '13px', color: T.text } }, label), h('ul', { style: { ...paragraph, paddingLeft: '20px' } }, values.map((text, index) => h('li', { key: index }, text)))) : null
+      const rows = (label, values, anchor) => values.length ? h('div', { ...(anchor ? { [anchor]: 'true' } : {}), style: { marginTop: '16px' } }, h('h3', { style: { margin: 0, fontSize: '13px', color: T.text } }, label), h('ul', { style: { ...paragraph, paddingLeft: '20px' } }, values.map((text, index) => h('li', { key: index }, text)))) : null
       return h('div', { 'data-human-description': 'true' },
         h('div', { className: 'description-cards' }, blocks.map((block, index) => h('div', { key: index, 'data-human-long': block.text.length > 180 ? 'true' : undefined, style: { padding: '12px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer } },
           index === 0 && status === 'unconfirmed' ? descriptionStatusBadge(status) : null,
@@ -4485,7 +4746,7 @@ window.__ModuleLoader__.load({
             feature.behavior ? h('p', { style: paragraph }, draftText(feature.behavior)) : null,
             feature.preconditions?.length || feature.response || feature.boundaries?.length ? h('details', { style: { marginTop: '4px' } }, h('summary', { style: { color: T.text3, fontSize: '12px', cursor: 'pointer' } }, '适用条件与边界'), rows('适用条件', draftList(feature.preconditions)), feature.response ? h('p', { style: paragraph }, draftText(feature.response)) : null, rows('边界', draftList(feature.boundaries))) : null,
           ))) : null,
-        rows('本次范围', scope), rows('本次不包含', excluded), rows('必须遵守', constraints),
+        rows('本次范围', scope, 'data-detail-scope'), rows('这次不做', excluded, 'data-detail-excluded'), rows('必须遵守', constraints, 'data-detail-constraints'),
         pending.length ? h('div', { 'data-detail-pending': 'true', style: { marginTop: '20px', borderLeft: `2px solid ${T.warn}`, paddingLeft: '12px' } }, h('strong', { style: { fontSize: '13px' } }, '待确认的业务问题'), h('ul', { style: { ...paragraph, paddingLeft: '20px' } }, pending.map((entry, index) => h('li', { key: index }, typeof entry === 'string' ? entry : draftText(entry.text))))) : null,
       )
     }
@@ -4501,25 +4762,130 @@ window.__ModuleLoader__.load({
         return byNumber || String(left?.id ?? '').localeCompare(String(right?.id ?? ''))
       })
       const statusMeta = status => {
-        if (status === 'accepted') return { label: '🟢 已验收', color: T.ok }
-        if (status === 'verified') return { label: '🟢 已验证（待签收）', color: T.ok }
-        if (status === 'passed') return { label: '已通过', color: T.ok }
-        if (status === 'failed') return { label: '未通过', color: T.err }
-        return { label: '待验证', color: T.text3 }
+        if (status === 'accepted') return { label: '已验收', color: T.ok, passed: true }
+        if (status === 'verified') return { label: '已验证 · 待签收', color: T.ok, passed: true }
+        if (status === 'passed') return { label: '已通过', color: T.ok, passed: true }
+        if (status === 'failed') return { label: '未通过', color: T.err, passed: false }
+        return { label: '待验证', color: T.text3, passed: false }
       }
-      return h('section', { 'data-human-verification': 'true', style: { marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${T.line}` } },
-        h('h2', { style: { fontSize: '16px', margin: 0 } }, '验收标准'),
-        criteria.length ? h('div', { 'data-human-acceptance': 'true', style: { display: 'grid', gap: '6px', marginTop: '8px' } }, criteria.map((entry, index) => h('div', { key: entry.id ?? index, 'data-detail-ac': entry.id ?? `AC-${String(index + 1).padStart(2, '0')}`, style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '8px 12px', minWidth: 0 } },
+      const row = (entry, index) =>
+        h('div', { key: entry.id ?? index, 'data-detail-ac': entry.id ?? `AC-${String(index + 1).padStart(2, '0')}`, style: { border: `1px solid ${T.line}`, borderRadius: '9px', padding: '5px 10px', minWidth: 0, fontSize: '12.5px', lineHeight: 1.55 } },
           h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '12px', color: T.text2, fontSize: '12px' } }, h('strong', null, entry.id ?? `AC-${String(index + 1).padStart(2, '0')}`), (() => { const status = statusMeta(entry.status); return h('span', { style: { color: status.color } }, status.label) })()),
-          h('div', { style: { marginTop: '5px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, entry.text || entry.title || entry.expected || '待补充')))) : h('p', { style: { color: T.text2 } }, '暂无验收标准。'),
+          h('div', { style: { marginTop: '5px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, entry.text || entry.title || entry.expected || '待补充'),
+        )
+      // Listing eight green ticks pushes the two open questions off screen. The
+      // count in the caption is derived from these same rows, so the summary and
+      // the list can never disagree.
+      const open = criteria.filter(entry => !statusMeta(entry.status).passed)
+      const closed = criteria.filter(entry => statusMeta(entry.status).passed)
+      const caption = criteria.length
+        ? [`${criteria.length} 项`, ...(closed.length ? [`${closed.length} 项已通过`] : []), ...(open.length ? [`${open.length} 项${open.some(entry => entry.status === 'failed') ? '未通过或' : ''}待验证`] : [])].join(' · ')
+        : null
+      return h('section', { 'data-human-verification': 'true', style: { marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${T.line}` } },
+        h('h2', { style: { fontSize: '16px', margin: 0 } }, '完成的标准',
+          caption ? h('span', { 'data-human-verification-count': caption, style: { marginLeft: '8px', fontSize: '12px', fontWeight: 400, color: T.text3 } }, caption) : null),
+        criteria.length
+          ? h('div', { 'data-human-acceptance': 'true', style: { display: 'grid', gap: '6px', marginTop: '8px' } },
+              ...open.map(row),
+              closed.length
+                ? h('details', { key: 'passed-folds', 'data-passed-acceptance': 'true', style: { marginTop: '2px' } },
+                    h('summary', { style: { cursor: 'pointer', color: T.text2, fontSize: '12.5px', padding: '4px 0' } }, `${closed.length} 项已通过`, h('span', { style: { marginLeft: '6px', color: T.text3 } }, '点开看证据')),
+                    h('div', { style: { display: 'grid', gap: '6px', marginTop: '6px' } }, ...closed.map(row)),
+                  )
+                : null,
+            )
+          : h('p', { style: { color: T.text2 } }, '暂无验收标准。'),
       )
     }
 
     const HUMAN_CONTROL = { ...button, minHeight: '40px', padding: '8px 14px', fontSize: '14px', fontWeight: 500, lineHeight: 1.5, color: T.text, border: `1px solid ${T.line2}`, background: T.layer }
     const DETAIL_MENU_ITEM = { ...HUMAN_CONTROL, width: '100%', textAlign: 'left', border: 0, background: 'transparent', minHeight: '36px', padding: '7px 10px' }
     const HUMAN_PRIMARY = { ...primary, minHeight: '44px', padding: '10px 20px', fontSize: '14px', fontWeight: 600 }
-    function IterationFeedback({ item, root, onRefresh, onPatch }) {
-      const [feedback, setFeedback] = useState('')
+
+    /**
+     * One line that answers "do I have to do something here?" before any
+     * section. The tone comes from the same context the detail page already
+     * derives, so the band cannot disagree with the tab badge.
+     */
+    function DetailStatusBand({ detail, matter, handlers, pendingId, onGotoProgress, showProgressLink }) {
+      const context = detail?.context ?? {}
+      const tone = context.tone === 'danger' ? 'danger' : context.tone === 'attention' ? 'warn' : 'quiet'
+      const palette = tone === 'danger'
+        ? { bg: 'rgba(255,139,139,.07)', border: 'rgba(255,139,139,.28)', fg: T.err }
+        : tone === 'warn'
+          ? { bg: 'rgba(231,176,75,.07)', border: 'rgba(231,176,75,.26)', fg: T.warn }
+          : { bg: T.layer, border: T.line, fg: T.text2 }
+      const action = matter?.action ?? null
+      const runnable = action && action.enabled !== false && handlers?.[action.id] ? action : null
+      const pending = runnable ? pendingId?.(runnable.id) : null
+      return h(
+        'section',
+        {
+          'data-detail-band': context.kind ?? 'unknown',
+          'data-tone': tone,
+          'aria-label': `当前状态：${context.headline ?? '未知'}`,
+          style: { display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', width: '100%', boxSizing: 'border-box', margin: '0 0 20px', padding: '12px 14px', border: `1px solid ${palette.border}`, borderLeft: `3px solid ${palette.fg}`, borderRadius: '10px', background: palette.bg },
+        },
+        h(
+          'div',
+          { style: { minWidth: 0, flex: '1 1 260px' } },
+          h('div', { style: { color: palette.fg, fontSize: '13px', fontWeight: 600 } }, context.headline ?? '暂无待办'),
+          context.explanation ? h('p', { style: { margin: '3px 0 0', color: T.text2, fontSize: '12.5px', lineHeight: 1.65 } }, context.explanation) : null,
+        ),
+        runnable
+          ? h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: Boolean(pending), 'data-band-action': runnable.id, onClick: () => handlers[runnable.id]() }, pending?.short ?? runnable.label ?? '继续')
+          : null,
+        showProgressLink
+          ? h('button', { type: 'button', onClick: onGotoProgress, style: { ...HUMAN_CONTROL, minHeight: '40px' } }, '去 AI 进展')
+          : null,
+      )
+    }
+
+    const DELIVERY_STAGES = [
+      ['clarify', '需求澄清'],
+      ['build', 'AI 实现'],
+      ['verify', '技术验证'],
+      ['accept', '你验收'],
+      ['release', '上线'],
+    ]
+
+    /**
+     * Position, not progress. A requirement that changes goes back a stage, and
+     * a bar that shrinks looks like a regression; only the acceptance count can
+     * honestly fall, and that fall is announced. So this row marks where the
+     * work stands and says nothing about percentages.
+     */
+    function stageIndexOf(item, detail) {
+      const delivery = deliveryOf(item)
+      if (delivery.key === 'accepted' || delivery.key === 'closed') return item.releasedAt ? 4 : 3
+      if (delivery.key === 'awaiting-acceptance') return 3
+      if (isExecutingRequirement(item) || delivery.key === 'in-progress') return 1
+      if (detail?.summaries?.acceptance?.latest) return 2
+      return 0
+    }
+
+    function DeliveryStage({ item, detail }) {
+      const current = stageIndexOf(item, detail)
+      return h(
+        'div',
+        { 'data-delivery-stage': DELIVERY_STAGES[current][0], style: { display: 'flex', alignItems: 'center', gap: '0', flexWrap: 'wrap', padding: '12px 14px', marginBottom: '14px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer } },
+        DELIVERY_STAGES.map(([id, label], index) => {
+          const done = index < current
+          const active = index === current
+          const color = active ? T.text : done ? T.text2 : T.text3
+          return h(
+            'div',
+            { key: id, 'data-stage': id, 'data-stage-state': active ? 'current' : done ? 'done' : 'todo', style: { display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, flex: '0 1 auto' } },
+            h('span', { 'aria-hidden': 'true', style: { width: '7px', height: '7px', borderRadius: '50%', flex: 'none', background: active ? T.brand : done ? T.ok : 'transparent', border: `1.5px solid ${active ? T.brand : done ? T.ok : T.line2}` } }),
+            h('span', { style: { color, fontSize: '12px', fontWeight: active ? 600 : 400, whiteSpace: 'nowrap' } }, label),
+            index === DELIVERY_STAGES.length - 1 ? null : h('span', { 'aria-hidden': 'true', style: { width: '18px', height: '1px', background: T.line2, margin: '0 8px', flex: 'none' } }),
+          )
+        }),
+        h('span', { style: { marginLeft: 'auto', color: T.text3, fontSize: '11.5px', whiteSpace: 'nowrap' } }, '阶段只标位置，进度看通过了几项验收'),
+      )
+    }
+
+    function IterationFeedback({ item, root, onRefresh, onPatch }) {      const [feedback, setFeedback] = useState('')
       const [localPatch, setLocalPatch] = useState(null)
       const [resolution, setResolution] = useState('')
       const [busy, setBusy] = useState(false)
@@ -5388,7 +5754,7 @@ window.__ModuleLoader__.load({
       const cancelPendingFocus = () => { clearTimeout(navigationTimerRef.current); clearTimeout(tabFocusTimerRef.current) }
       return h('section', { 'data-detail-shell': 'true', 'data-detail-page': 'v4', onPointerDownCapture: cancelPendingFocus, onKeyDownCapture: cancelPendingFocus, onKeyDown: onTabKeyDown, style: { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: T.base, minWidth: 0 } },
         h('style', null, `[data-detail-page] .v4-reading{box-sizing:border-box;width:100%;max-width:864px;margin:0 auto;padding:24px 32px 48px;font-size:16px;line-height:1.6;overflow-wrap:anywhere;}@container (max-width:959px){[data-detail-page] .v4-reading{padding-left:24px;padding-right:24px}}@container (max-width:639px){[data-detail-page] .v4-reading{padding-left:16px;padding-right:16px}}[data-detail-page] button:focus-visible,[data-detail-page] input:focus-visible,[data-detail-page] textarea:focus-visible,[data-detail-page] summary:focus-visible,[data-detail-page] h1:focus-visible,[data-detail-page] h2:focus-visible,[data-detail-page] [data-detail-anchor]:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] button:disabled{opacity:.5;cursor:not-allowed}[data-detail-page] [data-detail-section] h4{font-size:15px!important;color:${T.text}!important}[data-detail-page] [data-detail-section]{font-size:16px!important;line-height:1.6!important}[data-detail-page] [data-detail-section]>summary{min-height:44px;align-items:center!important;font-size:14px}[data-detail-page] [data-detail-section]>summary h3{font-size:14px!important}[data-detail-page] [data-detail-section] button{min-height:40px;font-size:13px!important;padding:8px 12px!important;color:${T.text}!important;border:1px solid ${T.line2}!important;border-radius:7px}[data-detail-page] [data-detail-section] button:disabled{color:${T.text3}!important}[data-detail-page] [data-detail-section] summary{cursor:pointer}[data-detail-page] [data-detail-section] summary::marker{color:${T.text2}}`),
-        h('style', null, `[data-detail-page] select:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] [data-human-long]:has(> details[open]) > [data-human-excerpt]{display:none}[data-detail-page] .v4-reading{max-width:1280px!important;margin-left:0!important;margin-right:0!important;padding-left:24px!important;padding-right:24px!important}[data-detail-page] .detail-columns{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:32px;align-items:start}[data-detail-page] .requirement-body{display:flex;flex-direction:column}[data-detail-page] .requirement-body>[data-detail-description]{display:contents}[data-detail-page] .requirement-body [data-description-source]{order:3}[data-detail-page] .requirement-body>[data-human-verification]{order:1}[data-detail-page] .requirement-body>[data-iteration-feedback]{order:2}[data-detail-page] .description-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}[data-detail-page] #v4-more-actions button:hover{background:${T.layer}}[data-detail-page] .detail-sidebar{border:1px solid ${T.line};border-radius:10px;background:${T.layer};padding:12px 14px;position:sticky;top:0}@container (max-width:800px){[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr)}[data-detail-page] .detail-sidebar{position:static}[data-detail-page] .description-cards{grid-template-columns:minmax(0,1fr)}}`),
+        h('style', null, `[data-detail-page] select:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] [data-human-long]:has(> details[open]) > [data-human-excerpt]{display:none}[data-detail-page] .v4-reading{max-width:1280px!important;margin-left:0!important;margin-right:0!important;padding-left:24px!important;padding-right:24px!important}[data-detail-page] .detail-columns{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:32px;align-items:start}[data-detail-page] .requirement-body{display:flex;flex-direction:column}[data-detail-page] .requirement-body>[data-detail-description]{display:contents}[data-detail-page] .requirement-body [data-human-description]{display:contents}[data-detail-page] .requirement-body [data-description-source]{order:6}[data-detail-page] .requirement-body>[data-human-verification]{order:2}[data-detail-page] .requirement-body>[data-iteration-feedback]{order:5}[data-detail-page] .requirement-body [data-detail-excluded]{order:3}[data-detail-page] .requirement-body [data-detail-constraints]{order:4}[data-detail-page] .requirement-body [data-description-tools]{order:4}[data-detail-page] .description-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}[data-detail-page] #v4-more-actions button:hover{background:${T.layer}}[data-detail-page] .detail-sidebar{border:1px solid ${T.line};border-radius:10px;background:${T.layer};padding:12px 14px;position:sticky;top:0}@container (max-width:800px){[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr)}[data-detail-page] .detail-sidebar{position:static}[data-detail-page] .description-cards{grid-template-columns:minmax(0,1fr)}}`),
         h('nav', { 'aria-label': '需求导航', style: { flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', borderBottom: `1px solid ${T.line}` } },
           h('button', { style: HUMAN_CONTROL, onClick: () => leave(onClose), 'data-drawer-close': 'true' }, '← 返回需求列表'),
           h('span', { style: { flex: 1 } }),
@@ -5409,15 +5775,24 @@ window.__ModuleLoader__.load({
           h('article', { className: 'v4-reading', 'data-progress-reading': tab === 'delivery' ? 'true' : undefined },
             h('div', { 'data-detail-id': item.id, style: { fontSize: '12px', color: T.text3, marginBottom: '8px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } }, h('span', null, item.id, ' · ', h('span', { 'data-detail-revision': String(viewRevision) }, `v${viewRevision}`)), h('span', { style: { border: `1px solid ${T.line2}`, borderRadius: '999px', padding: '2px 8px', color: T.text2 } }, item.delivery?.label ?? detail.summaries?.delivery?.label ?? '待推进')),
             h('h1', { ref: titleRef, tabIndex: -1, id: detailTitleId(item), style: { fontFamily: 'inherit', fontSize: '20px', fontWeight: 600, lineHeight: 1.45, letterSpacing: 0, margin: '0 0 18px' } }, item.title),
+            detailSubtitle(displayItem) ? h('p', { 'data-detail-subtitle': 'true', style: { margin: '-10px 0 16px', color: T.text2, fontSize: '13px', lineHeight: 1.7, maxWidth: '72ch' } }, detailSubtitle(displayItem)) : null,
             refreshStatus ? h('p', { role: refreshStatus.error ? 'alert' : 'status', 'data-detail-refresh-status': 'true', style: { margin: '-8px 0 14px', fontSize: '13px', color: refreshStatus.error ? T.err : T.text2 } }, refreshStatus.text) : null,
             pendingAction ? h('p', { role: 'status', 'aria-live': 'polite', 'data-detail-pending-action': pendingAction.id, style: { margin: '-8px 0 14px', padding: '8px 12px', border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.brand}`, borderRadius: '8px', background: T.layer, fontSize: '13px', color: T.text2 } }, pendingAction.text) : null,
+            h(DetailStatusBand, { detail, matter, handlers, pendingId: pendingFor, onGotoProgress: () => navigate('delivery'), showProgressLink: tab !== 'delivery' }),
             displayItem.pendingPatch && (tab === 'requirement' || tab === 'delivery') ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
             h('div', { className: 'detail-columns' }, h('div', { style: { minWidth: 0 } }, tab !== 'requirement' ? h('div', null,
               tab === 'record' ? h(RequirementRecord, { ...props, onNavigate: (next, anchor) => { if (anchor === 'delivery-run-observation') setRunSelection(null); navigate(next, anchor) }, onOpenRun: runId => { setRunSelection({ requirementId: item.id, root: item.root ?? root, runId }); navigate('delivery', 'delivery-run-observation') } }) : h('div', null,
-                !(detail.summaries?.run?.exists || item.run?.id || selectedRunId || detail.summaries?.candidate?.exists || item.candidate?.exists || detail.question || matter.kind === 'decision') ? h('section', { 'data-progress-not-started': 'true', style: { padding: '24px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer } },
-                  h('h2', { style: { margin: '0 0 8px', fontSize: '18px' } }, '待启动 AI 推进'),
-                  h('p', { style: { color: T.text2, lineHeight: 1.7 } }, '启动后 AI 将在授权范围内自动完成代码实现与验证，遇到业务取舍或需求变更时会向你发起确认。'),
-                  handlers[matter.action?.id] ? h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: matter.action?.enabled === false, onClick: () => handlers[matter.action.id]() }, '交给 AI 推进') : null,
+                h(DeliveryStage, { item, detail }),
+                !(detail.summaries?.run?.exists || item.run?.id || selectedRunId || detail.summaries?.candidate?.exists || item.candidate?.exists || detail.question || matter.kind === 'decision') ? h('section', { 'data-progress-not-started': 'true', style: { padding: '20px 22px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer } },
+                  h('h2', { style: { margin: '0 0 8px', fontSize: '16px' } }, '还没交给 AI'),
+                  h('p', { style: { margin: 0, color: T.text2, lineHeight: 1.7, fontSize: '13.5px' } }, '需求已经整理好，随时可以开始。开始后 AI 在授权范围内自己改代码、自己跑验证；遇到业务取舍或要改需求时会停下来问你，不需要你盯着。'),
+                  handlers[matter.action?.id] ? h('button', { type: 'button', style: { ...HUMAN_PRIMARY, marginTop: '12px' }, disabled: matter.action?.enabled === false, onClick: () => handlers[matter.action.id]() }, '交给 AI 推进') : null,
+                  h('h3', { style: { margin: '18px 0 6px', fontSize: '13px', color: T.text } }, '接下来会发生什么'),
+                  h('ol', { style: { margin: 0, paddingLeft: '20px', color: T.text2, fontSize: '13px', lineHeight: 1.85 } },
+                    h('li', null, 'AI 先读需求与验收标准，确认这次要做到什么'),
+                    h('li', null, '按锁定的模块改代码，并只跑相关的定向验证'),
+                    h('li', null, '卡在业务取舍上会回来问你；跑完进入「待验收」，等你确认'),
+                  ),
                 ) : h('div', null,
                   h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: refreshDetail, onOpenSession: props.onOpenSession, pendingAction }),
                  h(RunObservationPanel, { item, detail, root: item.root ?? root, initialRunId: selectedRunId, onOpenSession: props.onOpenSession })),
@@ -5425,8 +5800,28 @@ window.__ModuleLoader__.load({
               h(DetailDescription, { item, detail, root, onRefresh: refreshDetail }),
               h(HumanVerification, { item, detail, matter }),
               !displayItem.pendingPatch ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
-            )), h('aside', { className: 'detail-sidebar', 'aria-label': '需求属性' }, h('h2', { style: { fontSize: '15px', margin: '0 0 8px' } }, '需求属性'),
-              ...sidebarRows)),
+            )), h('aside', { className: 'detail-sidebar', 'aria-label': '需求状态', 'data-detail-rail': 'true' },
+              h(
+                'div',
+                {
+                  'data-rail-need': needsHuman(item) ? 'yes' : 'no',
+                  style: needsHuman(item)
+                    ? { borderRadius: '7px', padding: '9px 10px', marginBottom: '12px', background: 'rgba(231,176,75,.08)', border: '1px solid rgba(231,176,75,.28)', color: T.warn, fontSize: '12.5px', lineHeight: 1.6 }
+                    : { borderRadius: '7px', padding: '9px 10px', marginBottom: '12px', background: 'rgba(53,196,122,.06)', border: '1px solid rgba(53,196,122,.22)', color: T.ok, fontSize: '12.5px', lineHeight: 1.6 },
+                },
+                h('b', { style: { display: 'block', fontSize: '13px', marginBottom: '2px', color: T.text } }, needsHuman(item) ? '需要你' : '不需要你'),
+                needsHuman(item)
+                  ? matter.explanation ?? matter.headline ?? '等你回答或确认后 AI 才能继续。'
+                  : 'AI 会继续推进；跑完或卡住都会回到列表提醒你。',
+              ),
+              h('h2', { style: { margin: '0 0 4px', fontSize: '12px', color: T.text3, fontWeight: 500, letterSpacing: '.02em' } }, '下一步'),
+              h('p', { 'data-rail-next': 'true', style: { margin: '0 0 10px', color: T.text2, fontSize: '12.5px', lineHeight: 1.7 } },
+                matter.action?.label ?? (needsHuman(item) ? '等你处理' : '等 AI 推进'),
+              ),
+              h('div', { style: { height: '1px', background: T.line, margin: '10px 0' } }),
+              h('h2', { style: { margin: '0 0 4px', fontSize: '12px', color: T.text3, fontWeight: 500, letterSpacing: '.02em' } }, '需求属性'),
+              ...sidebarRows,
+            )),
           ),
         ),
       )
@@ -5460,8 +5855,17 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function descriptionHasBody(doc) {
-      if (!doc || typeof doc !== 'object') return false
+    /** One sentence of value under the title: what changes if this ships. */
+    function detailSubtitle(item) {
+      const doc = item?.detailView?.content?.doc ?? item?.docView?.doc ?? null
+      const raw = String(doc?.problem ?? doc?.goal ?? '').trim()
+      if (!raw) return null
+      const first = raw.split(/\n+/)[0].replace(/^#{1,6}\s*/, '').replace(/^[-*]\s+/, '').trim()
+      if (!first) return null
+      return first.length > 96 ? `${first.slice(0, 96)}…` : first
+    }
+
+    function descriptionHasBody(doc) {      if (!doc || typeof doc !== 'object') return false
       if (draftText(doc.goal).trim() || draftText(doc.problem).trim()) return true
       for (const key of ['features', 'acceptance', 'scope', 'outOfScope', 'constraints', 'pending']) {
         if (Array.isArray(doc[key]) && doc[key].length) return true
@@ -12296,41 +12700,50 @@ window.__ModuleLoader__.load({
         )
       }
       const simpleReview = () => activeItems().length === 1 && routeOf(activeItems()[0]) === 'create' && !(activeItems()[0].unknowns ?? []).some(entry => entry.blocking && (!entry.resolution || entry.resolution === 'pending' || entry.resolution === 'investigate')) && simpleDraft
-      const grillIsValue = /拷问|grill/i.test(`${simpleDraft?.title ?? ''} ${simpleDraft?.goal ?? ''}`)
-      const selfHealingIntent = /(?:需求插件|插件)/.test(`${session?.input?.text ?? ''} ${simpleDraft?.title ?? ''}`) && /(?:报错|错误|bug)/i.test(`${session?.input?.text ?? ''}`) && /自动修复/.test(`${session?.input?.text ?? ''}`)
       const grillApplied = session?.grill?.outcome === 'applied'
       const grillFallback = session?.grill?.outcome === 'fallback'
       const grillAvailable = session?.grill?.status === 'loaded'
-      const titlePreservationRule = /(?:手动修改|自动提炼|覆盖)/.test(`${simpleDraft?.title ?? ''} ${simpleDraft?.problem ?? ''} ${simpleDraft?.goal ?? ''}`)
+      // A choice is only a choice when the labels exclude each other. The model
+      // sometimes returns three rewrites of the same advice ("减少重复操作" /
+      // "避免信息遗漏" / "提高完成效率"): all true at once, none of them a
+      // decision, so picking one changes nothing. Drop duplicates and labels
+      // that contain one another before rendering anything as an option.
+      const grillOptions = (options) => {
+        const kept = []
+        for (const raw of Array.isArray(options) ? options : []) {
+          const label = String(raw ?? '').trim()
+          if (!label) continue
+          if (kept.some((existing) => existing === label || existing.includes(label) || label.includes(existing))) continue
+          kept.push(label)
+          if (kept.length === 3) break
+        }
+        return kept
+      }
       const modelGrillQuestions = [
         ...(Array.isArray(session?.questionGroup?.questions) ? session.questionGroup.questions : []),
         ...(session?.nextQuestion ? [session.nextQuestion] : []),
       ].filter((question, index, all) => question?.text && all.findIndex(other => other?.questionId === question.questionId) === index)
         .filter(question => question.status !== 'answered')
         .slice(0, 3)
-        .map(question => ({ id: `model-${question.questionId}`, question: question.text, options: (question.options ?? []).map(option => option.label).filter(Boolean) }))
-      const grillQuestions = modelGrillQuestions.length ? modelGrillQuestions : selfHealingIntent ? [
-        { id: 'repair-boundary', question: '自动修复可修改的范围是什么？', options: ['仅修改需求插件工作区并重启该插件', '允许修改所有 DSH 插件', '每次修复前要求人工确认'] },
-        { id: 'repair-failure', question: '自动修复或验证失败时如何处理？', options: ['停止自动修复，保留故障证据并转人工处理', '在相同策略下额外重试一次', '持续重试直到恢复'] },
-        { id: 'restart-proof', question: '插件重启后以什么结果证明恢复？', options: ['重放触发故障的定向用例并记录结果', '仅确认插件进程已启动', '由用户手动确认功能恢复'] },
-      ] : grillIsValue ? [
-        { id: 'value', question: '需求价值拷问主要帮助解决什么问题？', options: ['识别缺少业务价值的需求，避免盲目开发', '明确需求的受益人和使用场景', '减少需求不清造成的返工'] },
-        { id: 'boundary', question: '需求价值信息不足时如何处理？', options: ['价值依据不足时继续追问，允许用户补充', '无法判断价值时标记待确认，不直接下结论', '允许用户跳过追问并保留未决问题'] },
-        { id: 'measure', question: '如何检验需求价值拷问有效？', options: ['展示价值判断依据和待确认问题', '记录受益人、触发场景和预期收益', '用户确认价值与边界后形成验收标准'] },
-      ] : titlePreservationRule ? [
-        { id: 'value', question: '何时允许重新触发 AI 提炼？', options: ['永不自动覆盖', '提供手动重新提炼按钮', '仅清空标题时重新提炼'] },
-        { id: 'boundary', question: '如何保护手动标题？', options: ['保留用户输入', '提示覆盖风险', '允许恢复原始标题'] },
-        { id: 'measure', question: '如何验证保护生效？', options: ['编辑后保持不变', '重新打开后仍保留', '记录手动修改来源'] },
-      ] : [
-        { id: 'value', question: '这项改动优先解决什么问题？', options: ['减少重复操作', '避免信息遗漏', '提高完成效率'] },
-        { id: 'boundary', question: '异常时应如何处理？', options: ['说明失败原因', '保留已有内容', '允许用户重试'] },
-        { id: 'measure', question: '如何验证结果有效？', options: ['使用真实场景验证', '用户可查看结果', '验收后记录结论'] },
+        .map(question => ({ id: `model-${question.questionId}`, question: question.text, options: grillOptions((question.options ?? []).map(option => option?.label)) }))
+      // When Grill produced no question — the model call timed out, the skill is
+      // not installed, or the contract returned none — the panel asks one open
+      // question instead of inventing a three-way choice. Generic options were
+      // the worst part of the fallback: every one of them was a good practice,
+      // so the user was forced to "decide" something that could not change the
+      // requirement. A sentence about what this task makes them do twice is
+      // worth more than any of those labels, and it can be skipped entirely.
+      const grillQuestions = modelGrillQuestions.length ? modelGrillQuestions : [
+        { id: 'context', question: '用一句话说清：这件事现在让你多做了哪一步？', options: [] },
       ]
+      const grillQuestionHasOptions = (id) => (grillQuestions.find(entry => entry.id === id)?.options?.length ?? 0) > 0
       const updateGrill = (id, value) => {
         const previous = grillAnswers[id] ?? ''
         setGrillAnswers(current => ({ ...current, [id]: value }))
         setSimpleDraft(d => {
-          if (id === 'value') {
+          // A free-text answer describes the situation, so it belongs in 价值
+          // (problem); an option on a real decision becomes acceptance.
+          if (id === 'value' || !grillQuestionHasOptions(id)) {
             let problem = d.problem
             if (previous && problem.includes(previous)) problem = problem.replace(previous, value).replace(/\n+$/, '')
             else if (value) problem = [problem.trim(), value].filter(Boolean).join('\n')
@@ -12349,11 +12762,10 @@ window.__ModuleLoader__.load({
         const answers = grillQuestions
           .map(question => grillAnswers[question.id] ? { question: question.question, answer: grillAnswers[question.id] } : null)
           .filter(Boolean)
-        if (!answers.length) {
-          setError({ code: 'grill-answer-required', message: '请至少选择或补充一个回答后再继续追问。' })
-          return
-        }
-        runAnalyze({ grillAnswers: answers })
+        // Nothing answered is not an error: the draft is already confirmable,
+        // and a retry is still allowed to ask a better question.
+        if (!answers.length) setNotice('没有补充回答，将让 Grill 重新追问一次；也可以直接确认当前草稿。')
+        runAnalyze(answers.length ? { grillAnswers: answers } : {})
       }
       const copyGrillCommand = async () => {
         const text = `/grilling\n\n请围绕以下需求继续进行多轮价值与边界拷问；达成共识后整理标题、目标、问题和验收标准，并通过 requirements crystallize 命令入库。\n\n${session?.input?.text ?? simpleDraft?.goal ?? ''}`
@@ -12391,14 +12803,27 @@ window.__ModuleLoader__.load({
           renderRequirementMatchCard(),
           error ? renderError(error) : null, confirmState.error ? renderError(confirmState.error) : null,
           h('div', { role: 'status', style: { display: 'flex', alignItems: 'center', gap: '8px', color: T.text2, fontSize: '12px' } },
-            h('span', { style: { border: `1px solid ${grillApplied ? T.brand : T.line2}`, color: grillApplied ? T.brand : T.text2, borderRadius: '999px', padding: '3px 8px' } }, grillApplied ? 'Grill Skill 已参与本轮' : grillFallback ? 'Grill 未完成，本地澄清' : '本地澄清'),
-            grillApplied ? `第 ${session.grill.round || 1} 轮` : grillFallback ? '模型调用未完成；以下问题是本地建议，并非 Grill 结果' : '模型不可用时使用本地动态建议',
+            h('span', { style: { border: `1px solid ${grillApplied ? T.brand : T.line2}`, color: grillApplied ? T.brand : T.text2, borderRadius: '999px', padding: '3px 8px' } }, grillApplied ? 'Grill Skill 已参与本轮' : grillFallback ? 'Grill 本轮未完成' : '未检测到 Grill Skill'),
+            grillApplied ? `第 ${session.grill.round || 1} 轮` : grillFallback ? '模型调用没有完成（超时或失败），本轮不给选择题；下面是一个开放问题，可直接跳过' : '安装 grilling skill 后会在这里逐轮追问；当前只给开放问题',
           ),
           h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '14px', alignItems: 'end' } },
             field('需求标题', simpleDraft.title, value => setSimpleDraft(d => ({ ...d, title: value }))),
             h('fieldset', { style: { border: 0, padding: 0, margin: 0 } }, h('legend', { style: { color: T.text2, fontSize: '13px', marginBottom: '6px' } }, '优先级'), ...['P0','P1','P2'].map(value => h('button', { key: value, type: 'button', 'aria-pressed': priorityChoice === value, onClick: () => setPriorityChoice(value), style: { ...button, marginRight: '5px', borderColor: priorityChoice === value ? T.brand : T.line2, color: priorityChoice === value ? T.text : T.text2 } }, value)))),
-          h('section', null, h('h3', { style: { fontSize: '15px', margin: '0 0 10px' } }, '需求价值与边界拷问'), ...grillQuestions.map(q => h('div', { key: q.id, style: { marginBottom: '12px' } }, h('div', { style: { fontSize: '13px', marginBottom: '6px' } }, q.question), h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' } }, ...q.options.map(option => h('button', { key: option, type: 'button', 'aria-pressed': grillAnswers[q.id] === option, onClick: () => updateGrill(q.id, option), style: { ...button, borderColor: grillAnswers[q.id] === option ? T.brand : T.line2 } }, option)), h('button', { type: 'button', style: button, onClick: () => setGrillCustom(current => ({ ...current, [q.id]: !current[q.id] })) }, '自定义…'), grillCustom[q.id] ? h('input', { 'aria-label': `${q.question} 自定义回答`, value: grillAnswers[q.id] ?? '', placeholder: '输入补充回答', onChange: event => updateGrill(q.id, event.target.value), style: { ...input, flex: '1 1 160px', minWidth: 0 } }) : null)))),
-          grillAvailable ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } }, h('button', { type: 'button', style: button, disabled: busy || analysisPending(), onClick: continueGrilling }, grillApplied ? '继续追问' : '使用 Grill 重试'), h('button', { type: 'button', style: button, onClick: copyGrillCommand }, '转入主对话 /grilling')) : null,
+          h('section', null,
+            h('h3', { style: { fontSize: '15px', margin: '0 0 4px' } }, grillQuestions.some(question => question.options.length) ? '需求价值与边界拷问' : '补充一句现状'),
+            grillQuestions.some(question => question.options.length) ? null : h('p', { style: { margin: '0 0 10px', fontSize: '12px', color: T.text3, lineHeight: 1.6 } }, '没有可选项是正常的：这里没有需要二选一的决策。写一句或留空都不影响确认。'),
+            ...grillQuestions.map(q => h('div', { key: q.id, style: { marginBottom: '12px' } },
+              h('div', { style: { fontSize: '13px', marginBottom: '6px' } }, q.question),
+              h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' } },
+                ...q.options.map(option => h('button', { key: option, type: 'button', 'aria-pressed': grillAnswers[q.id] === option, onClick: () => updateGrill(q.id, option), style: { ...button, borderColor: grillAnswers[q.id] === option ? T.brand : T.line2 } }, option)),
+                q.options.length
+                  ? h('button', { type: 'button', style: button, onClick: () => setGrillCustom(current => ({ ...current, [q.id]: !current[q.id] })) }, '自定义…')
+                  : null,
+                q.options.length && !grillCustom[q.id]
+                  ? null
+                  : h('input', { 'aria-label': `${q.question} 回答`, value: grillAnswers[q.id] ?? '', placeholder: q.options.length ? '输入补充回答' : '例如：每次都要手动改一遍标题', onChange: event => updateGrill(q.id, event.target.value), style: { ...input, flex: '1 1 220px', minWidth: 0 } }),
+              )))),
+          grillAvailable ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } }, h('button', { type: 'button', style: button, disabled: busy || analysisPending(), onClick: continueGrilling }, busy ? 'Grill 追问中…' : grillApplied ? '继续追问' : '使用 Grill 重试'), h('button', { type: 'button', style: button, onClick: copyGrillCommand }, '转入主对话 /grilling')) : null,
           h('section', { style: { display: 'grid', gap: '10px' } }, h('h3', { style: { fontSize: '15px', margin: 0 } }, '需求草稿'), field('预期变化', simpleDraft.goal, value => setSimpleDraft(d => ({ ...d, goal: value })), true), field('价值', simpleDraft.problem, value => setSimpleDraft(d => ({ ...d, problem: value })), true),
             h('div', null, h('div', { style: { fontSize: '13px', color: T.text2, marginBottom: '6px' } }, '验收标准（建议草稿，请核对）'), ...simpleDraft.acceptance.map((entry, index) => h('div', { key: entry.id ?? index, style: { display: 'flex', gap: '6px', marginBottom: '6px' } }, h('input', { 'aria-label': `验收标准 ${index + 1}`, value: entry.text, onChange: event => setSimpleDraft(d => ({ ...d, acceptance: d.acceptance.map((v, i) => i === index ? { ...v, text: event.target.value, provenance: 'human-edit' } : v) })), style: { ...input, flex: 1, minWidth: 0 } }), h('button', { type: 'button', 'aria-label': `删除验收标准 ${index + 1}`, style: button, onClick: () => setSimpleDraft(d => ({ ...d, acceptance: d.acceptance.filter((_, i) => i !== index) })) }, '删除'))), h('button', { type: 'button', style: button, onClick: () => setSimpleDraft(d => ({ ...d, acceptance: [...d.acceptance, { text: '', provenance: 'human-edit' }] })) }, '新增验收标准'))))
       }
@@ -15076,8 +15501,8 @@ window.__ModuleLoader__.load({
     function readV4Navigation() {
       try {
         const value = JSON.parse(sessionStorage.getItem('alm.requirements.navigation.v4') ?? '{}')
-        // REQ-ALM-015: sessions written before the default view moved to 待我处理
-        // persisted the old 'all' default on first paint. That was never an
+        // REQ-ALM-015: sessions written before the default view moved away from
+        // 'all' persisted that old default on first paint. That was never an
         // explicit choice, so it must not mask the new default after upgrade.
         return value?.viewVersion === NAVIGATION_VERSION ? value : { ...value, filter: undefined }
       } catch { return {} }
@@ -15482,6 +15907,12 @@ window.__ModuleLoader__.load({
       const [aiReviewItem, setAiReviewItem] = useState(null)
       const [rehearsalItem, setRehearsalItem] = useState(null)
       const [archiveItem, setArchiveItem] = useState(null)
+      const [archiveQueue, setArchiveQueue] = useState([])
+      const [listView, setListView] = useState('queue')
+      // Sorting is a real choice, not a hidden default: 需要我优先 is the opening
+      // order, 最近更新 and 等最久 explain the same list by time instead.
+      const [sortMode, setSortMode] = useState('need')
+      const [picked, setPicked] = useState(() => new Set())
       const [removeItem, setRemoveItem] = useState(null)
       const [exchangeOpen, setExchangeOpen] = useState(false)
       const [createOpen, setCreateOpen] = useState(false)
@@ -15709,10 +16140,11 @@ window.__ModuleLoader__.load({
       // two records and must be selectable independently.
       const keyOf = (item) => item?.occurrenceKey ?? item?.id
       const needle = keyword.trim().toLowerCase()
-      // Closed records stay readable but are out of the active funnel: the
-      // default/全部 view lists open deliveries and the dedicated 已关闭 view
-      // is the only place they surface.
-      const activeItems = scopedItems.filter((item) => deliveryOf(item).key !== 'closed')
+      // Archived records (已验收 / 已关闭) stay readable but are out of the
+      // funnel: the header counts what can still move, and 已归档 is the only
+      // place history surfaces. Anomalies look at every record, including those,
+      // because a duplicated ID is still a duplicated ID after sign-off.
+      const activeItems = scopedItems.filter((item) => !isArchivedRequirement(item))
       // The anomaly view includes closed records too; it replaces the former
       // independent toggle so view + source + keyword are exactly three axes.
       const scopeItems = scopedItems
@@ -15728,23 +16160,47 @@ window.__ModuleLoader__.load({
               (item.owner ?? '').toLowerCase().includes(needle),
           )
         : sourceItems
-      const counts = requirementViewCounts(data, keywordMatched)
+      // Tab counts describe the funnel, not the current search: the keyword
+      // narrows rows and the "N 条结果" chip says how many, while the header
+      // keeps the funnel size. Feeding the keyword in as well produced two
+      // different numbers both labelled 待办, which is how a count stops being
+      // trusted. Source still applies, because a defect-born requirement is
+      // separable by origin on every view.
+      const counts = requirementViewCounts(data, sourceItems)
       const searched = keywordMatched.filter((item) => matchesView(item, filter))
-      const visible = searched
+      // The view decides which rows exist; the order decides which one is read
+      // first. 待办 defaults to 需要我优先 so the list opens on work, not on age.
+      const visible = sortForMode(searched, sortMode, filter)
       // Exchange always exports one project tree, so the "current filter" scope
       // hands the server only rows that belong to the open workspace root.
       const normalizeRoot = (value) => String(value ?? '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
       const exchangeRoot = data?.root ?? root
       const exportableIds = [...new Set(visible.filter((item) => !item.root || !exchangeRoot || normalizeRoot(item.root) === normalizeRoot(exchangeRoot)).map((item) => item.id))]
       const itemCount = activeItems.length
-      const filtered = filter !== 'all' || keyword !== '' || source !== 'all'
+      const archivedCount = scopedItems.length - itemCount
+      // A search that matches nothing here may still match history. Say so
+      // instead of letting the reader conclude the requirement is gone.
+      const archivedMatches =
+        visible.length === 0 && filter !== 'archived'
+          ? keywordMatched.filter((item) => matchesView(item, 'archived')).length
+          : 0
+      const filtered = filter !== DEFAULT_REQUIREMENT_VIEW || keyword !== '' || source !== 'all'
       const clearFilters = () => {
-        setFilter('all')
+        setFilter(DEFAULT_REQUIREMENT_VIEW)
         setSource('all')
         setKeyword('')
       }
 
       const selected = items.find((item) => keyOf(item) === selectedId) ?? null
+      const togglePick = (item) => {
+        const key = keyOf(item)
+        setPicked((current) => {
+          const next = new Set(current)
+          if (next.has(key)) next.delete(key)
+          else next.add(key)
+          return next
+        })
+      }
       const currentProject = projects.find((entry) => entry.id === projectId || entry.workspaceId === projectId) ?? null
       const openOccurrence = (occurrence) => {
         const match = items.find((item) => {
@@ -15797,7 +16253,14 @@ window.__ModuleLoader__.load({
             : linked
               ? '已关联仓库'
               : '未关联仓库'
-      const countLabel = loading ? '读取中' : data ? `${itemCount} 条` : '—'
+      // Two numbers, one meaning each: what can still move, and what is history.
+      // The old header showed a single "8 条" next to a tab reading "全部 10",
+      // which is how a count stops being trusted.
+      const countLabel = loading
+        ? '读取中'
+        : data
+          ? `${itemCount} 条待办${archivedCount > 0 ? ` · ${archivedCount} 条已归档` : ''}`
+          : '—'
 
       const createRequirement = () => {
         if (!singleWorkspace) return
@@ -15910,26 +16373,51 @@ window.__ModuleLoader__.load({
           label,
         )
 
+      // The header states the funnel once, in work terms: how much needs a
+      // person, how much AI is carrying, how much is queued, and what is
+      // already history. Tabs keep the same numbers instead of a second set.
+      const laneSummary = loading || !data
+        ? null
+        : LANES.slice(0, 3).map(([id, label]) => ({ id, label, count: scopedItems.filter((item) => workLane(item) === id).length }))
+      const staleTodos = loading || !data
+        ? 0
+        : scopedItems.filter((item) => workLane(item) === 'todo' && (idleDaysOf(item) ?? 0) >= 5).length
+      const summaryLine = laneSummary
+        ? h(
+            'p',
+            { 'data-list-summary': 'true', style: { display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', margin: '6px 0 0', color: T.text2, fontSize: '12px', lineHeight: 1.7 } },
+            laneSummary.map((entry, index) => [
+              index ? h('span', { key: `${entry.id}-dot`, 'aria-hidden': 'true', style: { color: T.text3 } }, '·') : null,
+              h('span', { key: entry.id, style: entry.count === 0 ? { color: T.text3 } : undefined },
+                h('b', { style: { color: entry.count === 0 ? T.text3 : T.text, fontWeight: 600, fontVariantNumeric: 'tabular-nums' } }, String(entry.count)),
+                ` 条${/^[A-Za-z]/.test(entry.label) ? ' ' : ''}${entry.label}`,
+              ),
+            ]),
+            archivedCount > 0
+              ? h('span', { style: { color: T.text3 } }, `· ${archivedCount} 条已归档`)
+              : null,
+            staleTodos > 0 && filter !== 'archived'
+              ? h('span', { 'data-stale-summary': 'true', style: { color: T.warn } }, `待办里有 ${staleTodos} 条放了 5 天以上没动`)
+              : null,
+          )
+        : null
+
+      // Title on the left, everything that acts on the whole list on the right:
+      // workspace scope, exchange, create. The scope belongs beside the buttons
+      // because choosing it changes what the buttons operate on.
       const header = h(
         'div',
-        { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap', paddingTop: '26px' } },
-        h(
-          'div',
-          { style: { display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flexWrap: 'wrap' } },
-          h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px' } },
-            h('h1', { style: { margin: 0, fontSize: '28px', lineHeight: 1.2, fontWeight: 600, letterSpacing: '-.025em' } }, '需求'),
-            h('span', { style: { color: T.text2, fontSize: '12px', fontVariantNumeric: 'tabular-nums' } }, countLabel),
-          ),
-          h('span', { 'aria-hidden': 'true', style: { width: '1px', height: '28px', background: T.line } }),
-          h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', minWidth: 0 } },
-            h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject, selectRef: projectSelectRef }),
-            h('span', { style: { color: T.text2, fontSize: '11px', lineHeight: 1.4, overflowWrap: 'anywhere' } }, scopeText),
-          ),
+        { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', paddingTop: '22px' } },
+        h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '10px', minWidth: 0 } },
+          h('h1', { style: { margin: 0, fontSize: '26px', lineHeight: 1.2, fontWeight: 600, letterSpacing: '-.025em' } }, '需求'),
+          h('span', { 'data-list-count': 'true', style: { color: T.text2, fontSize: '12px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }, countLabel),
         ),
         h(
           'div',
-          { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-          h('button', { disabled: !singleWorkspace, onClick: () => setExchangeOpen(true), title: '安全交换：导出 Excel，导入并预览变更' }, '导入 / 导出'),
+          { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: 0 } },
+          h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject, selectRef: projectSelectRef }),
+          h('span', { title: scopeText, style: { color: T.text3, fontSize: '11px', lineHeight: 1.4, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, scopeText),
+          h('button', { disabled: !singleWorkspace, onClick: () => setExchangeOpen(true), title: '安全交换：导出 Excel，导入并预览变更', style: { whiteSpace: 'nowrap' } }, '导入 / 导出'),
           h(ActionButton, {
             label: '新建需求',
             icon: 'plus',
@@ -15941,19 +16429,33 @@ window.__ModuleLoader__.load({
         ),
       )
 
-      // Tabs use the roving-tabindex keyboard pattern: arrows move both focus
-      // and selection, Home/End jump to the ends. The list is reachable with
-      // the keyboard alone, without inventing a second navigation model.
-      const onFilterKeyDown = (event) => {
-        const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
-        if (step === 0 && event.key !== 'Home' && event.key !== 'End') return
-        const current = Math.max(0, FILTERS.findIndex(([id]) => id === filter))
-        const next =
-          event.key === 'Home' ? 0 : event.key === 'End' ? FILTERS.length - 1 : (current + step + FILTERS.length) % FILTERS.length
-        event.preventDefault()
-        setFilter(FILTERS[next][0])
-        event.currentTarget.querySelectorAll('[role="tab"]')[next]?.focus()
-      }
+      // Search leads the row: it is the one control used on every visit. Source
+      // chips are a narrowing axis, so they follow it rather than precede it.
+      const chip = { border: `1px solid ${T.line2}`, background: T.layer2, color: T.text2, borderRadius: '999px', padding: '3px 9px', fontSize: '11.5px', cursor: 'pointer', whiteSpace: 'nowrap' }
+      const searchBox = h(
+        'label',
+        { 'data-requirements-search': 'true', style: { display: 'flex', alignItems: 'center', gap: '7px', height: '36px', width: mobile ? '100%' : '250px', maxWidth: '100%', border: `1px solid ${T.line}`, borderRadius: '8px', background: T.layer, padding: '0 10px' } },
+        h('span', { style: { display: 'inline-flex', flex: '0 0 auto', alignItems: 'center', justifyContent: 'center', width: '14px', height: '14px', color: T.text3 } }, h(ActionIcon, { name: 'search', size: 14 })),
+        h('input', {
+          value: keyword,
+          onChange: (event) => setKeyword(event.target.value),
+          placeholder: '搜索标题、需求 ID 或负责人',
+          'aria-label': '搜索标题、需求 ID 或负责人',
+          style: { border: 0, outline: 0, background: 'transparent', color: T.text, fontSize: '12px', flex: '1 1 auto', minWidth: 0, width: '100%' },
+        }),
+        keyword
+          ? h(
+              'button',
+              {
+                type: 'button',
+                onClick: () => setKeyword(''),
+                'aria-label': '清除搜索',
+                style: { border: 0, background: 'transparent', color: T.text3, cursor: 'pointer', padding: 0, display: 'inline-flex' },
+              },
+              h(ActionIcon, { name: 'close', size: 12 }),
+            )
+          : null,
+      )
 
       const toolbar = h(
         'div',
@@ -15969,37 +16471,7 @@ window.__ModuleLoader__.load({
             background: T.base,
           },
         },
-        h(
-          'div',
-          { role: 'tablist', 'aria-label': '按交付视图筛选', 'data-work-views': 'true', style: { display: 'flex', alignItems: 'stretch', gap: '4px', width: '100%', minWidth: 0, overflowX: 'auto', borderBottom: `1px solid ${T.line}`, paddingBottom: '4px', marginBottom: '4px' }, onKeyDown: onFilterKeyDown },
-          FILTERS.map(([id, label]) => {
-            const active = filter === id
-            return h(
-              'button',
-              {
-                key: id,
-                type: 'button',
-                role: 'tab',
-                'aria-selected': active,
-                tabIndex: active ? 0 : -1,
-                onClick: () => setFilter(id),
-                style: {
-                  border: 0,
-                  borderBottom: `2px solid ${active ? T.text : 'transparent'}`,
-                  background: 'transparent',
-                  color: active ? T.text : T.text2,
-                  padding: '7px 9px 8px',
-                  fontSize: '12.5px',
-                  fontWeight: active ? 500 : 400,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                },
-              },
-              label,
-              h('span', { style: { marginLeft: '6px', color: active ? T.text2 : T.text3, fontSize: '11px', fontVariantNumeric: 'tabular-nums' } }, counts[id]),
-            )
-          }),
-        ),
+        searchBox,
         // Source is a second, orthogonal axis: a defect-born requirement keeps
         // its work view (待处理/推进中/…) and is separable by origin.
         h(
@@ -16064,51 +16536,41 @@ window.__ModuleLoader__.load({
             )
           : null,
         h('div', { style: { flex: 1, minWidth: '12px' } }),
-        filtered
-          ? h(
-              'div',
-              { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-              h(
-                'span',
-                { role: 'status', 'aria-live': 'polite', style: { color: T.text3, fontSize: '11.5px', fontVariantNumeric: 'tabular-nums' } },
-                `${visible.length} 条结果`,
-              ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  onClick: clearFilters,
-                  title: '重置全部查询条件',
-                  'aria-label': '重置全部查询条件',
-                  style: { border: `1px solid ${T.line}`, background: 'transparent', color: T.text2, borderRadius: '6px', padding: '3px 8px', fontSize: '11.5px', cursor: 'pointer' },
-                },
-                '重置',
-              ),
-            )
-          : null,
         h(
-          'label',
-          { 'data-requirements-search': 'true', style: { display: 'flex', alignItems: 'center', gap: '7px', height: '36px', width: mobile ? '100%' : '250px', maxWidth: '100%', border: `1px solid ${T.line}`, borderRadius: '8px', background: T.layer, padding: '0 10px' } },
-          h('span', { style: { display: 'inline-flex', flex: '0 0 auto', alignItems: 'center', justifyContent: 'center', width: '14px', height: '14px', color: T.text3 } }, h(ActionIcon, { name: 'search', size: 14 })),
-          h('input', {
-            value: keyword,
-            onChange: (event) => setKeyword(event.target.value),
-            placeholder: '搜索标题、需求 ID 或负责人',
-            'aria-label': '搜索标题、需求 ID 或负责人',
-            style: { border: 0, outline: 0, background: 'transparent', color: T.text, fontSize: '12px', flex: '1 1 auto', minWidth: 0, width: '100%' },
+          'div',
+          { role: 'group', 'aria-label': '列表视图', style: { display: 'flex', alignItems: 'center', gap: '2px', padding: '3px', background: T.layer, borderRadius: '8px' } },
+          [
+            ['queue', '队列', '一条条按优先级处理'],
+            ['board', '看板', '按处理分组看积压'],
+          ].map(([id, label, title]) => {
+            const active = listView === id
+            return h(
+              'button',
+              {
+                key: id,
+                type: 'button',
+                'data-list-view': id,
+                'aria-pressed': active,
+                title,
+                onClick: () => setListView(id),
+                style: { border: 0, borderRadius: '6px', background: active ? T.layer2 : 'transparent', color: active ? T.text : T.text2, padding: '6px 10px', fontSize: '11.5px', fontWeight: active ? 500 : 400, cursor: 'pointer', whiteSpace: 'nowrap' },
+              },
+              label,
+            )
           }),
-          keyword
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  onClick: () => setKeyword(''),
-                  'aria-label': '清除搜索',
-                  style: { border: 0, background: 'transparent', color: T.text3, cursor: 'pointer', padding: 0, display: 'inline-flex' },
-                },
-                h(ActionIcon, { name: 'close', size: 12 }),
-              )
-            : null,
+        ),
+        h(
+          'select',
+          {
+            'data-list-sort': 'true',
+            'aria-label': '排序方式',
+            'data-sort-mode': sortMode,
+            title: '排序方式',
+            value: sortMode,
+            onChange: (event) => setSortMode(event.target.value),
+            style: { height: '32px', border: `1px solid ${T.line}`, borderRadius: '8px', background: T.layer, color: T.text2, fontSize: '11.5px', padding: '0 6px', cursor: 'pointer', maxWidth: '160px' },
+          },
+          SORT_OPTIONS.map(([id, label]) => h('option', { key: id, value: id }, `排序：${label}`)),
         ),
         h(ActionButton, { label: loading ? '刷新中…' : '刷新', icon: 'refresh', variant: 'ghost', disabled: loading, onClick: reload, title: '重新读取需求资产' }),
         h(
@@ -16145,6 +16607,76 @@ window.__ModuleLoader__.load({
             : null,
         ),
       )
+
+      // The filter line carries what the toolbar cannot: how many rows the
+      // current query keeps, which axes are active, and the two views that are
+      // entries rather than tabs (已归档 is history, 数据异常 is data health).
+      const viewLabel = (FILTERS.find(([id]) => id === filter) ?? [])[1] ?? ''
+      const entryButton = (id, label, count, active) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            'data-view': id,
+            'aria-pressed': active,
+            onClick: () => setFilter(active ? DEFAULT_REQUIREMENT_VIEW : id),
+            title: active ? '回到待办' : FILTER_HINTS[id] ?? label,
+            style: {
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              border: `1px solid ${active ? T.line2 : 'transparent'}`,
+              background: active ? T.layer2 : 'transparent',
+              color: active ? T.text : T.text2,
+              borderRadius: '7px',
+              padding: '3px 8px',
+              fontSize: '11.5px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            },
+          },
+          active ? '← 回到待办' : label,
+          active ? null : h('span', { style: { color: T.text3, fontVariantNumeric: 'tabular-nums' } }, String(count ?? 0)),
+        )
+      const filterLine = loading
+        ? null
+        : h(
+            'div',
+            { 'data-filter-line': 'true', style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', margin: '0 0 10px', minHeight: '22px', fontSize: '11.5px', color: T.text3 } },
+            h(
+              'span',
+              { role: 'status', 'aria-live': 'polite', style: { fontVariantNumeric: 'tabular-nums' } },
+              filter === DEFAULT_REQUIREMENT_VIEW
+                ? filtered
+                  ? `筛选后 ${visible.length} 条`
+                  : `共 ${visible.length} 条，按「${sortLabel(sortMode)}」排列`
+                : `${viewLabel} ${visible.length} 条`,
+            ),
+            ...(source !== 'all'
+              ? [h('button', { key: 'source', type: 'button', 'data-clear-filter': 'source', onClick: () => setSource('all'), style: chip }, `来源：${(SOURCE_FILTERS.find(([id]) => id === source) ?? [])[1] ?? source} ×`)]
+              : []),
+            ...(keyword
+              ? [h('button', { key: 'keyword', type: 'button', 'data-clear-filter': 'keyword', onClick: () => setKeyword(''), style: chip }, `搜索：${keyword} ×`)]
+              : []),
+            // Leaving a view is its own affordance (← 回到待办 on the right), so
+            // 清除全部 only appears when a query axis is actually narrowing.
+            keyword || source !== 'all'
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: clearFilters,
+                    title: '重置查询条件并回到待办',
+                    'aria-label': '重置查询条件并回到待办',
+                    style: { border: 0, background: 'transparent', color: T.text2, padding: '3px 4px', fontSize: '11.5px', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px' },
+                  },
+                  '清除筛选',
+                )
+              : null,
+            h('span', { style: { flex: 1, minWidth: '8px' } }),
+            entryButton('archived', '已归档', counts.archived, filter === 'archived'),
+            entryButton('anomalies', '数据异常', counts.anomalies, filter === 'anomalies'),
+          )
 
       const createdBanner =
         createdNotice && !createdNotice.awaiting && !visible.some((item) => item.id === createdNotice.requirementId)
@@ -16204,8 +16736,19 @@ window.__ModuleLoader__.load({
         body = h(EmptyState, { root: data?.root ?? root, onCreate: createRequirement, onOpenPanel: openPanel })
       } else {
         tableInScroller = true
-        body = h(RequirementTable, {
+        body = listView === 'board'
+          ? h(RequirementBoard, {
+              items: visible,
+              narrow,
+              mobile,
+              showEmpty: filter === DEFAULT_REQUIREMENT_VIEW,
+              onOpen: (entry) => { listFocus.current = document.activeElement; setSelectedId(keyOf(entry)) },
+            })
+          : h(RequirementTable, {
           items: visible,
+          grouped: filter === DEFAULT_REQUIREMENT_VIEW,
+          picked,
+          onTogglePick: togglePick,
           narrow,
           mobile,
           showProject: data?.scope === 'all',
@@ -16220,9 +16763,58 @@ window.__ModuleLoader__.load({
           onDefect: (entry) => openDefect(entry),
           onArchive: (entry) => setArchiveItem(entry),
           onRemove: (entry) => setRemoveItem(entry),
-          emptyNode: h(NoResults, { filter, keyword, source, onClear: clearFilters }),
+          emptyNode: h(NoResults, { filter, keyword, source, onClear: clearFilters, archivedMatches, onShowArchived: () => setFilter('archived') }),
         })
       }
+
+      // Selection is only useful if it survives a filter change without lying
+      // about what is selected: act on the picked rows that are actually on
+      // screen, never on a count the reader cannot see.
+      const pickedVisible = visible.filter((item) => picked.has(keyOf(item)))
+      const copyPicked = () => {
+        const text = pickedVisible.map((item) => `${item.id} ${item.title}`).join('\n')
+        navigator.clipboard?.writeText(text).catch(() => {})
+      }
+      const archivePicked = () => {
+        if (!pickedVisible.length) return
+        setArchiveQueue(pickedVisible)
+        setArchiveItem(pickedVisible[0])
+      }
+      const bulkButton = (label, onClick, primary = false) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            onClick,
+            style: {
+              border: `1px solid ${primary ? T.brand : T.line2}`,
+              background: primary ? T.brand : 'transparent',
+              color: primary ? '#fff' : T.text2,
+              borderRadius: '7px',
+              padding: '5px 10px',
+              fontSize: '11.5px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            },
+          },
+          label,
+        )
+      const bulkBar =
+        pickedVisible.length > 0 && listView === 'queue'
+          ? h(
+              'div',
+              {
+                role: 'status',
+                'data-bulk': 'true',
+                style: { position: 'sticky', bottom: 0, zIndex: 20, margin: '10px 12px 14px', display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap', padding: '9px 12px', background: T.layer, border: `1px solid ${T.line2}`, borderRadius: '10px', boxShadow: '0 10px 28px rgba(0,0,0,.45)' },
+              },
+              h('span', { style: { color: T.text, fontSize: '12px', fontWeight: 600 } }, `已选 ${pickedVisible.length} 条`),
+              h('div', { style: { flex: '1 1 auto' } }),
+              bulkButton('复制清单', copyPicked),
+              bulkButton('批量归档', archivePicked, true),
+              bulkButton('取消选择', () => setPicked(new Set())),
+            )
+          : null
 
       const notices = h(
         'div',
@@ -16275,7 +16867,7 @@ window.__ModuleLoader__.load({
           expanded: anomalyOpen,
           anomalyOnly: filter === 'anomalies',
           onToggleExpanded: () => setAnomalyOpen((value) => !value),
-          onToggleOnly: () => setFilter((value) => value === 'anomalies' ? 'all' : 'anomalies'),
+          onToggleOnly: () => setFilter((value) => value === 'anomalies' ? DEFAULT_REQUIREMENT_VIEW : 'anomalies'),
           onOpen: openOccurrence,
         }),
         h(CheckNotice, {
@@ -16295,6 +16887,10 @@ window.__ModuleLoader__.load({
           [data-list-scroll]:focus-visible { outline: 2px solid ${T.brand}; outline-offset: 2px; }
           [data-requirements-workbench] button { transition: background-color 120ms ease, color 120ms ease; }
           [data-work-views] button { flex-shrink: 0; }
+          [data-requirements-workbench] .req-pick { appearance: none; -webkit-appearance: none; width: 15px; height: 15px; border: 1.5px solid #3a424e; border-radius: 4px; background: #0d1014; margin: 3px 0 0; flex: none; cursor: pointer; position: relative; }
+          [data-requirements-workbench] .req-pick:hover { border-color: #4c5665; }
+          [data-requirements-workbench] .req-pick:checked { background: ${T.brand}; border-color: ${T.brand}; }
+          [data-requirements-workbench] .req-pick:checked::after { content: ""; position: absolute; left: 3.5px; top: 0.5px; width: 5px; height: 9px; border-right: 1.6px solid #fff; border-bottom: 1.6px solid #fff; transform: rotate(40deg); }
           @media (max-width: 760px) { [data-requirements-search] { width: 100% !important; } }
           @media (max-height: 620px) { [data-requirements-workbench] { overflow-y: auto !important; } }
           @media (max-width: 760px) { [data-requirements-workbench] { padding-left: 16px !important; padding-right: 16px !important; overflow-y: auto !important; } }
@@ -16303,8 +16899,10 @@ window.__ModuleLoader__.load({
         `),
         h('div', { 'data-requirements-list-page': 'true', style: { display: selected ? 'none' : 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 } },
         header,
+        summaryLine,
         showRoot ? h(RootPicker, { rootInput, setRootInput, onApply: () => applyRoot(rootInput), onReset: () => { setRootInput(''); applyRoot('') } }) : null,
         toolbar,
+        filterLine,
         createdBanner,
         // Notices stay above the list and never push it off screen.
         h('div', { style: { flex: '0 0 auto', maxHeight: '38vh', overflowY: 'auto' } }, notices),
@@ -16312,8 +16910,8 @@ window.__ModuleLoader__.load({
           'div',
           { style: listArea },
           tableInScroller
-            ? h('div', { ref: listScroll, role: 'region', 'aria-label': '需求列表', tabIndex: 0, style: listScroller, 'data-list-scroll': 'true' }, body)
-            : h('div', { style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto' } }, body),
+            ? h('div', { ref: listScroll, role: 'region', 'aria-label': '需求列表', tabIndex: 0, style: listScroller, 'data-list-scroll': 'true' }, body, bulkBar)
+            : h('div', { style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto' } }, body, bulkBar),
         ),
         ),
         selected
@@ -16455,7 +17053,7 @@ window.__ModuleLoader__.load({
               onClose: () => setFeedbackContext(null),
               onOpenRequirement: (id, ref) => {
                 setFeedbackContext(null)
-                setFilter('all')
+                setFilter(DEFAULT_REQUIREMENT_VIEW)
                 setSource('all')
                 setKeyword('')
                         // Full reference: if the linked requirement lives in another
@@ -16544,9 +17142,19 @@ window.__ModuleLoader__.load({
           ? h(ArchiveModal, {
               item: archiveItem,
               root: archiveItem.root ?? data?.root ?? root,
-              onClose: () => setArchiveItem(null),
-              onDone: () => {
+              // Closing ends the queue too, otherwise a later single archive
+              // would suddenly jump to the next item of an abandoned batch.
+              onClose: () => {
                 setArchiveItem(null)
+                setArchiveQueue([])
+              },
+              onDone: () => {
+                // Bulk archive is a queue, not a batch: each item keeps its own
+                // baseline preview and confirmation, because archiving is the
+                // one action that cannot be undone from this list.
+                const rest = archiveQueue.slice(1)
+                setArchiveQueue(rest)
+                setArchiveItem(rest[0] ?? null)
                 setSelectedId(null)
                 reload()
               },

@@ -30,17 +30,14 @@ function harness() {
   const rules = source.slice(source.indexOf('    function deliveryOf('), source.indexOf('    const REL_LABELS'))
   const counts = source.slice(source.indexOf('    function requirementViewCounts('), start)
   const countBinding = source.slice(source.indexOf('      const counts = requirementViewCounts(', source.indexOf('    function Workbench('))).split('\n')[0]
-  assert.ok(countBinding.includes('(data, keywordMatched)'), 'Workbench supplies the scope-masked result to the count projection')
-  const tabsStart = source.indexOf('          FILTERS.map(([id, label]) => {', source.indexOf('    function Workbench('))
-  const tabsEnd = source.indexOf('          }),', tabsStart) + '          })'.length
+  assert.ok(countBinding.includes('(data, sourceItems)'), 'Workbench supplies the source-masked, keyword-independent rows to the count projection')
   vm.runInContext(filters + rules + counts + source.slice(start, end) + `
     this.render = useRequirements
     const h = (type, props, ...children) => ({ type, props, children })
     const T = {}
-    this.tabs = (data, keywordMatched = data?.requirements ?? []) => {
+    this.tabs = (data, sourceItems = data?.requirements ?? []) => {
       ${countBinding}
-      const filter = 'pending', setFilter = () => {}
-      return ${source.slice(tabsStart, tabsEnd)}
+      return counts
     }
   `, context)
   return {
@@ -53,17 +50,17 @@ function harness() {
 }
 
 const body = project => ({ ok: true, project, requirements: [{ id: `REQ-${project}` }] })
-const viewIds = ['all', 'mine', 'pending', 'running', 'awaiting', 'accepted', 'closed', 'anomalies']
+const viewIds = ['todo', 'awaiting', 'archived', 'anomalies']
 function assertTabs(app, view, expected) {
-  const tabs = Array.from(app.tabs(view.data))
-  assert.deepEqual(tabs.map(tab => tab.props.key), viewIds)
-  assert.deepEqual(tabs.map(tab => tab.children[1].children[0]), expected)
+  const counts = app.tabs(view.data)
+  assert.deepEqual(Object.keys(counts), viewIds)
+  assert.deepEqual(viewIds.map(id => counts[id]), expected)
 }
-const unloaded = Array(8).fill('—')
-const zero = Array(8).fill(0)
+const unloaded = Array(viewIds.length).fill('—')
+const zero = Array(viewIds.length).fill(0)
 
 for (const failLate of [false, true]) {
-  test(`all eight rendered category counts follow current loaded scope (late failure: ${failLate})`, async () => {
+  test(`every rendered tab count follows the current loaded scope (late failure: ${failLate})`, async () => {
     const app = harness()
     assertTabs(app, app.render(), unloaded); app.commit()
     assert.equal(app.requests.length, 0)
@@ -100,17 +97,20 @@ for (const failLate of [false, true]) {
   })
 }
 
-test('eight category spans include anomaly counts and filtered real zero, not placeholders', async () => {
+test('tab spans include anomaly counts and filtered real zero, not placeholders', async () => {
   const app = harness()
   app.render('A'); app.commit()
   const rows = ['pending', 'in-progress', 'awaiting-acceptance', 'accepted', 'closed'].map(key => ({ delivery: { key } }))
   rows[0].anomalies = ['duplicate-title']
   app.requests[0].resolve({ ok: true, requirements: rows }); await flush()
   const view = app.render('A')
-  // Production matchesView rules keep the work views mutually exclusive.
-  assertTabs(app, view, [5, 1, 1, 1, 1, 1, 1, 1])
-  const filteredTabs = Array.from(app.tabs(view.data, []))
-  assert.deepEqual(filteredTabs.map(tab => tab.children[1].children[0]), zero)
+  // 待办 is the whole open funnel, 已归档 holds both terminal deliveries, and a
+  // filtered view that matches nothing is a real zero, not a placeholder.
+  assertTabs(app, view, [3, 1, 2, 1])
+  // A source filter that matches nothing is a real zero, not a placeholder —
+  // and a keyword never gets to zero the funnel (see list-query-axes).
+  const sourceFiltered = app.tabs(view.data, [])
+  assert.deepEqual(viewIds.map(id => sourceFiltered[id]), zero)
   assertTabs(app, { data: {} }, unloaded)
 })
 

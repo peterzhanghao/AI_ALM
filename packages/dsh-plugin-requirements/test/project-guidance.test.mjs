@@ -90,7 +90,9 @@ test('unmounted ref is harmless; ALL, unlinked and missing-path choices retain t
 test('Workbench wires the same ref to prompt and picker, and keeps loaded zero separate', () => {
   assert.match(source, /const projectSelectRef = useRef\(null\)/)
   assert.match(source, /h\(ProjectPicker, \{ projects, currentId: projectId, onPick: applyProject, selectRef: projectSelectRef \}\)/)
-  const branch = fragment('      if (!hasScope) {\n        body =', '      const notices =')
+  // Stop before the bulk-selection helpers: they belong to the rendered
+  // list, not to the prompt/empty/table branch under test.
+  const branch = fragment('      if (!hasScope) {\n        body =', '      // Selection is only useful')
   const context = vm.createContext({
     h: (type, props) => ({ type, props }), ProjectContextPrompt: 'prompt', EmptyState: 'empty',
     SkeletonTable: 'loading', RequirementTable: 'table',
@@ -104,7 +106,9 @@ test('Workbench wires the same ref to prompt and picker, and keeps loaded zero s
   vm.runInContext(branch + '\nthis.body = body', context)
   assert.equal(context.body.type, 'empty', 'real zero must not show unselected guidance')
   assert.equal(context.body.props.root, 'D:/empty')
-  assert.match(source, /const countLabel = loading \? '读取中' : data \? `\$\{itemCount\} 条` : '—'/)
+  // The header counts what can still move and what is history, separately.
+  assert.match(source, /const countLabel = loading/)
+  assert.match(source, /`\$\{itemCount\} 条待办\$\{archivedCount > 0 \? ` · \$\{archivedCount\} 条已归档` : ''\}`/)
   assert.match(source, /disabled: !singleWorkspace, onClick: \(\) => setExchangeOpen\(true\)/)
   assert.match(source, /label: '新建需求',[\s\S]*?disabled: !singleWorkspace/)
 })

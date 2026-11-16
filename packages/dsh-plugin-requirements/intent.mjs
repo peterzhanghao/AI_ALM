@@ -116,6 +116,10 @@ function grillPrompt(skill, state) {
   return [
     '以下是本机已安装并已加载的 Grill Skill 原文。严格用它的决策树与 frontier 原则分析当前需求；仅提出当前已具备前提的 2 至 3 个问题，问题和选项必须针对用户的实际业务语句。',
     '本服务需要机器可校验的 intent-review JSON，不能直接输出 Markdown 问答。请把 Grill 的结果落实到现有 JSON 契约中的标题、候选项、验收条件和 nextQuestion/questionGroup；不得编造已确认事实。',
+    // The whole skill is long, so the model tends to spend its budget on prose
+    // fields and run out before the questions. Questions are the only part of
+    // this round a human reads, so they get the budget first.
+    '若输出预算紧张，优先保证 questionGroup 的问题与互斥 options 完整可解析；其余字段可以精简，不要为了写满契约而超时。options 必须是真正的二选一取舍；没有取舍就不要给 options。',
     '--- Grill Skill 原文 ---',
     skill.instructions,
     '--- 结束 Grill Skill 原文 ---',
@@ -1429,9 +1433,33 @@ async function runAnalysis({
     let firstTokenAt = null
     const controller = new AbortController()
     let timeout
+    let failBudget
+    const budget = new Promise((_, reject) => { failBudget = reject })
+    // Two budgets, because one number cannot serve both phases. A missing first
+    // token means the provider is stuck, so fail fast; a long answer is normal,
+    // because a full intent-review JSON takes 20–50s on deepseek-flash. The old
+    // single 8s cap killed real analyses at exactly 8008ms (see INT-2026…d93aaa)
+    // and silently replaced them with the local stub — which is why the
+    // clarification questions looked worthless. 45s/90s are ceilings, not waits:
+    // a streaming answer still lands as soon as it starts.
+    const arm = (ms) => {
+      clearTimeout(timeout)
+      timeout = setTimeout(() => {
+        controller.abort()
+        failBudget(new IntentHttpError('ai-call-failed', 'AI 调用超时', { status: 502 }))
+      }, ms)
+    }
+    arm(15_000)
     const output = await Promise.race([
-      streamOutput({ stream, selection, messages: messagesToSend, signal: controller.signal, onFirstToken: () => { if (firstTokenAt === null) firstTokenAt = Date.now() } }),
-      new Promise((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new IntentHttpError('ai-call-failed', 'AI 调用超时', { status: 502 })) }, grillInstruction ? 20_000 : 8_000) }),
+      streamOutput({
+        stream, selection, messages: messagesToSend, signal: controller.signal,
+        onFirstToken: () => {
+          if (firstTokenAt !== null) return
+          firstTokenAt = Date.now()
+          arm(grillInstruction ? 90_000 : 45_000)
+        },
+      }),
+      budget,
     ]).finally(() => clearTimeout(timeout))
     const modelMs = Date.now() - streamStartedAt
     if (Number.isFinite(modelMs) && modelMs >= 0) timing.modelMs = (timing.modelMs ?? 0) + Math.round(modelMs)

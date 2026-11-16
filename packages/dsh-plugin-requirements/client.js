@@ -32,18 +32,20 @@ window.__ModuleLoader__.load({
       superseded: { label: "\u88AB\u66FF\u4EE3", color: T.text3, bg: "rgba(107,116,128,.12)" },
       archived: { label: "\u5DF2\u5F52\u6863", color: T.text3, bg: "rgba(107,116,128,.12)" }
     };
-    const DEFAULT_REQUIREMENT_VIEW = "mine";
-    const NAVIGATION_VERSION = 5;
+    const DEFAULT_REQUIREMENT_VIEW = "todo";
+    const NAVIGATION_VERSION = 7;
     const FILTERS = [
-      ["all", "\u5168\u90E8"],
-      ["mine", "\u5F85\u6211\u5904\u7406"],
-      ["pending", "\u5F85\u63A8\u8FDB"],
-      ["running", "AI \u63A8\u8FDB\u4E2D"],
+      ["todo", "\u5F85\u529E"],
       ["awaiting", "\u5F85\u9A8C\u6536"],
-      ["accepted", "\u5DF2\u9A8C\u6536"],
-      ["closed", "\u5DF2\u5173\u95ED"],
+      ["archived", "\u5DF2\u5F52\u6863"],
       ["anomalies", "\u6570\u636E\u5F02\u5E38"]
     ];
+    const FILTER_HINTS = {
+      todo: "\u6240\u6709\u8FD8\u6CA1\u7ED3\u675F\u7684\u9700\u6C42\uFF1A\u7B49\u4F60\u5904\u7406\u7684\u6392\u5728\u6700\u524D\uFF0C\u7136\u540E\u662F AI \u6B63\u5728\u63A8\u8FDB\u7684",
+      awaiting: "AI \u5DF2\u7ECF\u505A\u5B8C\u5E76\u81EA\u68C0\u901A\u8FC7\uFF0C\u53EA\u5DEE\u4F60\u7B7E\u6536",
+      archived: "\u5DF2\u9A8C\u6536\u4E0E\u5DF2\u5173\u95ED\uFF0C\u53EA\u8BFB\uFF0C\u4E0D\u518D\u51FA\u73B0\u5728\u5F85\u529E\u91CC",
+      anomalies: "\u6570\u636E\u672C\u8EAB\u6709\u95EE\u9898\uFF08ID \u91CD\u590D\u3001\u5173\u7CFB\u60AC\u7A7A\uFF09\uFF0C\u4F1A\u8BA9\u4EBA\u770B\u9519\u5224\u65AD"
+    };
     const SOURCE_FILTERS = [
       ["all", "\u5168\u90E8"],
       ["manual", "\u624B\u52A8\u521B\u5EFA"],
@@ -407,20 +409,106 @@ window.__ModuleLoader__.load({
       if (delivery.key === "awaiting-acceptance") return true;
       return state === "blocked" || state === "needs-clarification";
     }
+    const LANES = [
+      ["need", "\u9700\u8981\u4F60\u5904\u7406", "\u56DE\u7B54\u6216\u786E\u8BA4\u540E AI \u624D\u80FD\u7EE7\u7EED"],
+      ["running", "AI \u5728\u8DD1", "\u4E0D\u7528\u4F60\u64CD\u4F5C\uFF0C\u8DD1\u5B8C\u6216\u5361\u4F4F\u90FD\u4F1A\u56DE\u5230\u8FD9\u91CC"],
+      ["todo", "\u5F85\u5F00\u59CB", "\u5DF2\u7ECF\u6574\u7406\u597D\uFF0C\u7B49\u4F60\u51B3\u5B9A\u4EC0\u4E48\u65F6\u5019\u4EA4\u7ED9 AI"],
+      ["done", "\u5DF2\u5F52\u6863", "\u5DF2\u9A8C\u6536\u6216\u5DF2\u5173\u95ED\uFF0C\u53EA\u8BFB\u4FDD\u7559"]
+    ];
+    function workLane(item) {
+      const delivery = deliveryOf(item);
+      if (delivery.key === "accepted" || delivery.key === "closed") return "done";
+      if (needsHuman(item)) return "need";
+      if (delivery.key === "in-progress" || isExecutingRequirement(item)) return "running";
+      return "todo";
+    }
     function isExecutingRequirement(item) {
       const run = item?.detailView?.summaries?.run ?? item?.run;
       return run?.exists === true && run.active === true && run.stale !== true && run.idleHandback !== true && run.awaitingAnswer !== true && (run.status === "running" || run.status === "queued");
     }
+    function isArchivedRequirement(item) {
+      const key = deliveryOf(item).key;
+      return key === "accepted" || key === "closed";
+    }
     function matchesView(item, view) {
       if (view === "anomalies") return (item.anomalies?.length ?? 0) > 0;
-      if (view === "pending") return deliveryOf(item).key === "pending";
       if (view === "all") return true;
-      if (view === "mine") return needsHuman(item);
-      if (view === "running") return deliveryOf(item).key === "in-progress";
+      if (view === "archived") return isArchivedRequirement(item);
+      if (view === "todo") return !isArchivedRequirement(item);
       if (view === "awaiting") return deliveryOf(item).key === "awaiting-acceptance";
+      if (view === "mine") return !isArchivedRequirement(item) && needsHuman(item);
+      if (view === "pending") return deliveryOf(item).key === "pending";
+      if (view === "running") return deliveryOf(item).key === "in-progress";
       if (view === "accepted") return deliveryOf(item).key === "accepted";
       if (view === "closed") return deliveryOf(item).key === "closed";
       return true;
+    }
+    function requirementUrgency(item) {
+      const key = deliveryOf(item).key;
+      if (key === "awaiting-acceptance") return 0;
+      if (needsHuman(item)) return 1;
+      if (key === "in-progress") return 2;
+      return 3;
+    }
+    function lastActivityOf(item) {
+      const stamp = Date.parse(item?.updatedAt ?? item?.createdAt ?? "");
+      return Number.isFinite(stamp) ? stamp : null;
+    }
+    function compareIds(left, right) {
+      const byKey = String(left?.occurrenceKey ?? left?.id ?? "").localeCompare(String(right?.occurrenceKey ?? right?.id ?? ""));
+      if (byKey !== 0) return byKey;
+      return String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
+    }
+    function sortByUrgency(items = []) {
+      return [...items].sort((left, right) => {
+        const byRank = requirementUrgency(left) - requirementUrgency(right);
+        if (byRank !== 0) return byRank;
+        const leftActivity = lastActivityOf(left);
+        const rightActivity = lastActivityOf(right);
+        if (leftActivity !== rightActivity) {
+          if (leftActivity === null) return -1;
+          if (rightActivity === null) return 1;
+          return leftActivity - rightActivity;
+        }
+        return compareIds(left, right);
+      });
+    }
+    function sortByRecency(items = []) {
+      return [...items].sort((left, right) => {
+        const leftActivity = lastActivityOf(left);
+        const rightActivity = lastActivityOf(right);
+        if (leftActivity !== rightActivity) {
+          if (leftActivity === null) return 1;
+          if (rightActivity === null) return -1;
+          return rightActivity - leftActivity;
+        }
+        return compareIds(left, right);
+      });
+    }
+    function sortForView(items, view) {
+      return view === "archived" ? sortByRecency(items) : sortByUrgency(items);
+    }
+    function sortByStale(items = []) {
+      return [...items].sort((left, right) => {
+        const leftIdle = idleDaysOf(left);
+        const rightIdle = idleDaysOf(right);
+        if (leftIdle !== rightIdle) {
+          if (leftIdle === null) return 1;
+          if (rightIdle === null) return -1;
+          return rightIdle - leftIdle;
+        }
+        return compareIds(left, right);
+      });
+    }
+    function sortForMode(items, mode, view) {
+      if (mode === "recent") return sortByRecency(items);
+      if (mode === "stale") return sortByStale(items);
+      return sortForView(items, view);
+    }
+    function idleDaysOf(item) {
+      const activity = lastActivityOf(item);
+      if (activity === null) return null;
+      return Math.max(0, Math.floor((Date.now() - activity) / 864e5));
     }
     const REL_LABELS = {
       satisfies: "\u6EE1\u8DB3",
@@ -431,6 +519,14 @@ window.__ModuleLoader__.load({
       supersedes: "\u66FF\u4EE3",
       parent_of: "\u5B50\u9700\u6C42"
     };
+    const LANE_TONE = { need: T.warn, running: T.brand, todo: "#47505c", done: "#2f3742" };
+    function laneTone(id) {
+      return LANE_TONE[id] ?? T.line2;
+    }
+    const SORT_OPTIONS = [["need", "\u9700\u8981\u6211\u4F18\u5148"], ["recent", "\u6700\u8FD1\u66F4\u65B0"], ["stale", "\u7B49\u6700\u4E45\u7684\u5728\u524D"]];
+    function sortLabel(mode) {
+      return (SORT_OPTIONS.find(([id]) => id === mode) ?? SORT_OPTIONS[0])[1];
+    }
     const VERDICT = {
       pass: { label: "\u901A\u8FC7", color: T.ok, bg: "rgba(53,196,122,.12)" },
       warn: { label: "\u6709\u5EFA\u8BAE", color: T.warn, bg: "rgba(231,176,75,.14)" },
@@ -616,11 +712,12 @@ window.__ModuleLoader__.load({
             display: "inline-flex",
             alignItems: "center",
             gap: "6px",
-            fontSize: "12px",
-            padding: "2px 0",
-            borderRadius: "4px",
+            fontSize: "11.5px",
+            padding: "1px 8px",
+            borderRadius: "6px",
             color: tone.color,
-            background: "transparent",
+            background: "rgba(255,255,255,.03)",
+            border: `1px solid ${T.line2}`,
             whiteSpace: "nowrap"
           }
         },
@@ -1575,11 +1672,11 @@ window.__ModuleLoader__.load({
         )
       );
     }
-    function requirementViewCounts(data, keywordMatched) {
+    function requirementViewCounts(data, rows) {
       const loaded = Array.isArray(data?.requirements);
       const counts = {};
       for (const [id] of FILTERS) {
-        counts[id] = !loaded ? "\u2014" : id === "all" ? keywordMatched.length : keywordMatched.filter((item) => matchesView(item, id)).length;
+        counts[id] = !loaded ? "\u2014" : rows.filter((item) => matchesView(item, id)).length;
       }
       return counts;
     }
@@ -1680,10 +1777,19 @@ window.__ModuleLoader__.load({
     }
     function acceptanceLabel(item) {
       const count = item.detailView?.content?.doc?.acceptance?.length ?? item.docView?.doc?.acceptance?.length ?? item.detailView?.content?.acceptanceCriteria?.length ?? 0;
-      if (count > 0) return `${count} \u9879\u6807\u51C6`;
+      if (count > 0) return `${count} \u9879\u9A8C\u6536 \xB7 ${acceptanceState(item)}`;
       const section = String(item.briefText ?? "").match(/^#{1,6}\s*(?:验收标准|交付验证|验收要求)[^\n]*\n([\s\S]*?)(?=^#{1,6}\s|(?![\s\S]))/m)?.[1] ?? "";
       const entries = section.match(/^\s*(?:[-*+]\s+|\d+[.)、]\s*|AC[- ]?\d+[:：.、\s])/gmi) ?? [];
-      return entries.length ? `${entries.length} \u9879\u6807\u51C6` : section.trim() ? "\u6B63\u6587\u5185\u542B" : "\u5F85\u7EC6\u5316";
+      return entries.length ? `${entries.length} \u9879\u9A8C\u6536 \xB7 ${acceptanceState(item)}` : section.trim() ? "\u6B63\u6587\u5185\u542B" : "\u5F85\u7EC6\u5316";
+    }
+    function acceptanceState(item) {
+      const key = item?.delivery?.key ?? (item?.closed === true ? "closed" : "pending");
+      if (key === "accepted" || key === "closed") return "\u5DF2\u901A\u8FC7";
+      const latest = item?.acceptance?.latest ?? null;
+      if (!latest) return "\u5F85\u9A8C\u8BC1";
+      if (latest.result === "pass" && latest.current === true && latest.complete === true) return "\u5F85\u7B7E\u6536";
+      if (latest.result && latest.result !== "pass") return latest.current === true ? "\u672A\u901A\u8FC7" : "\u9700\u91CD\u9A8C";
+      return "\u5F85\u9A8C\u8BC1";
     }
     function duplicateCountFor(item, duplicateCounts) {
       const count = duplicateCounts?.[item.id];
@@ -1733,8 +1839,8 @@ window.__ModuleLoader__.load({
       if (delivery.key === "awaiting-acceptance") return { label: "\u9A8C\u6536\u4EA4\u4ED8", icon: "check", run: () => (onSignoff ?? onOpen)(item) };
       if (delivery.key === "accepted") return { label: "\u67E5\u770B", icon: "eye", run: () => onOpen(item) };
       if (delivery.key === "in-progress") return { label: "\u67E5\u770B\u63A8\u8FDB", icon: "eye", run: () => onOpen(item) };
-      if (delivery.key === "pending") return { label: "\u8FDB\u5165\u9700\u6C42", icon: "chevron", iconOnly: true, run: () => onOpen(item) };
-      if (!decision) return { label: "\u6253\u5F00", icon: "eye", run: () => onOpen(item) };
+      if (delivery.key === "pending" && !needsHuman(item)) return { label: "\u6253\u5F00", icon: "eye", run: () => onOpen(item) };
+      if (!decision) return needsHuman(item) ? { label: "\u53BB\u5904\u7406", icon: "alert", run: () => onOpen(item) } : { label: "\u6253\u5F00", icon: "eye", run: () => onOpen(item) };
       const code = decision.topGap?.code ?? "";
       if (decision.state === "blocked" || decision.state === "needs-clarification") {
         return { label: "\u5904\u7406", icon: "alert", run: () => onOpen(item) };
@@ -1747,12 +1853,12 @@ window.__ModuleLoader__.load({
         if (code === "review-not-run" || code === "review-not-accepted" || code === "coverage-incomplete") {
           return { label: "\u6253\u5F00", icon: "eye", run: () => onOpen(item) };
         }
-        return { label: "\u6253\u5F00", icon: "eye", run: () => onOpen(item) };
+        return needsHuman(item) ? { label: "\u53BB\u5904\u7406", icon: "alert", run: () => onOpen(item) } : { label: "\u6253\u5F00", icon: "eye", run: () => onOpen(item) };
       }
       if (decision.state === "verified") return { label: "\u67E5\u770B", icon: "eye", run: () => onOpen(item) };
       return { label: "\u6253\u5F00", icon: "eye", run: () => onOpen(item) };
     }
-    function RequirementRow({ item, narrow, mobile, showProject, selected = false, duplicateCounts, actionHandlers }) {
+    function RequirementRow({ item, narrow, mobile, showProject, selected = false, duplicateCounts, actionHandlers, picked = false, onToggle = null }) {
       const key = item.occurrenceKey ?? item.id;
       const decision = item.decision ?? null;
       const anomaly = anomalyLine(item, duplicateCounts);
@@ -1761,9 +1867,12 @@ window.__ModuleLoader__.load({
       const occurrences = Number(defect?.occurrenceCount ?? 0);
       const action = rowAction(item, actionHandlers);
       const executing = isExecutingRequirement(item);
+      const idleDays = isArchivedRequirement(item) ? null : idleDaysOf(item);
       const githubLinks = item.detailView?.githubLinks ?? null;
       const [hover, setHover] = useState(false);
       const open = () => actionHandlers.onOpen(item);
+      const lane = workLane(item);
+      const primaryTone = lane === "need" || lane === "running";
       const actionButton = h(
         "button",
         {
@@ -1774,17 +1883,21 @@ window.__ModuleLoader__.load({
           },
           title: action.label,
           "aria-label": `${action.label}\uFF1A${item.title}`,
+          "data-row-action": action.label,
           style: {
             display: "inline-flex",
             alignItems: "center",
             gap: "5px",
             height: "28px",
-            padding: "0 9px",
-            border: `1px solid ${T.line2}`,
+            padding: action.iconOnly ? 0 : "0 10px",
+            width: action.iconOnly ? "28px" : void 0,
+            justifyContent: "center",
+            border: `1px solid ${primaryTone ? T.brand : T.line2}`,
             borderRadius: "7px",
-            background: action.label === "\u53BB\u786E\u8BA4" ? "rgba(231,176,75,.12)" : "transparent",
-            color: action.label === "\u53BB\u786E\u8BA4" ? T.warn : action.icon === "alert" ? T.err : T.text2,
+            background: primaryTone ? T.brand : "transparent",
+            color: primaryTone ? "#fff" : action.icon === "alert" ? T.err : T.text2,
             fontSize: "11.5px",
+            fontWeight: primaryTone ? 500 : 400,
             whiteSpace: "nowrap",
             cursor: "pointer"
           }
@@ -1856,42 +1969,97 @@ window.__ModuleLoader__.load({
         h("summary", { "aria-label": `\u66F4\u591A\u64CD\u4F5C\uFF1A${item.title}`, title: "\u66F4\u591A\u64CD\u4F5C", style: { cursor: "pointer", listStyle: "none", padding: "6px", color: T.text2, borderRadius: "6px" } }, h(ActionIcon, { name: "more", size: 16 })),
         h("div", { style: { display: "flex", gap: "6px", padding: "6px 0" } }, archiveButton, removeButton)
       );
+      const updatedSpan = item.updatedAt || item.createdAt ? h(
+        "span",
+        {
+          title: idleDays !== null ? `\u6700\u8FD1\u4E00\u6B21\u52A8\u9759\u5728 ${idleDays} \u5929\u524D` : "\u6700\u8FD1\u66F4\u65B0",
+          style: { color: T.text3, fontSize: "11.5px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }
+        },
+        formatLocalStamp(item.updatedAt ?? item.createdAt).slice(0, 16),
+        idleDays !== null && idleDays >= 2 ? h("span", { "data-idle-days": idleDays, style: { marginLeft: "5px", color: idleDays >= 5 ? T.err : T.warn } }, `\xB7 ${idleDays} \u5929\u6CA1\u52A8`) : null
+      ) : null;
+      const meta = [
+        isDefect(item) ? h(DefectPill, null) : h("span", { style: { fontSize: "11px", color: T.text3, whiteSpace: "nowrap" } }, isChatSource(item) ? "\u{1F4AC} \u5BF9\u8BDD\u751F\u6210" : isFeedbackSource(item) ? "\u53CD\u9988" : "\u270D\uFE0F \u624B\u52A8\u521B\u5EFA"),
+        h("code", { style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "11px", color: T.text3 } }, item.id),
+        h(
+          "span",
+          {
+            title: item.specConvergences?.length ? [...item.specConvergences].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote || "\u9700\u6C42\u5DF2\u6F14\u8FDB" : "\u9700\u6C42\u7248\u672C",
+            tabIndex: 0,
+            style: Number(item.revision) > 1 ? { color: "#8bd5f5", background: "rgba(63,160,205,.14)", border: "1px solid rgba(106,190,225,.4)", borderRadius: "999px", padding: "0 6px", fontSize: "10.5px", whiteSpace: "nowrap" } : { color: T.text3, fontSize: "11px", whiteSpace: "nowrap" }
+          },
+          `v${item.revision ?? 1}${Number(item.revision) > 1 ? " \xB7 \u5DF2\u6F14\u8FDB" : ""}`
+        ),
+        item.pendingPatch ? h("span", { style: { color: T.warn, fontSize: "11px", fontWeight: 600 } }, "\u25CF \u5F85\u786E\u8BA4\u53D8\u66F4") : null,
+        h("span", { style: { color: item.owner ? T.text2 : T.text3, fontSize: "11.5px", whiteSpace: "nowrap" } }, item.owner || "\u672A\u5206\u914D"),
+        h("span", { style: { color: T.text3, fontSize: "11.5px", whiteSpace: "nowrap" } }, acceptanceLabel(item)),
+        githubLinks?.devBranchUrl ? h(GitHubLinkButton, { href: githubLinks.devBranchUrl, compact: true, title: "\u5728 GitHub \u67E5\u770B\u5F00\u53D1\u5206\u652F" }, `\u{1F33F} ${githubLinks.devBranch ?? "develop"}`) : null,
+        githubLinks?.mainBranchUrl && githubLinks.mainMergeCommitSha ? h(GitHubLinkButton, { href: githubLinks.mainBranchUrl, compact: true, title: "\u5728 GitHub \u67E5\u770B\u4E3B\u5E72\u5206\u652F" }, `\u2705 ${githubLinks.mainBranch ?? "main"}`) : null,
+        defect?.impact?.stage ? h("span", { style: { color: T.text3, fontSize: "11px" } }, `\u5931\u8D25\u4E8E${defectStageText(item)}`) : null,
+        defect && occurrences > 1 ? h("span", { style: { color: T.text2, fontSize: "11px", fontVariantNumeric: "tabular-nums" } }, `\xD7${occurrences}`) : null,
+        defect?.regressionSuspected ? h("span", { style: { color: T.warn, fontSize: "11px" } }, "\u7591\u4F3C\u56DE\u5F52") : null,
+        showProject && item.projectName ? h("span", { style: { color: T.text3, fontSize: "11px" } }, item.projectName) : null,
+        check.label !== "\u5F85\u9A8C\u8BC1" && ["verified", "failed"].includes(decision?.state) ? h(
+          "span",
+          { style: { display: "inline-flex", alignItems: "center", gap: "5px", color: check.tone === "neutral" ? T.text2 : checkToneColor(check.tone), fontSize: "11px", fontWeight: 500 } },
+          h("span", { style: { width: "5px", height: "5px", borderRadius: "50%", background: checkToneColor(check.tone), flex: "none" } }),
+          check.label
+        ) : null,
+        updatedSpan
+      ].filter(Boolean);
+      const selectControl = onToggle ? h("input", {
+        type: "checkbox",
+        className: "req-pick",
+        checked: picked,
+        "data-pick": key,
+        "aria-label": `\u9009\u62E9 ${item.title}`,
+        onClick: (event) => event.stopPropagation(),
+        onChange: () => onToggle(item),
+        style: { accentColor: T.brand, width: "15px", height: "15px", marginTop: "3px", flex: "none", cursor: "pointer" }
+      }) : h("span", { style: { width: "3px", flex: "none" } });
       return h(
         "div",
         {
           role: "row",
           "data-req": key,
+          "data-lane": lane,
           style: {
-            display: "grid",
-            gridTemplateColumns: listColumns(narrow, mobile),
-            columnGap: "14px",
-            alignItems: "center",
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "11px",
             boxSizing: "border-box",
-            minHeight: mobile ? "76px" : "80px",
+            minHeight: mobile ? "62px" : "64px",
             contentVisibility: "auto",
-            containIntrinsicSize: `auto ${mobile ? 76 : 80}px`,
-            padding: mobile ? "12px 14px" : "13px 18px",
-            borderTop: `1px solid ${T.line}`,
-            background: selected ? T.layer2 : "transparent",
-            boxShadow: selected ? `inset 2px 0 0 ${T.brand}` : "none",
+            containIntrinsicSize: `auto ${mobile ? 62 : 64}px`,
+            margin: "0 0 6px",
+            padding: mobile ? "10px 12px" : "12px 14px",
+            // One card per requirement, with the lane colour on the edge: the
+            // group header says why the row is here, the edge says it again in
+            // peripheral vision while the eye is on the title.
+            border: `1px solid ${T.line}`,
+            borderLeft: `3px solid ${laneTone(lane)}`,
+            borderRadius: "10px",
+            background: selected || picked ? T.layer2 : T.layer,
+            boxShadow: selected ? `inset 0 0 0 1px ${T.brand}` : "none",
             cursor: "pointer",
-            transition: REDUCE_MOTION ? "none" : "background-color 140ms ease"
+            transition: REDUCE_MOTION ? "none" : "background-color 140ms ease, border-color 140ms ease"
           },
           "aria-selected": selected,
           onMouseEnter: (event) => {
-            if (!selected) event.currentTarget.style.background = T.layer2;
+            if (!selected && !picked) event.currentTarget.style.background = T.layer2;
           },
           onMouseLeave: (event) => {
-            event.currentTarget.style.background = selected ? T.layer2 : "transparent";
+            event.currentTarget.style.background = selected || picked ? T.layer2 : T.layer;
           },
           onClick: open
         },
+        selectControl,
         h(
           "div",
-          { role: "cell", style: { minWidth: 0 } },
+          { role: "cell", style: { minWidth: 0, flex: "1 1 auto" } },
           h(
             "div",
-            { style: { display: "flex", alignItems: "baseline", gap: "8px", minWidth: 0 } },
+            { style: { display: "flex", alignItems: "center", gap: "7px", minWidth: 0 } },
             h(
               "button",
               {
@@ -1907,6 +2075,7 @@ window.__ModuleLoader__.load({
                 title: item.title,
                 style: {
                   display: "block",
+                  flex: "0 1 auto",
                   minWidth: 0,
                   maxWidth: "100%",
                   overflow: "hidden",
@@ -1919,7 +2088,7 @@ window.__ModuleLoader__.load({
                   background: "transparent",
                   color: T.text,
                   fontFamily: "inherit",
-                  fontSize: "14px",
+                  fontSize: "13.5px",
                   fontWeight: 600,
                   letterSpacing: "-.005em",
                   textAlign: "left",
@@ -1934,147 +2103,142 @@ window.__ModuleLoader__.load({
           ),
           h(
             "div",
-            { style: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0, marginTop: "5px", flexWrap: "wrap", overflowWrap: "anywhere" } },
-            isDefect(item) ? h(DefectPill, null) : h("span", { style: { fontSize: "11px", color: T.text2, whiteSpace: "nowrap" } }, isChatSource(item) ? "\u{1F4AC} \u5BF9\u8BDD\u751F\u6210" : isFeedbackSource(item) ? "\u53CD\u9988" : "\u270D\uFE0F \u624B\u52A8\u521B\u5EFA"),
-            h(
-              "code",
-              { style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "11.5px", color: T.text2 } },
-              item.id
-            ),
-            h("span", { title: item.specConvergences?.length ? [...item.specConvergences].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote || "\u9700\u6C42\u5DF2\u6F14\u8FDB" : "\u9700\u6C42\u7248\u672C", tabIndex: 0, style: Number(item.revision) > 1 ? { color: "#8bd5f5", background: "rgba(63,160,205,.14)", border: "1px solid rgba(106,190,225,.4)", borderRadius: "999px", padding: "1px 7px", fontSize: "11px", whiteSpace: "nowrap" } : { color: T.text3, fontSize: "11px" } }, `v${item.revision ?? 1}${Number(item.revision) > 1 ? " \xB7 \u5DF2\u6F14\u8FDB" : ""}`),
-            item.pendingPatch ? h("span", { style: { color: T.warn, fontSize: "11px", fontWeight: 600 } }, "\u25CF \u5F85\u786E\u8BA4\u53D8\u66F4") : null,
-            githubLinks?.devBranchUrl ? h(GitHubLinkButton, { href: githubLinks.devBranchUrl, compact: true, title: "\u5728 GitHub \u67E5\u770B\u5F00\u53D1\u5206\u652F" }, `\u{1F33F} ${githubLinks.devBranch ?? "develop"}`) : null,
-            githubLinks?.mainBranchUrl && githubLinks.mainMergeCommitSha ? h(GitHubLinkButton, { href: githubLinks.mainBranchUrl, compact: true, title: "\u5728 GitHub \u67E5\u770B\u4E3B\u5E72\u5206\u652F" }, `\u2705 ${githubLinks.mainBranch ?? "main"}`) : null,
-            defect?.impact?.stage ? h("span", { style: { color: T.text3, fontSize: "11px" } }, `\u5931\u8D25\u4E8E${defectStageText(item)}`) : null,
-            defect && occurrences > 1 ? h("span", { style: { color: T.text2, fontSize: "11px", fontVariantNumeric: "tabular-nums" } }, `\xD7${occurrences}`) : null,
-            defect?.regressionSuspected ? h("span", { style: { color: T.warn, fontSize: "11px" } }, "\u7591\u4F3C\u56DE\u5F52") : null,
-            showProject && item.projectName ? h("span", { style: { color: T.text3, fontSize: "11px" } }, item.projectName) : null,
-            mobile ? h(DeliveryPill, { item }) : null,
-            mobile && check.label !== "\u5F85\u9A8C\u8BC1" ? h(
-              "span",
-              { style: { display: "inline-flex", alignItems: "center", gap: "5px", color: check.tone === "neutral" ? T.text2 : checkToneColor(check.tone), fontSize: "11.5px", fontWeight: 500 } },
-              h("span", { style: { width: "6px", height: "6px", borderRadius: "50%", background: checkToneColor(check.tone), flex: "none" } }),
-              check.label
-            ) : null
+            { style: { display: "flex", alignItems: "center", gap: "7px", minWidth: 0, marginTop: "4px", flexWrap: "wrap", overflowWrap: "anywhere" } },
+            ...meta.reduce((acc, node, index) => index === 0 ? [node] : acc.concat(h("span", { key: `sep-${index}`, "aria-hidden": "true", style: { color: T.line2, fontSize: "11px" } }, "\xB7"), node), [])
           ),
-          anomaly ? h(
-            "div",
-            { style: { marginTop: "3px", color: T.err, fontSize: "11.5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
-            anomaly
-          ) : item.duplicateCount > 1 ? null : null
+          anomaly ? h("div", { style: { marginTop: "3px", color: T.err, fontSize: "11.5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, anomaly) : null
         ),
-        mobile ? null : h("div", { role: "cell", style: listCell() }, h(DeliveryPill, { item })),
-        narrow || mobile ? null : h(
-          "div",
-          { role: "cell", style: listCell({ color: item.owner ? T.text2 : T.text3, fontSize: "12.5px" }) },
-          item.owner || "\u672A\u5206\u914D"
-        ),
-        narrow || mobile ? null : h(
-          "div",
-          {
-            role: "cell",
-            style: listCell({ color: (item.verifiedBy?.length ?? 0) > 0 ? T.text2 : T.text3, fontSize: "12.5px" }),
-            title: "\u9700\u6C42\u4E2D\u7684\u9A8C\u6536\u6807\u51C6\u6570\u91CF"
-          },
-          acceptanceLabel(item)
-        ),
-        mobile ? h(
-          "div",
-          { role: "cell", style: listCell({ justifyContent: "flex-end", gap: "6px" }) },
-          actionButton,
-          secondaryActions
-        ) : h(
-          "div",
-          { role: "cell", style: listCell({ flexDirection: "column", alignItems: "flex-start", gap: "2px" }) },
-          h("span", { title: "\u6700\u8FD1\u66F4\u65B0", style: { color: T.text2, fontSize: "12px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } }, item.updatedAt || item.createdAt ? formatLocalStamp(item.updatedAt ?? item.createdAt).slice(0, 16) : "\u2014"),
-          check.label !== "\u5F85\u9A8C\u8BC1" && ["verified", "failed"].includes(decision?.state) ? h("span", { style: { color: checkToneColor(check.tone), fontSize: "11px" } }, check.label) : null
-        ),
-        mobile ? null : h("div", { role: "cell", style: listCell({ justifyContent: "flex-end", gap: "6px" }) }, actionButton, secondaryActions)
+        // State and action share one cluster on the right: the pill says where
+        // the record stands, the button says what the reader can do about it.
+        h("div", { role: "cell", style: { display: "flex", alignItems: "center", gap: "8px", flex: "none" } }, h(DeliveryPill, { item }), actionButton, secondaryActions)
       );
     }
-    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, onAiReview, onAcceptance, onArchive, onRemove, duplicateCounts, emptyNode, stickyTop = 0, contained = false, onDefect }) {
-      const columns = listColumns(narrow, mobile);
-      const actionHandlers = { onOpen, onAiReview, onAcceptance, onArchive, onRemove, onDefect };
-      const headerCell = (label, extra) => h(
+    function RequirementBoard({ items, onOpen, narrow, mobile, showEmpty = false }) {
+      const lanes = LANES.filter(([id]) => id !== "done" || items.some((item) => workLane(item) === "done")).filter(([id]) => showEmpty ? true : items.some((item) => workLane(item) === id));
+      const columns = Math.max(1, Math.min(lanes.length, narrow || mobile ? mobile ? 1 : 2 : 4));
+      const card2 = (item) => {
+        const key = item.occurrenceKey ?? item.id;
+        const idle = isArchivedRequirement(item) ? null : idleDaysOf(item);
+        return h(
+          "div",
+          {
+            key,
+            "data-req": key,
+            role: "button",
+            tabIndex: 0,
+            onClick: () => onOpen(item),
+            onKeyDown: (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onOpen(item);
+              }
+            },
+            style: { border: `1px solid ${T.line}`, borderRadius: "8px", background: T.base, padding: "8px 9px", marginBottom: "6px", cursor: "pointer", minWidth: 0 }
+          },
+          h(
+            "div",
+            { style: { display: "flex", alignItems: "flex-start", gap: "6px" } },
+            h(
+              "span",
+              { style: { flex: "1 1 auto", minWidth: 0, color: T.text, fontSize: "12.5px", fontWeight: 600, lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } },
+              item.title
+            ),
+            workLane(item) === "need" ? h("span", { style: { flex: "none", borderRadius: "999px", padding: "0 5px", fontSize: "10px", color: T.warn, background: "rgba(231,176,75,.14)", border: "1px solid rgba(231,176,75,.35)" } }, "\u9700\u8981\u4F60") : null
+          ),
+          h(
+            "div",
+            { style: { display: "flex", alignItems: "center", gap: "7px", marginTop: "5px", flexWrap: "wrap", color: T.text3, fontSize: "11px" } },
+            h("code", { style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" } }, item.id),
+            h("span", null, item.owner || "\u672A\u5206\u914D"),
+            h("span", null, acceptanceLabel(item)),
+            idle !== null && idle >= 2 ? h("span", { style: { color: idle >= 5 ? T.err : T.warn } }, `${idle} \u5929\u6CA1\u52A8`) : null
+          )
+        );
+      };
+      return h(
         "div",
-        { role: "columnheader", style: { minWidth: 0, fontSize: "11px", color: T.text3, fontWeight: 500, letterSpacing: ".02em", ...extra } },
-        label
+        { "data-list-board": "true", style: { display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: "10px", paddingBottom: "12px" } },
+        lanes.map(([id, label, hint]) => {
+          const list = items.filter((item) => workLane(item) === id);
+          return h(
+            "div",
+            { key: id, "data-board-column": id, style: { background: T.layer, border: `1px solid ${T.line}`, borderRadius: "10px", padding: "8px", minHeight: "132px", minWidth: 0 } },
+            h(
+              "div",
+              { style: { display: "flex", alignItems: "baseline", gap: "7px", padding: "1px 3px 8px" } },
+              h("span", { style: { fontSize: "12px", fontWeight: 600, color: T.text } }, label),
+              h("span", { style: { fontSize: "11px", color: T.text3, fontVariantNumeric: "tabular-nums" } }, list.length),
+              h("span", { style: { fontSize: "11px", color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, hint)
+            ),
+            list.length ? list.map(card2) : h("p", { style: { margin: "4px 3px 8px", color: T.text3, fontSize: "11.5px" } }, "\u6CA1\u6709")
+          );
+        })
       );
+    }
+    function RequirementTable({ items, narrow, mobile, showProject, selectedKey, onOpen, onAiReview, onAcceptance, onArchive, onRemove, duplicateCounts, emptyNode, stickyTop = 0, contained = false, onDefect, grouped = false, picked = null, onTogglePick = null }) {
+      const actionHandlers = { onOpen, onAiReview, onAcceptance, onArchive, onRemove, onDefect };
+      const row2 = (item) => h(RequirementRow, {
+        key: item.occurrenceKey ?? item.id,
+        item,
+        narrow,
+        mobile,
+        showProject,
+        duplicateCounts,
+        actionHandlers,
+        selected: selectedKey === (item.occurrenceKey ?? item.id),
+        picked: Boolean(picked?.has(item.occurrenceKey ?? item.id)),
+        // Archived rows are history: selecting them for bulk work would offer
+        // actions that do not exist for a closed requirement.
+        onToggle: workLane(item) === "done" ? null : onTogglePick
+      });
+      const laneGroups = grouped ? LANES.map(([id, label, hint]) => ({ id, label, hint, list: items.filter((item) => workLane(item) === id) })).filter((lane) => lane.list.length > 0) : null;
       return h(
         "div",
         {
           role: "table",
           "aria-label": "\u9700\u6C42\u5217\u8868",
-          style: contained ? { overflow: "visible" } : { border: `1px solid ${T.line}`, borderRadius: "12px", background: T.layer, overflow: "visible" }
+          style: { overflow: "visible" }
         },
-        h(
-          "div",
-          {
-            role: "row",
-            style: {
-              display: "grid",
-              gridTemplateColumns: columns,
-              columnGap: "14px",
-              alignItems: "center",
-              padding: mobile ? "9px 14px" : "9px 18px",
-              background: contained ? T.layer : T.base,
-              borderBottom: `1px solid ${T.line}`,
-              borderTopLeftRadius: contained ? 0 : "12px",
-              borderTopRightRadius: contained ? 0 : "12px",
-              position: "sticky",
-              top: `${stickyTop}px`,
-              zIndex: 15
-            }
-          },
-          headerCell("\u9700\u6C42"),
-          mobile ? null : headerCell("\u4EA4\u4ED8\u72B6\u6001"),
-          narrow || mobile ? null : headerCell("\u8D1F\u8D23\u4EBA"),
-          narrow || mobile ? null : headerCell("\u9A8C\u6536\u6807\u51C6"),
-          mobile ? null : headerCell("\u6700\u8FD1\u66F4\u65B0"),
-          headerCell("\u64CD\u4F5C", { textAlign: "right" })
-        ),
-        items.length > 0 ? items.map(
-          (item) => h(RequirementRow, {
-            key: item.occurrenceKey ?? item.id,
-            item,
-            narrow,
-            mobile,
-            showProject,
-            duplicateCounts,
-            actionHandlers,
-            selected: selectedKey === (item.occurrenceKey ?? item.id)
-          })
-        ) : emptyNode ?? null
+        laneGroups ? laneGroups.map((lane) => [
+          h(
+            "div",
+            {
+              key: `lane-${lane.id}`,
+              "data-lane-header": lane.id,
+              style: { display: "flex", alignItems: "baseline", gap: "8px", padding: "14px 2px 9px" }
+            },
+            h("span", { "aria-hidden": "true", style: { width: "7px", height: "7px", borderRadius: "50%", background: laneTone(lane.id), alignSelf: "center", flex: "none" } }),
+            h("span", { style: { color: T.text, fontSize: "12.5px", fontWeight: 600 } }, lane.label),
+            h("span", { style: { color: T.text2, fontSize: "11px", fontVariantNumeric: "tabular-nums", background: T.layer2, borderRadius: "999px", padding: "0 7px", lineHeight: "16px" } }, lane.list.length),
+            h("span", { style: { color: T.text3, fontSize: "11.5px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, lane.hint)
+          ),
+          ...lane.list.map(row2)
+        ]) : items.length > 0 ? items.map(row2) : emptyNode ?? null
       );
     }
     function SkeletonTable({ narrow, mobile }) {
-      const columns = listColumns(narrow, mobile);
       const row2 = (index) => h(
         "div",
         {
           key: index,
-          style: { display: "grid", gridTemplateColumns: columns, columnGap: "14px", alignItems: "center", minHeight: mobile ? "76px" : "80px", padding: mobile ? "12px 14px" : "13px 18px", boxSizing: "border-box", borderTop: `1px solid ${T.line}` }
+          style: { display: "flex", alignItems: "flex-start", gap: "11px", minHeight: "64px", padding: mobile ? "10px 12px" : "11px 16px", boxSizing: "border-box", borderTop: `1px solid ${T.line}` }
         },
+        h("div", { style: { width: "15px", height: "15px", borderRadius: "4px", background: T.layer2, marginTop: "3px", flex: "none" } }),
         h(
           "div",
-          null,
-          h("div", { style: { width: `${48 + index * 17 % 30}%`, height: "12px", borderRadius: "5px", background: T.layer2 } }),
-          h("div", { style: { width: "110px", height: "9px", borderRadius: "4px", background: T.layer2, marginTop: "8px" } })
+          { style: { flex: "1 1 auto", minWidth: 0 } },
+          h("div", { style: { width: `${44 + index * 17 % 28}%`, height: "12px", borderRadius: "5px", background: T.layer2 } }),
+          h("div", { style: { width: "150px", height: "9px", borderRadius: "4px", background: T.layer2, marginTop: "9px" } })
         ),
-        mobile ? null : h("div", { style: { width: "58px", height: "18px", borderRadius: "999px", background: T.layer2 } }),
-        narrow || mobile ? null : h("div", { style: { width: "46px", height: "10px", borderRadius: "4px", background: T.layer2 } }),
-        narrow || mobile ? null : h("div", { style: { width: "34px", height: "10px", borderRadius: "4px", background: T.layer2 } }),
-        mobile ? null : h("div", { style: { width: "72px", height: "18px", borderRadius: "999px", background: T.layer2 } }),
-        h("div", { style: { justifySelf: "end", width: "46px", height: "22px", borderRadius: "6px", background: T.layer2 } })
+        h("div", { style: { width: "46px", height: "22px", borderRadius: "6px", background: T.layer2, flex: "none" } })
       );
       return h(
         "div",
         { "aria-busy": "true", "aria-label": "\u6B63\u5728\u8BFB\u53D6\u9700\u6C42", style: { border: `1px solid ${T.line}`, borderRadius: "12px", background: T.layer, overflow: "hidden" } },
-        h("div", { style: { height: "35px", borderBottom: `1px solid ${T.line}`, background: T.base } }),
-        [0, 1, 2, 3, 4, 5, 6, 7].map(row2)
+        [0, 1, 2, 3, 4, 5].map(row2)
       );
     }
-    function NoResults({ filter, keyword, source, onClear }) {
+    function NoResults({ filter, keyword, source, onClear, archivedMatches = 0, onShowArchived }) {
       return h(
         "div",
         { style: { textAlign: "center", padding: "54px 24px" } },
@@ -2082,7 +2246,7 @@ window.__ModuleLoader__.load({
         h(
           "p",
           { style: { margin: "7px 0 18px", color: T.text2, fontSize: "12.5px" } },
-          [filter !== "all" ? `\u89C6\u56FE\uFF1A${(FILTERS.find(([id]) => id === filter) ?? [])[1] ?? filter}` : null, source && source !== "all" ? `\u6765\u6E90\uFF1A${(SOURCE_FILTERS.find(([id]) => id === source) ?? [])[1] ?? source}` : null, keyword ? `\u641C\u7D22\uFF1A${keyword}` : null].filter(Boolean).join(" \xB7 ") || "\u5F53\u524D\u7B5B\u9009\u4E0B\u6CA1\u6709\u8BB0\u5F55\u3002"
+          [filter !== DEFAULT_REQUIREMENT_VIEW ? `\u89C6\u56FE\uFF1A${(FILTERS.find(([id]) => id === filter) ?? [])[1] ?? filter}` : null, source && source !== "all" ? `\u6765\u6E90\uFF1A${(SOURCE_FILTERS.find(([id]) => id === source) ?? [])[1] ?? source}` : null, keyword ? `\u641C\u7D22\uFF1A${keyword}` : null].filter(Boolean).join(" \xB7 ") || "\u5F53\u524D\u7B5B\u9009\u4E0B\u6CA1\u6709\u8BB0\u5F55\u3002"
         ),
         h(
           "button",
@@ -2092,7 +2256,22 @@ window.__ModuleLoader__.load({
             style: { border: `1px solid ${T.line2}`, background: T.layer2, color: T.text, borderRadius: "8px", padding: "6px 12px", fontSize: "12px", cursor: "pointer" }
           },
           "\u6E05\u9664\u7B5B\u9009"
-        )
+        ),
+        archivedMatches > 0 ? h(
+          "p",
+          { style: { margin: "16px 0 0", color: T.text3, fontSize: "12px" } },
+          `\u5F85\u529E\u91CC\u6CA1\u6709\uFF0C\u5DF2\u5F52\u6863\u91CC\u6709 ${archivedMatches} \u6761\u76F8\u7B26\u7684\u8BB0\u5F55\u3002`,
+          h(
+            "button",
+            {
+              type: "button",
+              "data-show-archived": "true",
+              onClick: onShowArchived,
+              style: { marginLeft: "6px", border: 0, padding: 0, background: "transparent", color: T.brand, fontSize: "12px", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: "2px" }
+            },
+            "\u53BB\u5DF2\u5F52\u6863\u67E5\u770B"
+          )
+        ) : null
       );
     }
     function AnomalyNotice({ anomalies, summary, expanded, anomalyOnly, onToggleExpanded, onToggleOnly, onOpen }) {
@@ -3455,7 +3634,7 @@ window.__ModuleLoader__.load({
       const ownDefect = defects.own ?? null;
       const relatedDefects = defects.related ?? [];
       const closedHistory = defects.closedHistory ?? [];
-      const acceptanceState = humanAcceptanceState(acceptance);
+      const acceptanceState2 = humanAcceptanceState(acceptance);
       const executionBrief = detail.executionBrief ?? null;
       const relationIds = relationRows(detail.record?.relations ?? []);
       const traceLink = h(TraceLink, { onClick: onTrace });
@@ -3466,7 +3645,7 @@ window.__ModuleLoader__.load({
           "section",
           { "data-delivery-outcome": "true", style: { padding: "16px 0 8px" } },
           h("h3", { style: { margin: "0 0 12px", fontSize: "15px", fontWeight: 600 } }, "\u4EA4\u4ED8\u7ED3\u679C"),
-          h(DetailRow, { label: "\u68C0\u67E5\u7ED3\u679C" }, h("span", { style: { color: acceptanceState.color } }, acceptanceState.label)),
+          h(DetailRow, { label: "\u68C0\u67E5\u7ED3\u679C" }, h("span", { style: { color: acceptanceState2.color } }, acceptanceState2.label)),
           acceptance.current === false ? h("p", { style: { color: T.warn, fontSize: "12.5px", lineHeight: 1.7 } }, "\u5DF2\u6709\u9A8C\u6536\u7ED3\u679C\u5DF2\u8FC7\u671F\uFF0C\u4E0D\u80FD\u4F5C\u4E3A\u672C\u6B21\u4EA4\u4ED8\u4F9D\u636E\u3002") : null,
           candidate.exists && candidate.current === false ? h("p", { style: { color: T.warn, fontSize: "12.5px", lineHeight: 1.7 } }, "\u4EA4\u4ED8\u5185\u5BB9\u53D1\u751F\u53D8\u5316\uFF0C\u9700\u8981\u91CD\u65B0\u6574\u7406\u5E76\u9A8C\u6536\u3002") : null,
           h(DetailRow, { label: "\u53D1\u5E03" }, release?.released ? "\u5DF2\u53D1\u5E03" : release?.status === "authorized" || release?.status === "releasing" ? "\u5DF2\u6388\u6743\uFF0C\u5C1A\u672A\u53D1\u5E03" : release?.status === "failed" ? "\u53D1\u5E03\u5931\u8D25" : "\u5C1A\u672A\u53D1\u5E03"),
@@ -3599,11 +3778,11 @@ window.__ModuleLoader__.load({
         ),
         h(
           DetailBlock,
-          { key: "acceptance", title: "\u9A8C\u6536\u6267\u884C", sectionId: "delivery-acceptance", anchor: "delivery-acceptance", aside: h("span", { style: { fontSize: "12px", color: acceptanceState.color } }, acceptanceState.label) },
+          { key: "acceptance", title: "\u9A8C\u6536\u6267\u884C", sectionId: "delivery-acceptance", anchor: "delivery-acceptance", aside: h("span", { style: { fontSize: "12px", color: acceptanceState2.color } }, acceptanceState2.label) },
           h(
             "div",
             { style: { display: "grid", gap: "1px" } },
-            h(DetailRow, { label: "\u7ED3\u679C" }, acceptanceState.label),
+            h(DetailRow, { label: "\u7ED3\u679C" }, acceptanceState2.label),
             h(DetailRow, { label: "\u662F\u5426\u9002\u7528" }, acceptance.current === true ? "\u9002\u7528\u4E8E\u5F53\u524D\u5019\u9009" : acceptance.current === false ? "\u5DF2\u4E0D\u9002\u7528\u4E8E\u5F53\u524D\u5019\u9009\uFF08\u8BC1\u636E\u8FC7\u671F\uFF09" : "\u65E0\u6CD5\u5224\u5B9A"),
             acceptance.finishedAt ? h(DetailRow, { label: "\u6700\u8FD1\u6267\u884C" }, formatLocalStamp(acceptance.finishedAt)) : null,
             acceptance.commandCount ? h(DetailRow, { label: "\u547D\u4EE4" }, `${acceptance.commandCount} \u6761`) : null,
@@ -3782,18 +3961,24 @@ window.__ModuleLoader__.load({
       for (const [id, text] of right) if (!left.has(id)) changes.push({ type: "added", id, after: text });
       else if (left.get(id) !== text) changes.push({ type: "modified", id, before: left.get(id), after: text });
       for (const [id, text] of left) if (!right.has(id)) changes.push({ type: "removed", id, before: text });
-      const fields = [["title", "\u6807\u9898"], ["goal", "\u9884\u671F\u53D8\u5316"], ["problem", "\u4EF7\u503C"]].flatMap(([field, label]) => {
+      const fields = [["title", "\u6807\u9898"], ["goal", "\u9884\u671F\u53D8\u5316"], ["problem", "\u8981\u89E3\u51B3\u7684\u95EE\u9898"]].flatMap(([field, label]) => {
         const a = delta.beforeDocument?.[field], b = delta.afterDocument?.[field];
         return typeof a === "string" && typeof b === "string" && a !== b ? [{ label, before: a, after: b }] : [];
       });
       const count = (type) => changes.filter((entry) => entry.type === type).length + (type === "modified" ? fields.length : 0);
-      const box = (label, value, color) => h("div", { style: { borderLeft: `3px solid ${color}`, padding: "6px 10px", whiteSpace: "pre-wrap", overflowWrap: "anywhere", background: T.layer } }, h("strong", null, label), " ", value || "\u2014");
+      const box = (sign, label, value, tone) => h(
+        "div",
+        { style: { borderLeft: `3px solid ${tone}`, padding: "6px 10px", whiteSpace: "pre-wrap", overflowWrap: "anywhere", background: tone === T.err ? "rgba(255,139,139,.08)" : "rgba(53,196,122,.08)", color: T.text } },
+        h("strong", { style: { color: tone, fontWeight: 600 } }, sign, " ", label),
+        " ",
+        value || "\u2014"
+      );
       return h(
         "div",
         { "data-visual-spec-diff": "true", style: { margin: "10px 0", padding: "12px", border: `1px solid ${T.line}`, borderRadius: "8px" } },
         h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px" } }, h("strong", null, `\u7248\u672C\u5BF9\u6BD4${delta.beforeRevision && delta.revision ? ` (v${delta.beforeRevision} \u2192 v${delta.revision})` : ""}`), h("span", { style: { color: T.ok } }, `+${count("added")} \u65B0\u589E`), h("span", { style: { color: T.warn } }, `~${count("modified")} \u4FEE\u6539`), h("span", { style: { color: T.err } }, `-${count("removed")} \u79FB\u9664`)),
-        fields.map((field) => h("div", { key: field.label, style: { marginBottom: "10px" } }, h("strong", null, field.label), box("\u4FEE\u6539\u524D\uFF1A", field.before, T.err), box("\u4FEE\u6539\u540E\uFF1A", field.after, T.ok))),
-        changes.map((change) => h("div", { key: change.id, style: { borderLeft: `3px solid ${change.type === "added" ? T.ok : change.type === "removed" ? T.err : T.warn}`, padding: "8px 10px", margin: "6px 0", background: T.layer, overflowWrap: "anywhere" } }, h("strong", { style: { color: change.type === "added" ? T.ok : change.type === "removed" ? T.err : T.warn } }, `${change.type === "added" ? "+ \u65B0\u589E" : change.type === "removed" ? "- \u79FB\u9664" : "~ \u4FEE\u6539"} ${change.id}`), change.type === "modified" ? h("div", null, box("\u4FEE\u6539\u524D\uFF1A", change.before, T.err), box("\u4FEE\u6539\u540E\uFF1A", change.after, T.ok)) : h("div", { style: { textDecoration: change.type === "removed" ? "line-through" : "none" } }, change.after ?? change.before))),
+        fields.map((field) => h("div", { key: field.label, style: { marginBottom: "10px" } }, h("strong", null, field.label), box("\u2212", "\u4FEE\u6539\u524D", field.before, T.err), box("+", "\u4FEE\u6539\u540E", field.after, T.ok))),
+        changes.map((change) => h("div", { key: change.id, style: { borderLeft: `3px solid ${change.type === "added" ? T.ok : change.type === "removed" ? T.err : T.warn}`, padding: "8px 10px", margin: "6px 0", background: change.type === "added" ? "rgba(53,196,122,.06)" : change.type === "removed" ? "rgba(255,139,139,.06)" : T.layer, overflowWrap: "anywhere" } }, h("strong", { style: { color: change.type === "added" ? T.ok : change.type === "removed" ? T.err : T.warn } }, `${change.type === "added" ? "+ \u65B0\u589E" : change.type === "removed" ? "- \u79FB\u9664" : "~ \u4FEE\u6539"} ${change.id}`), change.type === "modified" ? h("div", null, box("\u2212", "\u4FEE\u6539\u524D", change.before, T.err), box("+", "\u4FEE\u6539\u540E", change.after, T.ok)) : h("div", { style: { padding: "4px 2px", textDecoration: change.type === "removed" ? "line-through" : "none", color: change.type === "removed" ? T.err : T.ok } }, change.after ?? change.before))),
         !fields.length && !changes.length ? h("p", { style: DETAIL_SMALL }, "\u672C\u6B21\u672A\u8BB0\u5F55\u53EF\u5C55\u793A\u7684\u9700\u6C42\u6216\u9A8C\u6536\u53D8\u66F4\u3002") : null
       );
     }
@@ -3864,7 +4049,9 @@ window.__ModuleLoader__.load({
             h("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, h("span", { style: { color: appearance.color, background: T.layer2, border: `1px solid ${appearance.color}`, borderRadius: "999px", padding: "1px 7px", fontSize: "11px", fontWeight: 600 } }, appearance.label), h("time", { dateTime: entry.at, style: { color: T.text3, fontSize: "11px", flex: "none" } }, formatLocalStamp(entry.at))),
             h("div", { style: { color: T.text, marginTop: "3px", fontWeight: 600, overflowWrap: "anywhere" } }, entry.title ?? entry.kind ?? "\u4E8B\u4EF6"),
             entry.detail ? h("div", { style: { color: T.text3, fontSize: "11.5px", marginTop: "3px", overflowWrap: "anywhere" } }, entry.detail) : null,
-            entry.specDelta ? h("details", { style: { marginTop: "7px" } }, h("summary", { style: { cursor: "pointer" } }, "\u67E5\u770B\u9700\u6C42\u4E0E\u9A8C\u6536\u53D8\u66F4"), h(VisualSpecDiff, { delta: entry.specDelta })) : null
+            // The newest change is the reason this tab was opened; showing the
+            // diff without a click saves a step and reads like a commit.
+            entry.specDelta ? h("details", { open: index === 0, "data-spec-delta": "true", style: { marginTop: "7px" } }, h("summary", { style: { cursor: "pointer" } }, "\u9700\u6C42\u4E0E\u9A8C\u6536\u53D8\u66F4"), h(VisualSpecDiff, { delta: entry.specDelta })) : null
           );
         })) : h("p", { style: DETAIL_SMALL }, "\u6682\u65E0\u5386\u53F2\u8BB0\u5F55\u3002")
       );
@@ -4039,8 +4226,8 @@ window.__ModuleLoader__.load({
         addLegacy(doc.goal, "\u9884\u671F\u53D8\u5316");
         addLegacy(doc.problem, "\u4EF7\u503C");
       } else {
+        add("\u8981\u89E3\u51B3\u7684\u95EE\u9898", doc.problem);
         add("\u9884\u671F\u53D8\u5316", doc.goal);
-        add("\u4EF7\u503C", doc.problem);
       }
       return blocks.sort((a, b) => Number(b.title === "\u9884\u671F\u53D8\u5316") - Number(a.title === "\u9884\u671F\u53D8\u5316"));
     }
@@ -4079,7 +4266,7 @@ window.__ModuleLoader__.load({
       const blocks = humanDescriptionBlocks(model);
       const paragraph = { margin: "6px 0 0", fontSize: "15px", color: T.text2, lineHeight: 1.8, overflowWrap: "anywhere" };
       const preview = (value) => String(value ?? "").replace(/^#{1,6}\s+/gm, "").replace(/^>\s?/gm, "").replace(/^\s*(?:[-*]|\d+\.)\s+/gm, "").replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").trim();
-      const rows = (label, values) => values.length ? h("div", { style: { marginTop: "16px" } }, h("h3", { style: { margin: 0, fontSize: "13px", color: T.text } }, label), h("ul", { style: { ...paragraph, paddingLeft: "20px" } }, values.map((text, index) => h("li", { key: index }, text)))) : null;
+      const rows = (label, values, anchor) => values.length ? h("div", { ...anchor ? { [anchor]: "true" } : {}, style: { marginTop: "16px" } }, h("h3", { style: { margin: 0, fontSize: "13px", color: T.text } }, label), h("ul", { style: { ...paragraph, paddingLeft: "20px" } }, values.map((text, index) => h("li", { key: index }, text)))) : null;
       return h(
         "div",
         { "data-human-description": "true" },
@@ -4102,9 +4289,9 @@ window.__ModuleLoader__.load({
             feature.preconditions?.length || feature.response || feature.boundaries?.length ? h("details", { style: { marginTop: "4px" } }, h("summary", { style: { color: T.text3, fontSize: "12px", cursor: "pointer" } }, "\u9002\u7528\u6761\u4EF6\u4E0E\u8FB9\u754C"), rows("\u9002\u7528\u6761\u4EF6", draftList(feature.preconditions)), feature.response ? h("p", { style: paragraph }, draftText(feature.response)) : null, rows("\u8FB9\u754C", draftList(feature.boundaries))) : null
           ))
         ) : null,
-        rows("\u672C\u6B21\u8303\u56F4", scope),
-        rows("\u672C\u6B21\u4E0D\u5305\u542B", excluded),
-        rows("\u5FC5\u987B\u9075\u5B88", constraints),
+        rows("\u672C\u6B21\u8303\u56F4", scope, "data-detail-scope"),
+        rows("\u8FD9\u6B21\u4E0D\u505A", excluded, "data-detail-excluded"),
+        rows("\u5FC5\u987B\u9075\u5B88", constraints, "data-detail-constraints"),
         pending.length ? h("div", { "data-detail-pending": "true", style: { marginTop: "20px", borderLeft: `2px solid ${T.warn}`, paddingLeft: "12px" } }, h("strong", { style: { fontSize: "13px" } }, "\u5F85\u786E\u8BA4\u7684\u4E1A\u52A1\u95EE\u9898"), h("ul", { style: { ...paragraph, paddingLeft: "20px" } }, pending.map((entry, index) => h("li", { key: index }, typeof entry === "string" ? entry : draftText(entry.text))))) : null
       );
     }
@@ -4119,30 +4306,109 @@ window.__ModuleLoader__.load({
         return byNumber || String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
       });
       const statusMeta2 = (status) => {
-        if (status === "accepted") return { label: "\u{1F7E2} \u5DF2\u9A8C\u6536", color: T.ok };
-        if (status === "verified") return { label: "\u{1F7E2} \u5DF2\u9A8C\u8BC1\uFF08\u5F85\u7B7E\u6536\uFF09", color: T.ok };
-        if (status === "passed") return { label: "\u5DF2\u901A\u8FC7", color: T.ok };
-        if (status === "failed") return { label: "\u672A\u901A\u8FC7", color: T.err };
-        return { label: "\u5F85\u9A8C\u8BC1", color: T.text3 };
+        if (status === "accepted") return { label: "\u5DF2\u9A8C\u6536", color: T.ok, passed: true };
+        if (status === "verified") return { label: "\u5DF2\u9A8C\u8BC1 \xB7 \u5F85\u7B7E\u6536", color: T.ok, passed: true };
+        if (status === "passed") return { label: "\u5DF2\u901A\u8FC7", color: T.ok, passed: true };
+        if (status === "failed") return { label: "\u672A\u901A\u8FC7", color: T.err, passed: false };
+        return { label: "\u5F85\u9A8C\u8BC1", color: T.text3, passed: false };
       };
+      const row2 = (entry, index) => h(
+        "div",
+        { key: entry.id ?? index, "data-detail-ac": entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`, style: { border: `1px solid ${T.line}`, borderRadius: "9px", padding: "5px 10px", minWidth: 0, fontSize: "12.5px", lineHeight: 1.55 } },
+        h("div", { style: { display: "flex", justifyContent: "space-between", gap: "12px", color: T.text2, fontSize: "12px" } }, h("strong", null, entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`), (() => {
+          const status = statusMeta2(entry.status);
+          return h("span", { style: { color: status.color } }, status.label);
+        })()),
+        h("div", { style: { marginTop: "5px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, entry.text || entry.title || entry.expected || "\u5F85\u8865\u5145")
+      );
+      const open = criteria.filter((entry) => !statusMeta2(entry.status).passed);
+      const closed = criteria.filter((entry) => statusMeta2(entry.status).passed);
+      const caption = criteria.length ? [`${criteria.length} \u9879`, ...closed.length ? [`${closed.length} \u9879\u5DF2\u901A\u8FC7`] : [], ...open.length ? [`${open.length} \u9879${open.some((entry) => entry.status === "failed") ? "\u672A\u901A\u8FC7\u6216" : ""}\u5F85\u9A8C\u8BC1`] : []].join(" \xB7 ") : null;
       return h(
         "section",
         { "data-human-verification": "true", style: { marginTop: "14px", paddingTop: "12px", borderTop: `1px solid ${T.line}` } },
-        h("h2", { style: { fontSize: "16px", margin: 0 } }, "\u9A8C\u6536\u6807\u51C6"),
-        criteria.length ? h("div", { "data-human-acceptance": "true", style: { display: "grid", gap: "6px", marginTop: "8px" } }, criteria.map((entry, index) => h(
+        h(
+          "h2",
+          { style: { fontSize: "16px", margin: 0 } },
+          "\u5B8C\u6210\u7684\u6807\u51C6",
+          caption ? h("span", { "data-human-verification-count": caption, style: { marginLeft: "8px", fontSize: "12px", fontWeight: 400, color: T.text3 } }, caption) : null
+        ),
+        criteria.length ? h(
           "div",
-          { key: entry.id ?? index, "data-detail-ac": entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`, style: { border: `1px solid ${T.line}`, borderRadius: "10px", padding: "8px 12px", minWidth: 0 } },
-          h("div", { style: { display: "flex", justifyContent: "space-between", gap: "12px", color: T.text2, fontSize: "12px" } }, h("strong", null, entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`), (() => {
-            const status = statusMeta2(entry.status);
-            return h("span", { style: { color: status.color } }, status.label);
-          })()),
-          h("div", { style: { marginTop: "5px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, entry.text || entry.title || entry.expected || "\u5F85\u8865\u5145")
-        ))) : h("p", { style: { color: T.text2 } }, "\u6682\u65E0\u9A8C\u6536\u6807\u51C6\u3002")
+          { "data-human-acceptance": "true", style: { display: "grid", gap: "6px", marginTop: "8px" } },
+          ...open.map(row2),
+          closed.length ? h(
+            "details",
+            { key: "passed-folds", "data-passed-acceptance": "true", style: { marginTop: "2px" } },
+            h("summary", { style: { cursor: "pointer", color: T.text2, fontSize: "12.5px", padding: "4px 0" } }, `${closed.length} \u9879\u5DF2\u901A\u8FC7`, h("span", { style: { marginLeft: "6px", color: T.text3 } }, "\u70B9\u5F00\u770B\u8BC1\u636E")),
+            h("div", { style: { display: "grid", gap: "6px", marginTop: "6px" } }, ...closed.map(row2))
+          ) : null
+        ) : h("p", { style: { color: T.text2 } }, "\u6682\u65E0\u9A8C\u6536\u6807\u51C6\u3002")
       );
     }
     const HUMAN_CONTROL = { ...button, minHeight: "40px", padding: "8px 14px", fontSize: "14px", fontWeight: 500, lineHeight: 1.5, color: T.text, border: `1px solid ${T.line2}`, background: T.layer };
     const DETAIL_MENU_ITEM = { ...HUMAN_CONTROL, width: "100%", textAlign: "left", border: 0, background: "transparent", minHeight: "36px", padding: "7px 10px" };
     const HUMAN_PRIMARY = { ...primary, minHeight: "44px", padding: "10px 20px", fontSize: "14px", fontWeight: 600 };
+    function DetailStatusBand({ detail, matter, handlers, pendingId, onGotoProgress, showProgressLink }) {
+      const context = detail?.context ?? {};
+      const tone = context.tone === "danger" ? "danger" : context.tone === "attention" ? "warn" : "quiet";
+      const palette = tone === "danger" ? { bg: "rgba(255,139,139,.07)", border: "rgba(255,139,139,.28)", fg: T.err } : tone === "warn" ? { bg: "rgba(231,176,75,.07)", border: "rgba(231,176,75,.26)", fg: T.warn } : { bg: T.layer, border: T.line, fg: T.text2 };
+      const action = matter?.action ?? null;
+      const runnable = action && action.enabled !== false && handlers?.[action.id] ? action : null;
+      const pending = runnable ? pendingId?.(runnable.id) : null;
+      return h(
+        "section",
+        {
+          "data-detail-band": context.kind ?? "unknown",
+          "data-tone": tone,
+          "aria-label": `\u5F53\u524D\u72B6\u6001\uFF1A${context.headline ?? "\u672A\u77E5"}`,
+          style: { display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap", width: "100%", boxSizing: "border-box", margin: "0 0 20px", padding: "12px 14px", border: `1px solid ${palette.border}`, borderLeft: `3px solid ${palette.fg}`, borderRadius: "10px", background: palette.bg }
+        },
+        h(
+          "div",
+          { style: { minWidth: 0, flex: "1 1 260px" } },
+          h("div", { style: { color: palette.fg, fontSize: "13px", fontWeight: 600 } }, context.headline ?? "\u6682\u65E0\u5F85\u529E"),
+          context.explanation ? h("p", { style: { margin: "3px 0 0", color: T.text2, fontSize: "12.5px", lineHeight: 1.65 } }, context.explanation) : null
+        ),
+        runnable ? h("button", { type: "button", style: HUMAN_PRIMARY, disabled: Boolean(pending), "data-band-action": runnable.id, onClick: () => handlers[runnable.id]() }, pending?.short ?? runnable.label ?? "\u7EE7\u7EED") : null,
+        showProgressLink ? h("button", { type: "button", onClick: onGotoProgress, style: { ...HUMAN_CONTROL, minHeight: "40px" } }, "\u53BB AI \u8FDB\u5C55") : null
+      );
+    }
+    const DELIVERY_STAGES = [
+      ["clarify", "\u9700\u6C42\u6F84\u6E05"],
+      ["build", "AI \u5B9E\u73B0"],
+      ["verify", "\u6280\u672F\u9A8C\u8BC1"],
+      ["accept", "\u4F60\u9A8C\u6536"],
+      ["release", "\u4E0A\u7EBF"]
+    ];
+    function stageIndexOf(item, detail) {
+      const delivery = deliveryOf(item);
+      if (delivery.key === "accepted" || delivery.key === "closed") return item.releasedAt ? 4 : 3;
+      if (delivery.key === "awaiting-acceptance") return 3;
+      if (isExecutingRequirement(item) || delivery.key === "in-progress") return 1;
+      if (detail?.summaries?.acceptance?.latest) return 2;
+      return 0;
+    }
+    function DeliveryStage({ item, detail }) {
+      const current = stageIndexOf(item, detail);
+      return h(
+        "div",
+        { "data-delivery-stage": DELIVERY_STAGES[current][0], style: { display: "flex", alignItems: "center", gap: "0", flexWrap: "wrap", padding: "12px 14px", marginBottom: "14px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
+        DELIVERY_STAGES.map(([id, label], index) => {
+          const done = index < current;
+          const active = index === current;
+          const color = active ? T.text : done ? T.text2 : T.text3;
+          return h(
+            "div",
+            { key: id, "data-stage": id, "data-stage-state": active ? "current" : done ? "done" : "todo", style: { display: "flex", alignItems: "center", gap: "7px", minWidth: 0, flex: "0 1 auto" } },
+            h("span", { "aria-hidden": "true", style: { width: "7px", height: "7px", borderRadius: "50%", flex: "none", background: active ? T.brand : done ? T.ok : "transparent", border: `1.5px solid ${active ? T.brand : done ? T.ok : T.line2}` } }),
+            h("span", { style: { color, fontSize: "12px", fontWeight: active ? 600 : 400, whiteSpace: "nowrap" } }, label),
+            index === DELIVERY_STAGES.length - 1 ? null : h("span", { "aria-hidden": "true", style: { width: "18px", height: "1px", background: T.line2, margin: "0 8px", flex: "none" } })
+          );
+        }),
+        h("span", { style: { marginLeft: "auto", color: T.text3, fontSize: "11.5px", whiteSpace: "nowrap" } }, "\u9636\u6BB5\u53EA\u6807\u4F4D\u7F6E\uFF0C\u8FDB\u5EA6\u770B\u901A\u8FC7\u4E86\u51E0\u9879\u9A8C\u6536")
+      );
+    }
     function IterationFeedback({ item, root, onRefresh, onPatch }) {
       const [feedback, setFeedback] = useState("");
       const [localPatch, setLocalPatch] = useState(null);
@@ -5195,7 +5461,7 @@ ${text}`)) continue;
         "section",
         { "data-detail-shell": "true", "data-detail-page": "v4", onPointerDownCapture: cancelPendingFocus, onKeyDownCapture: cancelPendingFocus, onKeyDown: onTabKeyDown, style: { height: "100%", minHeight: 0, display: "flex", flexDirection: "column", background: T.base, minWidth: 0 } },
         h("style", null, `[data-detail-page] .v4-reading{box-sizing:border-box;width:100%;max-width:864px;margin:0 auto;padding:24px 32px 48px;font-size:16px;line-height:1.6;overflow-wrap:anywhere;}@container (max-width:959px){[data-detail-page] .v4-reading{padding-left:24px;padding-right:24px}}@container (max-width:639px){[data-detail-page] .v4-reading{padding-left:16px;padding-right:16px}}[data-detail-page] button:focus-visible,[data-detail-page] input:focus-visible,[data-detail-page] textarea:focus-visible,[data-detail-page] summary:focus-visible,[data-detail-page] h1:focus-visible,[data-detail-page] h2:focus-visible,[data-detail-page] [data-detail-anchor]:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] button:disabled{opacity:.5;cursor:not-allowed}[data-detail-page] [data-detail-section] h4{font-size:15px!important;color:${T.text}!important}[data-detail-page] [data-detail-section]{font-size:16px!important;line-height:1.6!important}[data-detail-page] [data-detail-section]>summary{min-height:44px;align-items:center!important;font-size:14px}[data-detail-page] [data-detail-section]>summary h3{font-size:14px!important}[data-detail-page] [data-detail-section] button{min-height:40px;font-size:13px!important;padding:8px 12px!important;color:${T.text}!important;border:1px solid ${T.line2}!important;border-radius:7px}[data-detail-page] [data-detail-section] button:disabled{color:${T.text3}!important}[data-detail-page] [data-detail-section] summary{cursor:pointer}[data-detail-page] [data-detail-section] summary::marker{color:${T.text2}}`),
-        h("style", null, `[data-detail-page] select:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] [data-human-long]:has(> details[open]) > [data-human-excerpt]{display:none}[data-detail-page] .v4-reading{max-width:1280px!important;margin-left:0!important;margin-right:0!important;padding-left:24px!important;padding-right:24px!important}[data-detail-page] .detail-columns{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:32px;align-items:start}[data-detail-page] .requirement-body{display:flex;flex-direction:column}[data-detail-page] .requirement-body>[data-detail-description]{display:contents}[data-detail-page] .requirement-body [data-description-source]{order:3}[data-detail-page] .requirement-body>[data-human-verification]{order:1}[data-detail-page] .requirement-body>[data-iteration-feedback]{order:2}[data-detail-page] .description-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}[data-detail-page] #v4-more-actions button:hover{background:${T.layer}}[data-detail-page] .detail-sidebar{border:1px solid ${T.line};border-radius:10px;background:${T.layer};padding:12px 14px;position:sticky;top:0}@container (max-width:800px){[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr)}[data-detail-page] .detail-sidebar{position:static}[data-detail-page] .description-cards{grid-template-columns:minmax(0,1fr)}}`),
+        h("style", null, `[data-detail-page] select:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] [data-human-long]:has(> details[open]) > [data-human-excerpt]{display:none}[data-detail-page] .v4-reading{max-width:1280px!important;margin-left:0!important;margin-right:0!important;padding-left:24px!important;padding-right:24px!important}[data-detail-page] .detail-columns{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:32px;align-items:start}[data-detail-page] .requirement-body{display:flex;flex-direction:column}[data-detail-page] .requirement-body>[data-detail-description]{display:contents}[data-detail-page] .requirement-body [data-human-description]{display:contents}[data-detail-page] .requirement-body [data-description-source]{order:6}[data-detail-page] .requirement-body>[data-human-verification]{order:2}[data-detail-page] .requirement-body>[data-iteration-feedback]{order:5}[data-detail-page] .requirement-body [data-detail-excluded]{order:3}[data-detail-page] .requirement-body [data-detail-constraints]{order:4}[data-detail-page] .requirement-body [data-description-tools]{order:4}[data-detail-page] .description-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}[data-detail-page] #v4-more-actions button:hover{background:${T.layer}}[data-detail-page] .detail-sidebar{border:1px solid ${T.line};border-radius:10px;background:${T.layer};padding:12px 14px;position:sticky;top:0}@container (max-width:800px){[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr)}[data-detail-page] .detail-sidebar{position:static}[data-detail-page] .description-cards{grid-template-columns:minmax(0,1fr)}}`),
         h(
           "nav",
           { "aria-label": "\u9700\u6C42\u5BFC\u822A", style: { flexShrink: 0, display: "flex", alignItems: "center", gap: "8px", padding: "12px 16px", borderBottom: `1px solid ${T.line}` } },
@@ -5242,8 +5508,10 @@ ${text}`)) continue;
             { className: "v4-reading", "data-progress-reading": tab === "delivery" ? "true" : void 0 },
             h("div", { "data-detail-id": item.id, style: { fontSize: "12px", color: T.text3, marginBottom: "8px", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } }, h("span", null, item.id, " \xB7 ", h("span", { "data-detail-revision": String(viewRevision) }, `v${viewRevision}`)), h("span", { style: { border: `1px solid ${T.line2}`, borderRadius: "999px", padding: "2px 8px", color: T.text2 } }, item.delivery?.label ?? detail.summaries?.delivery?.label ?? "\u5F85\u63A8\u8FDB")),
             h("h1", { ref: titleRef, tabIndex: -1, id: detailTitleId(item), style: { fontFamily: "inherit", fontSize: "20px", fontWeight: 600, lineHeight: 1.45, letterSpacing: 0, margin: "0 0 18px" } }, item.title),
+            detailSubtitle(displayItem) ? h("p", { "data-detail-subtitle": "true", style: { margin: "-10px 0 16px", color: T.text2, fontSize: "13px", lineHeight: 1.7, maxWidth: "72ch" } }, detailSubtitle(displayItem)) : null,
             refreshStatus ? h("p", { role: refreshStatus.error ? "alert" : "status", "data-detail-refresh-status": "true", style: { margin: "-8px 0 14px", fontSize: "13px", color: refreshStatus.error ? T.err : T.text2 } }, refreshStatus.text) : null,
             pendingAction ? h("p", { role: "status", "aria-live": "polite", "data-detail-pending-action": pendingAction.id, style: { margin: "-8px 0 14px", padding: "8px 12px", border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.brand}`, borderRadius: "8px", background: T.layer, fontSize: "13px", color: T.text2 } }, pendingAction.text) : null,
+            h(DetailStatusBand, { detail, matter, handlers, pendingId: pendingFor, onGotoProgress: () => navigate("delivery"), showProgressLink: tab !== "delivery" }),
             displayItem.pendingPatch && (tab === "requirement" || tab === "delivery") ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
             h("div", { className: "detail-columns" }, h("div", { style: { minWidth: 0 } }, tab !== "requirement" ? h(
               "div",
@@ -5257,12 +5525,21 @@ ${text}`)) continue;
               } }) : h(
                 "div",
                 null,
+                h(DeliveryStage, { item, detail }),
                 !(detail.summaries?.run?.exists || item.run?.id || selectedRunId || detail.summaries?.candidate?.exists || item.candidate?.exists || detail.question || matter.kind === "decision") ? h(
                   "section",
-                  { "data-progress-not-started": "true", style: { padding: "24px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
-                  h("h2", { style: { margin: "0 0 8px", fontSize: "18px" } }, "\u5F85\u542F\u52A8 AI \u63A8\u8FDB"),
-                  h("p", { style: { color: T.text2, lineHeight: 1.7 } }, "\u542F\u52A8\u540E AI \u5C06\u5728\u6388\u6743\u8303\u56F4\u5185\u81EA\u52A8\u5B8C\u6210\u4EE3\u7801\u5B9E\u73B0\u4E0E\u9A8C\u8BC1\uFF0C\u9047\u5230\u4E1A\u52A1\u53D6\u820D\u6216\u9700\u6C42\u53D8\u66F4\u65F6\u4F1A\u5411\u4F60\u53D1\u8D77\u786E\u8BA4\u3002"),
-                  handlers[matter.action?.id] ? h("button", { type: "button", style: HUMAN_PRIMARY, disabled: matter.action?.enabled === false, onClick: () => handlers[matter.action.id]() }, "\u4EA4\u7ED9 AI \u63A8\u8FDB") : null
+                  { "data-progress-not-started": "true", style: { padding: "20px 22px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
+                  h("h2", { style: { margin: "0 0 8px", fontSize: "16px" } }, "\u8FD8\u6CA1\u4EA4\u7ED9 AI"),
+                  h("p", { style: { margin: 0, color: T.text2, lineHeight: 1.7, fontSize: "13.5px" } }, "\u9700\u6C42\u5DF2\u7ECF\u6574\u7406\u597D\uFF0C\u968F\u65F6\u53EF\u4EE5\u5F00\u59CB\u3002\u5F00\u59CB\u540E AI \u5728\u6388\u6743\u8303\u56F4\u5185\u81EA\u5DF1\u6539\u4EE3\u7801\u3001\u81EA\u5DF1\u8DD1\u9A8C\u8BC1\uFF1B\u9047\u5230\u4E1A\u52A1\u53D6\u820D\u6216\u8981\u6539\u9700\u6C42\u65F6\u4F1A\u505C\u4E0B\u6765\u95EE\u4F60\uFF0C\u4E0D\u9700\u8981\u4F60\u76EF\u7740\u3002"),
+                  handlers[matter.action?.id] ? h("button", { type: "button", style: { ...HUMAN_PRIMARY, marginTop: "12px" }, disabled: matter.action?.enabled === false, onClick: () => handlers[matter.action.id]() }, "\u4EA4\u7ED9 AI \u63A8\u8FDB") : null,
+                  h("h3", { style: { margin: "18px 0 6px", fontSize: "13px", color: T.text } }, "\u63A5\u4E0B\u6765\u4F1A\u53D1\u751F\u4EC0\u4E48"),
+                  h(
+                    "ol",
+                    { style: { margin: 0, paddingLeft: "20px", color: T.text2, fontSize: "13px", lineHeight: 1.85 } },
+                    h("li", null, "AI \u5148\u8BFB\u9700\u6C42\u4E0E\u9A8C\u6536\u6807\u51C6\uFF0C\u786E\u8BA4\u8FD9\u6B21\u8981\u505A\u5230\u4EC0\u4E48"),
+                    h("li", null, "\u6309\u9501\u5B9A\u7684\u6A21\u5757\u6539\u4EE3\u7801\uFF0C\u5E76\u53EA\u8DD1\u76F8\u5173\u7684\u5B9A\u5411\u9A8C\u8BC1"),
+                    h("li", null, "\u5361\u5728\u4E1A\u52A1\u53D6\u820D\u4E0A\u4F1A\u56DE\u6765\u95EE\u4F60\uFF1B\u8DD1\u5B8C\u8FDB\u5165\u300C\u5F85\u9A8C\u6536\u300D\uFF0C\u7B49\u4F60\u786E\u8BA4")
+                  )
                 ) : h(
                   "div",
                   null,
@@ -5282,8 +5559,24 @@ ${text}`)) continue;
               !displayItem.pendingPatch ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null
             )), h(
               "aside",
-              { className: "detail-sidebar", "aria-label": "\u9700\u6C42\u5C5E\u6027" },
-              h("h2", { style: { fontSize: "15px", margin: "0 0 8px" } }, "\u9700\u6C42\u5C5E\u6027"),
+              { className: "detail-sidebar", "aria-label": "\u9700\u6C42\u72B6\u6001", "data-detail-rail": "true" },
+              h(
+                "div",
+                {
+                  "data-rail-need": needsHuman(item) ? "yes" : "no",
+                  style: needsHuman(item) ? { borderRadius: "7px", padding: "9px 10px", marginBottom: "12px", background: "rgba(231,176,75,.08)", border: "1px solid rgba(231,176,75,.28)", color: T.warn, fontSize: "12.5px", lineHeight: 1.6 } : { borderRadius: "7px", padding: "9px 10px", marginBottom: "12px", background: "rgba(53,196,122,.06)", border: "1px solid rgba(53,196,122,.22)", color: T.ok, fontSize: "12.5px", lineHeight: 1.6 }
+                },
+                h("b", { style: { display: "block", fontSize: "13px", marginBottom: "2px", color: T.text } }, needsHuman(item) ? "\u9700\u8981\u4F60" : "\u4E0D\u9700\u8981\u4F60"),
+                needsHuman(item) ? matter.explanation ?? matter.headline ?? "\u7B49\u4F60\u56DE\u7B54\u6216\u786E\u8BA4\u540E AI \u624D\u80FD\u7EE7\u7EED\u3002" : "AI \u4F1A\u7EE7\u7EED\u63A8\u8FDB\uFF1B\u8DD1\u5B8C\u6216\u5361\u4F4F\u90FD\u4F1A\u56DE\u5230\u5217\u8868\u63D0\u9192\u4F60\u3002"
+              ),
+              h("h2", { style: { margin: "0 0 4px", fontSize: "12px", color: T.text3, fontWeight: 500, letterSpacing: ".02em" } }, "\u4E0B\u4E00\u6B65"),
+              h(
+                "p",
+                { "data-rail-next": "true", style: { margin: "0 0 10px", color: T.text2, fontSize: "12.5px", lineHeight: 1.7 } },
+                matter.action?.label ?? (needsHuman(item) ? "\u7B49\u4F60\u5904\u7406" : "\u7B49 AI \u63A8\u8FDB")
+              ),
+              h("div", { style: { height: "1px", background: T.line, margin: "10px 0" } }),
+              h("h2", { style: { margin: "0 0 4px", fontSize: "12px", color: T.text3, fontWeight: 500, letterSpacing: ".02em" } }, "\u9700\u6C42\u5C5E\u6027"),
               ...sidebarRows
             ))
           )
@@ -5315,6 +5608,14 @@ ${text}`)) continue;
         },
         entry.label
       );
+    }
+    function detailSubtitle(item) {
+      const doc = item?.detailView?.content?.doc ?? item?.docView?.doc ?? null;
+      const raw = String(doc?.problem ?? doc?.goal ?? "").trim();
+      if (!raw) return null;
+      const first = raw.split(/\n+/)[0].replace(/^#{1,6}\s*/, "").replace(/^[-*]\s+/, "").trim();
+      if (!first) return null;
+      return first.length > 96 ? `${first.slice(0, 96)}\u2026` : first;
     }
     function descriptionHasBody(doc) {
       if (!doc || typeof doc !== "object") return false;
@@ -11803,38 +12104,33 @@ ${text}`);
         );
       };
       const simpleReview = () => activeItems().length === 1 && routeOf(activeItems()[0]) === "create" && !(activeItems()[0].unknowns ?? []).some((entry) => entry.blocking && (!entry.resolution || entry.resolution === "pending" || entry.resolution === "investigate")) && simpleDraft;
-      const grillIsValue = /拷问|grill/i.test(`${simpleDraft?.title ?? ""} ${simpleDraft?.goal ?? ""}`);
-      const selfHealingIntent = /(?:需求插件|插件)/.test(`${session?.input?.text ?? ""} ${simpleDraft?.title ?? ""}`) && /(?:报错|错误|bug)/i.test(`${session?.input?.text ?? ""}`) && /自动修复/.test(`${session?.input?.text ?? ""}`);
       const grillApplied = session?.grill?.outcome === "applied";
       const grillFallback = session?.grill?.outcome === "fallback";
       const grillAvailable = session?.grill?.status === "loaded";
-      const titlePreservationRule = /(?:手动修改|自动提炼|覆盖)/.test(`${simpleDraft?.title ?? ""} ${simpleDraft?.problem ?? ""} ${simpleDraft?.goal ?? ""}`);
+      const grillOptions = (options) => {
+        const kept = [];
+        for (const raw of Array.isArray(options) ? options : []) {
+          const label = String(raw ?? "").trim();
+          if (!label) continue;
+          if (kept.some((existing) => existing === label || existing.includes(label) || label.includes(existing))) continue;
+          kept.push(label);
+          if (kept.length === 3) break;
+        }
+        return kept;
+      };
       const modelGrillQuestions = [
         ...Array.isArray(session?.questionGroup?.questions) ? session.questionGroup.questions : [],
         ...session?.nextQuestion ? [session.nextQuestion] : []
-      ].filter((question, index, all) => question?.text && all.findIndex((other) => other?.questionId === question.questionId) === index).filter((question) => question.status !== "answered").slice(0, 3).map((question) => ({ id: `model-${question.questionId}`, question: question.text, options: (question.options ?? []).map((option) => option.label).filter(Boolean) }));
-      const grillQuestions = modelGrillQuestions.length ? modelGrillQuestions : selfHealingIntent ? [
-        { id: "repair-boundary", question: "\u81EA\u52A8\u4FEE\u590D\u53EF\u4FEE\u6539\u7684\u8303\u56F4\u662F\u4EC0\u4E48\uFF1F", options: ["\u4EC5\u4FEE\u6539\u9700\u6C42\u63D2\u4EF6\u5DE5\u4F5C\u533A\u5E76\u91CD\u542F\u8BE5\u63D2\u4EF6", "\u5141\u8BB8\u4FEE\u6539\u6240\u6709 DSH \u63D2\u4EF6", "\u6BCF\u6B21\u4FEE\u590D\u524D\u8981\u6C42\u4EBA\u5DE5\u786E\u8BA4"] },
-        { id: "repair-failure", question: "\u81EA\u52A8\u4FEE\u590D\u6216\u9A8C\u8BC1\u5931\u8D25\u65F6\u5982\u4F55\u5904\u7406\uFF1F", options: ["\u505C\u6B62\u81EA\u52A8\u4FEE\u590D\uFF0C\u4FDD\u7559\u6545\u969C\u8BC1\u636E\u5E76\u8F6C\u4EBA\u5DE5\u5904\u7406", "\u5728\u76F8\u540C\u7B56\u7565\u4E0B\u989D\u5916\u91CD\u8BD5\u4E00\u6B21", "\u6301\u7EED\u91CD\u8BD5\u76F4\u5230\u6062\u590D"] },
-        { id: "restart-proof", question: "\u63D2\u4EF6\u91CD\u542F\u540E\u4EE5\u4EC0\u4E48\u7ED3\u679C\u8BC1\u660E\u6062\u590D\uFF1F", options: ["\u91CD\u653E\u89E6\u53D1\u6545\u969C\u7684\u5B9A\u5411\u7528\u4F8B\u5E76\u8BB0\u5F55\u7ED3\u679C", "\u4EC5\u786E\u8BA4\u63D2\u4EF6\u8FDB\u7A0B\u5DF2\u542F\u52A8", "\u7531\u7528\u6237\u624B\u52A8\u786E\u8BA4\u529F\u80FD\u6062\u590D"] }
-      ] : grillIsValue ? [
-        { id: "value", question: "\u9700\u6C42\u4EF7\u503C\u62F7\u95EE\u4E3B\u8981\u5E2E\u52A9\u89E3\u51B3\u4EC0\u4E48\u95EE\u9898\uFF1F", options: ["\u8BC6\u522B\u7F3A\u5C11\u4E1A\u52A1\u4EF7\u503C\u7684\u9700\u6C42\uFF0C\u907F\u514D\u76F2\u76EE\u5F00\u53D1", "\u660E\u786E\u9700\u6C42\u7684\u53D7\u76CA\u4EBA\u548C\u4F7F\u7528\u573A\u666F", "\u51CF\u5C11\u9700\u6C42\u4E0D\u6E05\u9020\u6210\u7684\u8FD4\u5DE5"] },
-        { id: "boundary", question: "\u9700\u6C42\u4EF7\u503C\u4FE1\u606F\u4E0D\u8DB3\u65F6\u5982\u4F55\u5904\u7406\uFF1F", options: ["\u4EF7\u503C\u4F9D\u636E\u4E0D\u8DB3\u65F6\u7EE7\u7EED\u8FFD\u95EE\uFF0C\u5141\u8BB8\u7528\u6237\u8865\u5145", "\u65E0\u6CD5\u5224\u65AD\u4EF7\u503C\u65F6\u6807\u8BB0\u5F85\u786E\u8BA4\uFF0C\u4E0D\u76F4\u63A5\u4E0B\u7ED3\u8BBA", "\u5141\u8BB8\u7528\u6237\u8DF3\u8FC7\u8FFD\u95EE\u5E76\u4FDD\u7559\u672A\u51B3\u95EE\u9898"] },
-        { id: "measure", question: "\u5982\u4F55\u68C0\u9A8C\u9700\u6C42\u4EF7\u503C\u62F7\u95EE\u6709\u6548\uFF1F", options: ["\u5C55\u793A\u4EF7\u503C\u5224\u65AD\u4F9D\u636E\u548C\u5F85\u786E\u8BA4\u95EE\u9898", "\u8BB0\u5F55\u53D7\u76CA\u4EBA\u3001\u89E6\u53D1\u573A\u666F\u548C\u9884\u671F\u6536\u76CA", "\u7528\u6237\u786E\u8BA4\u4EF7\u503C\u4E0E\u8FB9\u754C\u540E\u5F62\u6210\u9A8C\u6536\u6807\u51C6"] }
-      ] : titlePreservationRule ? [
-        { id: "value", question: "\u4F55\u65F6\u5141\u8BB8\u91CD\u65B0\u89E6\u53D1 AI \u63D0\u70BC\uFF1F", options: ["\u6C38\u4E0D\u81EA\u52A8\u8986\u76D6", "\u63D0\u4F9B\u624B\u52A8\u91CD\u65B0\u63D0\u70BC\u6309\u94AE", "\u4EC5\u6E05\u7A7A\u6807\u9898\u65F6\u91CD\u65B0\u63D0\u70BC"] },
-        { id: "boundary", question: "\u5982\u4F55\u4FDD\u62A4\u624B\u52A8\u6807\u9898\uFF1F", options: ["\u4FDD\u7559\u7528\u6237\u8F93\u5165", "\u63D0\u793A\u8986\u76D6\u98CE\u9669", "\u5141\u8BB8\u6062\u590D\u539F\u59CB\u6807\u9898"] },
-        { id: "measure", question: "\u5982\u4F55\u9A8C\u8BC1\u4FDD\u62A4\u751F\u6548\uFF1F", options: ["\u7F16\u8F91\u540E\u4FDD\u6301\u4E0D\u53D8", "\u91CD\u65B0\u6253\u5F00\u540E\u4ECD\u4FDD\u7559", "\u8BB0\u5F55\u624B\u52A8\u4FEE\u6539\u6765\u6E90"] }
-      ] : [
-        { id: "value", question: "\u8FD9\u9879\u6539\u52A8\u4F18\u5148\u89E3\u51B3\u4EC0\u4E48\u95EE\u9898\uFF1F", options: ["\u51CF\u5C11\u91CD\u590D\u64CD\u4F5C", "\u907F\u514D\u4FE1\u606F\u9057\u6F0F", "\u63D0\u9AD8\u5B8C\u6210\u6548\u7387"] },
-        { id: "boundary", question: "\u5F02\u5E38\u65F6\u5E94\u5982\u4F55\u5904\u7406\uFF1F", options: ["\u8BF4\u660E\u5931\u8D25\u539F\u56E0", "\u4FDD\u7559\u5DF2\u6709\u5185\u5BB9", "\u5141\u8BB8\u7528\u6237\u91CD\u8BD5"] },
-        { id: "measure", question: "\u5982\u4F55\u9A8C\u8BC1\u7ED3\u679C\u6709\u6548\uFF1F", options: ["\u4F7F\u7528\u771F\u5B9E\u573A\u666F\u9A8C\u8BC1", "\u7528\u6237\u53EF\u67E5\u770B\u7ED3\u679C", "\u9A8C\u6536\u540E\u8BB0\u5F55\u7ED3\u8BBA"] }
+      ].filter((question, index, all) => question?.text && all.findIndex((other) => other?.questionId === question.questionId) === index).filter((question) => question.status !== "answered").slice(0, 3).map((question) => ({ id: `model-${question.questionId}`, question: question.text, options: grillOptions((question.options ?? []).map((option) => option?.label)) }));
+      const grillQuestions = modelGrillQuestions.length ? modelGrillQuestions : [
+        { id: "context", question: "\u7528\u4E00\u53E5\u8BDD\u8BF4\u6E05\uFF1A\u8FD9\u4EF6\u4E8B\u73B0\u5728\u8BA9\u4F60\u591A\u505A\u4E86\u54EA\u4E00\u6B65\uFF1F", options: [] }
       ];
+      const grillQuestionHasOptions = (id) => (grillQuestions.find((entry) => entry.id === id)?.options?.length ?? 0) > 0;
       const updateGrill = (id, value) => {
         const previous = grillAnswers[id] ?? "";
         setGrillAnswers((current) => ({ ...current, [id]: value }));
         setSimpleDraft((d) => {
-          if (id === "value") {
+          if (id === "value" || !grillQuestionHasOptions(id)) {
             let problem = d.problem;
             if (previous && problem.includes(previous)) problem = problem.replace(previous, value).replace(/\n+$/, "");
             else if (value) problem = [problem.trim(), value].filter(Boolean).join("\n");
@@ -11851,11 +12147,8 @@ ${text}`);
       };
       const continueGrilling = () => {
         const answers = grillQuestions.map((question) => grillAnswers[question.id] ? { question: question.question, answer: grillAnswers[question.id] } : null).filter(Boolean);
-        if (!answers.length) {
-          setError({ code: "grill-answer-required", message: "\u8BF7\u81F3\u5C11\u9009\u62E9\u6216\u8865\u5145\u4E00\u4E2A\u56DE\u7B54\u540E\u518D\u7EE7\u7EED\u8FFD\u95EE\u3002" });
-          return;
-        }
-        runAnalyze({ grillAnswers: answers });
+        if (!answers.length) setNotice("\u6CA1\u6709\u8865\u5145\u56DE\u7B54\uFF0C\u5C06\u8BA9 Grill \u91CD\u65B0\u8FFD\u95EE\u4E00\u6B21\uFF1B\u4E5F\u53EF\u4EE5\u76F4\u63A5\u786E\u8BA4\u5F53\u524D\u8349\u7A3F\u3002");
+        runAnalyze(answers.length ? { grillAnswers: answers } : {});
       };
       const copyGrillCommand = async () => {
         const text = `/grilling
@@ -11904,8 +12197,8 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           h(
             "div",
             { role: "status", style: { display: "flex", alignItems: "center", gap: "8px", color: T.text2, fontSize: "12px" } },
-            h("span", { style: { border: `1px solid ${grillApplied ? T.brand : T.line2}`, color: grillApplied ? T.brand : T.text2, borderRadius: "999px", padding: "3px 8px" } }, grillApplied ? "Grill Skill \u5DF2\u53C2\u4E0E\u672C\u8F6E" : grillFallback ? "Grill \u672A\u5B8C\u6210\uFF0C\u672C\u5730\u6F84\u6E05" : "\u672C\u5730\u6F84\u6E05"),
-            grillApplied ? `\u7B2C ${session.grill.round || 1} \u8F6E` : grillFallback ? "\u6A21\u578B\u8C03\u7528\u672A\u5B8C\u6210\uFF1B\u4EE5\u4E0B\u95EE\u9898\u662F\u672C\u5730\u5EFA\u8BAE\uFF0C\u5E76\u975E Grill \u7ED3\u679C" : "\u6A21\u578B\u4E0D\u53EF\u7528\u65F6\u4F7F\u7528\u672C\u5730\u52A8\u6001\u5EFA\u8BAE"
+            h("span", { style: { border: `1px solid ${grillApplied ? T.brand : T.line2}`, color: grillApplied ? T.brand : T.text2, borderRadius: "999px", padding: "3px 8px" } }, grillApplied ? "Grill Skill \u5DF2\u53C2\u4E0E\u672C\u8F6E" : grillFallback ? "Grill \u672C\u8F6E\u672A\u5B8C\u6210" : "\u672A\u68C0\u6D4B\u5230 Grill Skill"),
+            grillApplied ? `\u7B2C ${session.grill.round || 1} \u8F6E` : grillFallback ? "\u6A21\u578B\u8C03\u7528\u6CA1\u6709\u5B8C\u6210\uFF08\u8D85\u65F6\u6216\u5931\u8D25\uFF09\uFF0C\u672C\u8F6E\u4E0D\u7ED9\u9009\u62E9\u9898\uFF1B\u4E0B\u9762\u662F\u4E00\u4E2A\u5F00\u653E\u95EE\u9898\uFF0C\u53EF\u76F4\u63A5\u8DF3\u8FC7" : "\u5B89\u88C5 grilling skill \u540E\u4F1A\u5728\u8FD9\u91CC\u9010\u8F6E\u8FFD\u95EE\uFF1B\u5F53\u524D\u53EA\u7ED9\u5F00\u653E\u95EE\u9898"
           ),
           h(
             "div",
@@ -11913,8 +12206,25 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
             field("\u9700\u6C42\u6807\u9898", simpleDraft.title, (value) => setSimpleDraft((d) => ({ ...d, title: value }))),
             h("fieldset", { style: { border: 0, padding: 0, margin: 0 } }, h("legend", { style: { color: T.text2, fontSize: "13px", marginBottom: "6px" } }, "\u4F18\u5148\u7EA7"), ...["P0", "P1", "P2"].map((value) => h("button", { key: value, type: "button", "aria-pressed": priorityChoice === value, onClick: () => setPriorityChoice(value), style: { ...button, marginRight: "5px", borderColor: priorityChoice === value ? T.brand : T.line2, color: priorityChoice === value ? T.text : T.text2 } }, value)))
           ),
-          h("section", null, h("h3", { style: { fontSize: "15px", margin: "0 0 10px" } }, "\u9700\u6C42\u4EF7\u503C\u4E0E\u8FB9\u754C\u62F7\u95EE"), ...grillQuestions.map((q) => h("div", { key: q.id, style: { marginBottom: "12px" } }, h("div", { style: { fontSize: "13px", marginBottom: "6px" } }, q.question), h("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" } }, ...q.options.map((option) => h("button", { key: option, type: "button", "aria-pressed": grillAnswers[q.id] === option, onClick: () => updateGrill(q.id, option), style: { ...button, borderColor: grillAnswers[q.id] === option ? T.brand : T.line2 } }, option)), h("button", { type: "button", style: button, onClick: () => setGrillCustom((current) => ({ ...current, [q.id]: !current[q.id] })) }, "\u81EA\u5B9A\u4E49\u2026"), grillCustom[q.id] ? h("input", { "aria-label": `${q.question} \u81EA\u5B9A\u4E49\u56DE\u7B54`, value: grillAnswers[q.id] ?? "", placeholder: "\u8F93\u5165\u8865\u5145\u56DE\u7B54", onChange: (event) => updateGrill(q.id, event.target.value), style: { ...input, flex: "1 1 160px", minWidth: 0 } }) : null)))),
-          grillAvailable ? h("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px" } }, h("button", { type: "button", style: button, disabled: busy || analysisPending(), onClick: continueGrilling }, grillApplied ? "\u7EE7\u7EED\u8FFD\u95EE" : "\u4F7F\u7528 Grill \u91CD\u8BD5"), h("button", { type: "button", style: button, onClick: copyGrillCommand }, "\u8F6C\u5165\u4E3B\u5BF9\u8BDD /grilling")) : null,
+          h(
+            "section",
+            null,
+            h("h3", { style: { fontSize: "15px", margin: "0 0 4px" } }, grillQuestions.some((question) => question.options.length) ? "\u9700\u6C42\u4EF7\u503C\u4E0E\u8FB9\u754C\u62F7\u95EE" : "\u8865\u5145\u4E00\u53E5\u73B0\u72B6"),
+            grillQuestions.some((question) => question.options.length) ? null : h("p", { style: { margin: "0 0 10px", fontSize: "12px", color: T.text3, lineHeight: 1.6 } }, "\u6CA1\u6709\u53EF\u9009\u9879\u662F\u6B63\u5E38\u7684\uFF1A\u8FD9\u91CC\u6CA1\u6709\u9700\u8981\u4E8C\u9009\u4E00\u7684\u51B3\u7B56\u3002\u5199\u4E00\u53E5\u6216\u7559\u7A7A\u90FD\u4E0D\u5F71\u54CD\u786E\u8BA4\u3002"),
+            ...grillQuestions.map((q) => h(
+              "div",
+              { key: q.id, style: { marginBottom: "12px" } },
+              h("div", { style: { fontSize: "13px", marginBottom: "6px" } }, q.question),
+              h(
+                "div",
+                { style: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" } },
+                ...q.options.map((option) => h("button", { key: option, type: "button", "aria-pressed": grillAnswers[q.id] === option, onClick: () => updateGrill(q.id, option), style: { ...button, borderColor: grillAnswers[q.id] === option ? T.brand : T.line2 } }, option)),
+                q.options.length ? h("button", { type: "button", style: button, onClick: () => setGrillCustom((current) => ({ ...current, [q.id]: !current[q.id] })) }, "\u81EA\u5B9A\u4E49\u2026") : null,
+                q.options.length && !grillCustom[q.id] ? null : h("input", { "aria-label": `${q.question} \u56DE\u7B54`, value: grillAnswers[q.id] ?? "", placeholder: q.options.length ? "\u8F93\u5165\u8865\u5145\u56DE\u7B54" : "\u4F8B\u5982\uFF1A\u6BCF\u6B21\u90FD\u8981\u624B\u52A8\u6539\u4E00\u904D\u6807\u9898", onChange: (event) => updateGrill(q.id, event.target.value), style: { ...input, flex: "1 1 220px", minWidth: 0 } })
+              )
+            ))
+          ),
+          grillAvailable ? h("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px" } }, h("button", { type: "button", style: button, disabled: busy || analysisPending(), onClick: continueGrilling }, busy ? "Grill \u8FFD\u95EE\u4E2D\u2026" : grillApplied ? "\u7EE7\u7EED\u8FFD\u95EE" : "\u4F7F\u7528 Grill \u91CD\u8BD5"), h("button", { type: "button", style: button, onClick: copyGrillCommand }, "\u8F6C\u5165\u4E3B\u5BF9\u8BDD /grilling")) : null,
           h(
             "section",
             { style: { display: "grid", gap: "10px" } },
@@ -14688,7 +14998,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       );
     }
     const NATIVE_SOURCE_BUILD_ID = false ? null : null;
-    const NATIVE_CLIENT_BUILD_ID = true ? "455cd2ba4012eba2fe87bd07aa7bc2424f0908c59414171296d44b2657e06d93" : null;
+    const NATIVE_CLIENT_BUILD_ID = true ? "9c3a94fc0a58156f792792a657557ccffef97ba1d725408a306bc42065ef5228" : null;
     function NativeDeliveryControl({ root, requirementId }) {
       const [job, setJob] = useState(null);
       const [error, setError] = useState(null);
@@ -14816,6 +15126,10 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       const [aiReviewItem, setAiReviewItem] = useState(null);
       const [rehearsalItem, setRehearsalItem] = useState(null);
       const [archiveItem, setArchiveItem] = useState(null);
+      const [archiveQueue, setArchiveQueue] = useState([]);
+      const [listView, setListView] = useState("queue");
+      const [sortMode, setSortMode] = useState("need");
+      const [picked, setPicked] = useState(() => /* @__PURE__ */ new Set());
       const [removeItem, setRemoveItem] = useState(null);
       const [exchangeOpen, setExchangeOpen] = useState(false);
       const [createOpen, setCreateOpen] = useState(false);
@@ -15023,26 +15337,37 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       const scopedItems = items;
       const keyOf = (item) => item?.occurrenceKey ?? item?.id;
       const needle = keyword.trim().toLowerCase();
-      const activeItems = scopedItems.filter((item) => deliveryOf(item).key !== "closed");
+      const activeItems = scopedItems.filter((item) => !isArchivedRequirement(item));
       const scopeItems = scopedItems;
       const sourceItems = source === "all" ? scopeItems : scopeItems.filter((item) => matchesSource(item, source));
       const keywordMatched = needle ? sourceItems.filter(
         (item) => item.title.toLowerCase().includes(needle) || item.id.toLowerCase().includes(needle) || (item.businessId ?? "").toLowerCase().includes(needle) || (item.owner ?? "").toLowerCase().includes(needle)
       ) : sourceItems;
-      const counts = requirementViewCounts(data, keywordMatched);
+      const counts = requirementViewCounts(data, sourceItems);
       const searched = keywordMatched.filter((item) => matchesView(item, filter));
-      const visible = searched;
+      const visible = sortForMode(searched, sortMode, filter);
       const normalizeRoot = (value) => String(value ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
       const exchangeRoot = data?.root ?? root;
       const exportableIds = [...new Set(visible.filter((item) => !item.root || !exchangeRoot || normalizeRoot(item.root) === normalizeRoot(exchangeRoot)).map((item) => item.id))];
       const itemCount = activeItems.length;
-      const filtered = filter !== "all" || keyword !== "" || source !== "all";
+      const archivedCount = scopedItems.length - itemCount;
+      const archivedMatches = visible.length === 0 && filter !== "archived" ? keywordMatched.filter((item) => matchesView(item, "archived")).length : 0;
+      const filtered = filter !== DEFAULT_REQUIREMENT_VIEW || keyword !== "" || source !== "all";
       const clearFilters = () => {
-        setFilter("all");
+        setFilter(DEFAULT_REQUIREMENT_VIEW);
         setSource("all");
         setKeyword("");
       };
       const selected = items.find((item) => keyOf(item) === selectedId) ?? null;
+      const togglePick = (item) => {
+        const key = keyOf(item);
+        setPicked((current) => {
+          const next = new Set(current);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+      };
       const currentProject = projects.find((entry) => entry.id === projectId || entry.workspaceId === projectId) ?? null;
       const openOccurrence = (occurrence) => {
         const match = items.find((item) => {
@@ -15076,7 +15401,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       const singleWorkspace = projectId !== ALL_PROJECTS && Boolean(root);
       const linked = Boolean(currentProject?.linked);
       const scopeText = projectId === ALL_PROJECTS ? data ? `${data.summary.projects} \u4E2A\u5DE5\u4F5C\u533A` : "\u5168\u90E8\u5DE5\u4F5C\u533A" : !hasScope ? "\u8BF7\u9009\u62E9\u5DE5\u4F5C\u533A\u6216\u6307\u5B9A\u4ED3\u5E93\u6839\u76EE\u5F55" : linked ? "\u5DF2\u5173\u8054\u4ED3\u5E93" : "\u672A\u5173\u8054\u4ED3\u5E93";
-      const countLabel = loading ? "\u8BFB\u53D6\u4E2D" : data ? `${itemCount} \u6761` : "\u2014";
+      const countLabel = loading ? "\u8BFB\u53D6\u4E2D" : data ? `${itemCount} \u6761\u5F85\u529E${archivedCount > 0 ? ` \xB7 ${archivedCount} \u6761\u5DF2\u5F52\u6863` : ""}` : "\u2014";
       const createRequirement = () => {
         if (!singleWorkspace) return;
         if (currentProject && !currentProject.linked) {
@@ -15169,30 +15494,38 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
         h(ActionIcon, { name: icon, size: 14 }),
         label
       );
+      const laneSummary = loading || !data ? null : LANES.slice(0, 3).map(([id, label]) => ({ id, label, count: scopedItems.filter((item) => workLane(item) === id).length }));
+      const staleTodos = loading || !data ? 0 : scopedItems.filter((item) => workLane(item) === "todo" && (idleDaysOf(item) ?? 0) >= 5).length;
+      const summaryLine = laneSummary ? h(
+        "p",
+        { "data-list-summary": "true", style: { display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap", margin: "6px 0 0", color: T.text2, fontSize: "12px", lineHeight: 1.7 } },
+        laneSummary.map((entry, index) => [
+          index ? h("span", { key: `${entry.id}-dot`, "aria-hidden": "true", style: { color: T.text3 } }, "\xB7") : null,
+          h(
+            "span",
+            { key: entry.id, style: entry.count === 0 ? { color: T.text3 } : void 0 },
+            h("b", { style: { color: entry.count === 0 ? T.text3 : T.text, fontWeight: 600, fontVariantNumeric: "tabular-nums" } }, String(entry.count)),
+            ` \u6761${/^[A-Za-z]/.test(entry.label) ? " " : ""}${entry.label}`
+          )
+        ]),
+        archivedCount > 0 ? h("span", { style: { color: T.text3 } }, `\xB7 ${archivedCount} \u6761\u5DF2\u5F52\u6863`) : null,
+        staleTodos > 0 && filter !== "archived" ? h("span", { "data-stale-summary": "true", style: { color: T.warn } }, `\u5F85\u529E\u91CC\u6709 ${staleTodos} \u6761\u653E\u4E86 5 \u5929\u4EE5\u4E0A\u6CA1\u52A8`) : null
+      ) : null;
       const header = h(
         "div",
-        { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "20px", flexWrap: "wrap", paddingTop: "26px" } },
+        { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", paddingTop: "22px" } },
         h(
           "div",
-          { style: { display: "flex", alignItems: "center", gap: "12px", minWidth: 0, flexWrap: "wrap" } },
-          h(
-            "div",
-            { style: { display: "flex", alignItems: "baseline", gap: "10px" } },
-            h("h1", { style: { margin: 0, fontSize: "28px", lineHeight: 1.2, fontWeight: 600, letterSpacing: "-.025em" } }, "\u9700\u6C42"),
-            h("span", { style: { color: T.text2, fontSize: "12px", fontVariantNumeric: "tabular-nums" } }, countLabel)
-          ),
-          h("span", { "aria-hidden": "true", style: { width: "1px", height: "28px", background: T.line } }),
-          h(
-            "div",
-            { style: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "4px", minWidth: 0 } },
-            h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject, selectRef: projectSelectRef }),
-            h("span", { style: { color: T.text2, fontSize: "11px", lineHeight: 1.4, overflowWrap: "anywhere" } }, scopeText)
-          )
+          { style: { display: "flex", alignItems: "baseline", gap: "10px", minWidth: 0 } },
+          h("h1", { style: { margin: 0, fontSize: "26px", lineHeight: 1.2, fontWeight: 600, letterSpacing: "-.025em" } }, "\u9700\u6C42"),
+          h("span", { "data-list-count": "true", style: { color: T.text2, fontSize: "12px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } }, countLabel)
         ),
         h(
           "div",
-          { style: { display: "flex", alignItems: "center", gap: "8px" } },
-          h("button", { disabled: !singleWorkspace, onClick: () => setExchangeOpen(true), title: "\u5B89\u5168\u4EA4\u6362\uFF1A\u5BFC\u51FA Excel\uFF0C\u5BFC\u5165\u5E76\u9884\u89C8\u53D8\u66F4" }, "\u5BFC\u5165 / \u5BFC\u51FA"),
+          { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", minWidth: 0 } },
+          h(ProjectPicker, { projects, currentId: projectId, onPick: applyProject, selectRef: projectSelectRef }),
+          h("span", { title: scopeText, style: { color: T.text3, fontSize: "11px", lineHeight: 1.4, maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, scopeText),
+          h("button", { disabled: !singleWorkspace, onClick: () => setExchangeOpen(true), title: "\u5B89\u5168\u4EA4\u6362\uFF1A\u5BFC\u51FA Excel\uFF0C\u5BFC\u5165\u5E76\u9884\u89C8\u53D8\u66F4", style: { whiteSpace: "nowrap" } }, "\u5BFC\u5165 / \u5BFC\u51FA"),
           h(ActionButton, {
             label: "\u65B0\u5EFA\u9700\u6C42",
             icon: "plus",
@@ -15203,15 +15536,29 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           })
         )
       );
-      const onFilterKeyDown = (event) => {
-        const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-        if (step === 0 && event.key !== "Home" && event.key !== "End") return;
-        const current = Math.max(0, FILTERS.findIndex(([id]) => id === filter));
-        const next = event.key === "Home" ? 0 : event.key === "End" ? FILTERS.length - 1 : (current + step + FILTERS.length) % FILTERS.length;
-        event.preventDefault();
-        setFilter(FILTERS[next][0]);
-        event.currentTarget.querySelectorAll('[role="tab"]')[next]?.focus();
-      };
+      const chip = { border: `1px solid ${T.line2}`, background: T.layer2, color: T.text2, borderRadius: "999px", padding: "3px 9px", fontSize: "11.5px", cursor: "pointer", whiteSpace: "nowrap" };
+      const searchBox = h(
+        "label",
+        { "data-requirements-search": "true", style: { display: "flex", alignItems: "center", gap: "7px", height: "36px", width: mobile ? "100%" : "250px", maxWidth: "100%", border: `1px solid ${T.line}`, borderRadius: "8px", background: T.layer, padding: "0 10px" } },
+        h("span", { style: { display: "inline-flex", flex: "0 0 auto", alignItems: "center", justifyContent: "center", width: "14px", height: "14px", color: T.text3 } }, h(ActionIcon, { name: "search", size: 14 })),
+        h("input", {
+          value: keyword,
+          onChange: (event) => setKeyword(event.target.value),
+          placeholder: "\u641C\u7D22\u6807\u9898\u3001\u9700\u6C42 ID \u6216\u8D1F\u8D23\u4EBA",
+          "aria-label": "\u641C\u7D22\u6807\u9898\u3001\u9700\u6C42 ID \u6216\u8D1F\u8D23\u4EBA",
+          style: { border: 0, outline: 0, background: "transparent", color: T.text, fontSize: "12px", flex: "1 1 auto", minWidth: 0, width: "100%" }
+        }),
+        keyword ? h(
+          "button",
+          {
+            type: "button",
+            onClick: () => setKeyword(""),
+            "aria-label": "\u6E05\u9664\u641C\u7D22",
+            style: { border: 0, background: "transparent", color: T.text3, cursor: "pointer", padding: 0, display: "inline-flex" }
+          },
+          h(ActionIcon, { name: "close", size: 12 })
+        ) : null
+      );
       const toolbar = h(
         "div",
         {
@@ -15226,37 +15573,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
             background: T.base
           }
         },
-        h(
-          "div",
-          { role: "tablist", "aria-label": "\u6309\u4EA4\u4ED8\u89C6\u56FE\u7B5B\u9009", "data-work-views": "true", style: { display: "flex", alignItems: "stretch", gap: "4px", width: "100%", minWidth: 0, overflowX: "auto", borderBottom: `1px solid ${T.line}`, paddingBottom: "4px", marginBottom: "4px" }, onKeyDown: onFilterKeyDown },
-          FILTERS.map(([id, label]) => {
-            const active = filter === id;
-            return h(
-              "button",
-              {
-                key: id,
-                type: "button",
-                role: "tab",
-                "aria-selected": active,
-                tabIndex: active ? 0 : -1,
-                onClick: () => setFilter(id),
-                style: {
-                  border: 0,
-                  borderBottom: `2px solid ${active ? T.text : "transparent"}`,
-                  background: "transparent",
-                  color: active ? T.text : T.text2,
-                  padding: "7px 9px 8px",
-                  fontSize: "12.5px",
-                  fontWeight: active ? 500 : 400,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap"
-                }
-              },
-              label,
-              h("span", { style: { marginLeft: "6px", color: active ? T.text2 : T.text3, fontSize: "11px", fontVariantNumeric: "tabular-nums" } }, counts[id])
-            );
-          })
-        ),
+        searchBox,
         // Source is a second, orthogonal axis: a defect-born requirement keeps
         // its work view (待处理/推进中/…) and is separable by origin.
         h(
@@ -15319,47 +15636,41 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           `\u5F85\u786E\u8BA4\u7F3A\u9677 ${awaitingDefectCount}`
         ) : null,
         h("div", { style: { flex: 1, minWidth: "12px" } }),
-        filtered ? h(
-          "div",
-          { style: { display: "flex", alignItems: "center", gap: "8px" } },
-          h(
-            "span",
-            { role: "status", "aria-live": "polite", style: { color: T.text3, fontSize: "11.5px", fontVariantNumeric: "tabular-nums" } },
-            `${visible.length} \u6761\u7ED3\u679C`
-          ),
-          h(
-            "button",
-            {
-              type: "button",
-              onClick: clearFilters,
-              title: "\u91CD\u7F6E\u5168\u90E8\u67E5\u8BE2\u6761\u4EF6",
-              "aria-label": "\u91CD\u7F6E\u5168\u90E8\u67E5\u8BE2\u6761\u4EF6",
-              style: { border: `1px solid ${T.line}`, background: "transparent", color: T.text2, borderRadius: "6px", padding: "3px 8px", fontSize: "11.5px", cursor: "pointer" }
-            },
-            "\u91CD\u7F6E"
-          )
-        ) : null,
         h(
-          "label",
-          { "data-requirements-search": "true", style: { display: "flex", alignItems: "center", gap: "7px", height: "36px", width: mobile ? "100%" : "250px", maxWidth: "100%", border: `1px solid ${T.line}`, borderRadius: "8px", background: T.layer, padding: "0 10px" } },
-          h("span", { style: { display: "inline-flex", flex: "0 0 auto", alignItems: "center", justifyContent: "center", width: "14px", height: "14px", color: T.text3 } }, h(ActionIcon, { name: "search", size: 14 })),
-          h("input", {
-            value: keyword,
-            onChange: (event) => setKeyword(event.target.value),
-            placeholder: "\u641C\u7D22\u6807\u9898\u3001\u9700\u6C42 ID \u6216\u8D1F\u8D23\u4EBA",
-            "aria-label": "\u641C\u7D22\u6807\u9898\u3001\u9700\u6C42 ID \u6216\u8D1F\u8D23\u4EBA",
-            style: { border: 0, outline: 0, background: "transparent", color: T.text, fontSize: "12px", flex: "1 1 auto", minWidth: 0, width: "100%" }
-          }),
-          keyword ? h(
-            "button",
-            {
-              type: "button",
-              onClick: () => setKeyword(""),
-              "aria-label": "\u6E05\u9664\u641C\u7D22",
-              style: { border: 0, background: "transparent", color: T.text3, cursor: "pointer", padding: 0, display: "inline-flex" }
-            },
-            h(ActionIcon, { name: "close", size: 12 })
-          ) : null
+          "div",
+          { role: "group", "aria-label": "\u5217\u8868\u89C6\u56FE", style: { display: "flex", alignItems: "center", gap: "2px", padding: "3px", background: T.layer, borderRadius: "8px" } },
+          [
+            ["queue", "\u961F\u5217", "\u4E00\u6761\u6761\u6309\u4F18\u5148\u7EA7\u5904\u7406"],
+            ["board", "\u770B\u677F", "\u6309\u5904\u7406\u5206\u7EC4\u770B\u79EF\u538B"]
+          ].map(([id, label, title]) => {
+            const active = listView === id;
+            return h(
+              "button",
+              {
+                key: id,
+                type: "button",
+                "data-list-view": id,
+                "aria-pressed": active,
+                title,
+                onClick: () => setListView(id),
+                style: { border: 0, borderRadius: "6px", background: active ? T.layer2 : "transparent", color: active ? T.text : T.text2, padding: "6px 10px", fontSize: "11.5px", fontWeight: active ? 500 : 400, cursor: "pointer", whiteSpace: "nowrap" }
+              },
+              label
+            );
+          })
+        ),
+        h(
+          "select",
+          {
+            "data-list-sort": "true",
+            "aria-label": "\u6392\u5E8F\u65B9\u5F0F",
+            "data-sort-mode": sortMode,
+            title: "\u6392\u5E8F\u65B9\u5F0F",
+            value: sortMode,
+            onChange: (event) => setSortMode(event.target.value),
+            style: { height: "32px", border: `1px solid ${T.line}`, borderRadius: "8px", background: T.layer, color: T.text2, fontSize: "11.5px", padding: "0 6px", cursor: "pointer", maxWidth: "160px" }
+          },
+          SORT_OPTIONS.map(([id, label]) => h("option", { key: id, value: id }, `\u6392\u5E8F\uFF1A${label}`))
         ),
         h(ActionButton, { label: loading ? "\u5237\u65B0\u4E2D\u2026" : "\u5237\u65B0", icon: "refresh", variant: "ghost", disabled: loading, onClick: reload, title: "\u91CD\u65B0\u8BFB\u53D6\u9700\u6C42\u8D44\u4EA7" }),
         h(
@@ -15391,6 +15702,59 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
             openPanel ? menuItem("\u5728\u5DE5\u4F5C\u53F0\u6253\u5F00", "eye", openPanel) : null
           ) : null
         )
+      );
+      const viewLabel = (FILTERS.find(([id]) => id === filter) ?? [])[1] ?? "";
+      const entryButton = (id, label, count, active) => h(
+        "button",
+        {
+          type: "button",
+          "data-view": id,
+          "aria-pressed": active,
+          onClick: () => setFilter(active ? DEFAULT_REQUIREMENT_VIEW : id),
+          title: active ? "\u56DE\u5230\u5F85\u529E" : FILTER_HINTS[id] ?? label,
+          style: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            border: `1px solid ${active ? T.line2 : "transparent"}`,
+            background: active ? T.layer2 : "transparent",
+            color: active ? T.text : T.text2,
+            borderRadius: "7px",
+            padding: "3px 8px",
+            fontSize: "11.5px",
+            cursor: "pointer",
+            whiteSpace: "nowrap"
+          }
+        },
+        active ? "\u2190 \u56DE\u5230\u5F85\u529E" : label,
+        active ? null : h("span", { style: { color: T.text3, fontVariantNumeric: "tabular-nums" } }, String(count ?? 0))
+      );
+      const filterLine = loading ? null : h(
+        "div",
+        { "data-filter-line": "true", style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", margin: "0 0 10px", minHeight: "22px", fontSize: "11.5px", color: T.text3 } },
+        h(
+          "span",
+          { role: "status", "aria-live": "polite", style: { fontVariantNumeric: "tabular-nums" } },
+          filter === DEFAULT_REQUIREMENT_VIEW ? filtered ? `\u7B5B\u9009\u540E ${visible.length} \u6761` : `\u5171 ${visible.length} \u6761\uFF0C\u6309\u300C${sortLabel(sortMode)}\u300D\u6392\u5217` : `${viewLabel} ${visible.length} \u6761`
+        ),
+        ...source !== "all" ? [h("button", { key: "source", type: "button", "data-clear-filter": "source", onClick: () => setSource("all"), style: chip }, `\u6765\u6E90\uFF1A${(SOURCE_FILTERS.find(([id]) => id === source) ?? [])[1] ?? source} \xD7`)] : [],
+        ...keyword ? [h("button", { key: "keyword", type: "button", "data-clear-filter": "keyword", onClick: () => setKeyword(""), style: chip }, `\u641C\u7D22\uFF1A${keyword} \xD7`)] : [],
+        // Leaving a view is its own affordance (← 回到待办 on the right), so
+        // 清除全部 only appears when a query axis is actually narrowing.
+        keyword || source !== "all" ? h(
+          "button",
+          {
+            type: "button",
+            onClick: clearFilters,
+            title: "\u91CD\u7F6E\u67E5\u8BE2\u6761\u4EF6\u5E76\u56DE\u5230\u5F85\u529E",
+            "aria-label": "\u91CD\u7F6E\u67E5\u8BE2\u6761\u4EF6\u5E76\u56DE\u5230\u5F85\u529E",
+            style: { border: 0, background: "transparent", color: T.text2, padding: "3px 4px", fontSize: "11.5px", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: "3px" }
+          },
+          "\u6E05\u9664\u7B5B\u9009"
+        ) : null,
+        h("span", { style: { flex: 1, minWidth: "8px" } }),
+        entryButton("archived", "\u5DF2\u5F52\u6863", counts.archived, filter === "archived"),
+        entryButton("anomalies", "\u6570\u636E\u5F02\u5E38", counts.anomalies, filter === "anomalies")
       );
       const createdBanner = createdNotice && !createdNotice.awaiting && !visible.some((item) => item.id === createdNotice.requirementId) ? h(
         "div",
@@ -15441,8 +15805,20 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
         body = h(EmptyState, { root: data?.root ?? root, onCreate: createRequirement, onOpenPanel: openPanel });
       } else {
         tableInScroller = true;
-        body = h(RequirementTable, {
+        body = listView === "board" ? h(RequirementBoard, {
           items: visible,
+          narrow,
+          mobile,
+          showEmpty: filter === DEFAULT_REQUIREMENT_VIEW,
+          onOpen: (entry) => {
+            listFocus.current = document.activeElement;
+            setSelectedId(keyOf(entry));
+          }
+        }) : h(RequirementTable, {
+          items: visible,
+          grouped: filter === DEFAULT_REQUIREMENT_VIEW,
+          picked,
+          onTogglePick: togglePick,
           narrow,
           mobile,
           showProject: data?.scope === "all",
@@ -15460,9 +15836,51 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           onDefect: (entry) => openDefect(entry),
           onArchive: (entry) => setArchiveItem(entry),
           onRemove: (entry) => setRemoveItem(entry),
-          emptyNode: h(NoResults, { filter, keyword, source, onClear: clearFilters })
+          emptyNode: h(NoResults, { filter, keyword, source, onClear: clearFilters, archivedMatches, onShowArchived: () => setFilter("archived") })
         });
       }
+      const pickedVisible = visible.filter((item) => picked.has(keyOf(item)));
+      const copyPicked = () => {
+        const text = pickedVisible.map((item) => `${item.id} ${item.title}`).join("\n");
+        navigator.clipboard?.writeText(text).catch(() => {
+        });
+      };
+      const archivePicked = () => {
+        if (!pickedVisible.length) return;
+        setArchiveQueue(pickedVisible);
+        setArchiveItem(pickedVisible[0]);
+      };
+      const bulkButton = (label, onClick, primary2 = false) => h(
+        "button",
+        {
+          type: "button",
+          onClick,
+          style: {
+            border: `1px solid ${primary2 ? T.brand : T.line2}`,
+            background: primary2 ? T.brand : "transparent",
+            color: primary2 ? "#fff" : T.text2,
+            borderRadius: "7px",
+            padding: "5px 10px",
+            fontSize: "11.5px",
+            cursor: "pointer",
+            whiteSpace: "nowrap"
+          }
+        },
+        label
+      );
+      const bulkBar = pickedVisible.length > 0 && listView === "queue" ? h(
+        "div",
+        {
+          role: "status",
+          "data-bulk": "true",
+          style: { position: "sticky", bottom: 0, zIndex: 20, margin: "10px 12px 14px", display: "flex", alignItems: "center", gap: "9px", flexWrap: "wrap", padding: "9px 12px", background: T.layer, border: `1px solid ${T.line2}`, borderRadius: "10px", boxShadow: "0 10px 28px rgba(0,0,0,.45)" }
+        },
+        h("span", { style: { color: T.text, fontSize: "12px", fontWeight: 600 } }, `\u5DF2\u9009 ${pickedVisible.length} \u6761`),
+        h("div", { style: { flex: "1 1 auto" } }),
+        bulkButton("\u590D\u5236\u6E05\u5355", copyPicked),
+        bulkButton("\u6279\u91CF\u5F52\u6863", archivePicked, true),
+        bulkButton("\u53D6\u6D88\u9009\u62E9", () => setPicked(/* @__PURE__ */ new Set()))
+      ) : null;
       const notices = h(
         "div",
         null,
@@ -15510,7 +15928,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           expanded: anomalyOpen,
           anomalyOnly: filter === "anomalies",
           onToggleExpanded: () => setAnomalyOpen((value) => !value),
-          onToggleOnly: () => setFilter((value) => value === "anomalies" ? "all" : "anomalies"),
+          onToggleOnly: () => setFilter((value) => value === "anomalies" ? DEFAULT_REQUIREMENT_VIEW : "anomalies"),
           onOpen: openOccurrence
         }),
         h(CheckNotice, {
@@ -15529,6 +15947,10 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           [data-list-scroll]:focus-visible { outline: 2px solid ${T.brand}; outline-offset: 2px; }
           [data-requirements-workbench] button { transition: background-color 120ms ease, color 120ms ease; }
           [data-work-views] button { flex-shrink: 0; }
+          [data-requirements-workbench] .req-pick { appearance: none; -webkit-appearance: none; width: 15px; height: 15px; border: 1.5px solid #3a424e; border-radius: 4px; background: #0d1014; margin: 3px 0 0; flex: none; cursor: pointer; position: relative; }
+          [data-requirements-workbench] .req-pick:hover { border-color: #4c5665; }
+          [data-requirements-workbench] .req-pick:checked { background: ${T.brand}; border-color: ${T.brand}; }
+          [data-requirements-workbench] .req-pick:checked::after { content: ""; position: absolute; left: 3.5px; top: 0.5px; width: 5px; height: 9px; border-right: 1.6px solid #fff; border-bottom: 1.6px solid #fff; transform: rotate(40deg); }
           @media (max-width: 760px) { [data-requirements-search] { width: 100% !important; } }
           @media (max-height: 620px) { [data-requirements-workbench] { overflow-y: auto !important; } }
           @media (max-width: 760px) { [data-requirements-workbench] { padding-left: 16px !important; padding-right: 16px !important; overflow-y: auto !important; } }
@@ -15539,18 +15961,20 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           "div",
           { "data-requirements-list-page": "true", style: { display: selected ? "none" : "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 } },
           header,
+          summaryLine,
           showRoot ? h(RootPicker, { rootInput, setRootInput, onApply: () => applyRoot(rootInput), onReset: () => {
             setRootInput("");
             applyRoot("");
           } }) : null,
           toolbar,
+          filterLine,
           createdBanner,
           // Notices stay above the list and never push it off screen.
           h("div", { style: { flex: "0 0 auto", maxHeight: "38vh", overflowY: "auto" } }, notices),
           h(
             "div",
             { style: listArea },
-            tableInScroller ? h("div", { ref: listScroll, role: "region", "aria-label": "\u9700\u6C42\u5217\u8868", tabIndex: 0, style: listScroller, "data-list-scroll": "true" }, body) : h("div", { style: { flex: "1 1 auto", minHeight: 0, overflowY: "auto" } }, body)
+            tableInScroller ? h("div", { ref: listScroll, role: "region", "aria-label": "\u9700\u6C42\u5217\u8868", tabIndex: 0, style: listScroller, "data-list-scroll": "true" }, body, bulkBar) : h("div", { style: { flex: "1 1 auto", minHeight: 0, overflowY: "auto" } }, body, bulkBar)
           )
         ),
         selected ? h(Drawer, {
@@ -15675,7 +16099,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           onClose: () => setFeedbackContext(null),
           onOpenRequirement: (id, ref) => {
             setFeedbackContext(null);
-            setFilter("all");
+            setFilter(DEFAULT_REQUIREMENT_VIEW);
             setSource("all");
             setKeyword("");
             const targetRoot = typeof ref?.root === "string" ? ref.root : "";
@@ -15745,9 +16169,16 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
         archiveItem ? h(ArchiveModal, {
           item: archiveItem,
           root: archiveItem.root ?? data?.root ?? root,
-          onClose: () => setArchiveItem(null),
-          onDone: () => {
+          // Closing ends the queue too, otherwise a later single archive
+          // would suddenly jump to the next item of an abandoned batch.
+          onClose: () => {
             setArchiveItem(null);
+            setArchiveQueue([]);
+          },
+          onDone: () => {
+            const rest = archiveQueue.slice(1);
+            setArchiveQueue(rest);
+            setArchiveItem(rest[0] ?? null);
             setSelectedId(null);
             reload();
           }

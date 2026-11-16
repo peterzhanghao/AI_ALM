@@ -447,7 +447,7 @@ test('detail tabs retain keyboard focus and fit a narrow panel', async () => {
       await page.getByRole('tab', { name }).click()
       assert.equal(await page.getByRole('tab', { name }).getAttribute('aria-selected'), 'true')
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true)
-      if (name === '需求正文') assert.equal(await page.getByRole('heading', { name: '验收标准' }).isVisible(), true)
+      if (name === '需求正文') assert.equal(await page.getByRole('heading', { name: '完成的标准' }).isVisible(), true)
       if (process.env.DSH_DETAIL_LIGHT_SCREENSHOT) await page.screenshot({ path: `${process.env.DSH_DETAIL_LIGHT_SCREENSHOT}-${name}.png` })
     }
     await page.evaluate(() => { document.body.style.zoom = '' })
@@ -490,7 +490,11 @@ test('unstarted detail keeps one clear progress state and a direct feedback form
     await page.getByText('补充反馈或调整需求').waitFor()
     assert.equal(await page.locator('[data-iteration-feedback] textarea').isVisible(), true)
     assert.equal(await page.locator('[data-iteration-feedback] textarea').getAttribute('rows'), '2')
-    assert.equal(await page.locator('[data-iteration-feedback] button').evaluate(node => node.getBoundingClientRect().bottom <= innerHeight), true)
+    // The form is not folded away behind a disclosure: 完成的标准 lists above it,
+    // so the guarantee is reachability, not position above the fold.
+    assert.equal(await page.locator('[data-iteration-feedback]').evaluate(node => { for (let parent = node; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS' && !parent.open) return false; return true }), true)
+    await page.locator('[data-iteration-feedback]').scrollIntoViewIfNeeded()
+    assert.equal(await page.locator('[data-iteration-feedback] button').isVisible(), true)
     assert.equal(await page.locator('.detail-sidebar').getByText('对话生成').isVisible(), true)
     const cards = page.locator('.description-cards > div')
     assert.equal(await cards.count(), 2)
@@ -505,7 +509,7 @@ test('unstarted detail keeps one clear progress state and a direct feedback form
     assert.equal(await page.getByText('未登记验收命令').count(), 0)
     assert.equal(await page.getByRole('button', { name: '迭代反馈', exact: true }).count(), 0)
     await page.getByRole('tab', { name: 'AI 进展' }).click()
-    await page.getByText('待启动 AI 推进').waitFor()
+    await page.getByText('还没交给 AI').waitFor()
     assert.equal(await page.locator('[data-progress-not-started]').count(), 1)
     assert.equal(await page.locator('[data-progress-technical], [data-human-progress], [data-iteration-feedback]').count(), 0)
     assert.doesNotMatch(await page.locator('body').innerText(), /verify\.cmd|\.alm\/|还没有可读取的运行活动/)
@@ -530,7 +534,7 @@ test('list and timeline present real origin, pending confirmation and human-read
   const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
   const marker = '    return {\n      inject:'
   const entry = `import React from 'react';import {createRoot} from 'react-dom/client'; window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestTable = RequirementTable; globalThis.TestTimeline = CollectedTimeline; globalThis.TestNeeds = needsHuman; globalThis.TestSource = matchesSource; globalThis.TestMatches = matchesView; globalThis.TestCounts = requirementViewCounts;\n' + marker)}
-  const item=${JSON.stringify(item)}, event=${JSON.stringify(event)}; window.item=item; createRoot(document.getElementById('root')).render(React.createElement(React.Fragment,null,React.createElement(globalThis.TestTable,{items:[item],onOpen(){window.opens=(window.opens||0)+1},onArchive(){},onRemove(){}}),React.createElement(globalThis.TestTimeline,{record:{timeline:[{at:'2026-01-01T00:00:00Z',kind:'created',title:'创建需求 · v1'},event]},requirementId:item.id,onNavigate(){}})));`
+  const item=${JSON.stringify(item)}, event=${JSON.stringify(event)}; window.item=item; createRoot(document.getElementById('root')).render(React.createElement(React.Fragment,null,React.createElement(globalThis.TestTable,{items:[item],grouped:true,onOpen(){window.opens=(window.opens||0)+1},onArchive(){},onRemove(){}}),React.createElement(globalThis.TestTimeline,{record:{timeline:[{at:'2026-01-01T00:00:00Z',kind:'created',title:'创建需求 · v1'},event]},requirementId:item.id,onNavigate(){}})));`
   const bundle = await build({ stdin: { contents: entry, resolveDir: fileURLToPath(new URL('../../../', import.meta.url)), loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
   const browser = await chromium.launch({ headless: true }); const page = await browser.newPage()
   await page.route('http://test.local/**', route => route.fulfill(route.request().url().endsWith('/app.js') ? { contentType: 'text/javascript', body: bundle.outputFiles[0].text } : { contentType: 'text/html', body: '<div id="root"></div><script type="module" src="/app.js"></script>' }))
@@ -538,23 +542,26 @@ test('list and timeline present real origin, pending confirmation and human-read
     await page.goto('http://test.local/')
     const row = page.locator('[data-req="REQ-12"]'); await row.waitFor(); await row.scrollIntoViewIfNeeded(); await row.getByText('v3 · 已演进').waitFor()
     assert.match(await row.innerText(), /对话生成.*v3.*待确认变更/s)
-    assert.match(await row.innerText(), /2 项标准/)
+    assert.match(await row.innerText(), /2 项验收 · 待验证/)
     assert.doesNotMatch(await row.innerText(), /缺陷|失败监控|登记验收/)
     assert.equal(await row.getByRole('button', { name: /^去确认/ }).count(), 1)
     assert.equal(await row.getByText('v3 · 已演进').getAttribute('title'), '最近调整')
     assert.equal(await row.getByRole('button', { name: item.title, exact: true }).evaluate(node => getComputedStyle(node).whiteSpace), 'nowrap')
-    assert.equal(await page.evaluate(() => window.TestNeeds(window.item) && window.TestSource(window.item, 'chat') && !window.TestSource(window.item, 'manual') && window.TestMatches(window.item, 'mine') && window.TestCounts({ requirements: [window.item] }, [window.item]).mine === 1), true)
-    await row.locator('[role=cell]').nth(1).click()
+    assert.equal(await page.evaluate(() => window.TestNeeds(window.item) && window.TestSource(window.item, 'chat') && !window.TestSource(window.item, 'manual') && window.TestMatches(window.item, 'todo') && window.TestCounts({ requirements: [window.item] }, [window.item]).todo === 1), true)
+    // The row is two lines with no column header: the first cell is the
+    // title+meta block and the second one holds the actions.
+    await row.locator('[role=cell]').nth(0).click()
     assert.equal(await page.evaluate(() => window.opens), 1)
     await row.getByRole('button', { name: /^去确认/ }).click()
     assert.equal(await page.evaluate(() => window.opens), 2, 'action must not bubble to row')
-    assert.equal(await page.getByRole('columnheader', { name: '最近更新' }).count(), 1)
-    assert.doesNotMatch(await row.innerText(), /待验证|0 项标准/)
+    assert.equal(await page.locator('[data-lane-header]').count(), 1, 'the lane header replaces the column header row')
+    assert.equal(await page.getByRole('columnheader').count(), 0, 'no column headers survive the two-line row')
+    assert.doesNotMatch(await row.innerText(), /0 项验收/)
     const list = page.locator('[data-detail-section="record-timeline"] li')
     assert.match(await list.first().innerText(), /v2 → v3/)
     assert.match(await list.last().innerText(), /创建需求 · v1/)
-    await page.getByText('查看需求与验收变更').click()
     const diff = page.locator('[data-visual-spec-diff]')
+    await diff.waitFor()
     assert.match(await diff.innerText(), /版本对比.*v2 → v3/)
     assert.match(await diff.innerText(), /\+ 新增 AC-03/)
     assert.match(await diff.innerText(), /~ 修改 AC-01/)
