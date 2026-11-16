@@ -76,6 +76,52 @@ const CONSTRAINT_LINE = /^\s*(?:[-*]\s*)?(?:约束|范围外|不做)\s*[:：]\s*
  * section (`## 目标` followed by a paragraph). Missing either one is a real
  * "cannot dispatch" case, not something to paper over with the title.
  */
+/** Index of the `]` that closes the `[` at `start`, string-aware. */
+function matchBracket(source, start) {
+  let depth = 0
+  let quote = null
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index]
+    if (quote) {
+      if (char === '\\') index += 1
+      else if (char === quote) quote = null
+      continue
+    }
+    if (char === '"') { quote = char; continue }
+    if (char === '[') depth += 1
+    else if (char === ']') { depth -= 1; if (depth === 0) return index }
+  }
+  return -1
+}
+
+/**
+ * Criteria also live in the frozen clarification JSON that briefs paste in
+ * verbatim — fenced or bare. Reading only markdown headings made a fully
+ * specified requirement look empty, which then got downgraded to a one-line
+ * goal and told the agent not to invent rules it had actually been given.
+ */
+function structuredAcceptance(briefText) {
+  const marker = /"acceptance"\s*:\s*\[/g
+  let match = marker.exec(briefText)
+  while (match) {
+    const start = match.index + match[0].length - 1
+    const end = matchBracket(briefText, start)
+    if (end > start) {
+      try {
+        const parsed = JSON.parse(briefText.slice(start, end + 1))
+        const criteria = (Array.isArray(parsed) ? parsed : [])
+          .map((entry) => ({ id: squash(entry?.id) || null, text: squash(entry?.text ?? entry?.expected ?? entry?.content) }))
+          .filter((entry) => entry.text)
+        if (criteria.length) {
+          return criteria.map((entry) => ({ id: entry.id, text: clampText(entry.text, CRITERION_LIMIT) }))
+        }
+      } catch { /* malformed block: fall back to prose */ }
+    }
+    match = marker.exec(briefText)
+  }
+  return []
+}
+
 export function extractIntent({ briefText = '', doc = null, title = '' } = {}) {
   const lines = String(briefText ?? '').split(/\r?\n/)
   const goalLines = []
@@ -112,12 +158,15 @@ export function extractIntent({ briefText = '', doc = null, title = '' } = {}) {
       text: clampText(squash(entry?.text ?? entry?.content), CRITERION_LIMIT),
     }))
     .filter((entry) => entry.text)
+  const structured = structuredAcceptance(String(briefText ?? ''))
   const docGoal = clampText(squash(doc?.goal ?? doc?.problem), GOAL_LIMIT)
   let goal = goalLines[0] ?? ''
   let goalSource = goal ? 'brief' : null
   if (!goal && docGoal) { goal = docGoal; goalSource = 'doc' }
-  const criteria = docAcceptance.length ? docAcceptance : acceptance
-  const acceptanceSource = docAcceptance.length ? 'doc' : (acceptance.length ? 'brief' : null)
+  // Precedence: the structured document, then a curated `## 验收` section, then
+  // the criteria embedded in the brief's own clarification JSON.
+  const criteria = docAcceptance.length ? docAcceptance : (acceptance.length ? acceptance : structured)
+  const acceptanceSource = docAcceptance.length ? 'doc' : (acceptance.length ? 'brief' : (structured.length ? 'brief-json' : null))
   return {
     goal,
     goalSource,
@@ -133,7 +182,7 @@ export function extractIntent({ briefText = '', doc = null, title = '' } = {}) {
 }
 
 /** Concrete files worth pointing at: changed files first, then module signals. */
-function resolveAnchors({ root, subject, registry, handoff }) {
+function resolveAnchors({ root, subject, registry, handoff, commands = [], hint = '' }) {
   const declared = declaredModulesOf(subject)
   const entries = []
   const tests = []
@@ -144,14 +193,34 @@ function resolveAnchors({ root, subject, registry, handoff }) {
     entries.push(...mod.paths.filter((path) => !path.endsWith('/')))
     tests.push(...(mod.tests ?? []))
   }
+  // Module registries describe a module, not this requirement. When the
+  // acceptance command names the files that encode the expected behaviour, they
+  // are a better anchor than the module's first test, which may be unrelated.
+  const commandFiles = commands.flatMap((command) => String(command ?? '').split(/\s+/))
+    .filter((token) => /\.(?:mjs|cjs|js|ts|tsx)$/.test(token))
+  const commandTests = commandFiles.filter((file) => /(?:^|\/)(?:test|tests|spec)\//.test(file) || /\.(?:test|spec)\./.test(file))
+  const haystack = `${commands.join(' ')} ${hint}`.toLowerCase()
+  const relevance = (path) => {
+    const stem = String(path).split('/').pop().replace(/\.(?:mjs|cjs|js|ts|tsx)$/, '').toLowerCase()
+    return stem.length >= 4 && haystack.includes(stem) ? 1 : 0
+  }
+  const ranked = (list) => list
+    .map((path, index) => ({ path, index, rank: relevance(path) }))
+    .sort((a, b) => b.rank - a.rank || a.index - b.index)
+    .map((entry) => entry.path)
   // One seat is reserved for a focused test: it states the current expected
   // behaviour more precisely than any prose. Reserve it before filling seats,
   // otherwise a handoff carrying three changed files silently evicts it.
-  const test = unique(tests)[0] ?? null
+  const test = unique(commandTests)[0] ?? ranked(unique(tests))[0] ?? null
   const changedCap = test ? Math.max(0, MAX_ANCHORS - 1) : MAX_ANCHORS
   const picked = unique(handoff?.changedFiles ?? []).slice(0, changedCap)
   if (test && !picked.includes(test)) picked.push(test)
-  for (const path of unique(entries)) { if (picked.length >= MAX_ANCHORS) break; if (!picked.includes(path)) picked.push(path) }
+  for (const path of ranked(unique(entries))) { if (picked.length >= MAX_ANCHORS) break; if (!picked.includes(path)) picked.push(path) }
+  // Nothing declared and nothing changed yet: the remaining files the
+  // registered command runs are still better than sending the agent to search.
+  if (picked.length < 2) {
+    for (const file of commandFiles) { if (picked.length >= 2 || picked.includes(file)) continue; picked.push(file) }
+  }
   return picked.slice(0, MAX_ANCHORS)
 }
 
@@ -189,10 +258,12 @@ function phaseInstruction(phase) {
   return null
 }
 
-function doneCriteria({ phase, commands }) {
+function doneCriteria({ phase, commands, anchors = [] }) {
   if (phase === 'plan') return '完成标志：给出上述三条方案后停止。'
-  if (!commands.length) return '完成标志：改动落在锚点内，说明验证情况后停止。'
-  return '完成标志：验证命令退出码为 0 且改动只落在锚点内，然后报告改动文件与结果并停止。'
+  // Only say "stay inside the anchors" when the turn actually lists them.
+  const scope = anchors.length ? '改动只落在锚点内' : '不改与目标无关的文件'
+  if (!commands.length) return `完成标志：${scope}，说明验证情况后停止。`
+  return `完成标志：验证命令退出码为 0 且${scope}，然后报告改动文件与结果并停止。`
 }
 
 /**
@@ -227,14 +298,14 @@ export function compileTurnBrief({
     // A first dispatch is refused. A resume or repair of a run that is already
     // in flight must not strand work, so it continues on a degraded contract
     // that states the gap instead of inventing content.
-    if (degraded) return degradedBrief({ requirementId, title, intent, missing, phase, commands: effectiveCommands, answer, runId })
+    if (degraded) return degradedBrief({ requirementId, title, intent, missing, phase, commands: effectiveCommands, answer, runId, anchors: resolveAnchors({ root, subject, registry: reg, handoff: handoff ?? facts?.handoff ?? null, commands: effectiveCommands, hint: title }) })
     throw new BriefRejected(
       `${requirementId} 缺少${missing.join('与')}，不能派发；请在需求简报中补充后再交给 AI 推进`,
       { detail: missing },
     )
   }
 
-  const anchors = resolveAnchors({ root, subject, registry: reg, handoff: handoff ?? facts?.handoff ?? null })
+  const anchors = resolveAnchors({ root, subject, registry: reg, handoff: handoff ?? facts?.handoff ?? null, commands: effectiveCommands, hint: title })
   const hints = searchHints({ subject, registry: reg })
   const decision = text(answer) || text((facts?.humanAnswers ?? []).at(-1)) || null
   const progress = handoff ?? facts?.handoff ?? null
@@ -249,7 +320,7 @@ export function compileTurnBrief({
   const evidence = squash(facts?.evidence)
   if (evidence) sections.push(`上次验证：${evidence}`)
   if (progress?.summary) sections.push(`当前进度：${squash(progress.summary)}`)
-  else if (phase === 'implement') sections.push('当前进度：从零开始，尚无已落盘改动。')
+  else if (phase === 'implement') sections.push('当前进度：没有已记录的改动，动手前先核对工作区。')
   if (anchors.length) sections.push(`先读这些文件：${anchors.join('、')}`)
   if (hints.length) sections.push(`需要更多上下文时在 ${hints.join('、')} 内搜索，不要全仓扫描。`)
   sections.push('边界：只改与目标直接相关的文件，不要重构、不要顺手改无关代码。')
@@ -261,7 +332,7 @@ export function compileTurnBrief({
   const plan = phaseInstruction(phase)
   if (plan) sections.push(...plan)
   if (runId) sections.push(`只有全新的业务分歧才写 .alm/runs/${runId}-decision.md，其余自行决定。`)
-  sections.push(doneCriteria({ phase, commands: effectiveCommands }))
+  sections.push(doneCriteria({ phase, commands: effectiveCommands, anchors }))
 
   const full = sections.join('\n')
   const brief = shrink(full, { sections, anchors, intent })
@@ -327,18 +398,22 @@ function shrink(full, { sections, anchors }) {
 }
 
 /** Honest fallback for a run in flight whose requirement never registered a goal. */
-function degradedBrief({ requirementId, title, intent, missing, phase, commands, answer, runId }) {
+function degradedBrief({ requirementId, title, intent, missing, phase, commands, anchors = [], answer, runId }) {
   const lines = [`# ${requirementId}${title ? ` — ${title}` : ''}`]
   lines.push(`注意：需求尚未登记${missing.join('与')}，本轮只能依据下列已确认信息推进，不要臆造业务规则。`)
   if (intent.goal) lines.push(`目标：${intent.goal}`)
   if (answer) lines.push(`已确认的决策：${squash(answer)}`)
   if (runId) lines.push(`遇到全新业务分歧时写 .alm/runs/${runId}-decision.md，不要自行决定。`)
+  // Anchors are independent of a missing goal or criterion: whatever survives
+  // of the contract, the turn still says where to look instead of leaving the
+  // "stay inside the anchors" rule pointing at nothing.
+  if (anchors.length) lines.push(`先读这些文件：${anchors.join('、')}`)
   // Same single line as the full contract: a degraded brief differs in what it
   // admits about intent, never in how verification is invoked.
   lines.push(`验证：完成后运行 pnpm -s alm verify ${requirementId} 自查；不要展开文件清单，也不要跑全量测试。`)
-  lines.push(doneCriteria({ phase, commands }))
+  lines.push(doneCriteria({ phase, commands, anchors }))
   const body = lines.join('\n')
-  return { schema: BRIEF_SCHEMA, text: body, meta: { degraded: true, missing, chars: body.length, phase }, fingerprint: fingerprintOf(body) }
+  return { schema: BRIEF_SCHEMA, text: body, meta: { degraded: true, missing, chars: body.length, phase, anchors }, fingerprint: fingerprintOf(body) }
 }
 
 function fingerprintOf(value) {

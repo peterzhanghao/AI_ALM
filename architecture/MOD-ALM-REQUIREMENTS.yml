@@ -11,6 +11,7 @@ entries:
   - packages/alm-core/src/requirements/candidate.mjs
   - packages/alm-core/src/requirements/turn-brief.mjs
   - packages/alm-core/src/requirements/architecture-impact.mjs
+  - packages/alm-core/src/requirements/exchange.mjs
 tests:
   - packages/alm-core/test/unit/candidate-dev-sync.test.mjs
   - packages/alm-core/test/unit/delivery-scope.test.mjs

@@ -16025,6 +16025,48 @@ function readBriefText({ root, asset = null, item = null, requirementId = null }
   }
   return "";
 }
+function matchBracket(source, start) {
+  let depth = 0;
+  let quote = null;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (quote) {
+      if (char === "\\") index += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "[") depth += 1;
+    else if (char === "]") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+function structuredAcceptance(briefText2) {
+  const marker = /"acceptance"\s*:\s*\[/g;
+  let match = marker.exec(briefText2);
+  while (match) {
+    const start = match.index + match[0].length - 1;
+    const end = matchBracket(briefText2, start);
+    if (end > start) {
+      try {
+        const parsed = JSON.parse(briefText2.slice(start, end + 1));
+        const criteria = (Array.isArray(parsed) ? parsed : []).map((entry) => ({ id: squash(entry?.id) || null, text: squash(entry?.text ?? entry?.expected ?? entry?.content) })).filter((entry) => entry.text);
+        if (criteria.length) {
+          return criteria.map((entry) => ({ id: entry.id, text: clampText(entry.text, CRITERION_LIMIT) }));
+        }
+      } catch {
+      }
+    }
+    match = marker.exec(briefText2);
+  }
+  return [];
+}
 function extractIntent({ briefText: briefText2 = "", doc = null, title = "" } = {}) {
   const lines2 = String(briefText2 ?? "").split(/\r?\n/);
   const goalLines = [];
@@ -16074,6 +16116,7 @@ function extractIntent({ briefText: briefText2 = "", doc = null, title = "" } = 
     id: text2(entry?.id) || `AC-${String(index + 1).padStart(2, "0")}`,
     text: clampText(squash(entry?.text ?? entry?.content), CRITERION_LIMIT)
   })).filter((entry) => entry.text);
+  const structured = structuredAcceptance(String(briefText2 ?? ""));
   const docGoal = clampText(squash(doc?.goal ?? doc?.problem), GOAL_LIMIT);
   let goal = goalLines[0] ?? "";
   let goalSource = goal ? "brief" : null;
@@ -16081,8 +16124,8 @@ function extractIntent({ briefText: briefText2 = "", doc = null, title = "" } = 
     goal = docGoal;
     goalSource = "doc";
   }
-  const criteria = docAcceptance.length ? docAcceptance : acceptance;
-  const acceptanceSource = docAcceptance.length ? "doc" : acceptance.length ? "brief" : null;
+  const criteria = docAcceptance.length ? docAcceptance : acceptance.length ? acceptance : structured;
+  const acceptanceSource = docAcceptance.length ? "doc" : acceptance.length ? "brief" : structured.length ? "brief-json" : null;
   return {
     goal,
     goalSource,
@@ -16096,7 +16139,7 @@ function extractIntent({ briefText: briefText2 = "", doc = null, title = "" } = 
     title: squash(title)
   };
 }
-function resolveAnchors({ root, subject, registry, handoff }) {
+function resolveAnchors({ root, subject, registry, handoff, commands = [], hint = "" }) {
   const declared = declaredModulesOf(subject);
   const entries = [];
   const tests = [];
@@ -16107,13 +16150,27 @@ function resolveAnchors({ root, subject, registry, handoff }) {
     entries.push(...mod.paths.filter((path) => !path.endsWith("/")));
     tests.push(...mod.tests ?? []);
   }
-  const test = unique(tests)[0] ?? null;
+  const commandFiles = commands.flatMap((command) => String(command ?? "").split(/\s+/)).filter((token) => /\.(?:mjs|cjs|js|ts|tsx)$/.test(token));
+  const commandTests = commandFiles.filter((file) => /(?:^|\/)(?:test|tests|spec)\//.test(file) || /\.(?:test|spec)\./.test(file));
+  const haystack = `${commands.join(" ")} ${hint}`.toLowerCase();
+  const relevance = (path) => {
+    const stem = String(path).split("/").pop().replace(/\.(?:mjs|cjs|js|ts|tsx)$/, "").toLowerCase();
+    return stem.length >= 4 && haystack.includes(stem) ? 1 : 0;
+  };
+  const ranked = (list2) => list2.map((path, index) => ({ path, index, rank: relevance(path) })).sort((a, b) => b.rank - a.rank || a.index - b.index).map((entry) => entry.path);
+  const test = unique(commandTests)[0] ?? ranked(unique(tests))[0] ?? null;
   const changedCap = test ? Math.max(0, MAX_ANCHORS - 1) : MAX_ANCHORS;
   const picked = unique(handoff?.changedFiles ?? []).slice(0, changedCap);
   if (test && !picked.includes(test)) picked.push(test);
-  for (const path of unique(entries)) {
+  for (const path of ranked(unique(entries))) {
     if (picked.length >= MAX_ANCHORS) break;
     if (!picked.includes(path)) picked.push(path);
+  }
+  if (picked.length < 2) {
+    for (const file of commandFiles) {
+      if (picked.length >= 2 || picked.includes(file)) continue;
+      picked.push(file);
+    }
   }
   return picked.slice(0, MAX_ANCHORS);
 }
@@ -16146,10 +16203,11 @@ function phaseInstruction(phase) {
   }
   return null;
 }
-function doneCriteria({ phase, commands }) {
+function doneCriteria({ phase, commands, anchors = [] }) {
   if (phase === "plan") return "\u5B8C\u6210\u6807\u5FD7\uFF1A\u7ED9\u51FA\u4E0A\u8FF0\u4E09\u6761\u65B9\u6848\u540E\u505C\u6B62\u3002";
-  if (!commands.length) return "\u5B8C\u6210\u6807\u5FD7\uFF1A\u6539\u52A8\u843D\u5728\u951A\u70B9\u5185\uFF0C\u8BF4\u660E\u9A8C\u8BC1\u60C5\u51B5\u540E\u505C\u6B62\u3002";
-  return "\u5B8C\u6210\u6807\u5FD7\uFF1A\u9A8C\u8BC1\u547D\u4EE4\u9000\u51FA\u7801\u4E3A 0 \u4E14\u6539\u52A8\u53EA\u843D\u5728\u951A\u70B9\u5185\uFF0C\u7136\u540E\u62A5\u544A\u6539\u52A8\u6587\u4EF6\u4E0E\u7ED3\u679C\u5E76\u505C\u6B62\u3002";
+  const scope = anchors.length ? "\u6539\u52A8\u53EA\u843D\u5728\u951A\u70B9\u5185" : "\u4E0D\u6539\u4E0E\u76EE\u6807\u65E0\u5173\u7684\u6587\u4EF6";
+  if (!commands.length) return `\u5B8C\u6210\u6807\u5FD7\uFF1A${scope}\uFF0C\u8BF4\u660E\u9A8C\u8BC1\u60C5\u51B5\u540E\u505C\u6B62\u3002`;
+  return `\u5B8C\u6210\u6807\u5FD7\uFF1A\u9A8C\u8BC1\u547D\u4EE4\u9000\u51FA\u7801\u4E3A 0 \u4E14${scope}\uFF0C\u7136\u540E\u62A5\u544A\u6539\u52A8\u6587\u4EF6\u4E0E\u7ED3\u679C\u5E76\u505C\u6B62\u3002`;
 }
 function compileTurnBrief({
   root,
@@ -16184,13 +16242,13 @@ function compileTurnBrief({
   if (!intent.goal) missing.push("\u76EE\u6807");
   if (intent.acceptance.length === 0) missing.push("\u9A8C\u6536\u6807\u51C6");
   if (missing.length) {
-    if (degraded) return degradedBrief({ requirementId, title, intent, missing, phase, commands: effectiveCommands, answer, runId });
+    if (degraded) return degradedBrief({ requirementId, title, intent, missing, phase, commands: effectiveCommands, answer, runId, anchors: resolveAnchors({ root, subject, registry: reg, handoff: handoff ?? facts?.handoff ?? null, commands: effectiveCommands, hint: title }) });
     throw new BriefRejected(
       `${requirementId} \u7F3A\u5C11${missing.join("\u4E0E")}\uFF0C\u4E0D\u80FD\u6D3E\u53D1\uFF1B\u8BF7\u5728\u9700\u6C42\u7B80\u62A5\u4E2D\u8865\u5145\u540E\u518D\u4EA4\u7ED9 AI \u63A8\u8FDB`,
       { detail: missing }
     );
   }
-  const anchors = resolveAnchors({ root, subject, registry: reg, handoff: handoff ?? facts?.handoff ?? null });
+  const anchors = resolveAnchors({ root, subject, registry: reg, handoff: handoff ?? facts?.handoff ?? null, commands: effectiveCommands, hint: title });
   const hints = searchHints({ subject, registry: reg });
   const decision = text2(answer) || text2((facts?.humanAnswers ?? []).at(-1)) || null;
   const progress = handoff ?? facts?.handoff ?? null;
@@ -16204,7 +16262,7 @@ function compileTurnBrief({
   const evidence = squash(facts?.evidence);
   if (evidence) sections.push(`\u4E0A\u6B21\u9A8C\u8BC1\uFF1A${evidence}`);
   if (progress?.summary) sections.push(`\u5F53\u524D\u8FDB\u5EA6\uFF1A${squash(progress.summary)}`);
-  else if (phase === "implement") sections.push("\u5F53\u524D\u8FDB\u5EA6\uFF1A\u4ECE\u96F6\u5F00\u59CB\uFF0C\u5C1A\u65E0\u5DF2\u843D\u76D8\u6539\u52A8\u3002");
+  else if (phase === "implement") sections.push("\u5F53\u524D\u8FDB\u5EA6\uFF1A\u6CA1\u6709\u5DF2\u8BB0\u5F55\u7684\u6539\u52A8\uFF0C\u52A8\u624B\u524D\u5148\u6838\u5BF9\u5DE5\u4F5C\u533A\u3002");
   if (anchors.length) sections.push(`\u5148\u8BFB\u8FD9\u4E9B\u6587\u4EF6\uFF1A${anchors.join("\u3001")}`);
   if (hints.length) sections.push(`\u9700\u8981\u66F4\u591A\u4E0A\u4E0B\u6587\u65F6\u5728 ${hints.join("\u3001")} \u5185\u641C\u7D22\uFF0C\u4E0D\u8981\u5168\u4ED3\u626B\u63CF\u3002`);
   sections.push("\u8FB9\u754C\uFF1A\u53EA\u6539\u4E0E\u76EE\u6807\u76F4\u63A5\u76F8\u5173\u7684\u6587\u4EF6\uFF0C\u4E0D\u8981\u91CD\u6784\u3001\u4E0D\u8981\u987A\u624B\u6539\u65E0\u5173\u4EE3\u7801\u3002");
@@ -16212,7 +16270,7 @@ function compileTurnBrief({
   const plan2 = phaseInstruction(phase);
   if (plan2) sections.push(...plan2);
   if (runId) sections.push(`\u53EA\u6709\u5168\u65B0\u7684\u4E1A\u52A1\u5206\u6B67\u624D\u5199 .alm/runs/${runId}-decision.md\uFF0C\u5176\u4F59\u81EA\u884C\u51B3\u5B9A\u3002`);
-  sections.push(doneCriteria({ phase, commands: effectiveCommands }));
+  sections.push(doneCriteria({ phase, commands: effectiveCommands, anchors }));
   const full = sections.join("\n");
   const brief = shrink(full, { sections, anchors, intent });
   return {
@@ -16267,16 +16325,17 @@ function shrink(full, { sections, anchors }) {
   trimmed.push("\u5DF2\u538B\u7F29\u5230\u6700\u5C0F\u5951\u7EA6");
   return { text: minimal.slice(0, BRIEF_BUDGET), trimmed };
 }
-function degradedBrief({ requirementId, title, intent, missing, phase, commands, answer, runId }) {
+function degradedBrief({ requirementId, title, intent, missing, phase, commands, anchors = [], answer, runId }) {
   const lines2 = [`# ${requirementId}${title ? ` \u2014 ${title}` : ""}`];
   lines2.push(`\u6CE8\u610F\uFF1A\u9700\u6C42\u5C1A\u672A\u767B\u8BB0${missing.join("\u4E0E")}\uFF0C\u672C\u8F6E\u53EA\u80FD\u4F9D\u636E\u4E0B\u5217\u5DF2\u786E\u8BA4\u4FE1\u606F\u63A8\u8FDB\uFF0C\u4E0D\u8981\u81C6\u9020\u4E1A\u52A1\u89C4\u5219\u3002`);
   if (intent.goal) lines2.push(`\u76EE\u6807\uFF1A${intent.goal}`);
   if (answer) lines2.push(`\u5DF2\u786E\u8BA4\u7684\u51B3\u7B56\uFF1A${squash(answer)}`);
   if (runId) lines2.push(`\u9047\u5230\u5168\u65B0\u4E1A\u52A1\u5206\u6B67\u65F6\u5199 .alm/runs/${runId}-decision.md\uFF0C\u4E0D\u8981\u81EA\u884C\u51B3\u5B9A\u3002`);
-  lines2.push(`\u9A8C\u8BC1\uFF1A\u5B8C\u6210\u540E\u8FD0\u884C pnpm -s alm verify ${requirementId} \u81EA\u67E5\uFF1B\u4E0D\u8981\u8DD1\u5168\u91CF\u6D4B\u8BD5\u3002`);
-  lines2.push(doneCriteria({ phase, commands }));
+  if (anchors.length) lines2.push(`\u5148\u8BFB\u8FD9\u4E9B\u6587\u4EF6\uFF1A${anchors.join("\u3001")}`);
+  lines2.push(`\u9A8C\u8BC1\uFF1A\u5B8C\u6210\u540E\u8FD0\u884C pnpm -s alm verify ${requirementId} \u81EA\u67E5\uFF1B\u4E0D\u8981\u5C55\u5F00\u6587\u4EF6\u6E05\u5355\uFF0C\u4E5F\u4E0D\u8981\u8DD1\u5168\u91CF\u6D4B\u8BD5\u3002`);
+  lines2.push(doneCriteria({ phase, commands, anchors }));
   const body = lines2.join("\n");
-  return { schema: BRIEF_SCHEMA, text: body, meta: { degraded: true, missing, chars: body.length, phase }, fingerprint: fingerprintOf(body) };
+  return { schema: BRIEF_SCHEMA, text: body, meta: { degraded: true, missing, chars: body.length, phase, anchors }, fingerprint: fingerprintOf(body) };
 }
 function fingerprintOf(value) {
   return createHash13("sha256").update(String(value ?? "")).digest("hex");
@@ -18813,7 +18872,7 @@ function deriveDetailView(item, options = {}) {
   const docView = resolveDocView(source);
   const sections = parseBodySections(source.briefText, { aiStored: source.aiReview?.stored === true });
   const missing = docView && docView.legacy !== true ? missingSectionsFromDoc(docView) : missingSections(sections);
-  const structuredAcceptance = asArray2(docView?.doc?.acceptance).map((criterion) => ({
+  const structuredAcceptance2 = asArray2(docView?.doc?.acceptance).map((criterion) => ({
     id: textOrNull(criterion?.id),
     title: textOrNull(criterion?.id),
     text: textOrNull(criterion?.text)
@@ -18823,8 +18882,8 @@ function deriveDetailView(item, options = {}) {
     (count, criterion) => count + String(criterion.text ?? "").split(/\r?\n/).filter((line) => /^\s*[-*]\s*AC[- ]?\d+/i.test(line)).length,
     0
   );
-  let acceptanceCriteria = structuredAcceptance.length > 0 && (authoredBulletCount === 0 || structuredAcceptance.length >= authoredBulletCount) ? structuredAcceptance : proseAcceptance;
-  const legacyTestCriteria = structuredAcceptance.length > 0 ? asArray2(source.verifiedBy).filter((id19) => typeof id19 === "string" && id19.trim()).map((id19) => {
+  let acceptanceCriteria = structuredAcceptance2.length > 0 && (authoredBulletCount === 0 || structuredAcceptance2.length >= authoredBulletCount) ? structuredAcceptance2 : proseAcceptance;
+  const legacyTestCriteria = structuredAcceptance2.length > 0 ? asArray2(source.verifiedBy).filter((id19) => typeof id19 === "string" && id19.trim()).map((id19) => {
     const test = source.trace?.nodes?.find((node) => node.id === id19 && node.type === "test");
     return { id: id19, title: id19, text: test?.title ? `\u65E2\u6709\u9A8C\u8BC1\u57FA\u7EBF\uFF1A${test.title}` : `\u65E2\u6709\u9A8C\u8BC1\u57FA\u7EBF\uFF1A${id19}`, legacyBaseline: true };
   }) : [];
@@ -35318,6 +35377,16 @@ function startSidebarServer({ port = SIDEBAR_PORT, handler }) {
 var pkg2 = JSON.parse(readFileSync53(new URL("./package.json", new URL("./index.js", import.meta.url).href), "utf8"));
 var NATIVE_SOURCE_BUILD_ID = false ? null : null;
 var NATIVE_CLIENT_BUILD_ID = true ? "7e6532ad8b52720cf0ef4dbaf30e142340cb3a9ec62ebbba7239d42f0903b4de" : null;
+var CONTINUING_ANSWER = "\u6309\u5DF2\u6279\u51C6\u8303\u56F4\u6062\u590D\u63A8\u8FDB\u3002";
+function changedFilesOf(executionFacts) {
+  const files = executionFacts?.handoff?.changedFiles;
+  return (Array.isArray(files) ? files : []).filter(Boolean);
+}
+function resumeNote(executionFacts, restarted) {
+  const changed = changedFilesOf(executionFacts);
+  if (!restarted) return "\u7EE7\u7EED\u4E0A\u4E00\u8F6E\uFF0C\u4E0D\u8981\u91CD\u505A\u5DF2\u5B8C\u6210\u7684\u5DE5\u4F5C\u3002";
+  return changed.length ? "\u65AD\u70B9\u7EED\u8DD1\uFF1A\u4FDD\u7559\u4E0A\u9762\u8FD9\u4E9B\u5DF2\u843D\u76D8\u6539\u52A8\uFF0C\u5148\u6838\u5BF9\u5F53\u524D\u5DE5\u4F5C\u533A\u518D\u7EE7\u7EED\u3002" : "\u65AD\u70B9\u7EED\u8DD1\uFF1A\u5148\u6838\u5BF9\u5F53\u524D\u5DE5\u4F5C\u533A\uFF0C\u518D\u4ECE\u4E0A\u6B21\u505C\u4E0B\u7684\u4F4D\u7F6E\u7EE7\u7EED\u3002";
+}
 function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null, root = null, acceptanceCommands = null }) {
   const reason2 = promptSafeText(previous?.failure?.message);
   const brief = buildExecutionPrompt({
@@ -35329,10 +35398,12 @@ function buildRestartPrompt({ requirementId, runId, previous = null, item, execu
     executionFacts,
     degraded: true
   });
-  if (!reason2) return `${brief}
-\u65AD\u70B9\u7EED\u8DD1\uFF1A\u4FDD\u7559\u5DF2\u843D\u76D8\u6539\u52A8\uFF0C\u5148\u6838\u5BF9\u5F53\u524D\u5DE5\u4F5C\u533A\u518D\u7EE7\u7EED\u3002`;
-  return `${brief}
-\u4E0A\u4E00\u8F6E\u4E2D\u65AD\u539F\u56E0\uFF1A${reason2}\uFF1B\u4FDD\u7559\u5DF2\u843D\u76D8\u6539\u52A8\uFF0C\u5148\u6838\u5BF9\u5F53\u524D\u5DE5\u4F5C\u533A\u518D\u7EE7\u7EED\u3002`;
+  const changed = changedFilesOf(executionFacts);
+  const lines2 = [brief];
+  if (reason2) lines2.push(`\u4E0A\u4E00\u8F6E\u4E2D\u65AD\u539F\u56E0\uFF1A${reason2}`);
+  if (changed.length) lines2.push(`\u4E0A\u4E00\u8F6E\u5DF2\u6539\u52A8\uFF1A${changed.slice(0, 5).join("\u3001")}${changed.length > 5 ? ` \u7B49 ${changed.length} \u4E2A\u6587\u4EF6` : ""}\u3002`);
+  lines2.push(resumeNote(executionFacts, true));
+  return lines2.join("\n");
 }
 var RUN_HEARTBEAT_MS = 45e3;
 var CONVERGENCE_DRAFT_TIMEOUT_MS = 8e3;
@@ -35590,8 +35661,13 @@ function buildResumePrompt({ requirementId, runId, item, docView = null, answer,
     executionFacts,
     degraded: true
   });
-  const note = restarted ? "\u65AD\u70B9\u7EED\u8DD1\uFF1A\u4FDD\u7559\u5DF2\u843D\u76D8\u6539\u52A8\uFF0C\u5148\u6838\u5BF9\u5F53\u524D\u5DE5\u4F5C\u533A\u518D\u7EE7\u7EED\u3002" : "\u7EE7\u7EED\u4E0A\u4E00\u8F6E\uFF0C\u4E0D\u8981\u91CD\u505A\u5DF2\u5B8C\u6210\u7684\u5DE5\u4F5C\u3002";
-  return [compiled, "", `\u4E0A\u4E00\u8F6E\u7ED3\u8BBA\uFF1A${promptSafeText(answer) || "\u6309\u5DF2\u6279\u51C6\u8303\u56F4\u7EE7\u7EED"}`, note].join("\n");
+  const answerText = promptSafeText(answer);
+  const changed = changedFilesOf(executionFacts);
+  const lines2 = [compiled];
+  if (answerText && answerText !== CONTINUING_ANSWER) lines2.push(`\u4E0A\u4E00\u8F6E\u7ED3\u8BBA\uFF1A${answerText}`);
+  if (changed.length) lines2.push(`\u4E0A\u4E00\u8F6E\u5DF2\u6539\u52A8\uFF1A${changed.slice(0, 5).join("\u3001")}${changed.length > 5 ? ` \u7B49 ${changed.length} \u4E2A\u6587\u4EF6` : ""}\u3002`);
+  lines2.push(resumeNote(executionFacts, restarted));
+  return lines2.join("\n");
 }
 function pinDeliveryPermissions(agent) {
   const session = agent?.session;
@@ -37473,7 +37549,7 @@ ${String(entry.text ?? "").trim()}
     if (active.status !== "waiting-input" && !(active.status === "failed" && active.failure?.code === "host-restart")) return { resumed: false, reason: "run-not-resumable", message: "\u672C\u8F6E\u4E0D\u662F\u7B49\u5F85\u7EE7\u7EED\u72B6\u6001\uFF0C\u672A\u7ED5\u8FC7\u6682\u505C\u6216\u5176\u4ED6\u95E8\u7981" };
     applyResolvedScopeApprovals(root, active);
     if (continuing && this.hasPendingDecision(root, active)) return { resumed: false, reason: "human-decision-required", message: "\u5B58\u5728\u5F85\u56DE\u7B54\u7684\u4EBA\u5DE5\u51B3\u7B56\uFF0C\u4E0D\u80FD\u76F4\u63A5\u7EE7\u7EED" };
-    let text6 = continuing ? "\u6309\u5DF2\u6279\u51C6\u8303\u56F4\u6062\u590D\u63A8\u8FDB\u3002" : String(answer ?? "").trim();
+    let text6 = continuing ? CONTINUING_ANSWER : String(answer ?? "").trim();
     const discovered = this.deliveryDecision(root, active);
     const decision = discovered.pending ? discovered.path : null;
     const identity = discovered.pending ? discovered.identity : null;

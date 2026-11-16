@@ -329,6 +329,18 @@ test('execution and resume prompts render a concise task brief without metadata 
       assert.doesNotMatch(text, /node --test packages\/demo\/test\/index\.test\.mjs/)
       assert.match(text, /不要跑全量测试/)
     }
+    // Clicking "继续推进" is an instruction, not a conclusion: echoing the
+    // synthetic text back as `上一轮结论` asserted an approved scope that this
+    // requirement never had, and taught the agent nothing.
+    assert.doesNotMatch(resume, /上一轮结论：按已批准范围恢复推进/)
+    assert.doesNotMatch(resume, /保留已落盘改动/, '没有记录的改动时不得声称有落盘改动')
+
+    const restarted = buildResumePrompt({
+      requirementId: run.requirement, runId: run.id, item, answer: null, restarted: true,
+      executionFacts: { allowedPaths: [], humanAnswers: [], evidence: '', commandLines: [] },
+    })
+    assert.match(restarted, /断点续跑：先核对当前工作区/)
+    assert.doesNotMatch(restarted, /上一轮结论|保留已落盘改动/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

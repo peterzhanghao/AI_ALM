@@ -251,3 +251,64 @@ test('the brief is read from the conventional path when nothing points at it', (
   assert.match(readBriefText({ root, requirementId }), /购物车合并行/)
   assert.equal(readBriefText({ root, requirementId: 'REQ-MISSING' }), '')
 })
+
+test('criteria frozen inside the brief JSON are read, not reported as missing', () => {
+  // Real briefs paste the confirmed clarification transcript verbatim, so the
+  // criteria live in a bare JSON block with no markdown heading above them.
+  // Treating that as "no acceptance" downgraded a fully specified requirement
+  // to one line and told the agent not to invent rules it had been given.
+  const brief = `# 交换包
+
+## 目标
+提供 JSON 与 xlsx 的文件交换，走真实 UI。
+
+冻结澄清正文：
+{
+  "schema": "alm.requirement.doc.draft/v1",
+  "acceptance": [
+    { "id": "AC-01", "text": "JSON 和 .xlsx 均通过真实 UI 完成导出、导入、预览与回执。", "expected": "两种格式流程可用。" }
+  ],
+  "pending": [
+    { "id": "Q-06", "text": "[验收建议·AI 建议] AC-02 未确认的建议不算验收标准。" }
+  ]
+}
+`
+  const { root, requirementId } = fixture({ brief })
+  const compiled = compileTurnBrief({ root, requirementId, asset, item: { id: requirementId, title: '交换包' } })
+  assert.match(compiled.text, /验收：AC-01 JSON 和 \.xlsx 均通过真实 UI 完成导出、导入、预览与回执。/)
+  assert.equal(compiled.meta.acceptanceSource, 'brief-json')
+  assert.doesNotMatch(compiled.text, /尚未登记/)
+  assert.doesNotMatch(compiled.text, /未确认的建议不算验收标准/, '未确认的 AI 建议不得混进验收')
+
+  // Same brief, dispatch not allowed to degrade: no rejection either.
+  assert.doesNotThrow(() => compileTurnBrief({ root, requirementId, asset, item: { id: requirementId, title: '交换包' } }))
+})
+
+test('a brief without any criterion still refuses a first dispatch', () => {
+  const brief = `# 只看目标\n\n## 目标\n把列表按创建时间倒序。\n`
+  const { root, requirementId } = fixture({ brief })
+  assert.throws(
+    () => compileTurnBrief({ root, requirementId, asset, item: { id: requirementId, title: '排序' } }),
+    (error) => error instanceof BriefRejected && error.code === 'brief-insufficient' && error.detail.includes('验收标准'),
+  )
+})
+
+test('a degraded brief keeps its anchors instead of pointing at nothing', () => {
+  // No declared module, no handoff: the registered command is the only thing
+  // that knows which files encode the expected behaviour.
+  const brief = `# 只有目标\n\n## 目标\n把列表按创建时间倒序。\n`
+  const { root, requirementId } = fixture({ brief })
+  const compiled = compileTurnBrief({
+    root,
+    requirementId,
+    asset: { id: requirementId, title: '排序', links: [] },
+    item: { id: requirementId, title: '排序' },
+    commands: [{ command: ['node', '--test', 'packages/shop/test/cart.test.mjs', 'packages/shop/test/order.test.mjs'] }],
+    degraded: true,
+    runId: 'RUN-9',
+  })
+  assert.match(compiled.text, /尚未登记验收标准/)
+  assert.match(compiled.text, /先读这些文件：packages\/shop\/test\/cart\.test\.mjs/)
+  assert.match(compiled.text, /改动只落在锚点内/, '有锚点时才能要求"落在锚点内"')
+  assert.equal(compiled.meta.anchors.length, 2)
+})

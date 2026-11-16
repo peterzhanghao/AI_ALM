@@ -26,3 +26,11 @@ Value: TEST-ALM-REQ006-SECURITY
 [RELATION]
 Type: verified_by
 Value: TEST-ALM-REQ006-DESKTOP
+
+[RELATION]
+Type: allocated_to
+Value: MOD-DSH-REQUIREMENTS
+
+[RELATION]
+Type: allocated_to
+Value: MOD-ALM-REQUIREMENTS

@@ -67,6 +67,24 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 const NATIVE_SOURCE_BUILD_ID = typeof __ALM_SOURCE_BUILD_ID__ === 'string' ? __ALM_SOURCE_BUILD_ID__ : null
 const NATIVE_CLIENT_BUILD_ID = typeof __ALM_CLIENT_BUILD_ID__ === 'string' ? __ALM_CLIENT_BUILD_ID__ : null
 /** Prompt for resuming a round whose carrier process died mid-turn. */
+/** Synthetic answer used when a human clicks "继续推进" without writing text. */
+const CONTINUING_ANSWER = '按已批准范围恢复推进。'
+
+/** Files the previous turn actually changed, as recorded in the handoff. */
+function changedFilesOf(executionFacts) {
+  const files = executionFacts?.handoff?.changedFiles
+  return (Array.isArray(files) ? files : []).filter(Boolean)
+}
+
+/** Only claim files are on disk when the handoff says so. */
+function resumeNote(executionFacts, restarted) {
+  const changed = changedFilesOf(executionFacts)
+  if (!restarted) return '继续上一轮，不要重做已完成的工作。'
+  return changed.length
+    ? '断点续跑：保留上面这些已落盘改动，先核对当前工作区再继续。'
+    : '断点续跑：先核对当前工作区，再从上次停下的位置继续。'
+}
+
 function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null, root = null, acceptanceCommands = null }) {
   const reason = promptSafeText(previous?.failure?.message)
   const brief = buildExecutionPrompt({
@@ -78,8 +96,12 @@ function buildRestartPrompt({ requirementId, runId, previous = null, item, execu
     executionFacts,
     degraded: true,
   })
-  if (!reason) return `${brief}\n断点续跑：保留已落盘改动，先核对当前工作区再继续。`
-  return `${brief}\n上一轮中断原因：${reason}；保留已落盘改动，先核对当前工作区再继续。`
+  const changed = changedFilesOf(executionFacts)
+  const lines = [brief]
+  if (reason) lines.push(`上一轮中断原因：${reason}`)
+  if (changed.length) lines.push(`上一轮已改动：${changed.slice(0, 5).join('、')}${changed.length > 5 ? ` 等 ${changed.length} 个文件` : ''}。`)
+  lines.push(resumeNote(executionFacts, true))
+  return lines.join('\n')
 }
 
 /** A live delivery turn beats every 45s; the reader calls it dead after 10min. */
@@ -419,10 +441,16 @@ export function buildResumePrompt({ requirementId, runId, item, docView = null, 
     executionFacts,
     degraded: true,
   })
-  const note = restarted
-    ? '断点续跑：保留已落盘改动，先核对当前工作区再继续。'
-    : '继续上一轮，不要重做已完成的工作。'
-  return [compiled, '', `上一轮结论：${promptSafeText(answer) || '按已批准范围继续'}`, note].join('\n')
+  const answerText = promptSafeText(answer)
+  const changed = changedFilesOf(executionFacts)
+  const lines = [compiled]
+  // "Continue" is an instruction, not a conclusion. Echoing the synthetic text
+  // back as `上一轮结论` taught the agent nothing and asserted an approved
+  // scope that a requirement without a plan checkpoint never had.
+  if (answerText && answerText !== CONTINUING_ANSWER) lines.push(`上一轮结论：${answerText}`)
+  if (changed.length) lines.push(`上一轮已改动：${changed.slice(0, 5).join('、')}${changed.length > 5 ? ` 等 ${changed.length} 个文件` : ''}。`)
+  lines.push(resumeNote(executionFacts, restarted))
+  return lines.join('\n')
 }
 
 /**
@@ -2324,7 +2352,7 @@ export default class RequirementsService {
     // decision's proposed paths. Recover only exact, hash-bound approvals.
     applyResolvedScopeApprovals(root, active)
     if (continuing && this.hasPendingDecision(root, active)) return { resumed: false, reason: 'human-decision-required', message: '存在待回答的人工决策，不能直接继续' }
-    let text = continuing ? '按已批准范围恢复推进。' : String(answer ?? '').trim()
+    let text = continuing ? CONTINUING_ANSWER : String(answer ?? '').trim()
     const discovered = this.deliveryDecision(root, active)
     const decision = discovered.pending ? discovered.path : null
     const identity = discovered.pending ? discovered.identity : null
