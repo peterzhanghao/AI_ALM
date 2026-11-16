@@ -1,15 +1,12 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { gitText } from '../git-run.mjs'
 
 const APPROVAL_DIR = '.alm/approvals'
 const HUMAN_ACTOR = /^human:[A-Za-z0-9._-]+$/
 
 function git(root, ...args) {
-  return execFileSync('git', ['-C', root, ...args], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim()
+  return gitText(root, args)
 }
 
 export function gitHead(root, ref = 'HEAD') {

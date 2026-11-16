@@ -2010,7 +2010,7 @@ export default class RequirementsService {
 
   resumeAutomaticCheckpoint(root, run, actor) {
     const previous = run.checkpoint?.autoAdvance
-    const resumableReasons = ['registered-acceptance-failed', 'decision-options-requested', 'verification-timeout', 'verification-command-unavailable', 'verification-config-changed', 'auto-facts-changed']
+    const resumableReasons = ['registered-acceptance-failed', 'decision-options-requested', 'verification-timeout', 'verification-command-unavailable', 'verification-config-changed', 'auto-facts-changed', 'requirement-changed']
     if (previous?.status !== 'stopped' || !resumableReasons.includes(previous.reason)) return { checkpoint: run.checkpoint, receipt: {} }
     const denied = reason => ({ checkpoint: run.checkpoint, receipt: { autoAdvanceResumed: false, autoAdvanceReason: reason } })
     if (!String(actor).startsWith('human:') || previous.authorized !== true || previous.authorization?.source !== 'start-v4') return denied('auto-authorization-required')
@@ -2019,19 +2019,36 @@ export default class RequirementsService {
     let facts
     try { facts = this.automaticFacts(root, run.requirement) } catch { return denied('auto-facts-unavailable') }
     const authorization = previous.authorization
-    // Every change except the command binding alters the authorized subject;
-    // those still require a fresh round instead of a silent resume.
-    if (!facts?.snapshot?.complete || !facts.snapshot.headSha || facts.accepted || !facts.requirementHash || !Object.hasOwn(authorization, 'configHash') || facts.requirementHash !== authorization.requirementHash || facts.revision !== authorization.revision) return denied('auto-facts-changed')
+    if (!facts?.snapshot?.complete || !facts.snapshot.headSha || facts.accepted || !facts.requirementHash || !Object.hasOwn(authorization, 'configHash')) return denied('auto-facts-changed')
+    // A changed requirement text is the one stale fact a human can re-authorize
+    // by clicking 继续推进: the click is the consent, and the receipt records the
+    // exact revision that replaced the one this round was granted for. Without
+    // this the stop is permanent — the run is still resumable, but its
+    // authorization can never match again, so verification and candidate
+    // creation stay switched off forever.
+    const identityChanged = facts.requirementHash !== authorization.requirementHash || facts.revision !== authorization.revision
+    if (identityChanged && previous.reason !== 'requirement-changed') return denied('auto-facts-changed')
     // A human narrowing the acceptance command is itself an authorization act.
     // Rebind the hash here rather than leaving the round permanently stopped.
-    let rebound = authorization
-    let didRebound = false
-    if (facts.configHash !== authorization.configHash) {
-      rebound = { ...authorization, configHash: facts.configHash,
-        rebound: { at: new Date().toISOString(), actor: String(actor), from: authorization.configHash, to: facts.configHash, reason: 'resume-verification-config-rebound' } }
-      didRebound = true
+    const changes = []
+    const next = { ...authorization }
+    if (identityChanged) {
+      changes.push({ field: 'requirementHash', from: authorization.requirementHash, to: facts.requirementHash })
+      changes.push({ field: 'revision', from: authorization.revision, to: facts.revision })
+      next.requirementHash = facts.requirementHash
+      next.revision = facts.revision
     }
-    return { checkpoint: { ...run.checkpoint, autoAdvance: { ...previous, authorization: rebound, status: 'authorized', reason: null } }, receipt: { autoAdvanceResumed: true, autoAdvanceRebound: didRebound } }
+    if (facts.configHash !== authorization.configHash) {
+      changes.push({ field: 'configHash', from: authorization.configHash, to: facts.configHash })
+      next.configHash = facts.configHash
+    }
+    const didRebound = changes.length > 0
+    const rebound = didRebound
+      ? { ...next, rebound: { at: new Date().toISOString(), actor: String(actor), from: changes[0].from, to: changes[0].to, changes,
+          reason: identityChanged ? 'resume-requirement-rebound' : 'resume-verification-config-rebound' } }
+      : authorization
+    return { checkpoint: { ...run.checkpoint, autoAdvance: { ...previous, authorization: rebound, status: 'authorized', reason: null } },
+      receipt: { autoAdvanceResumed: true, autoAdvanceRebound: didRebound, ...(didRebound ? { autoAdvanceReboundReason: rebound.rebound.reason } : {}) } }
   }
 
   prepareAutomaticAuthorization(root, requirementId, subject) {

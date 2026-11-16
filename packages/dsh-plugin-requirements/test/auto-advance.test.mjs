@@ -184,3 +184,28 @@ test('queued cancel and unreadable decision stop before dispatch', async (t) => 
     assert.equal(runs.readRun(f.root, f.runId).status, gate === 'cancel' ? 'cancelled' : 'waiting-input')
   }
 })
+
+test('a human resume re-authorizes a changed requirement instead of stopping forever', (t) => {
+  const f = fixture(t)
+  // The round was granted for one revision, then the requirement text changed.
+  // Every later resume used to be denied with auto-facts-changed, so the host
+  // verification never ran again and the panel offered 继续推进 indefinitely.
+  f.instance.automaticFacts = () => ({ ...facts(), requirementHash: 'newhash', revision: 2, configHash: 'config' })
+  const granted = { ...authorization, configHash: 'config' }
+  const stopped = { requirement: 'REQ-A', status: 'waiting-input', checkpoint: { autoAdvance: { authorized: true, authorization: granted, dispatches: 1, maxDispatches: 3, status: 'stopped', reason: 'requirement-changed' } } }
+  const resumed = f.instance.resumeAutomaticCheckpoint(f.root, stopped, 'human:test')
+  assert.equal(resumed.receipt.autoAdvanceResumed, true)
+  assert.equal(resumed.receipt.autoAdvanceRebound, true)
+  assert.equal(resumed.receipt.autoAdvanceReboundReason, 'resume-requirement-rebound')
+  assert.equal(resumed.checkpoint.autoAdvance.status, 'authorized')
+  assert.equal(resumed.checkpoint.autoAdvance.dispatches, 1)
+  const auth = resumed.checkpoint.autoAdvance.authorization
+  assert.equal(auth.requirementHash, 'newhash')
+  assert.equal(auth.revision, 2)
+  assert.equal(auth.rebound.actor, 'human:test')
+  assert.equal(auth.rebound.changes.length, 2)
+  // The same mismatch stays denied when the stop had another cause or the
+  // caller is not a human: only the click that sees this exact stop re-grants.
+  assert.notEqual(f.instance.resumeAutomaticCheckpoint(f.root, { ...stopped, checkpoint: { autoAdvance: { ...stopped.checkpoint.autoAdvance, reason: 'no-progress' } } }, 'human:test').receipt.autoAdvanceResumed, true)
+  assert.equal(f.instance.resumeAutomaticCheckpoint(f.root, stopped, 'agent:forged').receipt.autoAdvanceResumed, false)
+})

@@ -83,7 +83,7 @@ test('AC-03/AC-05: export CTA stays readable and the template downloads then imp
     assert.deepEqual(posts.map(body => body.action), ['version', 'template', 'preview'])
     // The route answers the probe without a build, which reads as "unknown host";
     // the footer must still name the workbook contract on screen.
-    assert.match(await page.locator('[data-exchange-build]').innerText(), /工作簿格式 v3/)
+    assert.match(await page.locator('[data-exchange-build]').innerText(), /工作簿格式 v4/)
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })

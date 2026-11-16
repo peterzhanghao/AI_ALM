@@ -60,15 +60,32 @@ test('exchange real HTTP JSON/XLSX export, preview, CAS apply and security bound
     assert.equal((await post({ action: 'export', format: 'pdf' })).status, 415)
     assert.equal((await post({ action: 'export', format: 'json' }, { origin: 'http://evil.invalid' })).status, 403)
     assert.equal((await post({ action: 'export', format: 'xlsx', status: 'signed' })).status, 400)
-    // AC-03: the export surface only produces the editable Excel workbook.
-    assert.equal((await post({ action: 'export', format: 'json' })).status, 415)
-    assert.equal((await post({ action: 'export', format: 'json' })).body.error.code, 'unsupported-format')
     // AC-01: the first export silently provisions the project key.
     assert.equal(existsSync(join(root, '.alm/exchange/key')), false)
     const uninitialized = await post({ action: 'export', format: 'xlsx' })
     assert.equal(uninitialized.status, 200, JSON.stringify(uninitialized.body))
     assert.match(uninitialized.body.filename, /\.xlsx$/)
     assert.equal(existsSync(join(root, '.alm/exchange/key')), true)
+    // AC-01: the same real UI/API also exports the native JSON package, with the
+    // export baseline and identity proofs the three-way merge needs.
+    const jsonExported = await post({ action: 'export', format: 'json' })
+    assert.equal(jsonExported.status, 200, JSON.stringify(jsonExported.body))
+    assert.match(jsonExported.body.filename, /\.json$/)
+    assert.equal(jsonExported.body.mime, 'application/json')
+    const jsonPayload = JSON.parse(Buffer.from(jsonExported.body.content, 'base64').toString('utf8'))
+    assert.equal(jsonPayload.schema, 'alm.requirements.exchange/v1')
+    assert.ok(jsonPayload.records.length > 0)
+    assert.ok(jsonPayload.records.every(record => record.operation === 'update' && record.baseHash && record.proof))
+    // AC-01: the exported JSON package round-trips through preview and CAS apply.
+    jsonPayload.records[0].values.owner = 'human:json-roundtrip'
+    const jsonInput = { format: 'json', filename: 'requirements.json', content: Buffer.from(JSON.stringify(jsonPayload)).toString('base64') }
+    const jsonRoundTrip = await post({ action: 'preview', ...jsonInput })
+    assert.equal(jsonRoundTrip.status, 200, JSON.stringify(jsonRoundTrip.body))
+    assert.equal(jsonRoundTrip.body.ok, true)
+    assert.deepEqual(jsonRoundTrip.body.changes.map(change => [change.operation, change.fields]), [['update', ['owner']]])
+    const jsonApplied = await post({ action: 'apply', ...jsonInput, expectedLocalHash: jsonRoundTrip.body.localHash })
+    assert.equal(jsonApplied.status, 200, JSON.stringify(jsonApplied.body))
+    assert.equal(jsonApplied.body.applied, true)
     assert.equal((await post({ action: 'initialize', format: 'json' })).status, 400)
     const initialized = await post({ action: 'initialize' })
     assert.equal(initialized.status, 200, JSON.stringify(initialized.body))

@@ -89,7 +89,7 @@ const RUN_REASON_LABELS = {
   'run-not-active': '本轮已停止，不能继续自动调度。',
   'no-authorized-carrier': '没有可用的原执行会话，已停止自动推进。',
   'facts-unavailable': '无法确认最新验收事实，已停止自动推进；请查看技术信息。',
-  'requirement-changed': '需求内容已经变化，旧授权不再适用；请核对新版本。',
+  'requirement-changed': '需求内容已经变化，旧授权不再适用；点「继续推进」会按当前版本重新授权。',
   'no-progress': '本轮没有产生新的实现或验收进展，已停止重复执行。',
   'auto-budget-exhausted': '本轮已用完自动推进机会，已停止；请查看结果后选择下一步。',
   'auto-turn-failed': '自动推进执行失败，已停止；可查看失败原因后继续。',

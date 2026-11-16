@@ -7,16 +7,18 @@ const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 const fail = (message, code = 'invalid-exchange', status = 400) => { throw Object.assign(new Error(message), { code, status }) }
 
 /**
- * Bumped whenever the workbook contract changes. A running host keeps the module
- * it imported at boot, so an old build can silently apply old rules; the dialog
- * compares this stamp with its own to make that mismatch visible.
+ * Bumped whenever the host/client exchange contract changes. A running host
+ * keeps the module it imported at boot, so an old build can silently reject a
+ * format the page already offers; the dialog compares this stamp with its own
+ * to make that mismatch visible instead.
  */
-export const EXCHANGE_BUILD = 'v3.2026-11-14'
+export const EXCHANGE_BUILD = 'v4.2026-11-16'
 
 /**
- * AC-03: the product exchanges requirements through one editable Excel workbook.
- * The export surface no longer produces a JSON package. JSON remains importable
- * (AC-04) so packages written by other agents can still be reviewed and merged.
+ * AC-01: the product exchanges requirements through one editable Excel workbook
+ * and the native JSON package produced by the same domain export. Both formats
+ * are also importable, so a package written by another agent (or round-tripped
+ * through this plugin) can be reviewed and merged.
  *
  * AC-05: `template` returns the same workbook shape with one sample create row,
  * so a first-time author can download a blank sheet instead of exporting data.
@@ -38,8 +40,13 @@ export function exchangeRequest({ root, body }) {
   if (action === 'export') {
     // AC-01: exporting silently provisions the project key inside the domain
     // layer; there is no separate initialize step for humans.
-    if (format !== 'xlsx') fail('导出只提供 Excel（.xlsx）', 'unsupported-format', 415)
+    if (!['json', 'xlsx'].includes(format)) fail('导出只提供 JSON 交换包或 Excel（.xlsx）', 'unsupported-format', 415)
     const payload = exportRequirements({ root, uids: body.uids })
+    if (format === 'json') {
+      const bytes = Buffer.from(JSON.stringify(payload))
+      if (bytes.length > MAX_FILE) fail('export exceeds 8 MiB file limit', 'file-too-large', 413)
+      return { ok: true, build: EXCHANGE_BUILD, filename: `requirements-${payload.projectId}.json`, mime: 'application/json', content: bytes.toString('base64'), bytes: bytes.length }
+    }
     const bytes = encodeRequirementsXlsx(payload)
     if (bytes.length > MAX_FILE) fail('export exceeds 8 MiB file limit', 'file-too-large', 413)
     return { ok: true, build: EXCHANGE_BUILD, filename: `requirements-${payload.projectId}.xlsx`, mime: XLSX_MIME, content: bytes.toString('base64'), bytes: bytes.length }

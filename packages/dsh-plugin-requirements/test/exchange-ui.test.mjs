@@ -8,13 +8,15 @@ const modalStart = source.indexOf('    function ExchangeModal(')
 const modalEnd = source.indexOf('    const NATIVE_SOURCE_BUILD_ID', modalStart)
 const modal = source.slice(modalStart, modalEnd)
 
-test('AC-01/AC-03: the exchange dialog offers a silent key and Excel-only export', () => {
+test('AC-01/AC-03: the exchange dialog offers a silent key and both export formats', () => {
   assert.ok(modalStart > 0 && modalEnd > modalStart)
   assert.doesNotMatch(modal, /初始化交换|action: 'initialize'/)
-  assert.doesNotMatch(modal, /导出JSON|download\('json'\)|导出 JSON/)
   assert.match(modal, /导出 Excel \(\.xlsx\)/)
+  assert.match(modal, /导出 JSON 交换包/)
+  assert.match(modal, /exportFile\('xlsx'\)/)
+  assert.match(modal, /exportFile\('json'\)/)
   assert.match(modal, /需求文件交换/)
-  // AC-03: both scopes stay available.
+  // AC-03: both scopes stay available for both formats.
   assert.match(modal, /全部需求/)
   assert.match(modal, /当前筛选结果/)
   assert.match(modal, /\{ uids \}/)

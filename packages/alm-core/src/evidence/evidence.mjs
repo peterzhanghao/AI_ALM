@@ -1,15 +1,12 @@
-import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { gitText } from '../git-run.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
 
 function git(root, ...args) {
-  return execFileSync('git', ['-C', root, ...args], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  }).trim()
+  return gitText(root, args)
 }
 
 export function resolveSha(root, ref = 'HEAD') {
