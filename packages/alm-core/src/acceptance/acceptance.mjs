@@ -443,6 +443,170 @@ export function acceptanceSummary(root, requirementId, headSha, context = null) 
 }
 
 /**
+ * A verification turn spends its context on evidence, not on assertions. Raw
+ * TAP for a suite is hundreds of lines; the agent only needs to know which
+ * expectations broke. One shared summary keeps `alm verify` (preflight) and the
+ * host verdict printing exactly the same thing, so the two can never drift.
+ */
+const TAP_NOT_OK = /^not ok\s+\d+\s+-\s+(.*)$/
+const SUMMARY_TEXT_LIMIT = 120
+const SUMMARY_TAIL_LINES = 3
+
+function clipSummaryText(value, limit = SUMMARY_TEXT_LIMIT) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text
+}
+
+function tidyLocation(value, root) {
+  const raw = String(value ?? '').replace(/^['"]|['"]$/g, '').trim().split(/\s+/)[0]
+  if (!raw) return null
+  const file = raw.replace(/:\d+(?::\d+)?$/, '')
+  const suffix = raw.slice(file.length)
+  const slashed = file.replace(/\\/g, '/')
+  const base = resolve(root).replace(/\\/g, '/')
+  let shown = file
+  if (slashed.toLowerCase().startsWith(base.toLowerCase() + '/')) shown = slashed.slice(base.length + 1)
+  else if (isAbsolute(file)) {
+    const rel = relative(resolve(root), file).replace(/\\/g, '/')
+    // A path outside the root (or a POSIX-style path under a Windows cwd) still
+    // needs to name the module, not a chain of `../`.
+    shown = rel.startsWith('..') ? (slashed.match(/((?:packages|requirements|scripts|architecture)\/.*)$/)?.[1] ?? slashed) : rel
+  } else shown = slashed
+  return `${shown}${suffix}`
+}
+
+/** Pull the fields of one TAP failure block, including literal `error: |-` bodies. */
+function tapFailureFields(lines, start) {
+  const fields = { error: null, expected: null, actual: null, location: null }
+  let collecting = null
+  const buffer = []
+  const flush = () => {
+    if (!collecting) return
+    const joined = buffer.join(' ').trim()
+    if (joined) fields[collecting] = joined
+    collecting = null
+    buffer.length = 0
+  }
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (TAP_NOT_OK.test(line) || /^ok\s+\d+\s+-/.test(line) || /^# /.test(line)) break
+    const block = /^\s{2,}(error|expected|actual|location):\s*\|-?\s*$/.exec(line)
+    if (block) { flush(); collecting = block[1]; continue }
+    const single = /^\s{2,}(error|expected|actual|location|code):\s*(.*)$/.exec(line)
+    if (single) {
+      flush()
+      const [, key, value] = single
+      if (key !== 'code' && value) fields[key] = value
+      continue
+    }
+    if (collecting && /^\s{4,}\S/.test(line)) buffer.push(line.trim())
+  }
+  flush()
+  return fields
+}
+
+function parseTapFailures(text, { root, limit }) {
+  const source = String(text ?? '')
+  if (!source) return { total: 0, failures: [] }
+  const lines = source.split(/\r?\n/)
+  const failures = []
+  let total = 0
+  for (let i = 0; i < lines.length; i += 1) {
+    const match = TAP_NOT_OK.exec(lines[i])
+    if (!match) continue
+    total += 1
+    if (failures.length >= limit) continue
+    const fields = tapFailureFields(lines, i)
+    failures.push({
+      name: clipSummaryText(match[1].replace(/\s+#.*$/, ''), 80),
+      location: tidyLocation(fields.location, root),
+      message: fields.error ? clipSummaryText(fields.error) : null,
+      expected: fields.expected === null ? null : clipSummaryText(fields.expected, 60),
+      actual: fields.actual === null ? null : clipSummaryText(fields.actual, 60),
+    })
+  }
+  return { total, failures }
+}
+
+/** A non-TAP runner still has to say something actionable; keep only its tail. */
+function tailOf(record) {
+  const text = String(record?.stderr ?? '').trim() || String(record?.stdout ?? '').trim()
+  if (!text) return record?.error?.message ? clipSummaryText(record.error.message) : null
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  return clipSummaryText(lines.slice(-SUMMARY_TAIL_LINES).join(' / '), 200)
+}
+
+/** Compress one acceptance run into the few lines a human (or agent) can act on. */
+export function summarizeAcceptanceRun(evidence, { root = '.', limit = 5, evidencePath = null } = {}) {
+  const commands = Array.isArray(evidence?.commands) ? evidence.commands : []
+  const failures = []
+  let failureCount = 0
+  let durationMs = 0
+  const rows = []
+  for (const entry of commands) {
+    const elapsed = Number(entry?.durationMs ?? 0)
+    durationMs += elapsed
+    const admitted = Math.max(0, limit - failures.length)
+    const parsed = parseTapFailures(`${entry?.stdout ?? ''}\n${entry?.stderr ?? ''}`, { root, limit: admitted })
+    failureCount += parsed.total
+    for (const item of parsed.failures) failures.push({ ...item, commandId: entry.id ?? null })
+    const failed = entry?.exitCode !== 0 || entry?.timedOut === true || entry?.spawnFailed === true
+    rows.push({
+      id: entry?.id ?? null,
+      exitCode: entry?.exitCode ?? null,
+      timedOut: entry?.timedOut === true,
+      durationMs: elapsed,
+      failures: parsed.total,
+      tail: parsed.total === 0 && failed ? tailOf(entry) : null,
+    })
+  }
+  const passed = evidence?.result === 'pass'
+  const summary = {
+    schema: 'alm.acceptance.run-summary/v1',
+    requirement: evidence?.requirement ?? null,
+    passed,
+    headSha: evidence?.headSha ?? null,
+    treeHash: evidence?.worktree?.after?.treeHash ?? evidence?.worktree?.before?.treeHash ?? null,
+    durationMs,
+    commandCount: commands.length,
+    failureCount,
+    failures: failures.slice(0, limit),
+    commands: rows,
+    evidencePath: evidencePath ?? evidence?.file ?? null,
+  }
+  return { ...summary, line: renderAcceptanceSummary(summary) }
+}
+
+/** Render a summary as at most ~8 short lines: one when green, one per failure when red. */
+export function renderAcceptanceSummary(summary) {
+  const id = summary?.requirement ?? '(unknown)'
+  const seconds = (Number(summary?.durationMs ?? 0) / 1000).toFixed(1)
+  const tree = summary?.treeHash ? `，tree ${String(summary.treeHash).slice(0, 7)}` : ''
+  if (summary?.passed) return `✓ ${id} 验收通过（${summary.commandCount} 条命令，${seconds}s${tree}）`
+  const count = Number(summary?.failureCount ?? 0)
+  const exitCodes = [...new Set((summary?.commands ?? []).map((entry) => entry.exitCode).filter((code) => typeof code === 'number' && code !== 0))]
+  const head = count > 0
+    ? `✗ ${id} 验收失败 ${count} 项（${seconds}s${tree}）`
+    : `✗ ${id} 验收未通过：命令退出码 ${exitCodes.length ? exitCodes.join('/') : '未知'}（${seconds}s${tree}）`
+  const lines = [head]
+  for (const item of summary?.failures ?? []) {
+    const where = item.location ? ` ${item.location}` : ''
+    const pair = [
+      item.expected !== null ? `期望 ${item.expected}` : null,
+      item.actual !== null ? `实际 ${item.actual}` : null,
+    ].filter(Boolean).join('，')
+    // A structured expected/actual pair is both shorter and more precise than
+    // Node's prose ("+ actual - expected ..."), so prefer it when present.
+    const what = pair || item.message
+    lines.push(`  [${item.commandId ?? '-'}]${where}${what ? ` ${what}` : ''}`)
+  }
+  const hidden = count - (summary?.failures?.length ?? 0)
+  if (hidden > 0) lines.push(`  …另有 ${hidden} 项未展开${summary?.evidencePath ? `，完整输出见 ${summary.evidencePath}` : ''}`)
+  for (const row of (summary?.commands ?? []).filter((entry) => entry.tail)) lines.push(`  [${row.id ?? '-'}] ${row.tail}`)
+  return lines.join('\n')
+}
+
+/**
  * Plan or run the registered acceptance commands. Planning never executes or
  * writes; apply executes registered argv (Windows shims use the guarded shell
  * adapter) and writes v3 evidence keyed by HEAD. Every differing previous raw
@@ -593,7 +757,7 @@ async function runInProcessNodeTests({ repo, entry }) {
   }
 }
 
-export function runAcceptance({ root, requirementId, apply = false, exec = spawnSync, context = null }) {
+export function runAcceptance({ root, requirementId, apply = false, exec = spawnSync, context = null, persist = true }) {
   const repo = resolve(root)
   if (!requirementId) throw new AcceptanceError('requirementId is required', { code: 'requirement-required' })
   const headSha = gitHead(repo)
@@ -700,8 +864,12 @@ export function runAcceptance({ root, requirementId, apply = false, exec = spawn
     commands,
   }
 
-  persistEvidence(repo, requirementId, headSha, evidence)
-  return { ...plan, applied: true, result: evidence.result, evidence }
+  // `persist: false` is the preflight mode used by `alm verify`: the commands
+  // really run and the receipt is returned, but nothing is written under
+  // .alm/acceptance. The agent may therefore pre-check its own work without
+  // being able to mint the verdict the host is supposed to reach.
+  if (persist) persistEvidence(repo, requirementId, headSha, evidence)
+  return { ...plan, applied: true, result: evidence.result, evidence, persisted: Boolean(persist) }
 }
 
 /**
@@ -768,8 +936,8 @@ export async function runAcceptanceAdaptive(options) {
     ...(testLock.ok ? {} : { failure: { code: 'tampered_test', message: `验收期间测试文件被修改：${testLock.changed.join('、')}`, files: testLock.changed } }),
   }
   if (testLock.ok) delete evidence.failure
-  persistEvidence(repo, receipt.requirement, receipt.headSha, evidence)
-  return { ...receipt, result: evidence.result, evidence }
+  if (options.persist !== false) persistEvidence(repo, receipt.requirement, receipt.headSha, evidence)
+  return { ...receipt, result: evidence.result, evidence, persisted: options.persist !== false }
 }
 
 /** Hashes that bind one acceptance run to the requirement/test snapshot. */

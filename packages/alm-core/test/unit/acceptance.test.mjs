@@ -11,6 +11,7 @@ import {
   acceptanceSummary,
   readAcceptanceEvidence,
   runAcceptance,
+  summarizeAcceptanceRun,
 } from '../../src/acceptance/acceptance.mjs'
 import { MAX_VERIFICATION_TEST_FILES } from '../../src/requirements/blueprint-guard.mjs'
 import { gitHead } from '../../src/approvals/approval.mjs'
@@ -393,4 +394,48 @@ test('acceptance summary exposes a redacted diagnostic for a failed command', ()
   assert.match(diagnostic.summary, /exit 1.*not ok 1/)
   assert.match(diagnostic.log, /not ok 1/)
   assert.doesNotMatch(diagnostic.log, /secret-value/)
+})
+
+test('preflight verification runs the commands but never mints evidence', () => {
+  const root = makeRepo()
+  const asset = requirementAsset()
+  writeConfig(root, asset.id, passCommand())
+  const evidenceDir = join(root, '.alm', 'acceptance', asset.id)
+  const before = existsSync(evidenceDir) ? readdirSync(evidenceDir) : []
+  const preflight = runAcceptance({ root, requirementId: asset.id, apply: true, persist: false })
+  assert.equal(preflight.result, 'pass')
+  assert.equal(preflight.persisted, false)
+  // This is the boundary that stops an agent from signing off on its own work:
+  // the commands really ran, but only the host may write the receipt.
+  assert.deepEqual(existsSync(evidenceDir) ? readdirSync(evidenceDir) : [], before, '预检不得写入正式证据')
+  const verdict = runAcceptance({ root, requirementId: asset.id, apply: true })
+  assert.equal(verdict.persisted, true)
+  assert.ok(existsSync(evidenceDir) && readdirSync(evidenceDir).length > before.length, '终裁必须落盘')
+})
+
+test('a run summary is one line when green and one line per failure when red', () => {
+  const green = summarizeAcceptanceRun({
+    requirement: 'REQ-X', result: 'pass', worktree: { after: { treeHash: 'f'.repeat(40) } },
+    commands: [{ id: 'ac-1', exitCode: 0, durationMs: 1200 }],
+  })
+  assert.equal(green.line, `✓ REQ-X 验收通过（1 条命令，1.2s，tree fffffff）`)
+
+  const tap = [
+    'not ok 2 - 确认方案后进入实现',
+    '  ---',
+    `  location: '${join('/repo', 'packages/x/test/a.test.mjs')}:12:3'`,
+    '  error: |-',
+    '    expected 1 to equal 2',
+    "  expected: '2'",
+    "  actual: '1'",
+  ].join('\n')
+  const red = summarizeAcceptanceRun({
+    requirement: 'REQ-X', result: 'fail', worktree: { after: { treeHash: 'a'.repeat(40) } },
+    commands: [{ id: 'ac-1', exitCode: 1, durationMs: 900, stdout: tap }],
+  }, { root: '/repo' })
+  const lines = red.line.split('\n')
+  assert.equal(lines.length, 2, '失败摘要必须压到两行，不能回灌原始 TAP')
+  assert.match(lines[0], /验收失败 1 项/)
+  assert.match(lines[1], /packages\/x\/test\/a\.test\.mjs:12:3/)
+  assert.match(lines[1], /期望 '2'，实际 '1'/, '结构化期望/实际优先于 Node 的散文描述')
 })

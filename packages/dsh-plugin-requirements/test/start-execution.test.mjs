@@ -323,8 +323,11 @@ test('execution and resume prompts render a concise task brief without metadata 
       assert.match(text, /验收：AC-04 手动修改标题后不被自动覆盖/)
       assert.match(text, /已确认的决策：.*允许扩大到实现所需的需求插件文件/)
       assert.match(text, /上次验证：.*验证命令超时/)
-      assert.match(text, /node --test packages\/demo\/test\/index\.test\.mjs/)
-      assert.match(text, /不要运行全量测试/)
+      // The registered command is referenced by alias, never inlined: the brief
+      // must not grow with the size of the verification file list.
+      assert.match(text, /pnpm -s alm verify REQ-PAY-001/)
+      assert.doesNotMatch(text, /node --test packages\/demo\/test\/index\.test\.mjs/)
+      assert.match(text, /不要跑全量测试/)
     }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

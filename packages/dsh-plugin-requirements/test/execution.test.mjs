@@ -201,7 +201,7 @@ test('start creates one host session, records the run and never duplicates it', 
     assert.equal(followed[0].source.kind, 'user')
     const text = followed[0].content[0].text
     assert.match(text, /REQ-PAY-001/)
-    assert.match(text, /node --test/)
+    assert.match(text, /pnpm -s alm verify REQ-PAY-001/)
     assert.match(text, /decision\.md/)
     assert.ok(text.includes(`.alm/runs/${execution.runId}-decision.md`))
     assert.match(text, /边界：只改与目标直接相关/)

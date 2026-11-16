@@ -9,5 +9,6 @@ paths:
   - packages/alm-core/src/workspace/
   - packages/alm-core/src/project/
   - packages/alm-core/src/cli.mjs
-tests: []
+tests:
+  - packages/alm-core/test/cli.test.mjs
 links: []

@@ -253,8 +253,11 @@ export function compileTurnBrief({
   if (anchors.length) sections.push(`先读这些文件：${anchors.join('、')}`)
   if (hints.length) sections.push(`需要更多上下文时在 ${hints.join('、')} 内搜索，不要全仓扫描。`)
   sections.push('边界：只改与目标直接相关的文件，不要重构、不要顺手改无关代码。')
-  if (effectiveCommands.length) sections.push(`验证：只运行 ${effectiveCommands.join('；')}，不要运行全量测试或其他套件。`)
-  else sections.push('验证：先补一个覆盖验收标准的单元测试，再运行它。')
+  // Verification is a capability, not a checklist. The registered commands stay
+  // in the receipt and in `meta.commands` (where the white-box view reads
+  // them); the turn itself carries one stable alias, so the brief length is
+  // independent of how many test files a module happens to own.
+  sections.push(`验证：完成后运行 pnpm -s alm verify ${requirementId} 自查；不要展开文件清单，也不要跑全量测试。`)
   const plan = phaseInstruction(phase)
   if (plan) sections.push(...plan)
   if (runId) sections.push(`只有全新的业务分歧才写 .alm/runs/${runId}-decision.md，其余自行决定。`)
@@ -273,6 +276,10 @@ export function compileTurnBrief({
       acceptanceSource: intent.acceptanceSource,
       anchors,
       commands: effectiveCommands,
+      // Where the alias will actually resolve: a registered config is the
+      // authority, module tests are the derived fallback. `none` means the
+      // agent will be told to register one first.
+      verificationSource: cmds.length ? 'registered' : (moduleTests.length ? 'module-tests' : (effectiveCommands.length ? 'facts' : 'none')),
       modules: declaredModulesOf(subject),
       phase,
     },
@@ -326,6 +333,9 @@ function degradedBrief({ requirementId, title, intent, missing, phase, commands,
   if (intent.goal) lines.push(`目标：${intent.goal}`)
   if (answer) lines.push(`已确认的决策：${squash(answer)}`)
   if (runId) lines.push(`遇到全新业务分歧时写 .alm/runs/${runId}-decision.md，不要自行决定。`)
+  // Same single line as the full contract: a degraded brief differs in what it
+  // admits about intent, never in how verification is invoked.
+  lines.push(`验证：完成后运行 pnpm -s alm verify ${requirementId} 自查；不要展开文件清单，也不要跑全量测试。`)
   lines.push(doneCriteria({ phase, commands }))
   const body = lines.join('\n')
   return { schema: BRIEF_SCHEMA, text: body, meta: { degraded: true, missing, chars: body.length, phase }, fingerprint: fingerprintOf(body) }

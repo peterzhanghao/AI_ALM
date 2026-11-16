@@ -10196,7 +10196,7 @@ async function runInProcessNodeTests({ repo, entry }) {
     execution: { mode: "in-process-esm-runner", files: spec.files.map((file) => relative7(repo, file).replaceAll("\\", "/")) }
   };
 }
-function runAcceptance({ root, requirementId, apply = false, exec: exec2 = spawnSync, context = null }) {
+function runAcceptance({ root, requirementId, apply = false, exec: exec2 = spawnSync, context = null, persist: persist2 = true }) {
   const repo = resolve9(root);
   if (!requirementId) throw new AcceptanceError("requirementId is required", { code: "requirement-required" });
   const headSha = gitHead(repo);
@@ -10293,8 +10293,8 @@ function runAcceptance({ root, requirementId, apply = false, exec: exec2 = spawn
     } : {},
     commands
   };
-  persistEvidence(repo, requirementId, headSha, evidence);
-  return { ...plan2, applied: true, result: evidence.result, evidence };
+  if (persist2) persistEvidence(repo, requirementId, headSha, evidence);
+  return { ...plan2, applied: true, result: evidence.result, evidence, persisted: Boolean(persist2) };
 }
 async function runAcceptanceAdaptive(options) {
   const receipt = runAcceptance(options);
@@ -10347,8 +10347,8 @@ async function runAcceptanceAdaptive(options) {
     ...testLock.ok ? {} : { failure: { code: "tampered_test", message: `\u9A8C\u6536\u671F\u95F4\u6D4B\u8BD5\u6587\u4EF6\u88AB\u4FEE\u6539\uFF1A${testLock.changed.join("\u3001")}`, files: testLock.changed } }
   };
   if (testLock.ok) delete evidence.failure;
-  persistEvidence(repo, receipt.requirement, receipt.headSha, evidence);
-  return { ...receipt, result: evidence.result, evidence };
+  if (options.persist !== false) persistEvidence(repo, receipt.requirement, receipt.headSha, evidence);
+  return { ...receipt, result: evidence.result, evidence, persisted: options.persist !== false };
 }
 function boundProvenance(root, asset, assets) {
   return {
@@ -16208,8 +16208,7 @@ function compileTurnBrief({
   if (anchors.length) sections.push(`\u5148\u8BFB\u8FD9\u4E9B\u6587\u4EF6\uFF1A${anchors.join("\u3001")}`);
   if (hints.length) sections.push(`\u9700\u8981\u66F4\u591A\u4E0A\u4E0B\u6587\u65F6\u5728 ${hints.join("\u3001")} \u5185\u641C\u7D22\uFF0C\u4E0D\u8981\u5168\u4ED3\u626B\u63CF\u3002`);
   sections.push("\u8FB9\u754C\uFF1A\u53EA\u6539\u4E0E\u76EE\u6807\u76F4\u63A5\u76F8\u5173\u7684\u6587\u4EF6\uFF0C\u4E0D\u8981\u91CD\u6784\u3001\u4E0D\u8981\u987A\u624B\u6539\u65E0\u5173\u4EE3\u7801\u3002");
-  if (effectiveCommands.length) sections.push(`\u9A8C\u8BC1\uFF1A\u53EA\u8FD0\u884C ${effectiveCommands.join("\uFF1B")}\uFF0C\u4E0D\u8981\u8FD0\u884C\u5168\u91CF\u6D4B\u8BD5\u6216\u5176\u4ED6\u5957\u4EF6\u3002`);
-  else sections.push("\u9A8C\u8BC1\uFF1A\u5148\u8865\u4E00\u4E2A\u8986\u76D6\u9A8C\u6536\u6807\u51C6\u7684\u5355\u5143\u6D4B\u8BD5\uFF0C\u518D\u8FD0\u884C\u5B83\u3002");
+  sections.push(`\u9A8C\u8BC1\uFF1A\u5B8C\u6210\u540E\u8FD0\u884C pnpm -s alm verify ${requirementId} \u81EA\u67E5\uFF1B\u4E0D\u8981\u5C55\u5F00\u6587\u4EF6\u6E05\u5355\uFF0C\u4E5F\u4E0D\u8981\u8DD1\u5168\u91CF\u6D4B\u8BD5\u3002`);
   const plan2 = phaseInstruction(phase);
   if (plan2) sections.push(...plan2);
   if (runId) sections.push(`\u53EA\u6709\u5168\u65B0\u7684\u4E1A\u52A1\u5206\u6B67\u624D\u5199 .alm/runs/${runId}-decision.md\uFF0C\u5176\u4F59\u81EA\u884C\u51B3\u5B9A\u3002`);
@@ -16227,6 +16226,10 @@ function compileTurnBrief({
       acceptanceSource: intent.acceptanceSource,
       anchors,
       commands: effectiveCommands,
+      // Where the alias will actually resolve: a registered config is the
+      // authority, module tests are the derived fallback. `none` means the
+      // agent will be told to register one first.
+      verificationSource: cmds.length ? "registered" : moduleTests.length ? "module-tests" : effectiveCommands.length ? "facts" : "none",
       modules: declaredModulesOf(subject),
       phase
     },
@@ -16270,6 +16273,7 @@ function degradedBrief({ requirementId, title, intent, missing, phase, commands,
   if (intent.goal) lines2.push(`\u76EE\u6807\uFF1A${intent.goal}`);
   if (answer) lines2.push(`\u5DF2\u786E\u8BA4\u7684\u51B3\u7B56\uFF1A${squash(answer)}`);
   if (runId) lines2.push(`\u9047\u5230\u5168\u65B0\u4E1A\u52A1\u5206\u6B67\u65F6\u5199 .alm/runs/${runId}-decision.md\uFF0C\u4E0D\u8981\u81EA\u884C\u51B3\u5B9A\u3002`);
+  lines2.push(`\u9A8C\u8BC1\uFF1A\u5B8C\u6210\u540E\u8FD0\u884C pnpm -s alm verify ${requirementId} \u81EA\u67E5\uFF1B\u4E0D\u8981\u8DD1\u5168\u91CF\u6D4B\u8BD5\u3002`);
   lines2.push(doneCriteria({ phase, commands }));
   const body = lines2.join("\n");
   return { schema: BRIEF_SCHEMA, text: body, meta: { degraded: true, missing, chars: body.length, phase }, fingerprint: fingerprintOf(body) };
@@ -19942,12 +19946,19 @@ function requirements(root, { requirementId = null } = {}) {
     const architectureRecord = item.candidate?.architecture ?? null;
     if (item.run?.exists) {
       try {
+        const storedRun = readRun(root, item.run.id);
         const preview = previewTurnBrief({
           root,
           requirementId: item.id,
           item,
           docView: item.docView ?? null,
           commands: item.acceptance?.commands ?? [],
+          // Same handoff the dispatcher passes, so the page cannot show a
+          // shorter instruction than the agent actually receives.
+          facts: {
+            handoff: storedRun?.checkpoint?.handoff ?? null,
+            humanAnswers: (storedRun?.answers ?? []).map((answer) => typeof answer === "string" ? answer : answer?.text).filter(Boolean)
+          },
           phase: item.run.phase === "plan-review" ? "plan" : null
         });
         item.executionBrief = {
@@ -19956,7 +19967,8 @@ function requirements(root, { requirementId = null } = {}) {
           chars: preview.meta?.chars ?? null,
           anchors: preview.meta?.anchors ?? [],
           reason: preview.ok ? null : preview.reason,
-          phase: preview.meta?.phase ?? null
+          phase: preview.meta?.phase ?? null,
+          verificationSource: preview.meta?.verificationSource ?? null
         };
       } catch {
         item.executionBrief = null;
@@ -35306,13 +35318,14 @@ function startSidebarServer({ port = SIDEBAR_PORT, handler }) {
 var pkg2 = JSON.parse(readFileSync53(new URL("./package.json", new URL("./index.js", import.meta.url).href), "utf8"));
 var NATIVE_SOURCE_BUILD_ID = false ? null : null;
 var NATIVE_CLIENT_BUILD_ID = true ? "7e6532ad8b52720cf0ef4dbaf30e142340cb3a9ec62ebbba7239d42f0903b4de" : null;
-function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null, root = null }) {
+function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null, root = null, acceptanceCommands = null }) {
   const reason2 = promptSafeText(previous?.failure?.message);
   const brief = buildExecutionPrompt({
     requirementId,
     runId,
     item,
     root,
+    acceptanceCommands,
     executionFacts,
     degraded: true
   });
@@ -35527,6 +35540,11 @@ function turnPhaseFor(executionFacts = null, override = null) {
   if (override === "plan" || override === "implement") return override;
   return executionFacts?.phase === "plan" ? "plan" : "implement";
 }
+function acceptanceCommandsOf({ acceptanceCommands = null, item = null } = {}) {
+  if (Array.isArray(acceptanceCommands) && acceptanceCommands.length) return acceptanceCommands;
+  const fromItem = item?.acceptance?.commands;
+  return Array.isArray(fromItem) ? fromItem : [];
+}
 function buildExecutionPrompt({ requirementId, changeId, runId, item, acceptanceCommands, docView = null, executionContext = null, executionFacts = null, root = null, phase = null, override = null, degraded = false }) {
   const compiled = compileTurnBrief({
     root: root ?? item?.root ?? resolve41(process.cwd()),
@@ -35534,7 +35552,7 @@ function buildExecutionPrompt({ requirementId, changeId, runId, item, acceptance
     asset: item?.asset ?? null,
     item,
     docView,
-    commands: acceptanceCommands ?? [],
+    commands: acceptanceCommandsOf({ acceptanceCommands, item }),
     facts: executionFacts,
     phase: turnPhaseFor(executionFacts, phase),
     runId,
@@ -35552,14 +35570,14 @@ function previewExecutionPrompt(options = {}) {
     asset: options.asset ?? null,
     item: options.item ?? null,
     docView: options.docView ?? null,
-    commands: options.acceptanceCommands ?? [],
+    commands: acceptanceCommandsOf(options),
     facts: options.executionFacts ?? null,
     phase: turnPhaseFor(options.executionFacts, options.phase),
     runId: options.runId ?? null,
     override: options.override ?? null
   });
 }
-function buildResumePrompt({ requirementId, runId, item, docView = null, answer, restarted, executionContext = null, executionFacts = null, root = null, phase = null }) {
+function buildResumePrompt({ requirementId, runId, item, docView = null, answer, restarted, executionContext = null, executionFacts = null, root = null, phase = null, acceptanceCommands = null }) {
   const compiled = buildExecutionPrompt({
     requirementId,
     runId,
@@ -35567,6 +35585,7 @@ function buildResumePrompt({ requirementId, runId, item, docView = null, answer,
     docView,
     root,
     phase,
+    acceptanceCommands,
     executionContext,
     executionFacts,
     degraded: true
@@ -36897,6 +36916,7 @@ ${String(entry.text ?? "").trim()}
         previous: restartFrom,
         item: latestItem,
         root,
+        acceptanceCommands: latestItem?.acceptance?.commands ?? [],
         executionFacts: buildExecutionPromptFacts({ root, runId: run.run.id, acceptanceCommands: latestItem?.acceptance?.commands ?? [] })
       }) : buildExecutionPrompt({
         requirementId,
@@ -37382,12 +37402,15 @@ ${String(entry.text ?? "").trim()}
    */
   previewExecutionBrief({ root, requirementId, phase = null } = {}) {
     const item = this.requirementItem(root, requirementId);
+    const acceptanceCommands = item?.acceptance?.commands ?? [];
+    const run = typeof resumableRunFor === "function" ? resumableRunFor(root, requirementId) : null;
     const preview = previewExecutionPrompt({
       root,
       requirementId,
       item,
       docView: item?.docView ?? null,
-      acceptanceCommands: item?.acceptance?.commands ?? [],
+      acceptanceCommands,
+      executionFacts: buildExecutionPromptFacts({ root, runId: run?.id ?? null, acceptanceCommands }),
       phase
     });
     return { ...preview, schema: "alm.execution-brief-preview/v1", requirement: requirementId };
@@ -37537,7 +37560,8 @@ ${String(entry.text ?? "").trim()}
           item: promptItem,
           answer: text6,
           restarted: false,
-          executionFacts: buildExecutionPromptFacts({ root, runId: active.id })
+          acceptanceCommands: promptItem?.acceptance?.commands ?? [],
+          executionFacts: buildExecutionPromptFacts({ root, runId: active.id, acceptanceCommands: promptItem?.acceptance?.commands ?? [] })
         }) }],
         source: { kind: "user" }
       };
@@ -37677,7 +37701,8 @@ ${String(entry.text ?? "").trim()}
         item: promptItem,
         answer: text6,
         restarted: true,
-        executionFacts: buildExecutionPromptFacts({ root, runId: active.id })
+        acceptanceCommands: promptItem?.acceptance?.commands ?? [],
+        executionFacts: buildExecutionPromptFacts({ root, runId: active.id, acceptanceCommands: promptItem?.acceptance?.commands ?? [] })
       }) }],
       source: { kind: "user" }
     };

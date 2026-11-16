@@ -10,6 +10,7 @@ import { publishBaseline, rollbackRelease, verifyRelease } from './baseline/rele
 import { WorkspaceError, createWorkspace, guardWrite, statusWorkspace } from './workspace/workspace.mjs'
 import { loadApprovals, recordApproval, verifyApproval } from './approvals/approval.mjs'
 import { ciStatus, recordEvidence, runCi } from './ci/ci.mjs'
+import { AcceptanceError, runAcceptanceAdaptive, summarizeAcceptanceRun } from './acceptance/acceptance.mjs'
 import { evaluateMerge } from '@ai-alm/alm-scm/policy'
 import { currentBranch, mergeBase, mergeLocal, resolveSha } from '@ai-alm/alm-scm/local'
 
@@ -28,6 +29,7 @@ Usage:
 Commands:
   index             Print the asset index for a repository
   check             Run the R1 gates
+  verify <ID>       Run registered acceptance for a requirement (preflight)
   show <ID>         Print one asset by id
   query             List assets filtered by type/status/owner
   diff              Diff a base ref against the worktree or another ref
@@ -187,6 +189,70 @@ export async function run(argv, io = {}) {
 
       if (command === 'index') return report.errors.length > 0 ? 1 : 0
       return report.result === 'pass' ? 0 : 1
+    }
+
+    if (command === 'verify') {
+      const options = { json: false, root: process.cwd(), limit: 5, requirementId: null }
+      for (let i = 0; i < rest.length; i += 1) {
+        const arg = rest[i]
+        if (arg === '--json') {
+          options.json = true
+          continue
+        }
+        if (arg === '--root' || arg === '--limit') {
+          const value = rest[i + 1]
+          if (!value || value.startsWith('--')) {
+            err.write(`alm: ${arg} requires a ${arg === '--root' ? 'directory' : 'positive integer'}\n`)
+            return 2
+          }
+          if (arg === '--root') options.root = value
+          else {
+            const limit = Number(value)
+            if (!Number.isInteger(limit) || limit <= 0) {
+              err.write('alm: --limit requires a positive integer\n')
+              return 2
+            }
+            options.limit = limit
+          }
+          i += 1
+          continue
+        }
+        if (arg.startsWith('--')) {
+          err.write(`alm: unknown option: ${arg}\n`)
+          return 2
+        }
+        if (options.requirementId) {
+          err.write('alm: verify accepts one requirement id\n')
+          return 2
+        }
+        options.requirementId = arg
+      }
+      if (!options.requirementId) {
+        err.write('alm: verify requires a requirement id, e.g. alm verify REQ-ALM-015\n')
+        return 2
+      }
+      const requirementId = options.requirementId.toUpperCase()
+      // Preflight, not verdict: the registered commands really run, but nothing
+      // is written under .alm/acceptance. Only the host's own run may mint
+      // evidence, otherwise the agent could sign off on its own work.
+      let receipt
+      try {
+        receipt = await runAcceptanceAdaptive({ root: options.root, requirementId, apply: true, persist: false })
+      } catch (error) {
+        if (error instanceof AcceptanceError) {
+          err.write(`alm: ${error.message}\n`)
+          if (error.code === 'no-config') {
+            err.write(`alm: 先在需求详情页运行「收窄验证范围」，或写入 .alm/acceptance/${requirementId}.json\n`)
+          }
+          return error.code === 'no-config' ? 1 : 2
+        }
+        err.write(`alm: ${error?.message ?? String(error)}\n`)
+        return 3
+      }
+      const summary = summarizeAcceptanceRun(receipt.evidence, { root: options.root, limit: options.limit })
+      if (options.json) out.write(`${JSON.stringify({ ...summary, command: 'verify', persisted: false }, null, 2)}\n`)
+      else out.write(`${summary.line}\n`)
+      return receipt.result === 'pass' ? 0 : 1
     }
 
     if (command === 'show' || command === 'query') {

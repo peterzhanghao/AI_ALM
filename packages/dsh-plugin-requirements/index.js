@@ -67,13 +67,14 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 const NATIVE_SOURCE_BUILD_ID = typeof __ALM_SOURCE_BUILD_ID__ === 'string' ? __ALM_SOURCE_BUILD_ID__ : null
 const NATIVE_CLIENT_BUILD_ID = typeof __ALM_CLIENT_BUILD_ID__ === 'string' ? __ALM_CLIENT_BUILD_ID__ : null
 /** Prompt for resuming a round whose carrier process died mid-turn. */
-function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null, root = null }) {
+function buildRestartPrompt({ requirementId, runId, previous = null, item, executionFacts = null, root = null, acceptanceCommands = null }) {
   const reason = promptSafeText(previous?.failure?.message)
   const brief = buildExecutionPrompt({
     requirementId,
     runId,
     item,
     root,
+    acceptanceCommands,
     executionFacts,
     degraded: true,
   })
@@ -351,6 +352,20 @@ function turnPhaseFor(executionFacts = null, override = null) {
  * goal/acceptance sections rendered as placeholders whenever the requirement was
  * stored as metadata plus a brief.
  */
+/**
+ * One resolution path for the registered acceptance commands.
+ *
+ * Resume and restart prompts used to forget to pass them, so the compiler fell
+ * back to the union of the module's tests — a different list from the one the
+ * host would actually run, and a different one from the preview. Deriving from
+ * `item` means every caller gets the same answer without having to remember.
+ */
+function acceptanceCommandsOf({ acceptanceCommands = null, item = null } = {}) {
+  if (Array.isArray(acceptanceCommands) && acceptanceCommands.length) return acceptanceCommands
+  const fromItem = item?.acceptance?.commands
+  return Array.isArray(fromItem) ? fromItem : []
+}
+
 export function buildExecutionPrompt({ requirementId, changeId, runId, item, acceptanceCommands, docView = null, executionContext = null, executionFacts = null, root = null, phase = null, override = null, degraded = false }) {
   const compiled = turnBriefCore.compileTurnBrief({
     root: root ?? item?.root ?? resolve(process.cwd()),
@@ -358,7 +373,7 @@ export function buildExecutionPrompt({ requirementId, changeId, runId, item, acc
     asset: item?.asset ?? null,
     item,
     docView,
-    commands: acceptanceCommands ?? [],
+    commands: acceptanceCommandsOf({ acceptanceCommands, item }),
     facts: executionFacts,
     phase: turnPhaseFor(executionFacts, phase),
     runId,
@@ -378,7 +393,7 @@ export function previewExecutionPrompt(options = {}) {
     asset: options.asset ?? null,
     item: options.item ?? null,
     docView: options.docView ?? null,
-    commands: options.acceptanceCommands ?? [],
+    commands: acceptanceCommandsOf(options),
     facts: options.executionFacts ?? null,
     phase: turnPhaseFor(options.executionFacts, options.phase),
     runId: options.runId ?? null,
@@ -391,7 +406,7 @@ export function previewExecutionPrompt(options = {}) {
  * earlier. The answer is the authorization boundary for the next stretch of
  * work, so it is quoted verbatim instead of being summarized by the plugin.
  */
-export function buildResumePrompt({ requirementId, runId, item, docView = null, answer, restarted, executionContext = null, executionFacts = null, root = null, phase = null }) {
+export function buildResumePrompt({ requirementId, runId, item, docView = null, answer, restarted, executionContext = null, executionFacts = null, root = null, phase = null, acceptanceCommands = null }) {
   const compiled = buildExecutionPrompt({
     requirementId,
     runId,
@@ -399,6 +414,7 @@ export function buildResumePrompt({ requirementId, runId, item, docView = null, 
     docView,
     root,
     phase,
+    acceptanceCommands,
     executionContext,
     executionFacts,
     degraded: true,
@@ -1835,6 +1851,7 @@ export default class RequirementsService {
       id: randomUUID(), role: 'user',
       content: [{ type: 'text', text: restartFrom ? buildRestartPrompt({
         requirementId, runId: run.run.id, previous: restartFrom, item: latestItem, root,
+        acceptanceCommands: latestItem?.acceptance?.commands ?? [],
         executionFacts: buildExecutionPromptFacts({ root, runId: run.run.id, acceptanceCommands: latestItem?.acceptance?.commands ?? [] }),
       }) : buildExecutionPrompt({
         requirementId, changeId, runId: run.run.id, item, docView, root, acceptanceCommands: item?.acceptance?.commands ?? [],
@@ -2235,12 +2252,17 @@ export default class RequirementsService {
    */
   previewExecutionBrief({ root, requirementId, phase = null } = {}) {
     const item = this.requirementItem(root, requirementId)
+    const acceptanceCommands = item?.acceptance?.commands ?? []
+    // The preview must build its facts exactly the way dispatch does, otherwise
+    // the page shows a shorter instruction than the agent receives.
+    const run = typeof runCore.resumableRunFor === 'function' ? runCore.resumableRunFor(root, requirementId) : null
     const preview = previewExecutionPrompt({
       root,
       requirementId,
       item,
       docView: item?.docView ?? null,
-      acceptanceCommands: item?.acceptance?.commands ?? [],
+      acceptanceCommands,
+      executionFacts: buildExecutionPromptFacts({ root, runId: run?.id ?? null, acceptanceCommands }),
       phase,
     })
     return { ...preview, schema: 'alm.execution-brief-preview/v1', requirement: requirementId }
@@ -2389,7 +2411,8 @@ export default class RequirementsService {
         id: randomUUID(), role: 'user',
         content: [{ type: 'text', text: buildResumePrompt({
           requirementId, runId: active.id, item: promptItem, answer: text, restarted: false,
-          executionFacts: buildExecutionPromptFacts({ root, runId: active.id }),
+          acceptanceCommands: promptItem?.acceptance?.commands ?? [],
+          executionFacts: buildExecutionPromptFacts({ root, runId: active.id, acceptanceCommands: promptItem?.acceptance?.commands ?? [] }),
         }) }],
         source: { kind: 'user' },
       }
@@ -2536,7 +2559,8 @@ export default class RequirementsService {
       id: randomUUID(), role: 'user',
       content: [{ type: 'text', text: buildResumePrompt({
         requirementId, runId: active.id, item: promptItem, answer: text, restarted: true,
-        executionFacts: buildExecutionPromptFacts({ root, runId: active.id }),
+        acceptanceCommands: promptItem?.acceptance?.commands ?? [],
+        executionFacts: buildExecutionPromptFacts({ root, runId: active.id, acceptanceCommands: promptItem?.acceptance?.commands ?? [] }),
       }) }],
       source: { kind: 'user' },
     }

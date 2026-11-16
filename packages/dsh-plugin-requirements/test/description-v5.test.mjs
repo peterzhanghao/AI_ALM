@@ -248,8 +248,10 @@ test('buildExecutionPrompt embeds the confirmed baseline, change and verificatio
   assert.match(prompt, /目标：同一订单与幂等键只产生一张退款单。/)
   assert.match(prompt, /AC-01 退款成功/)
   assert.match(prompt, /开始交付变更 CHG-001/)
-  assert.match(prompt, /验证：只运行 node --test/)
-  assert.match(prompt, /不要运行全量测试/)
+  assert.match(prompt, /验证：完成后运行 pnpm -s alm verify REQ-PAY-004 自查/)
+  assert.match(prompt, /不要跑全量测试/)
+  // The registered command is not inlined; it stays in meta for the white box.
+  assert.doesNotMatch(prompt, /node --test/)
   assert.doesNotMatch(prompt, /docHash/)
   // The contract is a short instruction, not a file dump.
   assert.ok(prompt.length <= 900, `prompt stays within budget, got ${prompt.length}`)

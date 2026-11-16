@@ -1,5 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { run, VERSION } from '../src/cli.mjs'
 
 function capture() {
@@ -59,4 +63,31 @@ test('contract verify --json emits a versioned payload', async () => {
   assert.equal(payload.schema, 'alm.contract.verify/v1')
   assert.equal(payload.ok, true)
   assert.equal(payload.checked.length, 5)
+})
+
+test('verify needs a requirement id and explains an unregistered acceptance', async () => {
+  const missing = await invoke(['verify'])
+  assert.equal(missing.code, 2)
+  assert.match(missing.err, /requires a requirement id/)
+
+  const root = mkdtempSync(join(tmpdir(), 'alm-verify-'))
+  execFileSync('git', ['init', '-q'], { cwd: root })
+  writeFileSync(join(root, 'README.md'), '# demo\n')
+  execFileSync('git', ['add', '-A'], { cwd: root })
+  execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init'], { cwd: root })
+  // A requirement with no registered commands gets an actionable hint, not a
+  // stack trace: the fix is a UI action, so the message has to name it.
+  const unregistered = await invoke(['verify', 'req-x-001', '--root', root])
+  assert.equal(unregistered.code, 1)
+  assert.match(unregistered.err, /未登记验收命令/)
+  assert.match(unregistered.err, /收窄验证范围/)
+})
+
+test('verify rejects malformed options instead of guessing', async () => {
+  const limit = await invoke(['verify', 'REQ-X', '--limit', '0'])
+  assert.equal(limit.code, 2)
+  assert.match(limit.err, /--limit requires a positive integer/)
+  const unknown = await invoke(['verify', 'REQ-X', '--nope'])
+  assert.equal(unknown.code, 2)
+  assert.match(unknown.err, /unknown option/)
 })

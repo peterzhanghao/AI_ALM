@@ -952,12 +952,21 @@ export function requirements(root, { requirementId = null } = {}) {
       // requirement cannot be dispatched at all.
       if (item.run?.exists) {
         try {
+          const storedRun = readRun(root, item.run.id)
           const preview = turnBriefCore.previewTurnBrief({
             root,
             requirementId: item.id,
             item,
             docView: item.docView ?? null,
             commands: item.acceptance?.commands ?? [],
+            // Same handoff the dispatcher passes, so the page cannot show a
+            // shorter instruction than the agent actually receives.
+            facts: {
+              handoff: storedRun?.checkpoint?.handoff ?? null,
+              humanAnswers: (storedRun?.answers ?? [])
+                .map(answer => (typeof answer === 'string' ? answer : answer?.text))
+                .filter(Boolean),
+            },
             phase: item.run.phase === 'plan-review' ? 'plan' : null,
           })
           item.executionBrief = {
@@ -967,6 +976,7 @@ export function requirements(root, { requirementId = null } = {}) {
             anchors: preview.meta?.anchors ?? [],
             reason: preview.ok ? null : preview.reason,
             phase: preview.meta?.phase ?? null,
+            verificationSource: preview.meta?.verificationSource ?? null,
           }
         } catch { item.executionBrief = null }
       }
