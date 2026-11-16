@@ -297,11 +297,23 @@ function readDelta(root, runId, requirementId, deltaHash) {
   fail('delta-changed', '补丁内容已变化，请重新确认', 409)
 }
 
-/** Return only unconsumed proposals for the current baseline. */
-export function pendingSpecDeltas(root, requirementId, runId) {
+/**
+ * Return only unconsumed proposals for the current baseline.
+ *
+ * `context.headSha` is the HEAD a read-only projection already resolved; the
+ * list view projects every row and only compares content/relation hashes here,
+ * so passing it avoids one `git rev-parse` per requirement.
+ */
+export function pendingSpecDeltas(root, requirementId, runId, context = null) {
   if (!validRun(runId)) return []
   let baseline
-  try { baseline = requirementBaseline({ root, asset: currentAsset(root, requirementId) }) } catch { return [] }
+  try {
+    baseline = requirementBaseline({
+      root,
+      asset: currentAsset(root, requirementId),
+      knownHeadSha: context?.headSha,
+    })
+  } catch { return [] }
   return deltaNames(root, runId).flatMap(name => {
     try {
       const delta = JSON.parse(readFileSync(join(resolve(root), '.alm', 'runs', name), 'utf8'))

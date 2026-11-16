@@ -51,7 +51,11 @@ const ACTION_LABELS = {
   'resume-run': '▶ 从断点恢复推进',
   'run-acceptance': '🧪 验证当前已有改动',
   'watch-run': '查看运行',
-  'continue-run': '恢复推进',
+  // Two different ways forward must not share a label: `continue-run` keeps the
+  // same session/round, `resume-run` replaces a dead carrier from the
+  // checkpoint. Calling both "恢复推进" made the button look like a restart
+  // that never happened.
+  'continue-run': '继续推进',
   signoff: '✓ 确认签收 (Signoff)',
   release: '🚀 发布交付 (Release)',
   'execute-release': '🚀 发布交付 (Release)',

@@ -1524,20 +1524,73 @@ export default class RequirementsService {
    * Resumes a round whose heartbeat stopped. This creates a new run and session
    * (the old carrier process is gone), seeded with the previous checkpoint, so
    * the panel can offer "恢复推进" instead of a dead end.
+   *
+   * A record that still says "running" but lost its heartbeat is not a live
+   * executor. Refusing it as `run-active` made the panel's own "恢复推进"
+   * button a no-op that never produced a run, so the sweep below is what makes
+   * the button honest. A parked (waiting-input/paused) round is the other
+   * shape: the human asked to continue it, so continue it instead of refusing.
    */
   async restartDeliveryRun({ root, requirementId, authorizationSubject = null }) {
     this.reconcileRuns(root)
-    const active = typeof runCore.activeRunFor === 'function' ? runCore.activeRunFor(root, requirementId) : null
+    let active = typeof runCore.activeRunFor === 'function' ? runCore.activeRunFor(root, requirementId) : null
+    if (active && typeof runCore.isRunStale === 'function' && runCore.isRunStale(active)) {
+      try { runCore.sweepStaleRuns({ root, apply: true }) } catch {}
+      active = typeof runCore.activeRunFor === 'function' ? runCore.activeRunFor(root, requirementId) : null
+    }
     if (active) {
-      return { restarted: false, reused: true, reason: 'run-active', runId: active.id, message: `已有运行中的执行（${active.id}），不会重复派单` }
+      if (active.status === 'waiting-input' || active.status === 'paused') {
+        const actor = authorizationSubject?.id ?? 'human:local'
+        const resumed = await this.resumeDeliveryRun({
+          root,
+          requirementId,
+          answer: null,
+          actor,
+          continuing: true,
+          subject: authorizationSubject ?? null,
+        })
+        if (resumed?.resumed === true) {
+          return {
+            ...resumed,
+            restarted: true,
+            continued: true,
+            previousRunId: active.id,
+            runId: active.id,
+            message: resumed.message ?? `已继续本轮推进（${active.id}）`,
+          }
+        }
+        return { ...resumed, restarted: false }
+      }
+      return {
+        restarted: false,
+        reused: true,
+        reason: 'run-active',
+        active: true,
+        runId: active.id,
+        status: active.status,
+        message: `本轮仍在推进（${active.id}），已切换到运行视图`,
+      }
     }
     // Recovery uses the same fast-only preflight as a first start. This also
     // replaces a legacy broad command with a scoped 15s verification command
-    // before another idle settlement can run it.
-    await this.handlePreflight(root, requirementId, true)
+    // before another idle settlement can run it. One projection is shared by
+    // the preflight steps and the prompt below: a single restart used to build
+    // the requirement list three times before it could answer the click.
+    let cachedProjection = null
+    const inspect = () => (cachedProjection ??= query.requirements(root))
+    const baseDeps = this.preflightDeps(root, requirementId)
+    await this.handlePreflight(root, requirementId, true, {
+      ...baseDeps,
+      inspect,
+      applyAcceptanceConfig: (commands) => {
+        applyAcceptanceConfig({ root, requirementId, commands })
+        cachedProjection = null
+      },
+    })
     const runs = typeof runCore.listRuns === 'function' ? runCore.listRuns(root).filter((run) => run.requirement === requirementId) : []
     const previous = runs[runs.length - 1] ?? null
-    const payload = typeof query.requirements === 'function' ? query.requirements(root) : null
+    let payload = null
+    try { payload = inspect() } catch { payload = null }
     const item = (payload?.requirements ?? []).find((entry) => entry.id === requirementId) ?? null
     const result = await this.startDeliveryRun({
       root,
@@ -1548,7 +1601,9 @@ export default class RequirementsService {
       autoAdvance: true,
       authorizationSubject,
     })
-    if (result?.scheduled) return { ...result, restarted: true, previousRunId: previous?.id ?? null }
+    if (result?.scheduled) {
+      return { ...result, restarted: true, status: 'running', previousRunId: previous?.id ?? null, message: result.message ?? '已从断点恢复推进' }
+    }
     return { ...result, restarted: false }
   }
 
@@ -2783,9 +2838,9 @@ export default class RequirementsService {
     }
   }
 
-  async handlePreflight(root, requirementId, apply) {
-    const deps = this.preflightDeps(root, requirementId)
-    const record = await runPreflight({ root, requirementId, apply, deps })
+  async handlePreflight(root, requirementId, apply, deps = null) {
+    const resolvedDeps = deps ?? this.preflightDeps(root, requirementId)
+    const record = await runPreflight({ root, requirementId, apply, deps: resolvedDeps })
     const auditPath = writePreflightAudit(root, record)
     return { ...record, auditPath }
   }

@@ -154,6 +154,15 @@ function heartbeatExpired(run, now = Date.now()) {
   return Number.isFinite(beat) && now - beat > RUN_HEARTBEAT_TIMEOUT_MS
 }
 
+/**
+ * A run that should be making progress but has no living heartbeat. The panel
+ * and the restart path must agree on this: a record that still says "running"
+ * with a dead heartbeat is not a live executor, so resuming may replace it.
+ */
+export function isRunStale(run, now = Date.now()) {
+  return ACTIVE_RUN_STATES.includes(run?.status) && !IDLE_RUN_STATES.includes(run.status) && heartbeatExpired(run, now)
+}
+
 function writeRun(root, run) {
   mkdirSync(runDir(root), { recursive: true })
   const path = runPath(root, run.id)
@@ -414,9 +423,7 @@ export function sweepStaleRuns(options) {
 function sweepStaleRunsUnlocked({ root, apply = false, now = Date.now() }) {
   // A turn parked for a human answer (or paused on purpose) is idle by design,
   // so an old heartbeat there is not a dead executor.
-  const stale = listRuns(root).filter(
-    (run) => ACTIVE_RUN_STATES.includes(run.status) && !IDLE_RUN_STATES.includes(run.status) && heartbeatExpired(run, now),
-  )
+  const stale = listRuns(root).filter((run) => isRunStale(run, now))
   if (apply) {
     for (const run of stale) {
       const interruptedSessions = interruptedSessionsFor(run, { code: 'heartbeat-lost' })

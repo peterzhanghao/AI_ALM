@@ -4981,7 +4981,7 @@ ${text}`)) continue;
         )
       );
     }
-    function ExecutionProgress({ item, detail, root, handlers, onAcceptance, onRefresh, onOpenSession }) {
+    function ExecutionProgress({ item, detail, root, handlers, onAcceptance, onRefresh, onOpenSession, pendingAction = null }) {
       const run = detail.summaries?.run ?? {};
       const acceptance = detail.summaries?.acceptance ?? {};
       const candidate = detail.summaries?.candidate ?? {};
@@ -4996,6 +4996,7 @@ ${text}`)) continue;
       const title = released ? "\u{1F4E6} \u53D1\u5E03\u5F52\u6863\u62A5\u544A" : candidateReady ? "\u{1F389} AI \u5DF2\u5B8C\u6210\u5F00\u53D1\u5E76\u901A\u8FC7\u9A8C\u8BC1\uFF0C\u5F85\u4EBA\u5DE5\u7B7E\u6536" : settled ? "\u7B49\u5F85\u6062\u590D\u63A8\u8FDB\u6216\u91CD\u65B0\u9A8C\u8BC1" : run.status === "running" || run.status === "queued" ? "AI \u6B63\u5728\u7F16\u7801" : matter.headline ?? "\u7B49\u5F85\u63A8\u8FDB";
       const verification = humanAcceptanceState(acceptance);
       const action = matter.action ?? detail.primaryAction;
+      const pending = pendingAction && action && pendingAction.id === action.id ? pendingAction : null;
       const invoke = (id) => handlers?.[id]?.();
       return h(
         "div",
@@ -5027,7 +5028,7 @@ ${text}`)) continue;
           h(
             "div",
             { style: { display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" } },
-            action?.id && handlers?.[action.id] ? h("button", { type: "button", style: HUMAN_PRIMARY, disabled: action.enabled === false, onClick: () => invoke(action.id) }, diagnostic?.actionLabel ?? action.label) : null,
+            action?.id && handlers?.[action.id] ? h("button", { type: "button", style: HUMAN_PRIMARY, disabled: action.enabled === false || Boolean(pending), "data-pending-action": pending ? action.id : void 0, onClick: () => invoke(action.id) }, pending?.short ?? diagnostic?.actionLabel ?? action.label) : null,
             onAcceptance && !item.closed ? h("button", { type: "button", style: HUMAN_CONTROL, onClick: () => onAcceptance(item) }, "\u91CD\u65B0\u8FD0\u884C\u9A8C\u8BC1") : null,
             onOpenSession && run.sessionId ? h("button", { type: "button", style: HUMAN_CONTROL, onClick: () => onOpenSession(run.sessionId) }, "\u5728 DSH \u4E2D\u6253\u5F00\u4F1A\u8BDD") : null,
             h("button", { type: "button", style: HUMAN_CONTROL, onClick: () => onRefresh?.() }, "\u5237\u65B0\u72B6\u6001")
@@ -5047,7 +5048,8 @@ ${text}`)) continue;
       );
     }
     function V4DetailPage(props) {
-      const { item, detail, root, handlers, tab, onNavigate, onClose, onRefresh, scrollRef } = props;
+      const { item, detail, root, handlers, tab, onNavigate, onClose, onRefresh, scrollRef, pendingAction = null } = props;
+      const pendingFor = (id) => pendingAction && pendingAction.id === id ? pendingAction : null;
       const [editing, setEditing] = useState(false);
       const [dirty, setDirty] = useState(false);
       const [more, setMore] = useState(false);
@@ -5199,7 +5201,7 @@ ${text}`)) continue;
           { "aria-label": "\u9700\u6C42\u5BFC\u822A", style: { flexShrink: 0, display: "flex", alignItems: "center", gap: "8px", padding: "12px 16px", borderBottom: `1px solid ${T.line}` } },
           h("button", { style: HUMAN_CONTROL, onClick: () => leave(onClose), "data-drawer-close": "true" }, "\u2190 \u8FD4\u56DE\u9700\u6C42\u5217\u8868"),
           h("span", { style: { flex: 1 } }),
-          matter.action?.enabled !== false && handlers[matter.action?.id] ? h("button", { type: "button", style: HUMAN_PRIMARY, onClick: () => handlers[matter.action.id]() }, matter.action.label) : null,
+          matter.action?.enabled !== false && handlers[matter.action?.id] ? h("button", { type: "button", style: HUMAN_PRIMARY, disabled: Boolean(pendingFor(matter.action.id)), "data-pending-action": pendingFor(matter.action.id) ? matter.action.id : void 0, onClick: () => handlers[matter.action.id]() }, pendingFor(matter.action.id)?.short ?? matter.action.label) : null,
           h(
             "div",
             { ref: moreRef, style: { position: "relative" } },
@@ -5241,6 +5243,7 @@ ${text}`)) continue;
             h("div", { "data-detail-id": item.id, style: { fontSize: "12px", color: T.text3, marginBottom: "8px", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } }, h("span", null, item.id, " \xB7 ", h("span", { "data-detail-revision": String(viewRevision) }, `v${viewRevision}`)), h("span", { style: { border: `1px solid ${T.line2}`, borderRadius: "999px", padding: "2px 8px", color: T.text2 } }, item.delivery?.label ?? detail.summaries?.delivery?.label ?? "\u5F85\u63A8\u8FDB")),
             h("h1", { ref: titleRef, tabIndex: -1, id: detailTitleId(item), style: { fontFamily: "inherit", fontSize: "20px", fontWeight: 600, lineHeight: 1.45, letterSpacing: 0, margin: "0 0 18px" } }, item.title),
             refreshStatus ? h("p", { role: refreshStatus.error ? "alert" : "status", "data-detail-refresh-status": "true", style: { margin: "-8px 0 14px", fontSize: "13px", color: refreshStatus.error ? T.err : T.text2 } }, refreshStatus.text) : null,
+            pendingAction ? h("p", { role: "status", "aria-live": "polite", "data-detail-pending-action": pendingAction.id, style: { margin: "-8px 0 14px", padding: "8px 12px", border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.brand}`, borderRadius: "8px", background: T.layer, fontSize: "13px", color: T.text2 } }, pendingAction.text) : null,
             displayItem.pendingPatch && (tab === "requirement" || tab === "delivery") ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
             h("div", { className: "detail-columns" }, h("div", { style: { minWidth: 0 } }, tab !== "requirement" ? h(
               "div",
@@ -5263,7 +5266,7 @@ ${text}`)) continue;
                 ) : h(
                   "div",
                   null,
-                  h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: refreshDetail, onOpenSession: props.onOpenSession }),
+                  h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: refreshDetail, onOpenSession: props.onOpenSession, pendingAction }),
                   h(RunObservationPanel, { item, detail, root: item.root ?? root, initialRunId: selectedRunId, onOpenSession: props.onOpenSession })
                 )
               )
@@ -5581,6 +5584,9 @@ ${text}`)) continue;
       const [startIsolate, setStartIsolate] = useState(false);
       const [decisionOpen, setDecisionOpen] = useState(false);
       const [notice, setNotice] = useState(null);
+      const [pendingAction, setPendingAction] = useState(null);
+      const pendingRef = useRef(null);
+      pendingRef.current = pendingAction;
       const scrollRef = useRef(null);
       const timerRef = useRef(null);
       useEffect(() => () => {
@@ -5588,9 +5594,10 @@ ${text}`)) continue;
       }, []);
       useEffect(() => {
         if (!notice) return void 0;
+        if (pendingRef.current) return void 0;
         const timer = setTimeout(() => setNotice(null), 4200);
         return () => clearTimeout(timer);
-      }, [notice]);
+      }, [notice, pendingAction]);
       const navigate = (nextTab, anchor) => {
         if (nextTab && nextTab !== tab) setTab(nextTab);
         if (timerRef.current) clearTimeout(timerRef.current);
@@ -5614,15 +5621,33 @@ ${text}`)) continue;
           }
         }, 40);
       };
+      const runPending = async (meta, task) => {
+        if (pendingRef.current) return void 0;
+        pendingRef.current = meta;
+        setPendingAction(meta);
+        setNotice(meta.text);
+        try {
+          return await task();
+        } finally {
+          pendingRef.current = null;
+          setPendingAction(null);
+        }
+      };
       const handlers = {
         "answer-run": () => props.onAnswer && props.onAnswer(item),
-        "resume-run": () => props.onResumeRun && props.onResumeRun(item),
+        "resume-run": () => runPending(
+          { id: "resume-run", short: "\u6062\u590D\u4E2D\u2026", text: "\u6B63\u5728\u6062\u590D\u63A8\u8FDB\uFF1A\u51C6\u5907\u6267\u884C\u73AF\u5883\u5E76\u8BFB\u53D6\u65AD\u70B9\uFF0C\u901A\u5E38\u9700\u8981\u51E0\u79D2\u2026" },
+          () => props.onResumeRun && props.onResumeRun(item)
+        ),
         "run-acceptance": () => props.onAcceptance && props.onAcceptance(item),
         "narrow-verification": () => writeJson("narrow-verification", { requirementId: item.id, apply: true }, root).then((result) => {
           props.onRefresh && props.onRefresh();
           if (result?.verification?.result !== "pass") window.alert("\u9A8C\u6536\u547D\u4EE4\u5DF2\u6536\u7A84\uFF0C\u4F46\u672C\u6B21\u9A8C\u8BC1\u4ECD\u672A\u901A\u8FC7\uFF1B\u8BF7\u67E5\u770B\u9A8C\u8BC1\u8BE6\u60C5\u3002");
         }).catch((error) => window.alert("\u6536\u7A84\u9A8C\u6536\u547D\u4EE4\u5931\u8D25\uFF1A" + error.message)),
-        "continue-run": () => props.onContinueRun && props.onContinueRun(item),
+        "continue-run": () => runPending(
+          { id: "continue-run", short: "\u7EE7\u7EED\u4E2D\u2026", text: "\u6B63\u5728\u7EE7\u7EED\u672C\u8F6E\u63A8\u8FDB\u2026" },
+          () => props.onContinueRun && props.onContinueRun(item)
+        ),
         start: () => props.onStart && props.onStart(item, { isolate: startIsolate }),
         "start-fix": () => props.onStart && props.onStart(item, { isolate: startIsolate }),
         "watch-run": () => navigate("delivery"),
@@ -5664,6 +5689,7 @@ ${text}`)) continue;
           onToggleIsolate: setStartIsolate,
           notice,
           setNotice,
+          pendingAction,
           onClose: props.onClose,
           onSnapshot: props.onSnapshot,
           onDiff: props.onDiff,
@@ -14328,7 +14354,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       setTimeout(cleanup, 6e4);
       return { message: `\u5DF2\u53D1\u8D77\u4E0B\u8F7D ${file.filename}\uFF08${file.bytes} bytes\uFF09\uFF0C\u8BF7\u68C0\u67E5\u6D4F\u89C8\u5668\u4E0B\u8F7D\u8BB0\u5F55\uFF1B\u5C1A\u672A\u786E\u8BA4\u843D\u76D8\u3002` };
     }
-    const EXCHANGE_CLIENT_BUILD = "v3.2026-11-14";
+    const EXCHANGE_CLIENT_BUILD = "v4.2026-11-16";
     const EXCHANGE_FIELD_LABELS = { title: "\u6807\u9898", brief: "\u9700\u6C42\u63CF\u8FF0", priority: "\u4F18\u5148\u7EA7", owner: "\u8D1F\u8D23\u4EBA" };
     const EXCHANGE_FIELD_TEXT = (fields) => (fields ?? []).map((field) => EXCHANGE_FIELD_LABELS[field] ?? field).join("\u3001");
     function exchangePreviewSummary(preview) {
@@ -14427,12 +14453,20 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           setBusy(false);
         }
       };
-      const download = () => run(async () => {
-        setReceipt(null);
+      const exportFile = async (format) => {
         if (scope === "filtered" && !visibleIds.length) throw new Error("\u5F53\u524D\u7B5B\u9009\u7ED3\u679C\u4E3A\u7A7A\uFF0C\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u9700\u6C42");
         const uids = scope === "filtered" ? visibleIds : void 0;
-        const result = await saveExchangeFile("xlsx", (body) => request({ ...body, ...uids ? { uids } : {} }));
+        return saveExchangeFile(format, (body) => request({ ...body, ...uids ? { uids } : {} }));
+      };
+      const download = () => run(async () => {
+        setReceipt(null);
+        const result = await exportFile("xlsx");
         setReceipt({ message: `${result.message}\u6539\u5B8C\u8FD9\u56DB\u5217\u540E\uFF0C\u4ECE\u5361\u7247\u4E8C\u5BFC\u5165\u5373\u53EF\u3002` });
+      });
+      const downloadJson = () => run(async () => {
+        setReceipt(null);
+        const result = await exportFile("json");
+        setReceipt({ message: `${result.message}JSON \u4EA4\u6362\u5305\u5185\u542B\u5BFC\u51FA\u57FA\u7EBF\u4E0E\u6821\u9A8C\uFF0C\u53EF\u4EA4\u7ED9\u5176\u4ED6\u667A\u80FD\u4F53\u7F16\u8F91\uFF1B\u56DE\u5BFC\u65F6\u540C\u6837\u5148\u9884\u89C8\u518D\u786E\u8BA4\u3002` });
       });
       const downloadTemplate = () => run(async () => {
         setReceipt(null);
@@ -14515,7 +14549,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
             "section",
             { "data-exchange-export": "true", style: card2 },
             h("h3", { style: cardTitle }, "\u5361\u7247\u4E00 \xB7 \u5BFC\u51FA\u9700\u6C42"),
-            h("p", { style: hint }, "\u5BFC\u51FA\u53EF\u76F4\u63A5\u7F16\u8F91\u7684 Excel\uFF08.xlsx\uFF09\u5DE5\u4F5C\u7C3F\uFF1B\u53EF\u7F16\u8F91\u5217\uFF1A\u6807\u9898 / \u9700\u6C42\u63CF\u8FF0 / \u4F18\u5148\u7EA7 / \u8D1F\u8D23\u4EBA\u3002\u7528\u4E8E\u6279\u91CF\u4FEE\u6539\u5DF2\u6709\u9700\u6C42\u3002"),
+            h("p", { style: hint }, "\u5BFC\u51FA\u53EF\u76F4\u63A5\u7F16\u8F91\u7684 Excel\uFF08.xlsx\uFF09\u5DE5\u4F5C\u7C3F\uFF0C\u6216\u4F9B\u8DE8\u667A\u80FD\u4F53\u4EA4\u6362\u7684 JSON \u4EA4\u6362\u5305\uFF08\u542B\u5BFC\u51FA\u57FA\u7EBF\u4E0E\u6821\u9A8C\uFF09\uFF1B\u53EF\u7F16\u8F91\u5217\uFF1A\u6807\u9898 / \u9700\u6C42\u63CF\u8FF0 / \u4F18\u5148\u7EA7 / \u8D1F\u8D23\u4EBA\u3002"),
             h(
               "div",
               { role: "group", "aria-label": "\u5BFC\u51FA\u8303\u56F4", style: { display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" } },
@@ -14530,6 +14564,12 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
                 { type: "button", "data-exchange-export-action": "true", "aria-label": "\u5BFC\u51FA Excel \u5DE5\u4F5C\u7C3F", disabled: busy, onClick: download, style: { ...primaryButton, ...disabledLook(false) } },
                 h(ActionIcon, { name: "download", size: 14 }),
                 h("span", null, "\u5BFC\u51FA Excel (.xlsx)")
+              ),
+              h(
+                "button",
+                { type: "button", "data-exchange-export-json": "true", "aria-label": "\u5BFC\u51FA JSON \u4EA4\u6362\u5305", disabled: busy, onClick: downloadJson, style: { ...ghostButton, ...disabledLook(false) } },
+                h(ActionIcon, { name: "download", size: 14 }),
+                h("span", null, "\u5BFC\u51FA JSON \u4EA4\u6362\u5305")
               ),
               h("span", { style: { ...hint, margin: 0 } }, scope === "filtered" ? `\u5C06\u5BFC\u51FA ${visibleIds.length} \u6761\u5F53\u524D\u7B5B\u9009\u7ED3\u679C` : "\u5C06\u5BFC\u51FA\u5168\u90E8\u9700\u6C42")
             )
@@ -14648,7 +14688,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       );
     }
     const NATIVE_SOURCE_BUILD_ID = false ? null : null;
-    const NATIVE_CLIENT_BUILD_ID = true ? "7e6532ad8b52720cf0ef4dbaf30e142340cb3a9ec62ebbba7239d42f0903b4de" : null;
+    const NATIVE_CLIENT_BUILD_ID = true ? "455cd2ba4012eba2fe87bd07aa7bc2424f0908c59414171296d44b2657e06d93" : null;
     function NativeDeliveryControl({ root, requirementId }) {
       const [job, setJob] = useState(null);
       const [error, setError] = useState(null);
@@ -15565,12 +15605,20 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
               return reload();
             }).catch((error2) => window.alert(`\u7EE7\u7EED\u5931\u8D25\uFF1A${error2.message}`));
           },
-          onResumeRun: (entry) => {
-            if (!window.confirm(`\u6062\u590D ${entry.id} \u7684\u672C\u8F6E\u63A8\u8FDB\uFF1F\u4F1A\u65B0\u5EFA\u4E00\u6B21\u8FD0\u884C\u5E76\u4ECE\u4E0A\u6B21\u68C0\u67E5\u70B9\u7EE7\u7EED\u3002`)) return;
-            writeJson("run", { mode: "restart", requirementId: entry.id }, root).then((payload) => {
-              if (payload?.restarted !== true) window.alert(payload?.message ?? "\u672A\u80FD\u6062\u590D\u63A8\u8FDB");
-              return reload();
-            }).catch((error2) => window.alert(`\u6062\u590D\u5931\u8D25\uFF1A${error2.message}`));
+          onResumeRun: async (entry) => {
+            if (!window.confirm(`\u6062\u590D ${entry.id} \u7684\u672C\u8F6E\u63A8\u8FDB\uFF1F\u4F1A\u65B0\u5EFA\u4E00\u6B21\u8FD0\u884C\u5E76\u4ECE\u4E0A\u6B21\u68C0\u67E5\u70B9\u7EE7\u7EED\u3002`)) return { ok: false, cancelled: true };
+            const targetRoot = entry.root ?? data?.root ?? root;
+            try {
+              const payload = await writeJson("run", { mode: "restart", requirementId: entry.id }, targetRoot);
+              const refreshed = await reload();
+              if (payload?.restarted !== true && payload?.active !== true) {
+                window.alert(payload?.message ?? "\u672A\u80FD\u6062\u590D\u63A8\u8FDB");
+              }
+              return { ok: true, payload, refreshed };
+            } catch (error2) {
+              window.alert(`\u6062\u590D\u5931\u8D25\uFF1A${error2.message}`);
+              return { ok: false, error: error2.message };
+            }
           },
           narrow
         }) : null,

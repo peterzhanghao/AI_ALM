@@ -105,13 +105,21 @@ export function revisionOf(asset) {
   return Number.isInteger(revision) && revision > 0 ? revision : 1
 }
 
-/** Snapshot hash bundle a preview is bound to; apply compares it (CAS). */
-export function requirementBaseline({ root, asset }) {
+/**
+ * Snapshot hash bundle a preview is bound to; apply compares it (CAS).
+ *
+ * `knownHeadSha` lets a caller that already resolved HEAD for this request pass
+ * it in: the requirement list projects every row and each row used to spawn its
+ * own `git rev-parse`, which cost more than the rest of the projection together
+ * on Windows. It is only a value, never a cache, so a write path still reads
+ * the real repository state.
+ */
+export function requirementBaseline({ root, asset, knownHeadSha }) {
   const repo = resolve(root)
   return {
     contentHash: requirementContentHash({ root: repo, asset }),
     relationHash: relationSnapshotHash({ asset }),
-    headSha: gitHead(repo) ?? null,
+    headSha: knownHeadSha === undefined ? gitHead(repo) ?? null : knownHeadSha,
     revision: revisionOf(asset),
   }
 }

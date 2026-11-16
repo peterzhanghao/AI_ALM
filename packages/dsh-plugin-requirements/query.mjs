@@ -1019,7 +1019,7 @@ export function requirements(root, { requirementId = null } = {}) {
       const originalConfirmedAt = item.specConvergences.find(event => event.beforeRevision === 1 && Number.isFinite(Date.parse(event.initialConfirmedAt)))?.initialConfirmedAt
       if (originalConfirmedAt) item.createdAt = originalConfirmedAt
       else if (item.docMeta?.confirmedAt && Number.isFinite(Date.parse(item.docMeta.confirmedAt))) item.createdAt = item.docMeta.confirmedAt
-      item.pendingPatch = pendingSpecDeltas(root, item.id, requirementSpecContext(item.id))[0] ?? (item.run?.id ? pendingSpecDeltas(root, item.id, item.run.id)[0] : null) ?? null
+      item.pendingPatch = pendingSpecDeltas(root, item.id, requirementSpecContext(item.id), { headSha })[0] ?? (item.run?.id ? pendingSpecDeltas(root, item.id, item.run.id, { headSha })[0] : null) ?? null
       item.iterationRetry = readIterationRetry(root, item.id)
       item.trace = traceFor({ asset, graph, byId })
       item.aiReview = aiReviewSummary(root, asset.id)

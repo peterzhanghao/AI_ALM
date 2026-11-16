@@ -11215,6 +11215,9 @@ function heartbeatExpired(run, now = Date.now()) {
   const beat = Date.parse(run?.heartbeatAt ?? run?.updatedAt ?? run?.createdAt ?? "");
   return Number.isFinite(beat) && now - beat > RUN_HEARTBEAT_TIMEOUT_MS;
 }
+function isRunStale(run, now = Date.now()) {
+  return ACTIVE_RUN_STATES.includes(run?.status) && !IDLE_RUN_STATES.includes(run.status) && heartbeatExpired(run, now);
+}
 function writeRun(root, run) {
   mkdirSync7(runDir(root), { recursive: true });
   const path = runPath(root, run.id);
@@ -11469,9 +11472,7 @@ function sweepStaleRuns(options) {
   return options.apply ? withRunLock(options.root, () => sweepStaleRunsUnlocked(options)) : sweepStaleRunsUnlocked(options);
 }
 function sweepStaleRunsUnlocked({ root, apply = false, now = Date.now() }) {
-  const stale = listRuns(root).filter(
-    (run) => ACTIVE_RUN_STATES.includes(run.status) && !IDLE_RUN_STATES.includes(run.status) && heartbeatExpired(run, now)
-  );
+  const stale = listRuns(root).filter((run) => isRunStale(run, now));
   if (apply) {
     for (const run of stale) {
       const interruptedSessions = interruptedSessionsFor(run, { code: "heartbeat-lost" });
@@ -15200,12 +15201,12 @@ function revisionOf(asset) {
   const revision = Number(asset?.extra?.revision ?? 1);
   return Number.isInteger(revision) && revision > 0 ? revision : 1;
 }
-function requirementBaseline({ root, asset }) {
+function requirementBaseline({ root, asset, knownHeadSha }) {
   const repo = resolve20(root);
   return {
     contentHash: requirementContentHash({ root: repo, asset }),
     relationHash: relationSnapshotHash({ asset }),
-    headSha: gitHead(repo) ?? null,
+    headSha: knownHeadSha === void 0 ? gitHead(repo) ?? null : knownHeadSha,
     revision: revisionOf(asset)
   };
 }
@@ -15803,11 +15804,15 @@ function readDelta(root, runId, requirementId, deltaHash) {
   }
   fail2("delta-changed", "\u8865\u4E01\u5185\u5BB9\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u786E\u8BA4", 409);
 }
-function pendingSpecDeltas(root, requirementId, runId) {
+function pendingSpecDeltas(root, requirementId, runId, context = null) {
   if (!validRun(runId)) return [];
   let baseline;
   try {
-    baseline = requirementBaseline({ root, asset: currentAsset(root, requirementId) });
+    baseline = requirementBaseline({
+      root,
+      asset: currentAsset(root, requirementId),
+      knownHeadSha: context?.headSha
+    });
   } catch {
     return [];
   }
@@ -19059,7 +19064,11 @@ var init_detail_view = __esm({
       "resume-run": "\u25B6 \u4ECE\u65AD\u70B9\u6062\u590D\u63A8\u8FDB",
       "run-acceptance": "\u{1F9EA} \u9A8C\u8BC1\u5F53\u524D\u5DF2\u6709\u6539\u52A8",
       "watch-run": "\u67E5\u770B\u8FD0\u884C",
-      "continue-run": "\u6062\u590D\u63A8\u8FDB",
+      // Two different ways forward must not share a label: `continue-run` keeps the
+      // same session/round, `resume-run` replaces a dead carrier from the
+      // checkpoint. Calling both "恢复推进" made the button look like a restart
+      // that never happened.
+      "continue-run": "\u7EE7\u7EED\u63A8\u8FDB",
       signoff: "\u2713 \u786E\u8BA4\u7B7E\u6536 (Signoff)",
       release: "\u{1F680} \u53D1\u5E03\u4EA4\u4ED8 (Release)",
       "execute-release": "\u{1F680} \u53D1\u5E03\u4EA4\u4ED8 (Release)",
@@ -20062,7 +20071,7 @@ function requirements(root, { requirementId = null } = {}) {
     const originalConfirmedAt = item.specConvergences.find((event) => event.beforeRevision === 1 && Number.isFinite(Date.parse(event.initialConfirmedAt)))?.initialConfirmedAt;
     if (originalConfirmedAt) item.createdAt = originalConfirmedAt;
     else if (item.docMeta?.confirmedAt && Number.isFinite(Date.parse(item.docMeta.confirmedAt))) item.createdAt = item.docMeta.confirmedAt;
-    item.pendingPatch = pendingSpecDeltas(root, item.id, requirementSpecContext(item.id))[0] ?? (item.run?.id ? pendingSpecDeltas(root, item.id, item.run.id)[0] : null) ?? null;
+    item.pendingPatch = pendingSpecDeltas(root, item.id, requirementSpecContext(item.id), { headSha })[0] ?? (item.run?.id ? pendingSpecDeltas(root, item.id, item.run.id, { headSha })[0] : null) ?? null;
     item.iterationRetry = readIterationRetry(root, item.id);
     item.trace = traceFor({ asset, graph, byId });
     item.aiReview = aiReviewSummary(root, asset.id);
@@ -23931,7 +23940,7 @@ var XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.she
 var fail4 = (message, code = "invalid-exchange", status = 400) => {
   throw Object.assign(new Error(message), { code, status });
 };
-var EXCHANGE_BUILD = "v3.2026-11-14";
+var EXCHANGE_BUILD = "v4.2026-11-16";
 function exchangeRequest({ root, body }) {
   if (!body || typeof body !== "object" || Array.isArray(body)) fail4("request object required");
   const allowed = /* @__PURE__ */ new Set(["action", "format", "filename", "content", "expectedLocalHash", "uids"]);
@@ -23947,8 +23956,13 @@ function exchangeRequest({ root, body }) {
     return { ok: true, ...initializeRequirementsExchange({ root }) };
   }
   if (action === "export") {
-    if (format !== "xlsx") fail4("\u5BFC\u51FA\u53EA\u63D0\u4F9B Excel\uFF08.xlsx\uFF09", "unsupported-format", 415);
+    if (!["json", "xlsx"].includes(format)) fail4("\u5BFC\u51FA\u53EA\u63D0\u4F9B JSON \u4EA4\u6362\u5305\u6216 Excel\uFF08.xlsx\uFF09", "unsupported-format", 415);
     const payload2 = exportRequirements({ root, uids: body.uids });
+    if (format === "json") {
+      const bytes3 = Buffer.from(JSON.stringify(payload2));
+      if (bytes3.length > MAX_FILE) fail4("export exceeds 8 MiB file limit", "file-too-large", 413);
+      return { ok: true, build: EXCHANGE_BUILD, filename: `requirements-${payload2.projectId}.json`, mime: "application/json", content: bytes3.toString("base64"), bytes: bytes3.length };
+    }
     const bytes2 = encodeRequirementsXlsx(payload2);
     if (bytes2.length > MAX_FILE) fail4("export exceeds 8 MiB file limit", "file-too-large", 413);
     return { ok: true, build: EXCHANGE_BUILD, filename: `requirements-${payload2.projectId}.xlsx`, mime: XLSX_MIME, content: bytes2.toString("base64"), bytes: bytes2.length };
@@ -35376,7 +35390,7 @@ function startSidebarServer({ port = SIDEBAR_PORT, handler }) {
 // index.js
 var pkg2 = JSON.parse(readFileSync53(new URL("./package.json", new URL("./index.js", import.meta.url).href), "utf8"));
 var NATIVE_SOURCE_BUILD_ID = false ? null : null;
-var NATIVE_CLIENT_BUILD_ID = true ? "7e6532ad8b52720cf0ef4dbaf30e142340cb3a9ec62ebbba7239d42f0903b4de" : null;
+var NATIVE_CLIENT_BUILD_ID = true ? "455cd2ba4012eba2fe87bd07aa7bc2424f0908c59414171296d44b2657e06d93" : null;
 var CONTINUING_ANSWER = "\u6309\u5DF2\u6279\u51C6\u8303\u56F4\u6062\u590D\u63A8\u8FDB\u3002";
 function changedFilesOf(executionFacts) {
   const files = executionFacts?.handoff?.changedFiles;
@@ -36646,17 +36660,75 @@ ${String(entry.text ?? "").trim()}
    * Resumes a round whose heartbeat stopped. This creates a new run and session
    * (the old carrier process is gone), seeded with the previous checkpoint, so
    * the panel can offer "恢复推进" instead of a dead end.
+   *
+   * A record that still says "running" but lost its heartbeat is not a live
+   * executor. Refusing it as `run-active` made the panel's own "恢复推进"
+   * button a no-op that never produced a run, so the sweep below is what makes
+   * the button honest. A parked (waiting-input/paused) round is the other
+   * shape: the human asked to continue it, so continue it instead of refusing.
    */
   async restartDeliveryRun({ root, requirementId, authorizationSubject = null }) {
     this.reconcileRuns(root);
-    const active = typeof activeRunFor === "function" ? activeRunFor(root, requirementId) : null;
-    if (active) {
-      return { restarted: false, reused: true, reason: "run-active", runId: active.id, message: `\u5DF2\u6709\u8FD0\u884C\u4E2D\u7684\u6267\u884C\uFF08${active.id}\uFF09\uFF0C\u4E0D\u4F1A\u91CD\u590D\u6D3E\u5355` };
+    let active = typeof activeRunFor === "function" ? activeRunFor(root, requirementId) : null;
+    if (active && typeof isRunStale === "function" && isRunStale(active)) {
+      try {
+        sweepStaleRuns({ root, apply: true });
+      } catch {
+      }
+      active = typeof activeRunFor === "function" ? activeRunFor(root, requirementId) : null;
     }
-    await this.handlePreflight(root, requirementId, true);
+    if (active) {
+      if (active.status === "waiting-input" || active.status === "paused") {
+        const actor = authorizationSubject?.id ?? "human:local";
+        const resumed = await this.resumeDeliveryRun({
+          root,
+          requirementId,
+          answer: null,
+          actor,
+          continuing: true,
+          subject: authorizationSubject ?? null
+        });
+        if (resumed?.resumed === true) {
+          return {
+            ...resumed,
+            restarted: true,
+            continued: true,
+            previousRunId: active.id,
+            runId: active.id,
+            message: resumed.message ?? `\u5DF2\u7EE7\u7EED\u672C\u8F6E\u63A8\u8FDB\uFF08${active.id}\uFF09`
+          };
+        }
+        return { ...resumed, restarted: false };
+      }
+      return {
+        restarted: false,
+        reused: true,
+        reason: "run-active",
+        active: true,
+        runId: active.id,
+        status: active.status,
+        message: `\u672C\u8F6E\u4ECD\u5728\u63A8\u8FDB\uFF08${active.id}\uFF09\uFF0C\u5DF2\u5207\u6362\u5230\u8FD0\u884C\u89C6\u56FE`
+      };
+    }
+    let cachedProjection = null;
+    const inspect = () => cachedProjection ??= requirements(root);
+    const baseDeps = this.preflightDeps(root, requirementId);
+    await this.handlePreflight(root, requirementId, true, {
+      ...baseDeps,
+      inspect,
+      applyAcceptanceConfig: (commands) => {
+        applyAcceptanceConfig2({ root, requirementId, commands });
+        cachedProjection = null;
+      }
+    });
     const runs = typeof listRuns === "function" ? listRuns(root).filter((run) => run.requirement === requirementId) : [];
     const previous = runs[runs.length - 1] ?? null;
-    const payload = typeof requirements === "function" ? requirements(root) : null;
+    let payload = null;
+    try {
+      payload = inspect();
+    } catch {
+      payload = null;
+    }
     const item = (payload?.requirements ?? []).find((entry) => entry.id === requirementId) ?? null;
     const result = await this.startDeliveryRun({
       root,
@@ -36667,7 +36739,9 @@ ${String(entry.text ?? "").trim()}
       autoAdvance: true,
       authorizationSubject
     });
-    if (result?.scheduled) return { ...result, restarted: true, previousRunId: previous?.id ?? null };
+    if (result?.scheduled) {
+      return { ...result, restarted: true, status: "running", previousRunId: previous?.id ?? null, message: result.message ?? "\u5DF2\u4ECE\u65AD\u70B9\u6062\u590D\u63A8\u8FDB" };
+    }
     return { ...result, restarted: false };
   }
   deliveryRootKey(root) {
@@ -37963,9 +38037,9 @@ ${String(entry.text ?? "").trim()}
       }
     };
   }
-  async handlePreflight(root, requirementId, apply) {
-    const deps = this.preflightDeps(root, requirementId);
-    const record = await runPreflight({ root, requirementId, apply, deps });
+  async handlePreflight(root, requirementId, apply, deps = null) {
+    const resolvedDeps = deps ?? this.preflightDeps(root, requirementId);
+    const record = await runPreflight({ root, requirementId, apply, deps: resolvedDeps });
     const auditPath = writePreflightAudit(root, record);
     return { ...record, auditPath };
   }

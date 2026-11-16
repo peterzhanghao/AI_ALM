@@ -30,16 +30,39 @@ test('repair start fetches native decision and routes fallback to existing answe
 test('continue-run dispatches only onContinueRun, never the new-start flow', () => {
   const item = { id: 'REQ-CONTINUE' }
   const calls = []
-  const context = vm.createContext({ item, props: {
+  const pendings = []
+  const context = vm.createContext({ item, pendings, props: {
     onContinueRun: value => calls.push(value),
     onStart: () => assert.fail('continuing must not start another delivery'),
-  } })
+  }, runPending: (meta, task) => { pendings.push(meta); return task() } })
   const handler = fragment("        'continue-run':", '\n        start:')
   vm.runInContext('this.handlers = ({' + handler + '})', context)
   context.handlers['continue-run']()
   assert.deepEqual(calls, [item])
+  // The button must show what it is waiting for while the request runs.
+  assert.deepEqual(pendings.map(entry => entry.id), ['continue-run'])
+  assert.equal(pendings[0].short, '继续中…')
   context.props.onContinueRun = null
   assert.doesNotThrow(() => context.handlers['continue-run']())
+})
+
+// 恢复推进 is the click the human reports as "nothing happened": a restart runs
+// a preflight plus a projection, so the handler must hand a pending label to
+// the page before the request starts.
+test('resume-run reports a pending label before the restart request resolves', async () => {
+  const item = { id: 'REQ-RESUME' }
+  const calls = []
+  const pendings = []
+  const context = vm.createContext({ item, pendings, props: {
+    onResumeRun: value => { calls.push(value); return new Promise(() => {}) },
+  }, runPending: (meta, task) => { pendings.push(meta); return task() } })
+  const handler = fragment("        'resume-run':", "\n        'run-acceptance':")
+  vm.runInContext('this.handlers = ({' + handler + '})', context)
+  context.handlers['resume-run']()
+  assert.deepEqual(calls, [item])
+  assert.equal(pendings[0].id, 'resume-run')
+  assert.equal(pendings[0].short, '恢复中…')
+  assert.match(pendings[0].text, /恢复推进/)
 })
 
 function callbackHarness({ data = { root: 'D:/payload' }, root = 'D:/fallback', reject = false, result = { resumed: true } } = {}) {

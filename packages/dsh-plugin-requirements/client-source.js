@@ -5209,7 +5209,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function ExecutionProgress({ item, detail, root, handlers, onAcceptance, onRefresh, onOpenSession }) {
+    function ExecutionProgress({ item, detail, root, handlers, onAcceptance, onRefresh, onOpenSession, pendingAction = null }) {
       const run = detail.summaries?.run ?? {}
       const acceptance = detail.summaries?.acceptance ?? {}
       const candidate = detail.summaries?.candidate ?? {}
@@ -5230,6 +5230,7 @@ window.__ModuleLoader__.load({
             : matter.headline ?? '等待推进'
       const verification = humanAcceptanceState(acceptance)
       const action = matter.action ?? detail.primaryAction
+      const pending = pendingAction && action && pendingAction.id === action.id ? pendingAction : null
       const invoke = id => handlers?.[id]?.()
       return h('div', { 'data-progress-compact': 'true', style: { display: 'grid', gap: '16px' } },
         h('section', { 'data-progress-status-card': 'true', style: { padding: '14px', border: `1px solid ${T.line2}`, borderLeft: `3px solid ${candidateReady ? T.ok : settled ? T.warn : T.brand}`, borderRadius: '8px', background: T.layer } },
@@ -5251,7 +5252,7 @@ window.__ModuleLoader__.load({
           ) : null,
           blueprint?.exists ? h('div', { 'data-blueprint-badge': 'true', style: { marginTop: '10px', fontSize: '12px', color: T.ok } }, `✓ 已生成执行蓝图（锁定修改范围 ${blueprint.allowedPathCount ?? 0} 个模块）`) : null,
           h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' } },
-            action?.id && handlers?.[action.id] ? h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: action.enabled === false, onClick: () => invoke(action.id) }, diagnostic?.actionLabel ?? action.label) : null,
+            action?.id && handlers?.[action.id] ? h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: action.enabled === false || Boolean(pending), 'data-pending-action': pending ? action.id : undefined, onClick: () => invoke(action.id) }, pending?.short ?? diagnostic?.actionLabel ?? action.label) : null,
             onAcceptance && !item.closed ? h('button', { type: 'button', style: HUMAN_CONTROL, onClick: () => onAcceptance(item) }, '重新运行验证') : null,
             onOpenSession && run.sessionId ? h('button', { type: 'button', style: HUMAN_CONTROL, onClick: () => onOpenSession(run.sessionId) }, '在 DSH 中打开会话') : null,
             h('button', { type: 'button', style: HUMAN_CONTROL, onClick: () => onRefresh?.() }, '刷新状态'),
@@ -5270,7 +5271,10 @@ window.__ModuleLoader__.load({
     }
 
     function V4DetailPage(props) {
-      const { item, detail, root, handlers, tab, onNavigate, onClose, onRefresh, scrollRef } = props
+      const { item, detail, root, handlers, tab, onNavigate, onClose, onRefresh, scrollRef, pendingAction = null } = props
+      // A long request owns the primary button: same label everywhere, and the
+      // button stops accepting a second click while it is in flight.
+      const pendingFor = (id) => (pendingAction && pendingAction.id === id ? pendingAction : null)
       const [editing, setEditing] = useState(false)
       const [dirty, setDirty] = useState(false)
       const [more, setMore] = useState(false)
@@ -5388,7 +5392,7 @@ window.__ModuleLoader__.load({
         h('nav', { 'aria-label': '需求导航', style: { flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', borderBottom: `1px solid ${T.line}` } },
           h('button', { style: HUMAN_CONTROL, onClick: () => leave(onClose), 'data-drawer-close': 'true' }, '← 返回需求列表'),
           h('span', { style: { flex: 1 } }),
-          matter.action?.enabled !== false && handlers[matter.action?.id] ? h('button', { type: 'button', style: HUMAN_PRIMARY, onClick: () => handlers[matter.action.id]() }, matter.action.label) : null,
+          matter.action?.enabled !== false && handlers[matter.action?.id] ? h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: Boolean(pendingFor(matter.action.id)), 'data-pending-action': pendingFor(matter.action.id) ? matter.action.id : undefined, onClick: () => handlers[matter.action.id]() }, pendingFor(matter.action.id)?.short ?? matter.action.label) : null,
           h('div', { ref: moreRef, style: { position: 'relative' } },
             h('button', { style: HUMAN_CONTROL, 'aria-expanded': more, 'aria-controls': 'v4-more-actions', onClick: () => setMore(value => !value) }, '更多 ▾'),
             more ? h('div', { id: 'v4-more-actions', role: 'group', 'aria-label': '更多操作', style: { position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 20, width: '210px', padding: '6px', display: 'grid', gap: '4px', border: `1px solid ${T.line2}`, borderRadius: '10px', background: T.base, boxShadow: '0 8px 32px rgba(0,0,0,.24)' } },
@@ -5406,6 +5410,7 @@ window.__ModuleLoader__.load({
             h('div', { 'data-detail-id': item.id, style: { fontSize: '12px', color: T.text3, marginBottom: '8px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } }, h('span', null, item.id, ' · ', h('span', { 'data-detail-revision': String(viewRevision) }, `v${viewRevision}`)), h('span', { style: { border: `1px solid ${T.line2}`, borderRadius: '999px', padding: '2px 8px', color: T.text2 } }, item.delivery?.label ?? detail.summaries?.delivery?.label ?? '待推进')),
             h('h1', { ref: titleRef, tabIndex: -1, id: detailTitleId(item), style: { fontFamily: 'inherit', fontSize: '20px', fontWeight: 600, lineHeight: 1.45, letterSpacing: 0, margin: '0 0 18px' } }, item.title),
             refreshStatus ? h('p', { role: refreshStatus.error ? 'alert' : 'status', 'data-detail-refresh-status': 'true', style: { margin: '-8px 0 14px', fontSize: '13px', color: refreshStatus.error ? T.err : T.text2 } }, refreshStatus.text) : null,
+            pendingAction ? h('p', { role: 'status', 'aria-live': 'polite', 'data-detail-pending-action': pendingAction.id, style: { margin: '-8px 0 14px', padding: '8px 12px', border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.brand}`, borderRadius: '8px', background: T.layer, fontSize: '13px', color: T.text2 } }, pendingAction.text) : null,
             displayItem.pendingPatch && (tab === 'requirement' || tab === 'delivery') ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
             h('div', { className: 'detail-columns' }, h('div', { style: { minWidth: 0 } }, tab !== 'requirement' ? h('div', null,
               tab === 'record' ? h(RequirementRecord, { ...props, onNavigate: (next, anchor) => { if (anchor === 'delivery-run-observation') setRunSelection(null); navigate(next, anchor) }, onOpenRun: runId => { setRunSelection({ requirementId: item.id, root: item.root ?? root, runId }); navigate('delivery', 'delivery-run-observation') } }) : h('div', null,
@@ -5414,7 +5419,7 @@ window.__ModuleLoader__.load({
                   h('p', { style: { color: T.text2, lineHeight: 1.7 } }, '启动后 AI 将在授权范围内自动完成代码实现与验证，遇到业务取舍或需求变更时会向你发起确认。'),
                   handlers[matter.action?.id] ? h('button', { type: 'button', style: HUMAN_PRIMARY, disabled: matter.action?.enabled === false, onClick: () => handlers[matter.action.id]() }, '交给 AI 推进') : null,
                 ) : h('div', null,
-                  h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: refreshDetail, onOpenSession: props.onOpenSession }),
+                  h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: refreshDetail, onOpenSession: props.onOpenSession, pendingAction }),
                  h(RunObservationPanel, { item, detail, root: item.root ?? root, initialRunId: selectedRunId, onOpenSession: props.onOpenSession })),
             )) : editing ? h(InlineRequirementEditor, { item, root, onDirty: setDirty, onCancel: () => leave(() => setEditing(false)), onDone: () => { setDirty(false); setEditing(false); void refreshDetail() } }) : h('div', { className: 'requirement-body' },
               h(DetailDescription, { item, detail, root, onRefresh: refreshDetail }),
@@ -5741,6 +5746,13 @@ window.__ModuleLoader__.load({
       const [startIsolate, setStartIsolate] = useState(false)
       const [decisionOpen, setDecisionOpen] = useState(false)
       const [notice, setNotice] = useState(null)
+      // One long action at a time, with the label the human is waiting on.
+      // Resuming a round costs a preflight plus a projection (seconds, not
+      // milliseconds); without this the button looked dead for as long as the
+      // request took and the panel never explained why nothing changed.
+      const [pendingAction, setPendingAction] = useState(null)
+      const pendingRef = useRef(null)
+      pendingRef.current = pendingAction
       const scrollRef = useRef(null)
       const timerRef = useRef(null)
       useEffect(() => () => {
@@ -5748,9 +5760,12 @@ window.__ModuleLoader__.load({
       }, [])
       useEffect(() => {
         if (!notice) return undefined
+        // A running action owns the notice: it must not vanish while the
+        // request is still in flight.
+        if (pendingRef.current) return undefined
         const timer = setTimeout(() => setNotice(null), 4200)
         return () => clearTimeout(timer)
-      }, [notice])
+      }, [notice, pendingAction])
       const navigate = (nextTab, anchor) => {
         if (nextTab && nextTab !== tab) setTab(nextTab)
         if (timerRef.current) clearTimeout(timerRef.current)
@@ -5773,9 +5788,28 @@ window.__ModuleLoader__.load({
           }
         }, 40)
       }
+      // Runs one request-backed action with a visible pending state. The
+      // returned promise is what lets the caller's reload happen before the
+      // button goes back to idle.
+      const runPending = async (meta, task) => {
+        if (pendingRef.current) return undefined
+        pendingRef.current = meta
+        setPendingAction(meta)
+        setNotice(meta.text)
+        try {
+          return await task()
+        } finally {
+          pendingRef.current = null
+          setPendingAction(null)
+        }
+      }
       const handlers = {
         'answer-run': () => props.onAnswer && props.onAnswer(item),
-        'resume-run': () => props.onResumeRun && props.onResumeRun(item),
+        'resume-run': () =>
+          runPending(
+            { id: 'resume-run', short: '恢复中…', text: '正在恢复推进：准备执行环境并读取断点，通常需要几秒…' },
+            () => props.onResumeRun && props.onResumeRun(item),
+          ),
         'run-acceptance': () => props.onAcceptance && props.onAcceptance(item),
         'narrow-verification': () =>
           writeJson('narrow-verification', { requirementId: item.id, apply: true }, root)
@@ -5784,7 +5818,11 @@ window.__ModuleLoader__.load({
               if (result?.verification?.result !== 'pass') window.alert('验收命令已收窄，但本次验证仍未通过；请查看验证详情。')
             })
             .catch(error => window.alert('收窄验收命令失败：' + error.message)),
-        'continue-run': () => props.onContinueRun && props.onContinueRun(item),
+        'continue-run': () =>
+          runPending(
+            { id: 'continue-run', short: '继续中…', text: '正在继续本轮推进…' },
+            () => props.onContinueRun && props.onContinueRun(item),
+          ),
         start: () => props.onStart && props.onStart(item, { isolate: startIsolate }),
         'start-fix': () => props.onStart && props.onStart(item, { isolate: startIsolate }),
         'watch-run': () => navigate('delivery'),
@@ -5832,6 +5870,7 @@ window.__ModuleLoader__.load({
           onToggleIsolate: setStartIsolate,
           notice,
           setNotice,
+          pendingAction,
           onClose: props.onClose,
           onSnapshot: props.onSnapshot,
           onDiff: props.onDiff,
@@ -15089,7 +15128,7 @@ window.__ModuleLoader__.load({
 
     // Must match EXCHANGE_BUILD in exchange.mjs. A host that was already running
     // keeps its old module, so the dialog says so instead of failing mysteriously.
-    const EXCHANGE_CLIENT_BUILD = 'v3.2026-11-14'
+    const EXCHANGE_CLIENT_BUILD = 'v4.2026-11-16'
     const EXCHANGE_FIELD_LABELS = { title: '标题', brief: '需求描述', priority: '优先级', owner: '负责人' }
     const EXCHANGE_FIELD_TEXT = (fields) => (fields ?? []).map(field => EXCHANGE_FIELD_LABELS[field] ?? field).join('、')
 
@@ -15192,15 +15231,23 @@ window.__ModuleLoader__.load({
         return () => { live = false }
       }, [root])
       const run = async (fn) => { setBusy(true); setError(''); try { await fn() } catch (e) { setError(exchangeErrorHint(e.message)) } finally { setBusy(false) } }
-      // AC-03: the only export is an editable Excel workbook. The scope selector
-      // keeps "all requirements" and "current filter" available without offering
-      // a second file format.
-      const download = () => run(async () => {
-        setReceipt(null)
+      // AC-01: both exchange formats go through the same real UI flow. The
+      // scope selector keeps "all requirements" and "current filter" available
+      // for whichever file the human (or another agent) needs.
+      const exportFile = async (format) => {
         if (scope === 'filtered' && !visibleIds.length) throw new Error('当前筛选结果为空，没有可导出的需求')
         const uids = scope === 'filtered' ? visibleIds : undefined
-        const result = await saveExchangeFile('xlsx', body => request({ ...body, ...(uids ? { uids } : {}) }))
+        return saveExchangeFile(format, body => request({ ...body, ...(uids ? { uids } : {}) }))
+      }
+      const download = () => run(async () => {
+        setReceipt(null)
+        const result = await exportFile('xlsx')
         setReceipt({ message: `${result.message}改完这四列后，从卡片二导入即可。` })
+      })
+      const downloadJson = () => run(async () => {
+        setReceipt(null)
+        const result = await exportFile('json')
+        setReceipt({ message: `${result.message}JSON 交换包内含导出基线与校验，可交给其他智能体编辑；回导时同样先预览再确认。` })
       })
       // AC-05: a first-time author should not have to export production data to
       // learn the column layout; the template is the same workbook shape.
@@ -15266,7 +15313,7 @@ window.__ModuleLoader__.load({
           h('p', { style: hint }, '只交换标题 / 需求描述 / 优先级 / 负责人：需求编号、状态与版本只读；不导入执行状态、验收证据、签收或发布授权；缺行不删除本地需求。'),
           h('section', { 'data-exchange-export': 'true', style: card },
             h('h3', { style: cardTitle }, '卡片一 · 导出需求'),
-            h('p', { style: hint }, '导出可直接编辑的 Excel（.xlsx）工作簿；可编辑列：标题 / 需求描述 / 优先级 / 负责人。用于批量修改已有需求。'),
+            h('p', { style: hint }, '导出可直接编辑的 Excel（.xlsx）工作簿，或供跨智能体交换的 JSON 交换包（含导出基线与校验）；可编辑列：标题 / 需求描述 / 优先级 / 负责人。'),
             h('div', { role: 'group', 'aria-label': '导出范围', style: { display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' } },
               h('button', { type: 'button', 'data-exchange-scope': 'all', 'aria-pressed': scope === 'all' ? 'true' : 'false', disabled: busy, onClick: () => setScope('all'), style: secondary(scope === 'all') }, '全部需求'),
               h('button', { type: 'button', 'data-exchange-scope': 'filtered', 'aria-pressed': scope === 'filtered' ? 'true' : 'false', disabled: busy || !visibleIds.length, title: visibleIds.length ? `导出当前筛选的 ${visibleIds.length} 条需求` : '当前筛选结果为空', onClick: () => setScope('filtered'), style: secondary(scope === 'filtered') }, `当前筛选结果（${visibleIds.length} 条）`)),
@@ -15274,6 +15321,9 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', 'data-exchange-export-action': 'true', 'aria-label': '导出 Excel 工作簿', disabled: busy, onClick: download, style: { ...primaryButton, ...disabledLook(false) } },
                 h(ActionIcon, { name: 'download', size: 14 }),
                 h('span', null, '导出 Excel (.xlsx)')),
+              h('button', { type: 'button', 'data-exchange-export-json': 'true', 'aria-label': '导出 JSON 交换包', disabled: busy, onClick: downloadJson, style: { ...ghostButton, ...disabledLook(false) } },
+                h(ActionIcon, { name: 'download', size: 14 }),
+                h('span', null, '导出 JSON 交换包')),
               h('span', { style: { ...hint, margin: 0 } }, scope === 'filtered' ? `将导出 ${visibleIds.length} 条当前筛选结果` : '将导出全部需求'))),
           h('section', { 'data-exchange-import': 'true', style: card },
             h('h3', { style: cardTitle }, '卡片二 · 导入与差异预览'),
@@ -16318,14 +16368,26 @@ window.__ModuleLoader__.load({
                   })
                   .catch((error) => window.alert(`继续失败：${error.message}`))
               },
-              onResumeRun: (entry) => {
-                if (!window.confirm(`恢复 ${entry.id} 的本轮推进？会新建一次运行并从上次检查点继续。`)) return
-                writeJson('run', { mode: 'restart', requirementId: entry.id }, root)
-                  .then((payload) => {
-                    if (payload?.restarted !== true) window.alert(payload?.message ?? '未能恢复推进')
-                    return reload()
-                  })
-                  .catch((error) => window.alert(`恢复失败：${error.message}`))
+              onResumeRun: async (entry) => {
+                // Returns the promise on purpose: the detail page holds its
+                // pending label until the list has actually been re-read, so
+                // the button turns into "查看运行" instead of keeping the old
+                // projection.
+                if (!window.confirm(`恢复 ${entry.id} 的本轮推进？会新建一次运行并从上次检查点继续。`)) return { ok: false, cancelled: true }
+                const targetRoot = entry.root ?? data?.root ?? root
+                try {
+                  const payload = await writeJson('run', { mode: 'restart', requirementId: entry.id }, targetRoot)
+                  const refreshed = await reload()
+                  // `run-active` is not a failure: the round is alive, the panel
+                  // just needs to show the run instead of a resume button.
+                  if (payload?.restarted !== true && payload?.active !== true) {
+                    window.alert(payload?.message ?? '未能恢复推进')
+                  }
+                  return { ok: true, payload, refreshed }
+                } catch (error) {
+                  window.alert(`恢复失败：${error.message}`)
+                  return { ok: false, error: error.message }
+                }
               },
 
               narrow,
