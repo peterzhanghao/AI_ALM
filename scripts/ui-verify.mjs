@@ -87,7 +87,9 @@ try {
   check('requirements summary separator', requirementsText.includes('·'))
   check('requirements summary has check status', /check (pass|fail)/.test(requirementsText))
   check('requirements lists REQ-PAY-001', requirementsText.includes('REQ-PAY-001'))
-  check('requirements lists TEST-PAY-001 link', requirementsText.includes('TEST-PAY-001'))
+  // The table shows a per-requirement acceptance count now; the linked test
+  // UID (verified_by TEST-PAY-001) stays visible in the JSON payload.
+  check('requirements JSON keeps the verified_by test link', !requirements || JSON.stringify(requirements).includes('TEST-PAY-001'))
   check('requirements shows tracking gap section', requirementsText.includes('Tracking gaps'))
   check('requirements has no mojibake', !requirementsText.includes('路') && !requirementsText.includes('鈥'))
   if (!options.base) {
@@ -97,7 +99,7 @@ try {
   const headerText = (
     await page.locator('table th').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()))
   ).join(',')
-  check('requirements table headers', headerText === 'ID,Title,Status,Owner,Verified by', headerText)
+  check('requirements table headers', headerText === 'ID,标题,状态,负责人,最近更新,下一步,验收标准', headerText)
   const requirementRows = await page.locator('tbody tr').count()
   check('requirements row count matches payload', !requirements || requirementRows === requirements.requirements.length, `${requirementRows}`)
   await page.screenshot({ path: join(outDir, 'requirements.png'), fullPage: true })
