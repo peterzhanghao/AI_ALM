@@ -35,16 +35,30 @@ import {
   revalidateInvestigation,
   runInvestigation,
 } from './investigate.mjs'
+// Runtime self-heal: the budget a failed call is judged against is read from a
+// policy file, and a 5xx failure is recorded as a defect instead of being
+// silently replaced by the keyword fallback. See self-heal.mjs header.
+import { applyHeal, captureIntentFailureSafe, readHealPolicy } from './self-heal.mjs'
 
 export const MAX_BODY_BYTES = 64 * 1024
 const MAX_INPUT_TEXT = 20_000
 const MAX_EXTRACTED_TEXT = 40_000
 const MAX_FREE_TEXT = 4_000
 const SESSION_ID_PATTERN = /^INT-\d{14}-[0-9a-f]{6}$/
-const ROUTES = ['create', 'change', 'reuse', 'investigate', 'decline', 'answer']
+// Single source of truth for the verdict vocabulary: the core owns it, the
+// transport must not keep a second, older copy (a stale list here is exactly how
+// `extend`/`merge`/`split`/`defer` would silently become invalid requests).
+const ROUTES = core.ROUTES
 const SOURCES = ['text', 'ocr', 'chat']
-const EDIT_FIELDS = ['route', 'title', 'problem', 'goal', 'inScope', 'outOfScope', 'acceptance', 'owner', 'priority', 'unknownResolutions']
+const EDIT_FIELDS = [
+  'route', 'title', 'problem', 'goal', 'inScope', 'outOfScope', 'acceptance', 'owner', 'priority', 'unknownResolutions',
+  // Adjudication inputs (§AC-04 / §AC-05). These are structural decisions, not
+  // candidate prose, so they land on the item instead of `candidate.*`.
+  'adjudication', 'revisitTrigger', 'deferTrigger', 'deferDueAt', 'mergeWith', 'splitParts', 'extendClauses', 'evidenceClass',
+]
 const UNKNOWN_RESOLUTIONS = ['clarify', 'investigate', 'exclude', 'pending']
+const ADJUDICATION_DUPLICATE = ['new', 'covered', 'conflict', 'pending']
+const EVIDENCE_CLASSES = ['observed', 'stated', 'inferred']
 
 // `grill-me` is a small Matt Pocock wrapper which delegates to `grilling`.
 // The latter contains the actual decision-tree instructions.  DSH exposes
@@ -858,77 +872,83 @@ function ensureManualStub(session) {
   return { ...session, items: [...items, manualStubItem(session)] }
 }
 
+/**
+ * Local, model-free draft.
+ *
+ * This used to guess a requirement out of the user's sentence with keyword
+ * tables (`/需求插件/`, `/自动修复/`, `/重启/` …) and fill title/problem/
+ * acceptance from them. That produced a draft that *looked* clarified, could be
+ * confirmed, and was pure invention — the most expensive kind of error, because
+ * it removes the only signal that the clarification never happened.
+ *
+ * New contract: without a model we only ever (a) copy text the human supplied,
+ * or (b) return nothing. `ai: 'none'` is carried to the UI so it can say "未澄清"
+ * instead of showing a plausible-looking form.
+ */
 function suggestedLocalDraft(raw, draft, structured) {
-  const cleanRaw = raw.replace(/^(?:我希望|希望|我想|请|需要)\s*/, '').trim()
-  const autoTitleLimit = 50
-  const conciseTitle = (value) => {
-    const normalized = String(value ?? '').replace(/\s+/g, ' ').trim()
-    if (normalized.length <= autoTitleLimit) return normalized
-    const firstClause = normalized.split(/[。！？；;\n]/)[0]?.trim() || normalized
-    const preferred = firstClause.length >= autoTitleLimit ? firstClause.slice(0, autoTitleLimit - 1) : firstClause
-    return `${preferred.replace(/[，,、\s]+$/, '')}…`
+  if (structured) {
+    return {
+      title: draft.title ?? null,
+      goal: draft.goal ?? null,
+      problem: draft.problem ?? null,
+      acceptance: (draft.acceptance ?? []).map(entry => ({
+        text: typeof entry === 'string' ? entry : entry.text ?? '',
+        provenance: 'user-stated',
+      })),
+      ai: 'none',
+      source: 'human-supplied',
+    }
   }
-  const distilledTitle = (() => {
-    // A fallback title must remain searchable.  A character limit only prevents
-    // overflow; it cannot turn a long user sentence into a requirement name.
-    const describesPlugin = /需求插件|插件/.test(cleanRaw)
-    const hasEvidence = /(?:数据指标|核心指标|指标)/.test(cleanRaw) && /证据/.test(cleanRaw)
-    const hasInsight = /洞察|分析/.test(cleanRaw)
-    const hasIteration = /迭代|优化/.test(cleanRaw)
-    return describesPlugin && hasEvidence && hasInsight && hasIteration
-      ? '需求插件效能数据洞察与迭代优化'
-      : null
-  })()
-  const selfHealingTitle = /需求插件|插件/.test(cleanRaw)
-    && /(?:报错|错误|bug)/i.test(cleanRaw)
-    && /自动修复/.test(cleanRaw)
-    && /(?:自动重启|重启)/.test(cleanRaw)
-    ? '需求插件故障自动修复与重启'
-    : null
-  const goal = draft.goal || cleanRaw
-  // Commas in Chinese conditional clauses carry the rule itself.  Never turn
-  // “如果…，就…” into separate acceptance fragments; only sentence/list
-  // separators create independent assertions.
-  const clauses = cleanRaw.split(/[。；;\n]+/).map(s => s.trim()).filter(Boolean)
-  const titleOverride = /(?:如果|当|若).{1,80}(?:就|则).{1,120}/.test(cleanRaw) && /手动修改/.test(cleanRaw) && /(?:自动提炼|AI.*提炼|提炼.*AI)/i.test(cleanRaw)
-    ? '长标题自动提炼保留手动修改标题'
-    : null
-  const context = /^(?:在.+(?:中|时|阶段|过程)|当.+时|针对.+|如果.+)$/.test(clauses[0] ?? '') ? clauses.shift().replace(/^在/, '').replace(/(?:过程中|阶段中|中)$/, '') : ''
-  const cleaned = clauses.map(s => s.replace(/^(?:我希望|希望|能够|可以|支持|需要|让用户能够)\s*/, ''))
-  const valueGrill = /拷问|grill/i.test(raw) && /需求|价值/.test(raw)
-  const descriptive = [context, ...cleaned].filter(Boolean).join('，')
-  const title = conciseTitle(draft.title || titleOverride || (valueGrill ? '需求澄清支持拷问 Skills 评估需求价值' : selfHealingTitle || distilledTitle || descriptive) || '待澄清需求')
-  const inferred = valueGrill ? [
-    '在需求澄清阶段支持使用拷问 Skills 对需求进行追问。',
-    '通过追问识别需求的业务价值，并向用户展示评估结果。',
-    '用户可以补充回答并确认需求的价值与边界。',
-  ] : selfHealingTitle ? [
-    '需求插件功能发生非网络错误时，系统应收集可用于定位的故障证据并启动自动修复。',
-    '自动修复完成后，系统应重启需求插件并记录恢复验证结果。',
-    '无法自动修复或恢复验证失败时，系统应保留故障证据并交由人工处理。',
-  ] : titleOverride
-    ? ['当用户手动修改过需求标题后，AI 自动提炼不得覆盖该标题。']
-    : cleaned.map(clause => `${context ? `${context}：` : ''}${clause.replace(/[。！？]$/, '')}。`).filter(s => s.length > 4)
-  const acceptance = structured
-    ? draft.acceptance.map(entry => ({ text: typeof entry === 'string' ? entry : entry.text ?? '', provenance: 'user-stated' }))
-    : inferred.slice(0, 3).map(text => ({ text, provenance: titleOverride ? 'user-stated' : 'ai-suggestion' }))
-  const problem = draft.problem || (valueGrill
-    ? '避免未经价值推敲与边界澄清的模糊需求直接进入开发，减少返工与需求漂移。'
-    : titleOverride
-      ? '防止用户手动修改后的需求标题被后续 AI 自动提炼逻辑意外覆盖丢失。'
-      : `用户原话尚未说明具体影响：${(cleaned[0] || cleanRaw).slice(0, 90)}。`)
-  return { title, goal, problem, acceptance }
+  // No model, no structure, no invention. The original words already live in
+  // `sourceRefs`; a title invented here would be indistinguishable from a real
+  // one at confirmation time.
+  return {
+    title: null,
+    goal: null,
+    problem: null,
+    acceptance: [],
+    ai: 'none',
+    source: 'none',
+    quote: String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000),
+  }
 }
 
 async function localIntentDraft({ root, session, draft, structured, now, grillOutcome = 'not-needed' }) {
   const raw = String(session.input?.text ?? '').trim()
-  const { title, goal, problem, acceptance } = suggestedLocalDraft(raw, draft, structured)
-  const item = { ...manualStubItem(session), userProblem: problem, desiredOutcome: goal,
-    candidate: { title, problem, goal, acceptance: acceptance.map(entry => ({ expected: entry.text, judgement: entry.text })) } }
-  const base = { ...session, grill: localGrillState(session.grill, grillOutcome), items: [item], state: 'ready_for_confirmation', error: null, analysisRetryRequired: false, nextQuestion: null }
-  const next = await core.setDocDraft({ root, session: base, patch: false, now: now(), docDraft: { title, goal, problem, acceptance, pending: [] } })
+  const local = suggestedLocalDraft(raw, draft, structured)
+  const hasCandidate = Boolean(local.title || local.goal || local.problem || local.acceptance.length)
+  const item = {
+    ...manualStubItem(session),
+    ai: 'none',
+    userProblem: local.problem,
+    desiredOutcome: local.goal,
+    candidate: hasCandidate
+      ? {
+          title: local.title,
+          problem: local.problem,
+          goal: local.goal,
+          acceptance: local.acceptance.map(entry => ({ expected: entry.text, judgement: entry.text })),
+        }
+      : null,
+  }
+  const base = {
+    ...session,
+    grill: localGrillState(session.grill, grillOutcome),
+    items: [item],
+    state: structured ? 'ready_for_confirmation' : 'needs_input',
+    ai: 'none',
+    aiNote: structured
+      ? '这条草稿来自你提供的结构化内容，没有模型参与；字段仍需你自己核对。'
+      : '模型未参与本次澄清：没有生成问题、标题与验收。请自己补全，或重试分析。',
+    error: null,
+    analysisRetryRequired: false,
+    nextQuestion: null,
+  }
+  const next = hasCandidate
+    ? await core.setDocDraft({ root, session: base, patch: false, now: now(), docDraft: { title: local.title ?? '', goal: local.goal ?? '', problem: local.problem ?? '', acceptance: local.acceptance, pending: [] } })
+    : await persist(root, base)
   const readiness = readinessFor(next, next.context, null, root)
-  return { ok: true, session: projectSession(next, readiness), readiness, localFallback: !structured }
+  return { ok: true, session: projectSession(next, readiness), readiness, localFallback: true, ai: 'none' }
 }
 
 async function repairLegacyManual(root, sessionId, now = defaultNow) {
@@ -936,16 +956,25 @@ async function repairLegacyManual(root, sessionId, now = defaultNow) {
     const session = await requireSession(root, sessionId)
     if (['committed', 'cancelled', 'analyzing'].includes(session.state) || activeRuns.has(sessionId)) return session
     const manual = (session.items ?? []).filter(item => item?.itemId?.startsWith('ITM-MANUAL-'))
-    if (!manual.length || (session.docDraft && manual.every(item => item.recommendedRoute))) return session
+    // Repair only sessions that have nothing to edit yet. Once a human has filled
+    // the stub, re-running the repair bumped `sessionRevision` on every load and
+    // confirm, which broke the revision CAS the UI relies on.
+    const nothingToRepair = manual.every(item => item?.recommendedRoute && (item?.candidate || Object.keys(item?.fields ?? {}).length > 0))
+    if (!manual.length || nothingToRepair) return session
     const draft = crystallizeChatDraft({ summary: session.input?.text })
     const structured = Boolean(draft.title && draft.goal && draft.problem && draft.acceptance.length)
     const raw = String(session.input?.text ?? '').trim()
-    const { title, goal, problem, acceptance } = suggestedLocalDraft(raw, draft, structured)
-    const candidate = { title, problem, goal, acceptance: acceptance.map(entry => ({ expected: entry.text, judgement: entry.text })) }
+    const local = suggestedLocalDraft(raw, draft, structured)
+    const hasCandidate = Boolean(local.title || local.goal || local.problem || local.acceptance.length)
+    const candidate = hasCandidate ? { title: local.title, problem: local.problem, goal: local.goal, acceptance: local.acceptance.map(entry => ({ expected: entry.text, judgement: entry.text })) } : null
     const items = session.items.map(item => item?.itemId?.startsWith('ITM-MANUAL-') ? { ...item, recommendedRoute: item.recommendedRoute || 'create', sourceRefs: item.sourceRefs?.length ? item.sourceRefs : manualStubItem(session).sourceRefs, candidate: item.candidate ?? candidate } : item)
     const next = { ...session, items }
+    // Nothing legible to repair: leave the session untouched. Persisting here
+    // bumped `sessionRevision` on every load, so the confirmation CAS always
+    // looked stale and a human could never submit a hand-filled draft.
+    if (!hasCandidate) return session
     if (session.docDraft) return persist(root, { ...next, sessionRevision: session.sessionRevision + 1 })
-    return core.setDocDraft({ root, session: next, patch: false, now: now(), docDraft: { title, goal, problem, acceptance, pending: [] } })
+    return core.setDocDraft({ root, session: next, patch: false, now: now(), docDraft: { title: local.title, goal: local.goal, problem: local.problem, acceptance: local.acceptance, pending: [] } })
   })
 }
 
@@ -963,6 +992,10 @@ export function projectSession(session, readiness) {
   // transport capability/status, so retain this small, non-authoritative view
   // projection without changing core confirmation semantics.
   if (session?.grill) view.grill = session.grill
+  // Transport-level honesty flag: when no model participated, the client must be
+  // able to say “未澄清” rather than present an empty form as a result.
+  if (session?.ai) view.ai = session.ai
+  if (session?.aiNote) view.aiNote = session.aiNote
   return view
 }
 
@@ -1418,6 +1451,10 @@ async function runAnalysis({
   }
 
   const model = { provider: selection.provider, model: selection.model }
+  // Both budgets come from `.alm/self-heal/policy.json`, so a repaired policy
+  // takes effect on the very next analysis without a code change or restart.
+  const healPolicy = readHealPolicy(root)
+  const outputBudget = grillInstruction ? healPolicy.outputMs : Math.max(20_000, Math.round(healPolicy.outputMs / 2))
   const inputRevision = session.input?.inputRevision
   let runId = newRunId()
   await withIntentSessionLock(root, session.sessionId, async () => {
@@ -1440,8 +1477,9 @@ async function runAnalysis({
     // because a full intent-review JSON takes 20–50s on deepseek-flash. The old
     // single 8s cap killed real analyses at exactly 8008ms (see INT-2026…d93aaa)
     // and silently replaced them with the local stub — which is why the
-    // clarification questions looked worthless. 45s/90s are ceilings, not waits:
-    // a streaming answer still lands as soon as it starts.
+    // clarification questions looked worthless. Both values are ceilings, not
+    // waits: a streaming answer still lands as soon as it starts. They are read
+    // from the heal policy so a recorded timeout can be repaired at runtime.
     const arm = (ms) => {
       clearTimeout(timeout)
       timeout = setTimeout(() => {
@@ -1449,14 +1487,14 @@ async function runAnalysis({
         failBudget(new IntentHttpError('ai-call-failed', 'AI 调用超时', { status: 502 }))
       }, ms)
     }
-    arm(15_000)
+    arm(healPolicy.firstTokenMs)
     const output = await Promise.race([
       streamOutput({
         stream, selection, messages: messagesToSend, signal: controller.signal,
         onFirstToken: () => {
           if (firstTokenAt !== null) return
           firstTokenAt = Date.now()
-          arm(grillInstruction ? 90_000 : 45_000)
+          arm(outputBudget)
         },
       }),
       budget,
@@ -1746,6 +1784,78 @@ function normalizeEditFields(value) {
       })
     }
   }
+  if (value.adjudication !== undefined) {
+    if (value.adjudication === null) fields.adjudication = null
+    else {
+      assertPlainObject(value.adjudication, 'fields.adjudication')
+      const output = {}
+      if (value.adjudication.duplicate !== undefined) {
+        output.duplicate = requireEnum(value.adjudication.duplicate, ADJUDICATION_DUPLICATE, 'fields.adjudication.duplicate')
+      }
+      if (value.adjudication.reason !== undefined && value.adjudication.reason !== null) {
+        if (typeof value.adjudication.reason !== 'string') throw invalid('fields.adjudication.reason must be a string')
+        output.reason = truncated(value.adjudication.reason, 1_000)
+      }
+      if (value.adjudication.uids !== undefined && value.adjudication.uids !== null) {
+        if (!Array.isArray(value.adjudication.uids)) throw invalid('fields.adjudication.uids must be an array')
+        output.uids = value.adjudication.uids.filter(uid => typeof uid === 'string').slice(0, 20).map(uid => truncated(uid, 200))
+      }
+      fields.adjudication = output
+    }
+  }
+  if (value.revisitTrigger !== undefined) {
+    fields.revisitTrigger = value.revisitTrigger === null ? null : requireString(value.revisitTrigger, 'fields.revisitTrigger', { max: 500 })
+  }
+  if (value.deferTrigger !== undefined) {
+    fields.deferTrigger = value.deferTrigger === null ? null : requireString(value.deferTrigger, 'fields.deferTrigger', { max: 500 })
+  }
+  if (value.deferDueAt !== undefined) {
+    fields.deferDueAt = value.deferDueAt === null ? null : requireString(value.deferDueAt, 'fields.deferDueAt', { max: 40 })
+  }
+  if (value.evidenceClass !== undefined) {
+    fields.evidenceClass = value.evidenceClass === null ? null : requireEnum(value.evidenceClass, EVIDENCE_CLASSES, 'fields.evidenceClass')
+  }
+  if (value.mergeWith !== undefined) {
+    if (value.mergeWith === null) fields.mergeWith = []
+    else {
+      if (!Array.isArray(value.mergeWith)) throw invalid('fields.mergeWith must be an array')
+      fields.mergeWith = value.mergeWith.filter(uid => typeof uid === 'string').slice(0, 20).map(uid => truncated(uid, 200))
+    }
+  }
+  if (value.extendClauses !== undefined) {
+    if (value.extendClauses === null) fields.extendClauses = []
+    else {
+      if (!Array.isArray(value.extendClauses)) throw invalid('fields.extendClauses must be an array')
+      fields.extendClauses = value.extendClauses.filter(text => typeof text === 'string').slice(0, 50).map(text => truncated(text, 2_000))
+    }
+  }
+  if (value.splitParts !== undefined) {
+    if (value.splitParts === null) fields.splitParts = []
+    else {
+      if (!Array.isArray(value.splitParts)) throw invalid('fields.splitParts must be an array')
+      if (value.splitParts.length > 12) throw invalid('fields.splitParts has too many entries')
+      fields.splitParts = value.splitParts.map((entry, index) => {
+        assertPlainObject(entry, `fields.splitParts[${index}]`)
+        const output = {}
+        if (entry.title !== undefined && entry.title !== null) {
+          if (typeof entry.title !== 'string') throw invalid(`fields.splitParts[${index}].title must be a string`)
+          output.title = truncated(entry.title, 300)
+        }
+        if (entry.goal !== undefined && entry.goal !== null) {
+          if (typeof entry.goal !== 'string') throw invalid(`fields.splitParts[${index}].goal must be a string`)
+          output.goal = truncated(entry.goal, 2_000)
+        }
+        if (entry.acceptance !== undefined && entry.acceptance !== null) {
+          if (!Array.isArray(entry.acceptance)) throw invalid(`fields.splitParts[${index}].acceptance must be an array`)
+          output.acceptance = entry.acceptance
+            .filter(text => typeof text === 'string')
+            .slice(0, 20)
+            .map(text => truncated(text, 2_000))
+        }
+        return output
+      })
+    }
+  }
   return fields
 }
 
@@ -1801,6 +1911,10 @@ function normalizeConfirmation(value) {
       'priority',
       'reason',
       'alternative',
+      // 判决的附加前提（八判决）：拒绝的再提条件、暂缓的触发条件与到期日。
+      'revisitTrigger',
+      'deferTrigger',
+      'deferDueAt',
       'answer',
       'question',
       'expectedInputRevision',
@@ -1821,6 +1935,9 @@ function normalizeConfirmation(value) {
     priority: optionalString(value.priority, 'confirmation.priority', 40),
     reason: optionalString(value.reason, 'confirmation.reason', 1000),
     alternative: optionalString(value.alternative, 'confirmation.alternative', 1000),
+    revisitTrigger: optionalString(value.revisitTrigger, 'confirmation.revisitTrigger', 500),
+    deferTrigger: optionalString(value.deferTrigger, 'confirmation.deferTrigger', 500),
+    deferDueAt: optionalString(value.deferDueAt, 'confirmation.deferDueAt', 40),
     answer: optionalString(value.answer, 'confirmation.answer', 4000),
     question: optionalString(value.question, 'confirmation.question', 1000),
     expectedInputRevision:
@@ -2034,6 +2151,38 @@ async function handleAnalyze({ root, body, resolveAiSelection, aiStreamFor, now 
         next = await requireSession(root, session.sessionId)
       } catch {
         next = session
+      }
+      // Record the failure as a defect with the run's measured timing. This is
+      // the entry point the self-heal loop needs: without it a 5xx leaves only
+      // a `runs[]` entry, the fallback draft looks like a result, and the same
+      // failure is never repaired. The call cannot throw into this path.
+      let captured = null
+      try {
+        const lastRun = (Array.isArray(next?.runs) ? next.runs[next.runs.length - 1] : null) ?? null
+        captured = captureIntentFailureSafe({
+          root,
+          session: next,
+          error: { code: error.code, message: error.message, status: error.status },
+          timing: lastRun?.timing ?? null,
+          model: lastRun ? { provider: lastRun.provider, model: lastRun.model } : null,
+          runId: lastRun?.analysisRunId ?? null,
+        })
+      } catch { /* a broken ledger must never mask the provider error */ }
+      // Close the loop here: a budget this run just proved too small must not
+      // survive into the next analysis. Capture only records; without applying
+      // the planned patch the same gate kills every retry (RUN-mwlfpyk5 died at
+      // 31716ms against a 31694ms gate that the 11-17 batch heal had already
+      // computed a fix for). Policy-only, clamped, versioned, reversible — and
+      // only the two budget-timeout classes are healable at all. A fresh read
+      // is required: runAnalysis may have persisted while this request ran.
+      if (captured?.recorded === true && captured?.classification?.healable === true) {
+        try {
+          const healed = applyHeal({ root, failure: captured.failure })
+          if (healed?.applied === true && error instanceof IntentHttpError) {
+            const gate = healed.policy?.firstTokenMs
+            if (Number.isFinite(gate)) error.message = `AI 调用超时：首 token 预算已自动放宽到 ${Math.round(gate / 1000)} 秒，重试分析即可用新预算`
+          }
+        } catch { /* heal is an optimization; the provider error stands alone */ }
       }
       const assertSameRevision = latest => {
         if (latest.input?.inputRevision !== session.input?.inputRevision) throw staleInput(latest)
@@ -2359,6 +2508,10 @@ async function handleEdit({ root, body, now }) {
   const edits = []
   const explicitPatch = {}
   let unknownResolutions = null
+  // Structural adjudication fields are item-level, not candidate prose. They are
+  // stored through the same `item.fields` override channel (`source: 'human'`)
+  // so a later model run can never overwrite a human verdict.
+  const STRUCTURAL_FIELDS = new Set(['adjudication', 'revisitTrigger', 'deferTrigger', 'deferDueAt', 'mergeWith', 'splitParts', 'extendClauses', 'evidenceClass'])
   for (const [key, value] of Object.entries(fields)) {
     if (key === 'unknownResolutions') {
       unknownResolutions = value
@@ -2366,6 +2519,10 @@ async function handleEdit({ root, body, now }) {
     }
     if (key === 'owner' || key === 'priority') {
       explicitPatch[key] = value
+      continue
+    }
+    if (STRUCTURAL_FIELDS.has(key)) {
+      edits.push({ field: key, value })
       continue
     }
     edits.push({ field: key === 'route' ? 'recommendedRoute' : `candidate.${key}`, value })
