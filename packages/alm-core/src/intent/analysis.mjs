@@ -214,8 +214,16 @@ const EXECUTABLE_KEYS = new Set([
   'permission',
   'role',
 ])
-/** `status` is structural only inside these two objects. */
-const STATUS_PARENTS = new Set(['counterexample', 'valueCheck'])
+/**
+ * `status` is structural data, not a decision, inside these objects. The v3
+ * prompt template requires `docDraft.pending[].status` ("open"/"resolved")
+ * and `counterexample`/`valueCheck` carry "unverified"; rejecting them here
+ * made a faithful, complete model answer fail the contract every single time
+ * (a high-quality answer was judged `ai-invalid-output`). `questions` entries
+ * are normalized with a generated "open" status too, so their parent is also
+ * structural. Everything else named `status` stays forbidden.
+ */
+const STATUS_PARENTS = new Set(['counterexample', 'valueCheck', 'pending', 'questions', 'questionGroup'])
 
 function walkForExecutables(value, path, parentKey) {
   if (Array.isArray(value)) {

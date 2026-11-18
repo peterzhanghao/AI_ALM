@@ -142,6 +142,27 @@ test('未知 route 与非法 schemaVersion 被拒绝', (t) => {
   )
 })
 
+test('模板要求的 pending[].status 是结构数据，不该被当作决策字段整份拒绝', (t) => {
+  const root = makeRepo(t)
+  const { session, context } = makeSession(root)
+  // messages.mjs 的 intent-review.v3 模板明确要求 docDraft.pending[].status
+  // 与 counterexample/valueCheck 的 status；questions 归一化后也带 status。
+  // 早期 walkForExecutables 把所有 status 一律判为 executable-field，导致
+  // 完全忠实于模板的模型输出每次都被判 ai-invalid-output（整份丢弃）。
+  const faithful = rawAnalysis(context, [{ itemId: 'ITM-1', recommendedRoute: 'create', userProblem: 'x', desiredOutcome: 'y' }], {
+    schemaVersion: 'intent-review.v3',
+    docDraft: {
+      goal: '', problem: '', features: [], scope: [], outOfScope: [], acceptance: [], constraints: [],
+      pending: [{ text: '待确认的验收', status: 'open' }, { text: '已解决', status: 'resolved' }],
+    },
+    questions: [{ questionId: 'Q-1', decisionId: 'DEC-1', itemIds: ['ITM-1'], text: '要澄清吗？', status: 'open', options: [{ id: 'OPT-1', label: '是' }] }],
+  })
+  const { analysis } = normalizeAnalysis(faithful, { session, context })
+  assert.equal(analysis.items.length, 1, '忠实模板输出必须被接受，不能整份拒绝')
+  assert.equal(analysis.docDraft.pending.length, 2, '模板要求的 pending 条目必须保留')
+  assert.ok(analysis.docDraft.pending.every((entry) => ['open', 'resolved'].includes(entry.status)))
+})
+
 test('任意层级的可执行字段导致整份输出被拒绝', (t) => {
   const root = makeRepo(t)
   const { session, context } = makeSession(root)
