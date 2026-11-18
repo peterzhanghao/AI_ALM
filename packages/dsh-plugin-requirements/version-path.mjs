@@ -1,7 +1,12 @@
-import { execFileSync } from 'node:child_process'
 import { isAbsolute, relative, resolve } from 'node:path'
+import { runCaptured } from '../alm-core/src/process-capture.mjs'
 
-const git = (root, args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+function git(root, args) {
+  const result = runCaptured('git', ['-C', root, ...args])
+  if (result.error) throw Object.assign(new Error(`git ${args[0]} failed: ${result.error.code ?? result.error.message}`), { code: result.error.code })
+  if (result.status !== 0) throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: 'git-failed', stderr: result.stderr })
+  return String(result.stdout ?? '')
+}
 
 /** Resolve the path recorded at a file-history commit, following committed renames. */
 export function versionPath(root, file, ref) {

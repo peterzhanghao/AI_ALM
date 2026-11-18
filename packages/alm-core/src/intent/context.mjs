@@ -20,12 +20,12 @@ import {
   intentError as _intentError,
 } from './errors.mjs'
 import { asString, canonicalJson, dateFrom, nowIso, sha256Hex, truncateText } from './util.mjs'
+import { clausesFromBrief, matchRejections, readRejections, recallClauses, tokenize as reviewTokenize } from './review.mjs'
 
 const CJK = /[\u3400-\u9fff]/
 const CJK_RUN = /[\u3400-\u9fff]+/g
 const ASCII_WORD = /[a-z0-9][a-z0-9_-]{1,}/g
 const QUOTED = /[「“"'`]([^」”"'`]{2,60})[」”"'`]/g
-const NEGATION = /不需要|不用|不再|不必|无需|不是|取消|废弃|替换掉/
 const MAX_SECTION = 4000
 
 function clampLimit(value) {
@@ -34,17 +34,16 @@ function clampLimit(value) {
   return Math.min(MAX_LIMIT, Math.max(1, Math.trunc(number)))
 }
 
-/** Words and CJK 2-grams; used only for local, explainable matching. */
+/**
+ * Words and CJK n-grams, used for explainable local matching.
+ *
+ * Delegates to the review module so there is exactly one Chinese tokenizer in
+ * the codebase. The old run-based splitter here disagreed with the one in
+ * `requirements/matcher.mjs`, which is how two “duplicate” requests ended up
+ * scoring zero against each other.
+ */
 export function tokensOf(text) {
-  const lower = asString(text, 200000).toLowerCase()
-  const tokens = new Set()
-  for (const match of lower.matchAll(ASCII_WORD)) tokens.add(match[0])
-  for (const match of lower.matchAll(CJK_RUN)) {
-    const run = match[0]
-    if (run.length <= 12) tokens.add(run)
-    for (let index = 0; index + 1 < run.length; index += 1) tokens.add(run.slice(index, index + 2))
-  }
-  return tokens
+  return reviewTokenize(text)
 }
 
 function phrasesOf(text) {
@@ -136,8 +135,48 @@ function contentHashOf({ root, asset }) {
   }
 }
 
-function classify({ score, titleHits, phraseHit, conflict }) {
-  if (conflict) return 'conflict'
+/**
+ * Why-hit lists are read by humans, so they must not expose the tokenizer.
+ * `tokensOf` emits overlapping CJK 2- and 3-grams, which is right for scoring
+ * and wrong as a sentence: a title match used to print
+ * "dsh、需求、插件、需求插、求插件". What a reader wants is the phrase the two
+ * texts actually share, so pick the longest non-overlapping ones instead.
+ * Nothing three characters or longer means there is nothing worth quoting.
+ */
+function sharedPhrases(query, candidate, limit = 4) {
+  const needle = String(query ?? '').toLowerCase()
+  const haystack = String(candidate ?? '').toLowerCase()
+  if (!needle || !haystack) return []
+  const spans = []
+  for (let size = 12; size >= 3; size -= 1) {
+    for (let index = 0; index + size <= needle.length; index += 1) {
+      if (spans.length >= limit) break
+      const window = needle.slice(index, index + size)
+      if (/\s/.test(window)) continue
+      let from = 0
+      while (from <= haystack.length - size) {
+        const at = haystack.indexOf(window, from)
+        if (at === -1) break
+        if (!spans.some(([start, end]) => at < end && start < at + size)) {
+          spans.push([at, at + size])
+          break
+        }
+        from = at + 1
+      }
+    }
+    if (spans.length >= limit) break
+  }
+  const texts = spans.sort((left, right) => left[0] - right[0]).map(([start, end]) => haystack.slice(start, end))
+  // A shorter span that is contained in a longer one is the same match, not a
+  // second reason: 「需求插件」 already says 「需求插」 and 「求插件」.
+  return [...new Set(texts.filter((text) => !texts.some((other) => other !== text && other.includes(text))))]
+}
+
+function classify({ score, titleHits, phraseHit }) {
+  // `conflict` is no longer produced here. Negation regex over the whole query
+  // (“…而不是需要我复制粘贴报错”) fired on the word 不 alone and labelled every
+  // requirement whose title shared a keyword as a conflict. Polarity now comes
+  // from clause adjudication, which reads it near the predicate.
   if (score >= 6 && (titleHits > 0 || phraseHit)) return 'covered'
   if (score >= 3) return 'related'
   if (score > 0) return 'uncertain'
@@ -158,20 +197,21 @@ function scoreAsset({ asset, byId, tokens, phrases, lowerQuery, root }) {
     (phrase) => title.toLowerCase().includes(phrase) || brief.text.toLowerCase().includes(phrase),
   )
   const businessHit = businessId && lowerQuery.includes(String(businessId).toLowerCase())
-  const conflict = NEGATION.test(lowerQuery) && titleHits.length > 0
 
   const score =
     titleHits.length * 3 + briefHits.length * 1.5 + acceptanceHits.length * 1 + phraseHits.length * 6 + (businessHit ? 8 : 0)
   const reasons = []
   if (businessHit) reasons.push(`意图中提到了业务 ID ${businessId}`)
   for (const phrase of phraseHits.slice(0, 3)) reasons.push(`出现与标题/简报一致的短语「${phrase}」`)
-  if (titleHits.length) reasons.push(`标题命中关键词：${titleHits.slice(0, 6).join('、')}`)
-  if (briefHits.length) reasons.push(`简报命中关键词：${briefHits.slice(0, 6).join('、')}`)
-  if (acceptanceHits.length) reasons.push(`验收文本命中关键词：${acceptanceHits.slice(0, 6).join('、')}`)
-  if (conflict) reasons.push('意图中出现否定/取消语义，同时与现有需求标题重合，需确认是替换还是新需求')
+  const titleShared = sharedPhrases(lowerQuery, title)
+  if (titleShared.length) reasons.push(`标题与你的说法共用「${titleShared.join('」「')}」`)
+  const briefShared = sharedPhrases(lowerQuery, brief.text)
+  if (briefShared.length) reasons.push(`简报与你的说法共用「${briefShared.join('」「')}」`)
+  const acceptanceShared = sharedPhrases(lowerQuery, acceptanceText)
+  if (acceptanceShared.length) reasons.push(`验收与你的说法共用「${acceptanceShared.join('」「')}」`)
   if (reasons.length === 0) reasons.push('与意图仅有弱关联')
 
-  const match = classify({ score, titleHits: titleHits.length, phraseHit: phraseHits.length > 0, conflict })
+  const match = classify({ score, titleHits: titleHits.length, phraseHit: phraseHits.length > 0 })
   if (!match) return null
 
   return {
@@ -181,10 +221,16 @@ function scoreAsset({ asset, byId, tokens, phrases, lowerQuery, root }) {
     reasons,
     briefExcerpt: redact(brief.text, 240),
     acceptance,
+    clauses: clausesFromBrief({
+      uid: String(asset?.id ?? ''),
+      title,
+      revision: Number(asset?.extra?.revision ?? 1),
+      briefText: brief.text,
+    }),
   }
 }
 
-function readSetEntry({ root, asset, match, reasons, briefExcerpt, acceptance }) {
+function readSetEntry({ root, asset, match, reasons, briefExcerpt, acceptance, clauseMatches = null }) {
   return {
     uid: String(asset.id),
     businessId: asset?.extra?.businessId ?? null,
@@ -196,6 +242,10 @@ function readSetEntry({ root, asset, match, reasons, briefExcerpt, acceptance })
     reasons,
     briefExcerpt: briefExcerpt ?? '',
     acceptance: acceptance ?? [],
+    // Clause-level evidence. A requirement with five acceptance clauses whose
+    // overlap is one clause must say *which* clause, otherwise the user cannot
+    // adjudicate the duplicate claim.
+    clauseMatches: clauseMatches ?? [],
   }
 }
 
@@ -306,6 +356,7 @@ export function buildIntentContext({
         failure: null,
       },
       readSet: [],
+      rejections: [],
       selected: null,
       boundary: {
         scope: 'project',
@@ -377,14 +428,41 @@ export function buildIntentContext({
       if (seen.has(entry.asset.id)) continue
       if (readSet.length + (selectedEntry ? 1 : 0) >= cleanedLimit) break
       seen.add(entry.asset.id)
+      // Clause-level adjudication decides *which* clause overlaps and whether it
+      // is covered/partial/conflict. It may only strengthen the keyword match,
+      // never weaken it: a keyword hit is still evidence worth showing.
+      const clauseMatches = entry.clauses?.length
+        ? recallClauses({ text: materialText, clauses: entry.clauses, limit: 3 })
+            .filter((match) => match.verdict !== 'unrelated')
+        : []
+      let match = entry.match
+      if (clauseMatches.length > 0) {
+        // Clause evidence wins outright, in both directions. A keyword hit on a
+        // title must not be able to promote a `partial` clause review into
+        // `covered`, because the user then sees “已覆盖” for something that is
+        // only adjacent.
+        let best = 'related'
+        for (const clauseMatch of clauseMatches) {
+          if (clauseMatch.verdict === 'conflict') best = 'conflict'
+          else if (clauseMatch.verdict === 'covered' && best !== 'conflict') best = 'covered'
+        }
+        match = best
+      } else {
+        match = entry.score >= 12 ? 'related' : 'uncertain'
+      }
+      const reasons = [...entry.reasons]
+      for (const clauseMatch of clauseMatches.slice(0, 2)) {
+        reasons.push(`条款 ${clauseMatch.clauseId ?? ''}：${clauseMatch.reasons[0] ?? clauseMatch.verdict}`)
+      }
       readSet.push(
         readSetEntry({
           root,
           asset: entry.asset,
-          match: entry.match,
-          reasons: entry.reasons,
+          match,
+          reasons,
           briefExcerpt: entry.briefExcerpt,
           acceptance: entry.acceptance,
+          clauseMatches,
         }),
       )
     }
@@ -414,6 +492,17 @@ export function buildIntentContext({
         : '匹配基于标题、业务 ID、简报与验收文本的关键词/短语，仅为提示，不等同于需求已确认或冲突已排除。',
   }
 
+  // The rejection ledger is a third source of truth: a request that was already
+  // rejected must not be rediscovered every month as if it were new.
+  let rejections = []
+  if (queryStatus === 'success') {
+    try {
+      rejections = matchRejections({ text: materialText, rejections: readRejections(root), limit: 3 })
+    } catch {
+      rejections = []
+    }
+  }
+
   return {
     policy: CONTEXT_POLICY,
     contextSnapshotId: snapshotId({ projectId: resolvedProjectId, queryStatus, selected, readSet }),
@@ -428,6 +517,7 @@ export function buildIntentContext({
       failure,
     },
     readSet,
+    rejections,
     selected: selected
       ? { uid: selected.uid, revision: selected.revision, contentHash: selected.contentHash, title: selected.title, businessId: selected.businessId }
       : null,

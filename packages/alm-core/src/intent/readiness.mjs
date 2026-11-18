@@ -32,6 +32,13 @@ export const READINESS_CODES = [
   'stale-input',
   'stale-context',
   'not-confirmed',
+  // Adjudication gates (§AC-04 / §AC-05). Each one is the machine-checkable
+  // precondition of exactly one verdict; a verdict without it must not ship.
+  'duplicate-unadjudicated',
+  'missing-extend-increment',
+  'missing-merge-target',
+  'missing-split-parts',
+  'missing-defer-trigger',
 ]
 
 const PRIORITIES = new Set(['P0', 'P1', 'P2'])
@@ -57,6 +64,11 @@ const REASON_TEXT = {
   'stale-input': '输入已更新，旧分析结果已过期',
   'stale-context': '需求上下文已变化，请重新分析后再确认',
   'not-confirmed': '尚未执行人工确认',
+  'duplicate-unadjudicated': '命中了已覆盖/冲突的已有条款，尚未裁决是“就是这条”还是“确实是新的”',
+  'missing-extend-increment': '追加必须给出新增条款，且不得改动原验收',
+  'missing-merge-target': '合并必须指定至少一条可核对的同族需求',
+  'missing-split-parts': '拆分必须给出 ≥2 个可独立验收的部分',
+  'missing-defer-trigger': '暂缓必须写明触发条件或到期日',
 }
 
 function reason(code, message, itemId) {
@@ -136,7 +148,59 @@ const DRAFT_IGNORED = new Set([
   'not-confirmed',
   'unverified-context',
   'investigate-needs-question',
+  // Adjudication gates are confirmation gates: a human must still be able to
+  // save work in progress before deciding whether the duplicate is real.
+  'duplicate-unadjudicated',
+  'missing-extend-increment',
+  'missing-merge-target',
+  'missing-split-parts',
+  'missing-defer-trigger',
 ])
+
+/** Routes whose output is a *new* promise, therefore subject to the dedup gate. */
+const DUPLICATE_GATE_ROUTES = new Set(['create', 'split'])
+const DUPLICATE_MATCHES = new Set(['covered', 'conflict'])
+
+function normalizeText(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+/**
+ * Requirements whose clause-level review says "this is already promised" or
+ * "this contradicts an existing promise".
+ *
+ * Two sources are merged, deliberately:
+ *   - `item.related` — what the model claimed (it may be wrong or incomplete);
+ *   - `context.readSet` — what clause adjudication found on its own.
+ *
+ * The second one is the point of the whole exercise: a model that ignores the
+ * context must not be able to create a duplicate, and a model that claims a
+ * duplicate cannot invent one that the read set never verified.
+ */
+function duplicateHits({ item, context }) {
+  const hits = []
+  const seen = new Set()
+  for (const entry of item?.related ?? []) {
+    if (!entry || !DUPLICATE_MATCHES.has(entry.match) || !entry.uid) continue
+    if (!lookupContextEntry(context, entry.uid)) continue
+    seen.add(entry.uid)
+    hits.push({ uid: entry.uid, match: entry.match, source: 'model', reason: entry.reason ?? null })
+  }
+  for (const entry of context?.readSet ?? []) {
+    if (!entry || seen.has(entry.uid)) continue
+    if (!DUPLICATE_MATCHES.has(entry.match)) continue
+    const clause = (entry.clauseMatches ?? []).find((match) => DUPLICATE_MATCHES.has(match.verdict))
+    seen.add(entry.uid)
+    hits.push({
+      uid: entry.uid,
+      match: entry.match,
+      source: 'context',
+      reason: clause ? `${clause.clauseId ?? '条款'}：${clause.reasons?.[0] ?? clause.verdict}` : (entry.reasons ?? [])[0] ?? null,
+      clauseId: clause?.clauseId ?? null,
+    })
+  }
+  return hits
+}
 
 const COMPLETED_RESOLUTIONS = new Set(['exclude'])
 
@@ -296,6 +360,25 @@ export function evaluateReadiness({
       )
     }
 
+    // Dedup gate: a new promise may not be created while a checked clause says
+    // the promise already exists (covered) or contradicts it (conflict). The
+    // human must adjudicate first — “就是这条” or “确实是新的” — and that
+    // decision is stored on the item, not inferred by us.
+    if (DUPLICATE_GATE_ROUTES.has(route)) {
+      const hits = duplicateHits({ item, context })
+      const adjudication = effectiveValue(item, 'adjudication')
+      const verdict = adjudication && typeof adjudication === 'object' ? adjudication.duplicate : null
+      if (hits.length > 0 && verdict !== 'new') {
+        add(
+          'duplicate-unadjudicated',
+          `条目 ${itemId} 与已有条款重合：${hits
+            .map((hit) => `${hit.uid}（${hit.match}${hit.clauseId ? `·${hit.clauseId}` : ''}${hit.source === 'context' ? '·机器判定' : ''}）`)
+            .join('、')}；请先裁决“就是这条（改为追加/修订/合并）”还是“确实是新的”`,
+          itemId,
+        )
+      }
+    }
+
     if (route === 'create') {
       if (!candidate) add('missing-candidate', `条目 ${itemId} 缺少候选草稿`, itemId)
       if (!candidate?.title) add('missing-title', `条目 ${itemId} 的候选需求缺少标题`, itemId)
@@ -313,18 +396,61 @@ export function evaluateReadiness({
       continue
     }
 
-    if (route === 'change') {
-      if (!candidate) add('missing-candidate', `条目 ${itemId} 缺少变更草稿`, itemId)
-      if (!candidate?.title) add('missing-title', `条目 ${itemId} 的变更缺少标题`, itemId)
-      if (!Array.isArray(candidate?.acceptance) || candidate.acceptance.length === 0) {
-        add('needs-acceptance', `条目 ${itemId} 的变更缺少验收条件`, itemId)
+    if (route === 'change' || route === 'extend' || route === 'merge') {
+      const verb = route === 'change' ? '变更' : route === 'extend' ? '追加' : '合并'
+      if (!candidate) add('missing-candidate', `条目 ${itemId} 缺少${verb}草稿`, itemId)
+      if (!candidate?.title) add('missing-title', `条目 ${itemId} 的${verb}缺少标题`, itemId)
+      if (route !== 'extend' && (!Array.isArray(candidate?.acceptance) || candidate.acceptance.length === 0)) {
+        add('needs-acceptance', `条目 ${itemId} 的${verb}缺少验收条件`, itemId)
       }
       if ((item.sourceRefs ?? []).length === 0) {
-        add('unresolved-source', `条目 ${itemId} 没有可核对的原文引用，不能作为变更依据`, itemId)
+        add('unresolved-source', `条目 ${itemId} 没有可核对的原文引用，不能作为${verb}依据`, itemId)
       }
       const base = resolveChangeBase({ item, confirmationItem, context })
       if (!base || !base.uid || !base.revision || !base.contentHash) {
-        add('invalid-change-base', `条目 ${itemId} 缺少可核对的变更基线（uid/revision/contentHash）`, itemId)
+        add('invalid-change-base', `条目 ${itemId} 缺少可核对的基线（uid/revision/contentHash）`, itemId)
+      }
+      if (route === 'extend') {
+        // “追加” means adding promises, not rewriting them. Require at least one
+        // clause that does not already exist in the baseline.
+        const baseline = (context?.readSet ?? []).find((entry) => entry.uid === base?.uid)
+        const baselineTexts = new Set((baseline?.acceptance ?? []).map(normalizeText))
+        const declared = Array.isArray(effectiveValue(item, 'extendClauses')) ? effectiveValue(item, 'extendClauses') : null
+        const pool = declared ?? (candidate?.acceptance ?? [])
+        const fresh = pool.filter((entry) => {
+          const text = typeof entry === 'string' ? entry : entry?.expected ?? entry?.text ?? ''
+          return normalizeText(text) !== '' && !baselineTexts.has(normalizeText(text))
+        })
+        if (fresh.length === 0) {
+          add('missing-extend-increment', `条目 ${itemId} 的追加没有新增条款（与 ${base?.uid ?? '基线'} 现有验收完全重合）`, itemId)
+        }
+      }
+      if (route === 'merge') {
+        const declared = Array.isArray(effectiveValue(item, 'mergeWith')) ? effectiveValue(item, 'mergeWith') : []
+        const targets = declared.filter((uid) => uid && uid !== base?.uid && lookupContextEntry(context, uid))
+        if (!base?.uid || targets.length === 0) {
+          add('missing-merge-target', `条目 ${itemId} 的合并需要至少一条可核对的同族需求（当前 ${declared.length} 个候选）`, itemId)
+        }
+      }
+      continue
+    }
+
+    if (route === 'split') {
+      const parts = Array.isArray(effectiveValue(item, 'splitParts')) ? effectiveValue(item, 'splitParts') : []
+      const usable = parts.filter((part) => part && String(part.title ?? '').trim() !== '' && Array.isArray(part.acceptance) && part.acceptance.length > 0)
+      if (usable.length < 2) {
+        add('missing-split-parts', `条目 ${itemId} 的拆分需要 ≥2 个可独立验收的部分（当前 ${usable.length} 个）`, itemId)
+      }
+      if ((item.sourceRefs ?? []).length === 0) {
+        add('unresolved-source', `条目 ${itemId} 没有可核对的原文引用，不能作为拆分依据`, itemId)
+      }
+      continue
+    }
+
+    if (route === 'defer') {
+      const trigger = String(effectiveValue(item, 'deferTrigger') ?? confirmation?.deferTrigger ?? '').trim()
+      if (trigger === '') {
+        add('missing-defer-trigger', `条目 ${itemId} 的暂缓必须写明触发条件或到期日`, itemId)
       }
       continue
     }
@@ -356,6 +482,13 @@ export function evaluateReadiness({
       }
       if (!confirmation?.alternative && !session.confirmation?.alternative) {
         add('missing-decline-reason', '拒绝必须给出替代方案（或明确“无替代”）', itemId)
+      }
+      // Revisit conditions make a rejection revisitable instead of permanent.
+      // It is a warning rather than a gate: refusing to record a rejection
+      // because it lacks a trigger pushes the decision out of the ledger and
+      // into a chat message, which is strictly worse.
+      if (!confirmation?.revisitTrigger && !item?.revisitTrigger && !session.confirmation?.revisitTrigger) {
+        warnings.push('decline-revisit-trigger-missing: 未写“什么条件下可以再提”，该否决将没有到期机制')
       }
       continue
     }

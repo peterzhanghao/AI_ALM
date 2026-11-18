@@ -21,8 +21,9 @@ import { requirementContentHash } from '../model/content-hash.mjs'
 import { previewRehearsal } from '../rehearsal/rehearsal.mjs'
 import { createRequirement, planRequirement, RequirementCreateError } from '../requirements/create.mjs'
 import { DOC_SCHEMA, docHashOf, normalizeDoc, renderDoc } from '../requirements/doc.mjs'
-import { effectiveCandidate, effectiveRoute } from './analysis.mjs'
+import { effectiveCandidate, effectiveRoute, effectiveValue } from './analysis.mjs'
 import { buildIntentContext } from './context.mjs'
+import { rejectionIdFor, writeRejection } from './review.mjs'
 import {
   AUDIT_SCHEMA,
   CHANGE_DRAFT_SCHEMA,
@@ -70,7 +71,11 @@ export const INTENT_DIRS = {
 
 const ROUTE_DEFAULT_TITLE = {
   create: '新建需求草稿',
+  extend: '需求追加条款草稿',
   change: '需求变更草稿',
+  merge: '需求合并草稿',
+  split: '需求拆分计划',
+  defer: '暂缓观察项',
   investigate: '调查任务',
   reuse: '复用现有需求',
   decline: '拒绝并登记替代方案',
@@ -155,6 +160,11 @@ function normalizeConfirmation(confirmation) {
     priority,
     reason: asString(confirmation.reason, 1000).trim() || null,
     alternative: asString(confirmation.alternative, 1000).trim() || null,
+    // 判决的附加前提：拒绝要有再提条件，暂缓要有触发条件/到期日。它们和 reason
+    // 一样属于“判决成立的条件”，必须原样穿过归一化，不能被静默丢弃。
+    revisitTrigger: asString(confirmation.revisitTrigger, 500).trim() || null,
+    deferTrigger: asString(confirmation.deferTrigger, 500).trim() || null,
+    deferDueAt: asString(confirmation.deferDueAt, 40).trim() || null,
     answer: asString(confirmation.answer, 4000).trim() || null,
     question: asString(confirmation.question, 1000).trim() || null,
     expectedInputRevision: Number.isInteger(expectedInputRevision) && expectedInputRevision > 0 ? expectedInputRevision : null,
@@ -364,7 +374,7 @@ function plannedArtifactsFor({ root, session, confirmation, context, now, at = n
     ]
   }
 
-  if (route === 'change') {
+  if (route === 'change' || route === 'extend' || route === 'merge') {
     const confirmationItem = (confirmation.items ?? []).find((entry) => entry.itemId === item.itemId) ?? null
     const base = resolveChangeBase({ item, confirmationItem, context })
     if (!base || !base.uid || !base.revision || !base.contentHash) {
@@ -380,7 +390,7 @@ function plannedArtifactsFor({ root, session, confirmation, context, now, at = n
       document = confirmedDocument({
         session,
         requirementId: base.uid,
-        title: candidate?.title ?? base.title ?? ROUTE_DEFAULT_TITLE.change,
+        title: candidate?.title ?? base.title ?? ROUTE_DEFAULT_TITLE[route],
         revision: docDraft.revision ?? base.revision ?? null,
         at,
       })
@@ -403,12 +413,29 @@ function plannedArtifactsFor({ root, session, confirmation, context, now, at = n
         outOfScope: candidate?.outOfScope ?? [],
       }
     }
+    const baselineEntry = (context?.readSet ?? []).find((entry) => entry.uid === base.uid) ?? null
+    const baselineAcceptance = new Set((baselineEntry?.acceptance ?? []).map(normalizeAcceptanceText))
+    const increment = route === 'extend'
+      ? (Array.isArray(effectiveValue(item, 'extendClauses')) ? effectiveValue(item, 'extendClauses') : (candidate?.acceptance ?? []))
+          .map((entry) => (typeof entry === 'string' ? entry : entry?.expected ?? entry?.text ?? ''))
+          .map((text) => String(text ?? '').trim())
+          .filter((text) => text !== '' && !baselineAcceptance.has(normalizeAcceptanceText(text)))
+      : null
+    const mergedFrom = route === 'merge'
+      ? (Array.isArray(effectiveValue(item, 'mergeWith')) ? effectiveValue(item, 'mergeWith') : [])
+          .filter((uid) => uid && uid !== base.uid)
+          .map((uid) => {
+            const entry = (context?.readSet ?? []).find((read) => read.uid === uid) ?? null
+            return { uid, revision: entry?.revision ?? null, contentHash: entry?.contentHash ?? null, title: entry?.title ?? null }
+          })
+      : null
     const draft = {
       schema: CHANGE_DRAFT_SCHEMA,
       schemaVersion: INTENT_SCHEMA_VERSION,
       changeId,
       sessionId: session.sessionId,
       project,
+      mode: route,
       base: {
         uid: base.uid,
         revision: base.revision,
@@ -416,11 +443,17 @@ function plannedArtifactsFor({ root, session, confirmation, context, now, at = n
         title: base.title ?? null,
       },
       proposed,
+      increment,
+      mergedFrom,
       diffSummary: {
-        fields: ['title', 'brief', 'acceptance'],
+        fields: route === 'extend' ? ['increment'] : route === 'merge' ? ['mergedFrom', 'title', 'brief', 'acceptance'] : ['title', 'brief', 'acceptance'],
         before: { title: base.title ?? null, revision: base.revision, contentHash: base.contentHash },
         after: { title: proposed.title },
-        note: '仅生成变更草稿，未修改 requirements/*.sdoc；需要走正式变更流程。',
+        note: route === 'extend'
+          ? '仅追加条款，未修改 requirements/*.sdoc；原验收保持不变。'
+          : route === 'merge'
+            ? '生成合并草稿，未修改 requirements/*.sdoc；被合并需求需要走正式变更流程退场。'
+            : '仅生成变更草稿，未修改 requirements/*.sdoc；需要走正式变更流程。',
       },
       impact: impactForChange({ root, base, proposedBrief: proposed.brief }),
       sourceRefs: item.sourceRefs ?? [],
@@ -439,6 +472,51 @@ function plannedArtifactsFor({ root, session, confirmation, context, now, at = n
         documentHash: document ? docHashOf(proposed.brief) : null,
       },
     ]
+  }
+
+  if (route === 'split') {
+    const splitId = intentEntityId({ root, dir: INTENT_DIRS.changes, prefix: 'SPL', projectId: project, now })
+    const parts = (Array.isArray(effectiveValue(item, 'splitParts')) ? effectiveValue(item, 'splitParts') : []).map((part, index) => ({
+      partId: part.partId ?? `PART-${index + 1}`,
+      title: String(part.title ?? '').trim(),
+      goal: String(part.goal ?? '').trim(),
+      acceptance: (part.acceptance ?? []).map((entry) => (typeof entry === 'string' ? { expected: entry } : entry)),
+      rationale: part.rationale ?? null,
+    }))
+    const record = {
+      schema: 'alm.intent.split-plan/v1',
+      schemaVersion: INTENT_SCHEMA_VERSION,
+      splitId,
+      sessionId: session.sessionId,
+      project,
+      sourceRefs: item.sourceRefs ?? [],
+      parts,
+      note: '拆分只是拆账：每个部分仍需各自确认后才写入需求库，避免一次点击生成多条没人复核的需求。',
+      status: 'draft',
+      createdAt: nowIso(now),
+      decision: baseDecision,
+    }
+    return [{ kind: 'split-plan', splitId, file: `${INTENT_DIRS.changes}/${splitId}.json`, split: record }]
+  }
+
+  if (route === 'defer') {
+    const observationId = intentEntityId({ root, dir: '.alm/intent/observations', prefix: 'OBS', projectId: project, now })
+    const observation = {
+      schema: 'alm.observation/v1',
+      schemaVersion: INTENT_SCHEMA_VERSION,
+      observationId,
+      sessionId: session.sessionId,
+      project,
+      statement: String(candidate?.title ?? session.input?.text ?? '').trim().slice(0, 2000),
+      trigger: String(effectiveValue(item, 'deferTrigger') ?? confirmation.deferTrigger ?? '').trim().slice(0, 500),
+      dueAt: effectiveValue(item, 'deferDueAt') ?? confirmation.deferDueAt ?? null,
+      reason: String(item.routeRationale ?? '').trim().slice(0, 1000) || null,
+      sourceRefs: item.sourceRefs ?? [],
+      status: 'watching',
+      createdAt: nowIso(now),
+      decision: baseDecision,
+    }
+    return [{ kind: 'observation', observationId, file: `.alm/intent/observations/${observationId}.json`, observation }]
   }
 
   if (route === 'investigate') {
@@ -485,6 +563,33 @@ function plannedArtifactsFor({ root, session, confirmation, context, now, at = n
     return [{ kind: 'investigation', investigationId, file: `${INTENT_DIRS.investigations}/${investigationId}.json`, investigation: record }]
   }
 
+  // A rejection is a decision, and decisions need memory. The ledger entry is
+  // written in the same transaction as the receipt so “拒过” and “记过” can
+  // never disagree.
+  if (route === 'decline') {
+    const statement = String(
+      item.userProblem ?? candidate?.goal ?? candidate?.title ?? session.input?.text ?? '',
+    ).replace(/\s+/g, ' ').trim().slice(0, 2000)
+    const rejectionId = rejectionIdFor(statement)
+    const rejection = {
+      statement,
+      reason: String(confirmation.reason ?? session.confirmation?.reason ?? '').trim(),
+      alternative: String(confirmation.alternative ?? session.confirmation?.alternative ?? '').trim(),
+      revisitTrigger: String(effectiveValue(item, 'revisitTrigger') ?? confirmation.revisitTrigger ?? '').trim() || null,
+      evidenceClass: item.evidenceClass ?? 'stated',
+      sessionId: session.sessionId,
+      itemId: item.itemId,
+      decidedBy: 'human:local',
+      at,
+    }
+    if (statement === '') {
+      throw intentError('not-ready', '拒绝必须带上被拒绝的那句话，否则账本无法在下次命中', {
+        reasons: [{ code: 'unresolved-source' }],
+      })
+    }
+    return [{ kind: 'rejection', rejectionId, file: `.alm/rejections/${rejectionId}.json`, rejection }]
+  }
+
   if (route === 'reuse') {
     const related = (item.related ?? []).find(
       (entry) => ['covered', 'related'].includes(entry.match) && entry.uid && context?.readSet?.some((read) => read.uid === entry.uid),
@@ -511,8 +616,15 @@ function artifactSummary(planned) {
   if (planned.kind === 'requirement') {
     return `新建需求草稿 ${planned.requirementId}（status=proposed，priority=${planned.priority}，owner=${planned.owner}）`
   }
-  if (planned.kind === 'change-draft') return `变更草稿 ${planned.changeId}（base ${planned.draft.base.uid}@${planned.draft.base.revision}）`
+  if (planned.kind === 'change-draft') {
+    const mode = planned.draft?.mode ?? 'change'
+    const label = mode === 'extend' ? '追加草稿' : mode === 'merge' ? '合并草稿' : '变更草稿'
+    return `${label} ${planned.changeId}（base ${planned.draft.base.uid}@${planned.draft.base.revision}）`
+  }
   if (planned.kind === 'investigation') return `调查记录 ${planned.investigationId}（status=open）`
+  if (planned.kind === 'split-plan') return `拆分计划 ${planned.splitId}（${(planned.split?.parts ?? []).length} 个部分，待逐个确认）`
+  if (planned.kind === 'observation') return `观察项 ${planned.observationId}（触发条件：${planned.observation?.trigger ?? '未写明'}）`
+  if (planned.kind === 'rejection') return `否决账本 ${planned.rejectionId}（下次同类诉求会被查到）`
   if (planned.kind === 'link') return `复用 ${planned.uid}（as-is，未新建需求）`
   return planned.kind
 }
@@ -520,7 +632,7 @@ function artifactSummary(planned) {
 function publicArtifact(planned, at) {
   const artifact = {
     kind: planned.kind,
-    id: planned.requirementId ?? planned.changeId ?? planned.investigationId ?? planned.uid ?? planned.kind,
+    id: planned.requirementId ?? planned.changeId ?? planned.investigationId ?? planned.splitId ?? planned.observationId ?? planned.uid ?? planned.kind,
     path: planned.file ?? planned.path ?? null,
     summary: artifactSummary(planned),
     appliedAt: at,
@@ -531,6 +643,10 @@ function publicArtifact(planned, at) {
     artifact.match = planned.match ?? null
   }
   return artifact
+}
+
+function normalizeAcceptanceText(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 function materializeArtifact({ root, planned, at }) {
@@ -562,6 +678,23 @@ function materializeArtifact({ root, planned, at }) {
   if (planned.kind === 'investigation') {
     const target = join(root, planned.file)
     if (!fileExists(target)) writeJsonAtomic(target, planned.investigation)
+    return publicArtifact(planned, at)
+  }
+  if (planned.kind === 'split-plan') {
+    const target = join(root, planned.file)
+    if (!fileExists(target)) writeJsonAtomic(target, planned.split)
+    return publicArtifact(planned, at)
+  }
+  if (planned.kind === 'observation') {
+    const target = join(root, planned.file)
+    if (!fileExists(target)) writeJsonAtomic(target, planned.observation)
+    return publicArtifact(planned, at)
+  }
+  if (planned.kind === 'rejection') {
+    // `writeRejection` owns dedupe/occurrence counting; the planned file path is
+    // derived from the same statement, so it always matches where the ledger
+    // entry lands.
+    writeRejection(root, planned.rejection)
     return publicArtifact(planned, at)
   }
   return publicArtifact(planned, at)
@@ -612,11 +745,30 @@ function buildReceipt({ session, confirmation, context, artifacts, baseRevisions
   })
   if (adoptedInvestigations.length) decision.investigations = adoptedInvestigations
   if (confirmation.route === 'decline') {
+    const item = selectItemForRoute(session, confirmation)
     decision.decline = {
       reason: confirmation.reason,
       alternative: confirmation.alternative,
+      revisitTrigger: effectiveValue(item, 'revisitTrigger') ?? confirmation.revisitTrigger ?? null,
+      ledger: 'rejection',
       appeal: 'reopen',
     }
+  }
+  if (confirmation.route === 'defer') {
+    const item = selectItemForRoute(session, confirmation)
+    decision.defer = { trigger: effectiveValue(item, 'deferTrigger') ?? null, dueAt: effectiveValue(item, 'deferDueAt') ?? null }
+  }
+  if (confirmation.route === 'split') {
+    const item = selectItemForRoute(session, confirmation)
+    decision.split = { parts: (effectiveValue(item, 'splitParts') ?? []).length }
+  }
+  if (confirmation.route === 'merge') {
+    const item = selectItemForRoute(session, confirmation)
+    decision.merge = { with: effectiveValue(item, 'mergeWith') ?? [] }
+  }
+  if (confirmation.route === 'extend') {
+    const item = selectItemForRoute(session, confirmation)
+    decision.extend = { increment: (effectiveValue(item, 'extendClauses') ?? []).length }
   }
   if (confirmation.route === 'answer') {
     decision.answer = confirmation.answer ?? null
@@ -782,7 +934,7 @@ export function confirmIntent({ root, sessionId, confirmation, actor = 'human:lo
       retryRecomputedContextSnapshotId: contextNow.contextSnapshotId,
     }
   }
-  if (contextNow.queryStatus !== 'success' && ['create', 'change', 'reuse'].includes(normalized.route)) {
+  if (contextNow.queryStatus !== 'success' && ['create', 'extend', 'change', 'merge', 'split', 'reuse'].includes(normalized.route)) {
     throw intentError(
       'stale-context',
       '需求检索未成功，相关需求尚未核对；请恢复检索或改为调查后再确认',

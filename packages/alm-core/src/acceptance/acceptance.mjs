@@ -7,6 +7,7 @@ import { gitHead } from '../approvals/approval.mjs'
 import { requirementContentHash, testRevisionHash, sha256 } from '../model/content-hash.mjs'
 import { worktreeSnapshot } from '../requirements/worktree-snapshot.mjs'
 import { MAX_VERIFICATION_TEST_FILES, snapshotTestFileHashes, verificationBudget, verificationCommandDiagnosis, verificationTestFiles, verifyTestFileHashes } from '../requirements/blueprint-guard.mjs'
+import { BLOCKED_SPAWN_CODES } from '../process-capture.mjs'
 
 export const ACCEPTANCE_DIR = '.alm/acceptance'
 export const ACCEPTANCE_SCHEMA = 'alm.acceptance/v3'
@@ -371,7 +372,18 @@ function latestDiagnostic(evidence) {
       ...(oversized ? { scale: { fileCount, max: MAX_VERIFICATION_TEST_FILES } } : {}),
     }
   }
-  if (failed?.spawnFailed || failed?.error) return { category: 'environment', title: '验证环境或命令受阻', summary: failed?.error?.message ?? `无法启动验证命令${command ? `：${command.join(' ')}` : ''}`, command, log }
+  // A policy-blocked spawn (EPERM/EACCES inside the test process) is an
+  // environment limit, not a broken assertion. Reporting it as "verification
+  // failed" sends the next agent looking for a code defect that does not exist.
+  if (failed?.spawnFailed || failed?.error || environmentBlockedLines(log) > 0) {
+    return {
+      category: 'environment',
+      title: '验证被运行环境阻断',
+      summary: environmentBlockedSummary(failed, log) ?? failed?.error?.message ?? `无法启动验证命令${command ? `：${command.join(' ')}` : ''}`,
+      command,
+      log,
+    }
+  }
   return { category: 'verification', title: '验证检查未通过', summary: `验证命令失败${Number.isInteger(failed?.exitCode) ? `（exit ${failed.exitCode}）` : ''}${line ? `：${line}` : ''}`, command, log }
 }
 
@@ -536,20 +548,112 @@ function tailOf(record) {
   return clipSummaryText(lines.slice(-SUMMARY_TAIL_LINES).join(' / '), 200)
 }
 
+// A confined sandbox rejects piped child stdio with EPERM/EACCES. Node's test
+// reporter can surface that either as a numbered TAP failure or, in the
+// in-process fallback, as an unnumbered `not ok - ... EPERM` line.
+const ENVIRONMENT_BLOCKED_LINE = /(?:^|\n)\s*not ok(?:\s+\d+)?\s+-\s+[^\n]*\b(?:EPERM|EACCES)\b|spawn(?:Sync)?\b[^\n]*\b(?:EPERM|EACCES)\b/g
+
+function environmentBlockedLines(text) {
+  return (String(text ?? '').match(ENVIRONMENT_BLOCKED_LINE) ?? []).length
+}
+
+function failedTestLines(text) {
+  return (String(text ?? '').match(/(?:^|\n)\s*not ok(?:\s+\d+)?\s+-\s+/g) ?? []).length
+}
+
+function environmentBlockedSample(text) {
+  const lines = String(text ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  return lines.find((line) => /not ok(?:\s+\d+)?\s+-/.test(line) && /(?:EPERM|EACCES)/.test(line)) ??
+    lines.find((line) => /spawn(?:Sync)?\b/.test(line) && /(?:EPERM|EACCES)/.test(line)) ??
+    null
+}
+
+function environmentBlockedSummary(record, log) {
+  return clipSummaryText(environmentBlockedSample(log) ?? (record?.error?.code ? `子进程启动被拒绝（${record.error.code}）` : '子进程被运行环境拒绝'), 160)
+}
+
+const CAPABILITY_LABELS = { browser: '浏览器', 'spawn-pipe': '子进程管道' }
+
+/** Test files an acceptance command names explicitly after `node --test`. */
+function testFilesForCommand(command) {
+  if (!Array.isArray(command)) return []
+  const at = command.indexOf('--test')
+  if (at < 0) return []
+  const files = []
+  for (let i = at + 1; i < command.length; i += 1) {
+    const part = command[i]
+    if (part === '--test-name-pattern') { i += 1; continue }
+    if (part.startsWith('-')) continue
+    if (/\.test\.[cm]?js$/i.test(part)) files.push(part)
+  }
+  return files
+}
+
+/**
+ * What the command needs beyond an in-process unit test. Used only to explain a
+ * blocked run ("needs browser/child pipes"), never to skip an assertion.
+ */
+function commandCapabilities(entry, root) {
+  const capabilities = []
+  if (entry?.spawnFailed === true) capabilities.push('spawn-pipe')
+  for (const file of testFilesForCommand(entry?.command)) {
+    let source = ''
+    try { source = readFileSync(resolve(root, file), 'utf8') } catch { continue }
+    if (/\bfrom\s+['"](?:playwright|@playwright\/test)['"]|require\(['"](?:playwright|@playwright\/test)['"]\)/.test(source)) capabilities.push('browser')
+    else if (/\bfrom\s+['"]node:child_process['"]|require\(['"]node:child_process['"]\)/.test(source)) capabilities.push('spawn-pipe')
+  }
+  return [...new Set(capabilities)]
+}
+
+/**
+ * Split a red run into "assertions that failed" and "capabilities the sandbox
+ * denied". A command whose only failures are EPERM/EACCES never becomes a code
+ * defect; it becomes a blocked-environment receipt the caller can route to a
+ * host/CI runner with full process access.
+ */
+export function classifyAcceptanceRun(evidence, { root = '.' } = {}) {
+  const commands = Array.isArray(evidence?.commands) ? evidence.commands : []
+  const blocked = []
+  const failures = []
+  let failureCount = 0
+  let failedCommands = 0
+  for (const entry of commands) {
+    const text = `${entry?.stdout ?? ''}\n${entry?.stderr ?? ''}`
+    const parsed = parseTapFailures(text, { root, limit: 1000 })
+    const spawnBlocked = entry?.spawnFailed === true && BLOCKED_SPAWN_CODES.has(entry?.error?.code)
+    const blockedLines = environmentBlockedLines(text)
+    const failedLines = failedTestLines(text)
+    const blockedOnly = blockedLines > 0 && (failedLines === 0 || blockedLines >= failedLines)
+    const failed = entry?.exitCode !== 0 || entry?.timedOut === true || entry?.spawnFailed === true || Boolean(entry?.error)
+    if (!failed) continue
+    if (spawnBlocked || blockedOnly) {
+      blocked.push({
+        commandId: entry?.id ?? null,
+        code: 'spawn-blocked',
+        message: environmentBlockedSummary(entry, text),
+        capabilities: commandCapabilities(entry, root),
+      })
+      continue
+    }
+    failedCommands += 1
+    failureCount += parsed.total
+    for (const item of parsed.failures) failures.push({ ...item, commandId: entry?.id ?? null })
+  }
+  const status = failedCommands > 0 ? 'fail' : blocked.length > 0 ? 'blocked' : 'pass'
+  return { status, failureCount, failedCommands, failures, blocked }
+}
+
 /** Compress one acceptance run into the few lines a human (or agent) can act on. */
 export function summarizeAcceptanceRun(evidence, { root = '.', limit = 5, evidencePath = null } = {}) {
   const commands = Array.isArray(evidence?.commands) ? evidence.commands : []
-  const failures = []
-  let failureCount = 0
+  const classification = classifyAcceptanceRun(evidence, { root })
   let durationMs = 0
   const rows = []
   for (const entry of commands) {
     const elapsed = Number(entry?.durationMs ?? 0)
     durationMs += elapsed
-    const admitted = Math.max(0, limit - failures.length)
-    const parsed = parseTapFailures(`${entry?.stdout ?? ''}\n${entry?.stderr ?? ''}`, { root, limit: admitted })
-    failureCount += parsed.total
-    for (const item of parsed.failures) failures.push({ ...item, commandId: entry.id ?? null })
+    const parsed = parseTapFailures(`${entry?.stdout ?? ''}\n${entry?.stderr ?? ''}`, { root, limit: 0 })
+    const blocked = classification.blocked.some((item) => item.commandId === entry?.id)
     const failed = entry?.exitCode !== 0 || entry?.timedOut === true || entry?.spawnFailed === true
     rows.push({
       id: entry?.id ?? null,
@@ -557,7 +661,8 @@ export function summarizeAcceptanceRun(evidence, { root = '.', limit = 5, eviden
       timedOut: entry?.timedOut === true,
       durationMs: elapsed,
       failures: parsed.total,
-      tail: parsed.total === 0 && failed ? tailOf(entry) : null,
+      blocked,
+      tail: parsed.total === 0 && failed && !blocked ? tailOf(entry) : null,
     })
   }
   const passed = evidence?.result === 'pass'
@@ -565,12 +670,15 @@ export function summarizeAcceptanceRun(evidence, { root = '.', limit = 5, eviden
     schema: 'alm.acceptance.run-summary/v1',
     requirement: evidence?.requirement ?? null,
     passed,
+    status: classification.status,
     headSha: evidence?.headSha ?? null,
     treeHash: evidence?.worktree?.after?.treeHash ?? evidence?.worktree?.before?.treeHash ?? null,
     durationMs,
     commandCount: commands.length,
-    failureCount,
-    failures: failures.slice(0, limit),
+    failureCount: classification.failureCount,
+    failures: classification.failures.slice(0, limit),
+    blockedCount: classification.blocked.length,
+    blocked: classification.blocked,
     commands: rows,
     evidencePath: evidencePath ?? evidence?.file ?? null,
   }
@@ -583,6 +691,19 @@ export function renderAcceptanceSummary(summary) {
   const seconds = (Number(summary?.durationMs ?? 0) / 1000).toFixed(1)
   const tree = summary?.treeHash ? `，tree ${String(summary.treeHash).slice(0, 7)}` : ''
   if (summary?.passed) return `✓ ${id} 验收通过（${summary.commandCount} 条命令，${seconds}s${tree}）`
+  const blockedCount = Number(summary?.blockedCount ?? 0)
+  if (blockedCount > 0 && Number(summary?.failureCount ?? 0) === 0) {
+    const head = `⚠ ${id} 验收被运行环境阻断，不是断言失败（${blockedCount} 条命令受限，${seconds}s${tree}）`
+    const lines = [head]
+    for (const item of summary.blocked ?? []) {
+      const needs = Array.isArray(item.capabilities) && item.capabilities.length
+        ? `；需要${item.capabilities.map((entry) => CAPABILITY_LABELS[entry] ?? entry).join('、')}`
+        : ''
+      lines.push(`  [${item.commandId ?? '-'}] ${item.message}${needs}`)
+    }
+    lines.push('  请在具备完整进程与浏览器能力的宿主/CI 重跑；不要把它当作代码失败。')
+    return lines.join('\n')
+  }
   const count = Number(summary?.failureCount ?? 0)
   const exitCodes = [...new Set((summary?.commands ?? []).map((entry) => entry.exitCode).filter((code) => typeof code === 'number' && code !== 0))]
   const head = count > 0
@@ -603,6 +724,7 @@ export function renderAcceptanceSummary(summary) {
   const hidden = count - (summary?.failures?.length ?? 0)
   if (hidden > 0) lines.push(`  …另有 ${hidden} 项未展开${summary?.evidencePath ? `，完整输出见 ${summary.evidencePath}` : ''}`)
   for (const row of (summary?.commands ?? []).filter((entry) => entry.tail)) lines.push(`  [${row.id ?? '-'}] ${row.tail}`)
+  if (blockedCount > 0) lines.push(`  另有 ${blockedCount} 条命令被运行环境阻断，未计入断言失败`)
   return lines.join('\n')
 }
 

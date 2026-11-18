@@ -337,7 +337,7 @@ test('detail tabs retain keyboard focus and fit a narrow panel', async () => {
   })
   try {
     await page.goto('http://test.local/')
-    assert.equal(await page.getByRole('button', { name: '← 返回需求列表' }).first().isVisible(), true)
+    assert.equal(await page.getByRole('button', { name: '← 需求列表' }).first().isVisible(), true)
     assert.doesNotMatch(await page.locator('body').innerText(), /<!--\s*alm:meta/)
     assert.equal(await page.locator('[data-iteration-feedback]').count(), 1)
     assert.equal(await page.evaluate(() => Boolean(document.querySelector('[data-human-verification]')?.compareDocumentPosition(document.querySelector('[data-iteration-feedback]')) & Node.DOCUMENT_POSITION_FOLLOWING)), true)
@@ -361,7 +361,7 @@ test('detail tabs retain keyboard focus and fit a narrow panel', async () => {
     const progress = page.getByRole('tab', { name: 'AI 进展' })
     await progress.waitFor()
     await page.waitForFunction(() => document.querySelector('[data-detail-tab="delivery"]')?.getAttribute('aria-selected') === 'true')
-    assert.equal(await page.getByRole('button', { name: '← 返回需求列表' }).first().isVisible(), true)
+    assert.equal(await page.getByRole('button', { name: '← 需求列表' }).first().isVisible(), true)
     assert.equal(await page.locator('[data-iteration-feedback]').count(), 0)
     await page.waitForTimeout(120)
     assert.equal(await progress.evaluate(node => document.activeElement === node), true)
@@ -435,9 +435,13 @@ test('detail tabs retain keyboard focus and fit a narrow panel', async () => {
         return [ratio(color, tint.map((value, channel) => Math.round(value * 0.14 + background[channel] * 0.86))), ratio(buttonText, color)]
       })
       const light = measure([255, 255, 255], [255, 255, 255])
+      // A dark host theme moves the label pair, not just the secondary half:
+      // the semantic foregrounds are derived from label-primary.
+      document.documentElement.style.setProperty('--dsw-alias-label-primary', '#f2f4f7')
       document.documentElement.style.setProperty('--dsw-alias-label-secondary', '#cfd3d6')
       document.documentElement.style.setProperty('--dsw-alias-state-error-primary', '#f25a5a')
       const dark = measure([35, 35, 36], [21, 21, 23])
+      document.documentElement.style.setProperty('--dsw-alias-label-primary', '#0f1115')
       document.documentElement.style.setProperty('--dsw-alias-label-secondary', '#61666b')
       document.documentElement.style.setProperty('--dsw-alias-state-error-primary', '#ec1313')
       probe.remove(); return [...light, ...dark]
@@ -487,7 +491,7 @@ test('unstarted detail keeps one clear progress state and a direct feedback form
   await page.route('http://test.local/**', route => route.fulfill(route.request().url().endsWith('/app.js') ? { contentType: 'text/javascript', body: bundle.outputFiles[0].text } : { contentType: 'text/html', body: '<div id="root"></div><script type="module" src="/app.js"></script>' }))
   try {
     await page.goto('http://test.local/')
-    await page.getByText('补充反馈或调整需求').waitFor()
+    await page.getByText('我要改这条需求').waitFor()
     assert.equal(await page.locator('[data-iteration-feedback] textarea').isVisible(), true)
     assert.equal(await page.locator('[data-iteration-feedback] textarea').getAttribute('rows'), '2')
     // The form is not folded away behind a disclosure: 完成的标准 lists above it,
@@ -496,11 +500,13 @@ test('unstarted detail keeps one clear progress state and a direct feedback form
     await page.locator('[data-iteration-feedback]').scrollIntoViewIfNeeded()
     assert.equal(await page.locator('[data-iteration-feedback] button').isVisible(), true)
     assert.equal(await page.locator('.detail-sidebar').getByText('对话生成').isVisible(), true)
-    const cards = page.locator('.description-cards > div')
+    // Sections stack in one column now: two prose cards side by side made a
+    // 320px-wide paragraph, and the prototype reads top to bottom instead.
+    const cards = page.locator('.description-cards > section')
     assert.equal(await cards.count(), 2)
     const boxes = await cards.evaluateAll(nodes => nodes.map(node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width } }))
-    assert.equal(boxes[0].y, boxes[1].y)
-    assert.ok(boxes[1].x > boxes[0].x && Math.abs(boxes[0].width - boxes[1].width) < 1)
+    assert.ok(boxes[1].y > boxes[0].y)
+    assert.ok(Math.abs(boxes[0].x - boxes[1].x) < 1)
     assert.equal(await page.locator('.detail-sidebar').evaluate((node) => Math.abs(node.getBoundingClientRect().top - document.querySelector('.description-cards').getBoundingClientRect().top) < 1), true)
     await page.getByRole('button', { name: '更多 ▾' }).click()
     assert.equal(await page.locator('#v4-more-actions').getByRole('button', { name: '反馈', exact: true }).count(), 0)
@@ -514,7 +520,7 @@ test('unstarted detail keeps one clear progress state and a direct feedback form
     assert.equal(await page.locator('[data-progress-technical], [data-human-progress], [data-iteration-feedback]').count(), 0)
     assert.doesNotMatch(await page.locator('body').innerText(), /verify\.cmd|\.alm\/|还没有可读取的运行活动/)
     await page.getByRole('tab', { name: '历史记录' }).click()
-    assert.equal(await page.getByRole('button', { name: '← 返回需求列表' }).count(), 1)
+    assert.equal(await page.getByRole('button', { name: '← 需求列表' }).count(), 1)
     assert.equal(await page.getByText('版本演进与事件时间线').isVisible(), true)
     assert.equal(await page.getByText('归属与标识').count(), 0)
     await page.getByText('调查证据与技术诊断').click()
@@ -524,7 +530,8 @@ test('unstarted detail keeps one clear progress state and a direct feedback form
     assert.equal(await page.getByText('运行历史', { exact: true }).count(), 0)
     await page.setViewportSize({ width: 480, height: 800 })
     await page.getByRole('tab', { name: '需求正文' }).click()
-    assert.equal(await page.locator('.description-cards').evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length), 1)
+    // One column at every width, so the narrow case needs no separate rule.
+    assert.equal(await page.locator('.description-cards').evaluate(node => getComputedStyle(node).display), 'block')
   } finally { await browser.close() }
 })
 
@@ -562,7 +569,8 @@ test('list and timeline present real origin, pending confirmation and human-read
     assert.match(await list.last().innerText(), /创建需求 · v1/)
     const diff = page.locator('[data-visual-spec-diff]')
     await diff.waitFor()
-    assert.match(await diff.innerText(), /版本对比.*v2 → v3/)
+    assert.match(await diff.innerText(), /本次改动.*\+1 新增/s)
+    assert.doesNotMatch(await diff.innerText(), /v2 → v3/, 'the version lives on the timeline row, not in the diff header')
     assert.match(await diff.innerText(), /\+ 新增 AC-03/)
     assert.match(await diff.innerText(), /~ 修改 AC-01/)
     assert.match(await diff.innerText(), /旧目标.*新目标/s)

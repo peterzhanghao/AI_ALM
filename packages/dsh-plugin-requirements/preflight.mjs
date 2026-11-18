@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { isGenericTestCommand } from '../alm-core/src/acceptance/acceptance.mjs'
 import { deriveVerificationCommand, readBlueprint, verificationCommandDiagnosis } from '../alm-core/src/requirements/blueprint-guard.mjs'
 import { worktreeSnapshot } from '../alm-core/src/requirements/worktree-snapshot.mjs'
+import { runCaptured } from '../alm-core/src/process-capture.mjs'
 
 /**
  * AI-driven entry gate (ALM preflight).
@@ -90,8 +90,8 @@ function derivationInput(item) {
 
 function workingTreeChangedFiles(root) {
   try {
-    const tracked = execFileSync('git', ['diff', '--name-only', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-    const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const tracked = String(runCaptured('git', ['diff', '--name-only', 'HEAD'], { cwd: root }).stdout ?? '')
+    const untracked = String(runCaptured('git', ['ls-files', '--others', '--exclude-standard'], { cwd: root }).stdout ?? '')
     return [...new Set(`${tracked}\n${untracked}`.split(/\r?\n/).map(path => path.trim()).filter(Boolean))]
   } catch {
     return []

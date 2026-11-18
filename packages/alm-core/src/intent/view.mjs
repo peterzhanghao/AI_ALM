@@ -84,6 +84,15 @@ function projectReadSet(readSet) {
     reasons: Array.isArray(entry.reasons) ? entry.reasons : [],
     briefExcerpt: entry.briefExcerpt ?? null,
     acceptance: Array.isArray(entry.acceptance) ? entry.acceptance : [],
+    // Clause-level adjudication: the UI must be able to say *which* AC-xx
+    // overlaps, otherwise “可能重复” is an unarguable claim.
+    clauseMatches: (Array.isArray(entry.clauseMatches) ? entry.clauseMatches : []).map((match) => ({
+      clauseId: match.clauseId ?? null,
+      verdict: match.verdict ?? null,
+      text: match.text ?? '',
+      reasons: Array.isArray(match.reasons) ? match.reasons : [],
+      scores: match.scores ?? null,
+    })),
   }))
 }
 
@@ -98,6 +107,9 @@ function projectContext(session) {
     queryStatus: context.queryStatus ?? 'not-queried',
     query: context.query ?? null,
     readSet: projectReadSet(context.readSet),
+    // The rejection ledger is part of what was read: hiding it here made the
+    // “你上次拒绝过这个” affordance impossible to render.
+    rejections: Array.isArray(context.rejections) ? context.rejections : [],
     selected: context.selected
       ? {
           uid: context.selected.uid ?? null,
@@ -151,6 +163,9 @@ function projectItem(item) {
     counterexample: item.counterexample ?? null,
     valueCheck: item.valueCheck ?? null,
     fields: item.fields ?? {},
+    // `ai: 'none'` marks an item no model ever produced. The UI must be able to
+    // say “未澄清” instead of rendering a blank form as if it were a draft.
+    ai: item.ai ?? null,
     excluded: item.excluded === true,
     summary: item.summary ?? null,
     editedFields: Object.keys(item.fields ?? {}),

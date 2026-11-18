@@ -8,19 +8,34 @@ window.__ModuleLoader__.load({
     const PROJECT_KEY = "alm.requirements.project";
     const ALL_PROJECTS = "ALL";
     const REDUCE_MOTION = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
+    const INK = "var(--dsw-alias-label-primary, #f2f4f7)";
+    const INK2 = `color-mix(in srgb, ${INK} 62%, var(--dsw-alias-bg-base, #0f1115))`;
+    const INK3 = `color-mix(in srgb, ${INK} 46%, var(--dsw-alias-bg-base, #0f1115))`;
+    const HUE = {
+      ok: "var(--dsw-alias-state-success-primary, #35c47a)",
+      warn: "var(--dsw-alias-state-warn-primary, #e7b04b)",
+      err: "var(--dsw-alias-state-error-primary, #ff8b8b)",
+      brand: "var(--dsw-alias-brand-primary, #4d6bfe)"
+    };
     const T = {
-      text: "var(--dsw-alias-label-primary, #f2f4f7)",
-      text2: "var(--dsw-alias-label-secondary, #9aa3ae)",
-      text3: "var(--dsw-alias-label-secondary, #929ba7)",
+      text: INK,
+      text2: INK2,
+      text3: INK3,
       line: "var(--dsw-alias-border-l1, #232830)",
       line2: "var(--dsw-alias-border-l2, #2e343d)",
       layer: "var(--dsw-alias-bg-layer-1, #14171c)",
       layer2: "var(--dsw-alias-bg-layer-2, #171b21)",
       base: "var(--dsw-alias-bg-base, #0f1115)",
-      brand: "var(--dsw-alias-brand-primary, #4d6bfe)",
-      ok: "color-mix(in srgb, var(--dsw-alias-label-secondary, #9aa3ae) 90%, var(--dsw-alias-state-success-primary, #35c47a))",
-      warn: "color-mix(in srgb, var(--dsw-alias-label-secondary, #9aa3ae) 90%, var(--dsw-alias-state-warn-primary, #e7b04b))",
-      err: "color-mix(in srgb, var(--dsw-alias-label-secondary, #9aa3ae) 80%, var(--dsw-alias-state-error-primary, #ff8b8b))"
+      brand: HUE.brand,
+      // Semantic foregrounds are pastels: a saturated hue on a dark surface
+      // reads as an alarm, and an alarm repeated in five places is just noise.
+      ok: `color-mix(in srgb, ${HUE.ok} 55%, ${INK})`,
+      warn: `color-mix(in srgb, ${HUE.warn} 55%, ${INK})`,
+      err: `color-mix(in srgb, ${HUE.err} 72%, ${INK})`,
+      // Raw hues, for the one mark that has to be seen (dot, bar, fill).
+      okSolid: HUE.ok,
+      warnSolid: HUE.warn,
+      errSolid: HUE.err
     };
     const STATUS = {
       proposed: { label: "\u5F85\u8BC4\u5BA1", color: T.text2, bg: "rgba(154,163,174,.14)" },
@@ -642,7 +657,7 @@ window.__ModuleLoader__.load({
       fontSize: "12px",
       cursor: "pointer"
     };
-    const primary = { ...button, background: T.text, color: T.base, borderColor: "transparent" };
+    const primary = { ...button, background: T.text, color: T.base, borderColor: "transparent", fontWeight: 600 };
     const primaryState = (disabled) => disabled ? { ...button, color: T.text2, cursor: "not-allowed" } : primary;
     const input = {
       border: `1px solid ${T.line}`,
@@ -1872,7 +1887,7 @@ window.__ModuleLoader__.load({
       const [hover, setHover] = useState(false);
       const open = () => actionHandlers.onOpen(item);
       const lane = workLane(item);
-      const primaryTone = lane === "need" || lane === "running";
+      const primaryTone = lane === "need";
       const actionButton = h(
         "button",
         {
@@ -1892,10 +1907,10 @@ window.__ModuleLoader__.load({
             padding: action.iconOnly ? 0 : "0 10px",
             width: action.iconOnly ? "28px" : void 0,
             justifyContent: "center",
-            border: `1px solid ${primaryTone ? T.brand : T.line2}`,
+            border: `1px solid ${primaryTone ? T.text : T.line2}`,
             borderRadius: "7px",
-            background: primaryTone ? T.brand : "transparent",
-            color: primaryTone ? "#fff" : action.icon === "alert" ? T.err : T.text2,
+            background: primaryTone ? T.text : "transparent",
+            color: primaryTone ? T.base : action.icon === "alert" ? T.err : T.text2,
             fontSize: "11.5px",
             fontWeight: primaryTone ? 500 : 400,
             whiteSpace: "nowrap",
@@ -1979,14 +1994,14 @@ window.__ModuleLoader__.load({
         idleDays !== null && idleDays >= 2 ? h("span", { "data-idle-days": idleDays, style: { marginLeft: "5px", color: idleDays >= 5 ? T.err : T.warn } }, `\xB7 ${idleDays} \u5929\u6CA1\u52A8`) : null
       ) : null;
       const meta = [
-        isDefect(item) ? h(DefectPill, null) : h("span", { style: { fontSize: "11px", color: T.text3, whiteSpace: "nowrap" } }, isChatSource(item) ? "\u{1F4AC} \u5BF9\u8BDD\u751F\u6210" : isFeedbackSource(item) ? "\u53CD\u9988" : "\u270D\uFE0F \u624B\u52A8\u521B\u5EFA"),
+        isDefect(item) ? h(DefectPill, null) : h("span", { style: { fontSize: "11px", color: T.text3, whiteSpace: "nowrap" } }, isChatSource(item) ? "\u5BF9\u8BDD\u751F\u6210" : isFeedbackSource(item) ? "\u53CD\u9988" : "\u624B\u52A8\u521B\u5EFA"),
         h("code", { style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "11px", color: T.text3 } }, item.id),
         h(
           "span",
           {
             title: item.specConvergences?.length ? [...item.specConvergences].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote || "\u9700\u6C42\u5DF2\u6F14\u8FDB" : "\u9700\u6C42\u7248\u672C",
             tabIndex: 0,
-            style: Number(item.revision) > 1 ? { color: "#8bd5f5", background: "rgba(63,160,205,.14)", border: "1px solid rgba(106,190,225,.4)", borderRadius: "999px", padding: "0 6px", fontSize: "10.5px", whiteSpace: "nowrap" } : { color: T.text3, fontSize: "11px", whiteSpace: "nowrap" }
+            style: Number(item.revision) > 1 ? { color: T.text2, background: "transparent", border: `1px solid ${T.line}`, borderRadius: "999px", padding: "0 5px", fontSize: "10.5px", whiteSpace: "nowrap" } : { color: T.text3, fontSize: "11px", whiteSpace: "nowrap" }
           },
           `v${item.revision ?? 1}${Number(item.revision) > 1 ? " \xB7 \u5DF2\u6F14\u8FDB" : ""}`
         ),
@@ -3966,21 +3981,50 @@ window.__ModuleLoader__.load({
         return typeof a === "string" && typeof b === "string" && a !== b ? [{ label, before: a, after: b }] : [];
       });
       const count = (type) => changes.filter((entry) => entry.type === type).length + (type === "modified" ? fields.length : 0);
-      const box = (sign, label, value, tone) => h(
+      const box = (sign, value, tone) => h(
         "div",
-        { style: { borderLeft: `3px solid ${tone}`, padding: "6px 10px", whiteSpace: "pre-wrap", overflowWrap: "anywhere", background: tone === T.err ? "rgba(255,139,139,.08)" : "rgba(53,196,122,.08)", color: T.text } },
-        h("strong", { style: { color: tone, fontWeight: 600 } }, sign, " ", label),
-        " ",
-        value || "\u2014"
+        { style: { display: "grid", gridTemplateColumns: "14px minmax(0,1fr)", gap: "6px", padding: "3px 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere", color: tone === T.err ? T.text3 : T.text, textDecoration: tone === T.err ? "line-through" : "none", fontSize: "12.5px", lineHeight: 1.7 } },
+        h("span", { "aria-hidden": "true", style: { color: tone, fontWeight: 600 } }, sign),
+        h("span", null, value || "\u2014")
       );
+      const changeTone = (type) => type === "added" ? T.ok : type === "removed" ? T.err : T.warn;
       return h(
         "div",
-        { "data-visual-spec-diff": "true", style: { margin: "10px 0", padding: "12px", border: `1px solid ${T.line}`, borderRadius: "8px" } },
-        h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px" } }, h("strong", null, `\u7248\u672C\u5BF9\u6BD4${delta.beforeRevision && delta.revision ? ` (v${delta.beforeRevision} \u2192 v${delta.revision})` : ""}`), h("span", { style: { color: T.ok } }, `+${count("added")} \u65B0\u589E`), h("span", { style: { color: T.warn } }, `~${count("modified")} \u4FEE\u6539`), h("span", { style: { color: T.err } }, `-${count("removed")} \u79FB\u9664`)),
-        fields.map((field) => h("div", { key: field.label, style: { marginBottom: "10px" } }, h("strong", null, field.label), box("\u2212", "\u4FEE\u6539\u524D", field.before, T.err), box("+", "\u4FEE\u6539\u540E", field.after, T.ok))),
-        changes.map((change) => h("div", { key: change.id, style: { borderLeft: `3px solid ${change.type === "added" ? T.ok : change.type === "removed" ? T.err : T.warn}`, padding: "8px 10px", margin: "6px 0", background: change.type === "added" ? "rgba(53,196,122,.06)" : change.type === "removed" ? "rgba(255,139,139,.06)" : T.layer, overflowWrap: "anywhere" } }, h("strong", { style: { color: change.type === "added" ? T.ok : change.type === "removed" ? T.err : T.warn } }, `${change.type === "added" ? "+ \u65B0\u589E" : change.type === "removed" ? "- \u79FB\u9664" : "~ \u4FEE\u6539"} ${change.id}`), change.type === "modified" ? h("div", null, box("\u2212", "\u4FEE\u6539\u524D", change.before, T.err), box("+", "\u4FEE\u6539\u540E", change.after, T.ok)) : h("div", { style: { padding: "4px 2px", textDecoration: change.type === "removed" ? "line-through" : "none", color: change.type === "removed" ? T.err : T.ok } }, change.after ?? change.before))),
+        { "data-visual-spec-diff": "true", style: { margin: "8px 0 2px", paddingLeft: "12px", borderLeft: `1px solid ${T.line}` } },
+        h(
+          "div",
+          { style: { display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "8px", fontSize: "12px", color: T.text3 } },
+          h("strong", { style: { color: T.text2, fontWeight: 600 } }, "\u672C\u6B21\u6539\u52A8"),
+          h("span", null, `+${count("added")} \u65B0\u589E`),
+          h("span", null, `~${count("modified")} \u4FEE\u6539`),
+          h("span", null, `-${count("removed")} \u79FB\u9664`)
+        ),
+        fields.map((field) => h(
+          "div",
+          { key: field.label, style: { margin: "10px 0" } },
+          h("div", { style: { fontSize: "12px", color: T.text3, marginBottom: "3px" } }, field.label),
+          box("\u2212", field.before, T.err),
+          box("+", field.after, T.ok)
+        )),
+        changes.map((change) => h(
+          "div",
+          { key: change.id, style: { margin: "10px 0", overflowWrap: "anywhere" } },
+          h(
+            "div",
+            { style: { fontSize: "11.5px", color: T.text3, marginBottom: "3px" } },
+            h("span", { style: { color: changeTone(change.type), fontWeight: 600 } }, change.type === "added" ? "+" : change.type === "removed" ? "\u2212" : "~"),
+            ` ${change.type === "added" ? "\u65B0\u589E" : change.type === "removed" ? "\u79FB\u9664" : "\u4FEE\u6539"} ${change.id}`
+          ),
+          change.type === "modified" ? h("div", null, box("\u2212", change.before, T.err), box("+", change.after, T.ok)) : h("div", { style: { paddingLeft: "14px", fontSize: "12.5px", lineHeight: 1.7, color: change.type === "removed" ? T.text3 : T.text, textDecoration: change.type === "removed" ? "line-through" : "none" } }, change.after ?? change.before)
+        )),
         !fields.length && !changes.length ? h("p", { style: DETAIL_SMALL }, "\u672C\u6B21\u672A\u8BB0\u5F55\u53EF\u5C55\u793A\u7684\u9700\u6C42\u6216\u9A8C\u6536\u53D8\u66F4\u3002") : null
       );
+    }
+    function timelineTitle(entry, versionTag) {
+      const title = String(entry.title ?? entry.kind ?? "\u4E8B\u4EF6").trim();
+      if (!versionTag) return title;
+      if (title === versionTag) return "\u9700\u6C42\u57FA\u7EBF\u5DF2\u6536\u655B";
+      return title.replace(/\s*[·:：]\s*v\d+\s*→\s*v\d+\s*$/u, "").trim() || title;
     }
     function timelineStyle(entry) {
       if (["candidate", "human-signoff", "release"].includes(entry.kind)) return { color: T.ok, label: entry.kind === "candidate" ? "\u4EA4\u4ED8\u5019\u9009" : entry.kind === "human-signoff" ? "\u4EBA\u5DE5\u7B7E\u6536" : "\u53D1\u5E03\u5F52\u6863" };
@@ -4042,12 +4086,19 @@ window.__ModuleLoader__.load({
         record.timelineOmitted > 0 && record.timelineFingerprint ? h("button", { type: "button", style: { ...DETAIL_LINK, cursor: state.loading || !state.next || state.error === "changed" ? "not-allowed" : "pointer" }, "aria-disabled": state.loading || !state.next || state.error === "changed", onClick: load }, state.loading ? "\u8BFB\u53D6\u4E2D\u2026" : state.error === "changed" ? "\u8BF7\u5237\u65B0\u9700\u6C42\u540E\u8BFB\u53D6" : state.next ? `\u52A0\u8F7D\u8F83\u65E9\u4E8B\u4EF6\uFF08\u5269\u4F59 ${state.next} \u6761\uFF09` : "\u5DF2\u663E\u793A\u5168\u90E8\u5DF2\u6536\u96C6\u4E8B\u4EF6") : null,
         timeline.length ? h("ul", { "data-version-timeline": "true", style: { position: "relative", margin: "12px 0 0 8px", paddingLeft: "18px", borderLeft: `1px solid ${T.line}`, display: "grid", gap: "14px", listStyle: "none" } }, [...timeline].reverse().map((entry, index) => {
           const appearance = timelineStyle(entry);
+          const title = timelineTitle(entry, appearance.label);
+          const showTag = !title.includes(appearance.label);
           return h(
             "li",
             { key: `${entry.at ?? "event"}-${index}`, style: { position: "relative", fontSize: "12px", color: T.text2, lineHeight: 1.6, minWidth: 0 } },
             h("span", { "aria-hidden": "true", style: { position: "absolute", left: "-24px", top: "5px", width: "10px", height: "10px", borderRadius: "50%", background: appearance.color, boxShadow: `0 0 0 3px ${T.bg ?? T.layer}` } }),
-            h("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } }, h("span", { style: { color: appearance.color, background: T.layer2, border: `1px solid ${appearance.color}`, borderRadius: "999px", padding: "1px 7px", fontSize: "11px", fontWeight: 600 } }, appearance.label), h("time", { dateTime: entry.at, style: { color: T.text3, fontSize: "11px", flex: "none" } }, formatLocalStamp(entry.at))),
-            h("div", { style: { color: T.text, marginTop: "3px", fontWeight: 600, overflowWrap: "anywhere" } }, entry.title ?? entry.kind ?? "\u4E8B\u4EF6"),
+            h(
+              "div",
+              { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } },
+              showTag ? h("span", { style: { color: T.text2, background: "transparent", border: `1px solid ${T.line}`, borderRadius: "999px", padding: "1px 7px", fontSize: "11px" } }, appearance.label) : null,
+              h("time", { dateTime: entry.at, style: { color: T.text3, fontSize: "11px", flex: "none" } }, formatLocalStamp(entry.at))
+            ),
+            h("div", { style: { color: T.text, marginTop: "3px", fontWeight: 600, overflowWrap: "anywhere" } }, title),
             entry.detail ? h("div", { style: { color: T.text3, fontSize: "11.5px", marginTop: "3px", overflowWrap: "anywhere" } }, entry.detail) : null,
             // The newest change is the reason this tab was opened; showing the
             // diff without a click saves a step and reads like a commit.
@@ -4264,114 +4315,240 @@ window.__ModuleLoader__.load({
       const pending = (Array.isArray(doc.pending) ? doc.pending : []).filter((entry) => typeof entry === "string" ? entry.trim() : (!entry?.status || entry.status === "open") && draftText(entry?.text));
       const scope = draftList(doc.scope), excluded = draftList(doc.outOfScope), constraints = draftList(doc.constraints);
       const blocks = humanDescriptionBlocks(model);
-      const paragraph = { margin: "6px 0 0", fontSize: "15px", color: T.text2, lineHeight: 1.8, overflowWrap: "anywhere" };
+      const paragraph = { margin: 0, fontSize: "14px", color: T.text2, lineHeight: 1.9, overflowWrap: "anywhere" };
       const preview = (value) => String(value ?? "").replace(/^#{1,6}\s+/gm, "").replace(/^>\s?/gm, "").replace(/^\s*(?:[-*]|\d+\.)\s+/gm, "").replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").trim();
-      const rows = (label, values, anchor) => values.length ? h("div", { ...anchor ? { [anchor]: "true" } : {}, style: { marginTop: "16px" } }, h("h3", { style: { margin: 0, fontSize: "13px", color: T.text } }, label), h("ul", { style: { ...paragraph, paddingLeft: "20px" } }, values.map((text, index) => h("li", { key: index }, text)))) : null;
+      const heading = (title) => h("h2", { style: { margin: "0 0 10px", fontSize: "15px", fontWeight: 600, color: T.text } }, title);
+      const bullets = (values) => h("ul", { className: "det-bullets" }, values.map((text, index) => h("li", { key: index }, text)));
+      const rows = (label, values, anchor) => values.length ? h("section", { ...anchor ? { [anchor]: "true" } : {}, className: "det-section", style: { marginTop: "24px" } }, heading(label), bullets(values)) : null;
       return h(
         "div",
         { "data-human-description": "true" },
         h("div", { className: "description-cards" }, blocks.map((block, index) => h(
-          "div",
-          { key: index, "data-human-long": block.text.length > 180 ? "true" : void 0, style: { padding: "12px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
+          "section",
+          { key: index, className: "det-section", "data-human-long": block.text.length > 180 ? "true" : void 0, style: { marginTop: index === 0 ? 0 : "24px" } },
           index === 0 && status === "unconfirmed" ? descriptionStatusBadge(status) : null,
-          h("h3", { style: { margin: 0, fontSize: "13px", fontWeight: 600, color: T.text } }, block.title || "\u9884\u671F\u53D8\u5316"),
+          heading(block.title || "\u9884\u671F\u53D8\u5316"),
           block.text.length > 180 ? h(HumanLongDescription, { text: block.text, paragraph, preview }) : h("div", { style: paragraph }, renderRich(block.text))
         ))),
         features.length ? h(
-          "div",
-          { "data-human-features": "true", style: { marginTop: "20px" } },
-          h("h3", { style: { margin: "0 0 8px", fontSize: "13px" } }, "\u5177\u4F53\u8981\u505A\u5230"),
+          "section",
+          { "data-human-features": "true", className: "det-section", style: { marginTop: "24px" } },
+          heading("\u5177\u4F53\u8981\u505A\u5230"),
           features.map((feature, index) => h(
             "div",
-            { key: feature.id ?? index, "data-detail-fr": feature.id, style: { margin: "12px 0" } },
-            feature.title ? h("strong", { style: { fontSize: "14px", fontWeight: 600 } }, feature.title) : null,
-            feature.behavior ? h("p", { style: paragraph }, draftText(feature.behavior)) : null,
-            feature.preconditions?.length || feature.response || feature.boundaries?.length ? h("details", { style: { marginTop: "4px" } }, h("summary", { style: { color: T.text3, fontSize: "12px", cursor: "pointer" } }, "\u9002\u7528\u6761\u4EF6\u4E0E\u8FB9\u754C"), rows("\u9002\u7528\u6761\u4EF6", draftList(feature.preconditions)), feature.response ? h("p", { style: paragraph }, draftText(feature.response)) : null, rows("\u8FB9\u754C", draftList(feature.boundaries))) : null
+            { key: feature.id ?? index, "data-detail-fr": feature.id, style: { marginTop: index === 0 ? 0 : "14px" } },
+            feature.title ? h("strong", { style: { fontSize: "13.5px", fontWeight: 600, color: T.text } }, feature.title) : null,
+            feature.behavior ? h("p", { style: { ...paragraph, marginTop: "4px" } }, draftText(feature.behavior)) : null,
+            feature.preconditions?.length || feature.response || feature.boundaries?.length ? h("details", { className: "techcause", style: { marginTop: "6px" } }, h("summary", { style: { color: T.text3, fontSize: "12.5px", cursor: "pointer" } }, "\u9002\u7528\u6761\u4EF6\u4E0E\u8FB9\u754C"), feature.preconditions?.length ? h("div", { style: { marginTop: "6px" } }, bullets(draftList(feature.preconditions))) : null, feature.response ? h("p", { style: { ...paragraph, marginTop: "6px" } }, draftText(feature.response)) : null, feature.boundaries?.length ? h("div", { style: { marginTop: "6px" } }, bullets(draftList(feature.boundaries))) : null) : null
           ))
         ) : null,
         rows("\u672C\u6B21\u8303\u56F4", scope, "data-detail-scope"),
         rows("\u8FD9\u6B21\u4E0D\u505A", excluded, "data-detail-excluded"),
         rows("\u5FC5\u987B\u9075\u5B88", constraints, "data-detail-constraints"),
-        pending.length ? h("div", { "data-detail-pending": "true", style: { marginTop: "20px", borderLeft: `2px solid ${T.warn}`, paddingLeft: "12px" } }, h("strong", { style: { fontSize: "13px" } }, "\u5F85\u786E\u8BA4\u7684\u4E1A\u52A1\u95EE\u9898"), h("ul", { style: { ...paragraph, paddingLeft: "20px" } }, pending.map((entry, index) => h("li", { key: index }, typeof entry === "string" ? entry : draftText(entry.text))))) : null
+        pending.length ? h("section", { "data-detail-pending": "true", className: "det-section", style: { marginTop: "24px" } }, heading("\u5F85\u786E\u8BA4\u7684\u4E1A\u52A1\u95EE\u9898"), bullets(pending.map((entry) => typeof entry === "string" ? entry : draftText(entry.text)))) : null
       );
     }
-    function HumanVerification({ item, detail, matter }) {
-      const summary = detail.verificationSummary ?? {};
-      const sourceCriteria = detail.content?.acceptanceCriteria?.length ? detail.content.acceptanceCriteria.map((entry) => ({ ...entry, ...(summary.criteria ?? []).find((result) => result.id === entry.id) })) : detail.content?.doc?.acceptance?.length ? detail.content.doc.acceptance.map((entry) => ({ ...entry, ...(summary.criteria ?? []).find((result) => result.id === entry.id) })) : summary.criteria ?? [];
-      const criteria = [...sourceCriteria].sort((left, right) => {
+    function acceptanceCriteriaOf(detail) {
+      const summary = detail?.verificationSummary ?? {};
+      const base = detail?.content?.acceptanceCriteria?.length ? detail.content.acceptanceCriteria : detail?.content?.doc?.acceptance?.length ? detail.content.doc.acceptance : [];
+      const list = base.length ? base.map((entry) => ({ ...entry, ...(summary.criteria ?? []).find((result) => result.id === entry.id) })) : summary.criteria ?? [];
+      return [...list].sort((left, right) => {
         if (Boolean(left?.legacyBaseline) !== Boolean(right?.legacyBaseline)) return left?.legacyBaseline ? -1 : 1;
         if (left?.legacyBaseline && right?.legacyBaseline) return 0;
         const number = (entry) => Number(/^AC-(\d+)$/i.exec(String(entry?.id ?? "").trim())?.[1] ?? Number.MAX_SAFE_INTEGER);
-        const byNumber = number(left) - number(right);
-        return byNumber || String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
+        return number(left) - number(right) || String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
       });
-      const statusMeta2 = (status) => {
-        if (status === "accepted") return { label: "\u5DF2\u9A8C\u6536", color: T.ok, passed: true };
-        if (status === "verified") return { label: "\u5DF2\u9A8C\u8BC1 \xB7 \u5F85\u7B7E\u6536", color: T.ok, passed: true };
-        if (status === "passed") return { label: "\u5DF2\u901A\u8FC7", color: T.ok, passed: true };
-        if (status === "failed") return { label: "\u672A\u901A\u8FC7", color: T.err, passed: false };
-        return { label: "\u5F85\u9A8C\u8BC1", color: T.text3, passed: false };
+    }
+    function acceptanceRowState(status) {
+      if (status === "accepted") return { label: "\u5DF2\u9A8C\u6536", color: T.ok, passed: true };
+      if (status === "verified") return { label: "\u5DF2\u9A8C\u8BC1 \xB7 \u5F85\u7B7E\u6536", color: T.ok, passed: true };
+      if (status === "passed") return { label: "\u5DF2\u901A\u8FC7", color: T.ok, passed: true };
+      if (status === "failed") return { label: "\u672A\u901A\u8FC7", color: T.err, passed: false };
+      return { label: "\u5F85\u9A8C\u8BC1", color: T.text3, passed: false };
+    }
+    function acceptanceTally(detail) {
+      const criteria = acceptanceCriteriaOf(detail);
+      const passed = criteria.filter((entry) => acceptanceRowState(entry.status).passed).length;
+      return { total: criteria.length, passed, open: criteria.length - passed, failed: criteria.filter((entry) => entry.status === "failed").length };
+    }
+    function HumanVerification({ item, detail, matter }) {
+      const criteria = acceptanceCriteriaOf(detail);
+      const row2 = (entry, index, top) => {
+        const id = entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`;
+        const state = acceptanceRowState(entry.status);
+        return h(
+          "div",
+          {
+            key: id,
+            "data-detail-ac": id,
+            className: state.passed ? "acrow is-passed" : "acrow",
+            style: {
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "12px",
+              minWidth: 0,
+              padding: state.passed ? "7px 12px" : "10px 12px",
+              borderTop: top ? `1px solid ${T.line}` : void 0
+            }
+          },
+          h("div", { style: { flex: "none", width: "44px", paddingTop: "2px", fontSize: "11.5px", color: T.text3, fontVariantNumeric: "tabular-nums" } }, id),
+          h(
+            "div",
+            { style: { flex: "1 1 auto", minWidth: 0, fontSize: state.passed ? "12.5px" : "13.5px", lineHeight: 1.7, color: state.passed ? T.text3 : T.text, overflowWrap: "anywhere" } },
+            entry.text || entry.title || entry.expected || "\u5F85\u8865\u5145",
+            entry.status === "failed" && entry.reason ? h("small", { style: { display: "block", marginTop: "2px", color: T.text3, fontSize: "12px" } }, `\u5361\u5728\u8FD9\u91CC\uFF1A${entry.reason}`) : null
+          ),
+          h("div", { style: { flex: "none", paddingTop: "2px", fontSize: "11.5px", whiteSpace: "nowrap", color: state.color } }, state.label)
+        );
       };
-      const row2 = (entry, index) => h(
-        "div",
-        { key: entry.id ?? index, "data-detail-ac": entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`, style: { border: `1px solid ${T.line}`, borderRadius: "9px", padding: "5px 10px", minWidth: 0, fontSize: "12.5px", lineHeight: 1.55 } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", gap: "12px", color: T.text2, fontSize: "12px" } }, h("strong", null, entry.id ?? `AC-${String(index + 1).padStart(2, "0")}`), (() => {
-          const status = statusMeta2(entry.status);
-          return h("span", { style: { color: status.color } }, status.label);
-        })()),
-        h("div", { style: { marginTop: "5px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, entry.text || entry.title || entry.expected || "\u5F85\u8865\u5145")
-      );
-      const open = criteria.filter((entry) => !statusMeta2(entry.status).passed);
-      const closed = criteria.filter((entry) => statusMeta2(entry.status).passed);
-      const caption = criteria.length ? [`${criteria.length} \u9879`, ...closed.length ? [`${closed.length} \u9879\u5DF2\u901A\u8FC7`] : [], ...open.length ? [`${open.length} \u9879${open.some((entry) => entry.status === "failed") ? "\u672A\u901A\u8FC7\u6216" : ""}\u5F85\u9A8C\u8BC1`] : []].join(" \xB7 ") : null;
+      const open = criteria.filter((entry) => !acceptanceRowState(entry.status).passed);
+      const closed = criteria.filter((entry) => acceptanceRowState(entry.status).passed);
+      const caption = criteria.length ? closed.length === criteria.length ? `${criteria.length} \u9879 \xB7 \u5168\u90E8\u901A\u8FC7` : open.length === criteria.length ? `${criteria.length} \u9879` : [`${criteria.length} \u9879`, `${closed.length} \u9879\u5DF2\u901A\u8FC7`, `${open.length} \u9879${open.some((entry) => entry.status === "failed") ? "\u672A\u901A\u8FC7\u6216" : ""}\u5F85\u9A8C\u8BC1`].join(" \xB7 ") : null;
       return h(
         "section",
-        { "data-human-verification": "true", style: { marginTop: "14px", paddingTop: "12px", borderTop: `1px solid ${T.line}` } },
+        { "data-human-verification": "true", className: "det-section", style: { marginTop: "24px" } },
         h(
           "h2",
-          { style: { fontSize: "16px", margin: 0 } },
+          { style: { margin: "0 0 10px", fontSize: "15px", fontWeight: 600, display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" } },
           "\u5B8C\u6210\u7684\u6807\u51C6",
-          caption ? h("span", { "data-human-verification-count": caption, style: { marginLeft: "8px", fontSize: "12px", fontWeight: 400, color: T.text3 } }, caption) : null
+          caption ? h("span", { "data-human-verification-count": caption, style: { fontSize: "12px", fontWeight: 400, color: T.text3 } }, caption) : null
         ),
         criteria.length ? h(
           "div",
-          { "data-human-acceptance": "true", style: { display: "grid", gap: "6px", marginTop: "8px" } },
-          ...open.map(row2),
+          { "data-human-acceptance": "true", style: { border: `1px solid ${T.line}`, borderRadius: "8px", background: T.layer, overflow: "hidden" } },
+          ...open.map((entry, index) => row2(entry, index, index > 0)),
           closed.length ? h(
             "details",
-            { key: "passed-folds", "data-passed-acceptance": "true", style: { marginTop: "2px" } },
-            h("summary", { style: { cursor: "pointer", color: T.text2, fontSize: "12.5px", padding: "4px 0" } }, `${closed.length} \u9879\u5DF2\u901A\u8FC7`, h("span", { style: { marginLeft: "6px", color: T.text3 } }, "\u70B9\u5F00\u770B\u8BC1\u636E")),
-            h("div", { style: { display: "grid", gap: "6px", marginTop: "6px" } }, ...closed.map(row2))
+            { key: "passed-folds", "data-passed-acceptance": "true", style: { borderTop: open.length ? `1px solid ${T.line}` : void 0 } },
+            h(
+              "summary",
+              { style: { cursor: "pointer", color: T.text2, fontSize: "12.5px", padding: "8px 12px", listStyle: "none" } },
+              open.length ? `${closed.length} \u9879\u5DF2\u901A\u8FC7` : null,
+              h("span", { style: { marginLeft: "6px", color: T.text3 } }, `${closed.map((entry) => entry.id).filter(Boolean).join("\u3001")} \xB7 \u70B9\u5F00\u770B\u8BC1\u636E`)
+            ),
+            h("div", null, ...closed.map((entry) => row2(entry, closed.indexOf(entry), true)))
           ) : null
-        ) : h("p", { style: { color: T.text2 } }, "\u6682\u65E0\u9A8C\u6536\u6807\u51C6\u3002")
+        ) : h("p", { style: { margin: "8px 0 0", color: T.text2, fontSize: "13.5px" } }, "\u8FD8\u6CA1\u6709\u9A8C\u6536\u6807\u51C6\u3002")
       );
     }
     const HUMAN_CONTROL = { ...button, minHeight: "40px", padding: "8px 14px", fontSize: "14px", fontWeight: 500, lineHeight: 1.5, color: T.text, border: `1px solid ${T.line2}`, background: T.layer };
     const DETAIL_MENU_ITEM = { ...HUMAN_CONTROL, width: "100%", textAlign: "left", border: 0, background: "transparent", minHeight: "36px", padding: "7px 10px" };
     const HUMAN_PRIMARY = { ...primary, minHeight: "44px", padding: "10px 20px", fontSize: "14px", fontWeight: 600 };
-    function DetailStatusBand({ detail, matter, handlers, pendingId, onGotoProgress, showProgressLink }) {
+    function cleanActionLabel(label, fallback = "\u7EE7\u7EED") {
+      const text = String(label ?? "").replace(/^[^\p{L}\p{N}]+/u, "").replace(/\s*[(（][A-Za-z][^)）]*[)）]\s*$/, "").trim();
+      return text || fallback;
+    }
+    const BAND_TAGS = {
+      closed: "\u5DF2\u5173\u95ED",
+      released: "\u5DF2\u4E0A\u7EBF",
+      accepted: "\u5DF2\u9A8C\u6536",
+      "awaiting-acceptance": "\u7B49\u4F60\u9A8C\u6536",
+      answer: "\u7B49\u4F60\u56DE\u7B54",
+      "plan-review": "\u7B49\u4F60\u786E\u8BA4",
+      "candidate-pending": "\u5F85\u9A8C\u6536",
+      "run-active": "\u63A8\u8FDB\u4E2D",
+      "run-interrupted": "\u5361\u4F4F\u4E86",
+      "acceptance-failed": "\u5361\u4F4F\u4E86",
+      "release-failed": "\u5361\u4F4F\u4E86",
+      "release-authorized": "\u7B49\u4F60\u53D1\u5E03",
+      "run-idle-handback": "\u5F85\u5F00\u59CB",
+      "run-rolled-back": "\u5F85\u5F00\u59CB",
+      "not-started": "\u5F85\u5F00\u59CB",
+      unverified: "\u5F85\u5F00\u59CB",
+      automatic: "\u63A8\u8FDB\u4E2D"
+    };
+    const BAND_HUMAN = ["awaiting-acceptance", "answer", "plan-review", "run-interrupted", "acceptance-failed", "release-failed", "release-authorized", "decision", "technical-block"];
+    const BAND_PALETTE = {
+      err: { fg: T.err, mark: T.errSolid },
+      warn: { fg: T.warn, mark: T.warnSolid },
+      ok: { fg: T.ok, mark: T.okSolid },
+      brand: { fg: T.brand, mark: T.brand },
+      idle: { fg: T.text2, mark: T.text3 }
+    };
+    function sameFact(a, b) {
+      const grams = (text) => {
+        const clean = String(text ?? "").replace(/[\s，。；：、·（）()「」]/g, "");
+        const out = /* @__PURE__ */ new Set();
+        if (clean.length === 1) out.add(clean);
+        for (let k = 0; k < clean.length - 1; k += 1) out.add(clean.slice(k, k + 2));
+        return out;
+      };
+      const left = grams(a);
+      const right = grams(b);
+      if (!left.size || !right.size) return false;
+      let hit = 0;
+      for (const gram of left) if (right.has(gram)) hit += 1;
+      return hit / Math.min(left.size, right.size) >= 0.45;
+    }
+    function DetailStatusBand({ detail, matter, handlers, pendingId, needsYou }) {
       const context = detail?.context ?? {};
-      const tone = context.tone === "danger" ? "danger" : context.tone === "attention" ? "warn" : "quiet";
-      const palette = tone === "danger" ? { bg: "rgba(255,139,139,.07)", border: "rgba(255,139,139,.28)", fg: T.err } : tone === "warn" ? { bg: "rgba(231,176,75,.07)", border: "rgba(231,176,75,.26)", fg: T.warn } : { bg: T.layer, border: T.line, fg: T.text2 };
+      const kind = matter?.kind ?? context.kind ?? "unknown";
+      const toneKey = kind === "run-active" || kind === "automatic" ? "brand" : context.tone === "danger" || ["run-interrupted", "acceptance-failed", "release-failed"].includes(kind) ? "err" : context.tone === "success" || ["accepted", "released"].includes(kind) ? "ok" : context.tone === "attention" || kind === "decision" || kind === "awaiting-acceptance" ? "warn" : "idle";
+      const palette = BAND_PALETTE[toneKey];
+      const tag = BAND_TAGS[kind] ?? (context.tone === "danger" ? "\u5361\u4F4F\u4E86" : "\u5F85\u5904\u7406");
+      const tally = acceptanceTally(detail);
       const action = matter?.action ?? null;
       const runnable = action && action.enabled !== false && handlers?.[action.id] ? action : null;
       const pending = runnable ? pendingId?.(runnable.id) : null;
+      const wantsHuman = (typeof needsYou === "boolean" ? needsYou : BAND_HUMAN.includes(kind)) || Boolean(runnable && runnable.id !== "watch-run");
+      const when = relativeStamp(detail?.identity?.updatedAt);
+      const reason = (() => {
+        if (!context.explanation) return null;
+        const body = String(context.explanation).split(/[；;]/)[0].replace(/[。.]\s*$/, "").trim();
+        const cut = body.search(/[：:]/);
+        return cut > 0 && sameFact(body.slice(0, cut), context.headline) ? body.slice(cut + 1).trim() : body;
+      })();
       return h(
         "section",
         {
-          "data-detail-band": context.kind ?? "unknown",
-          "data-tone": tone,
+          "data-detail-band": kind,
+          "data-tone": toneKey,
           "aria-label": `\u5F53\u524D\u72B6\u6001\uFF1A${context.headline ?? "\u672A\u77E5"}`,
-          style: { display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap", width: "100%", boxSizing: "border-box", margin: "0 0 20px", padding: "12px 14px", border: `1px solid ${palette.border}`, borderLeft: `3px solid ${palette.fg}`, borderRadius: "10px", background: palette.bg }
+          className: "det-band",
+          style: { position: "sticky", top: 0, zIndex: 6, padding: "10px 24px", background: `color-mix(in srgb, ${T.base} 92%, transparent)`, backdropFilter: "blur(10px)", borderBottom: `1px solid ${T.line}` }
         },
         h(
           "div",
-          { style: { minWidth: 0, flex: "1 1 260px" } },
-          h("div", { style: { color: palette.fg, fontSize: "13px", fontWeight: 600 } }, context.headline ?? "\u6682\u65E0\u5F85\u529E"),
-          context.explanation ? h("p", { style: { margin: "3px 0 0", color: T.text2, fontSize: "12.5px", lineHeight: 1.65 } }, context.explanation) : null
-        ),
-        runnable ? h("button", { type: "button", style: HUMAN_PRIMARY, disabled: Boolean(pending), "data-band-action": runnable.id, onClick: () => handlers[runnable.id]() }, pending?.short ?? runnable.label ?? "\u7EE7\u7EED") : null,
-        showProgressLink ? h("button", { type: "button", onClick: onGotoProgress, style: { ...HUMAN_CONTROL, minHeight: "40px" } }, "\u53BB AI \u8FDB\u5C55") : null
+          { className: "bandin", style: { display: "flex", alignItems: "center", gap: "12px", boxSizing: "border-box", maxWidth: "1232px", padding: "8px 12px 8px 11px", border: `1px solid ${T.line}`, borderLeft: `2px solid ${palette.mark}`, borderRadius: "8px", background: T.layer } },
+          // Two voices, not four. The tag, the headline and the explanation used
+          // to repeat one fact ("待开始 / 尚未开始 / 尚未开始推进"), so the band
+          // read as noise and the button had to compete with its own caption.
+          // Now: a dot, one strong state line, one quiet supporting line.
+          h(
+            "div",
+            { style: { minWidth: 0, flex: "1 1 auto", display: "flex", flexDirection: "column", gap: "2px" } },
+            h(
+              "div",
+              { style: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0 } },
+              h("span", { "aria-hidden": "true", style: { flex: "none", width: "7px", height: "7px", borderRadius: "50%", background: palette.mark } }),
+              h("span", { style: { minWidth: 0, fontSize: "13.5px", fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, context.headline ?? tag)
+            ),
+            h(
+              "div",
+              { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "nowrap", minWidth: 0, paddingLeft: "14px", fontSize: "12px", color: T.text3 } },
+              h("span", { style: wantsHuman ? { flex: "none", color: T.warn } : { flex: "none" } }, wantsHuman ? "\u9700\u8981\u4F60\u5904\u7406" : "\u4E0D\u9700\u8981\u4F60\u52A8\u624B"),
+              // The reason only shows when it is not a rewording of the state line.
+              reason && !sameFact(reason, context.headline) ? h("span", { title: context.explanation, style: { minWidth: 0, flex: "0 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, `\xB7 ${reason}`) : null,
+              when ? h("span", { className: "band-when", style: { flex: "none" } }, `\xB7 \u6700\u8FD1\u52A8\u4F5C ${when}`) : null
+            )
+          ),
+          tally.total ? h(
+            "span",
+            { "data-band-progress": `${tally.passed}/${tally.total}`, title: `${tally.total} \u9879\u9A8C\u6536\uFF0C${tally.passed} \u9879\u901A\u8FC7`, style: { flex: "none", marginLeft: "auto", display: "flex", alignItems: "center", gap: "7px", fontSize: "11.5px", color: T.text2, whiteSpace: "nowrap" } },
+            // A 0% bar is an empty track: it looks like a broken control
+            // rather than "nothing passed yet", so the count stands alone.
+            tally.passed ? h(
+              "span",
+              { "aria-hidden": "true", style: { width: "60px", height: "4px", borderRadius: "2px", background: T.line2, overflow: "hidden" } },
+              h("i", { style: { display: "block", height: "100%", width: `${Math.round(tally.passed / tally.total * 100)}%`, background: tally.passed === tally.total ? T.okSolid : T.text } })
+            ) : null,
+            `${tally.passed}/${tally.total} \u9879\u9A8C\u6536`
+          ) : null,
+          // One filled button per screen. The tab bar already goes to the
+          // progress page, so a second "去 AI 进展" here only diluted the one
+          // action that actually moves the requirement.
+          runnable ? h("button", { type: "button", className: "btn btn-primary", style: { flex: "none", height: "34px", padding: "0 16px", fontSize: "13px" }, disabled: Boolean(pending), "data-band-action": runnable.id, onClick: () => handlers[runnable.id]() }, pending?.short ?? cleanActionLabel(runnable.label)) : null
+        )
       );
     }
     const DELIVERY_STAGES = [
@@ -4392,24 +4569,69 @@ window.__ModuleLoader__.load({
     function DeliveryStage({ item, detail }) {
       const current = stageIndexOf(item, detail);
       return h(
-        "div",
-        { "data-delivery-stage": DELIVERY_STAGES[current][0], style: { display: "flex", alignItems: "center", gap: "0", flexWrap: "wrap", padding: "12px 14px", marginBottom: "14px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
-        DELIVERY_STAGES.map(([id, label], index) => {
-          const done = index < current;
-          const active = index === current;
-          const color = active ? T.text : done ? T.text2 : T.text3;
-          return h(
+        "section",
+        { "data-delivery-stage": DELIVERY_STAGES[current][0], className: "where", style: { marginBottom: "16px", padding: "14px 16px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
+        h(
+          "div",
+          { className: "stepper", role: "list", "aria-label": "\u63A8\u8FDB\u9636\u6BB5" },
+          DELIVERY_STAGES.map(([id, label], index) => h(
             "div",
-            { key: id, "data-stage": id, "data-stage-state": active ? "current" : done ? "done" : "todo", style: { display: "flex", alignItems: "center", gap: "7px", minWidth: 0, flex: "0 1 auto" } },
-            h("span", { "aria-hidden": "true", style: { width: "7px", height: "7px", borderRadius: "50%", flex: "none", background: active ? T.brand : done ? T.ok : "transparent", border: `1.5px solid ${active ? T.brand : done ? T.ok : T.line2}` } }),
-            h("span", { style: { color, fontSize: "12px", fontWeight: active ? 600 : 400, whiteSpace: "nowrap" } }, label),
-            index === DELIVERY_STAGES.length - 1 ? null : h("span", { "aria-hidden": "true", style: { width: "18px", height: "1px", background: T.line2, margin: "0 8px", flex: "none" } })
-          );
-        }),
-        h("span", { style: { marginLeft: "auto", color: T.text3, fontSize: "11.5px", whiteSpace: "nowrap" } }, "\u9636\u6BB5\u53EA\u6807\u4F4D\u7F6E\uFF0C\u8FDB\u5EA6\u770B\u901A\u8FC7\u4E86\u51E0\u9879\u9A8C\u6536")
+            { key: id, role: "listitem", "data-stage": id, "data-stage-state": index < current ? "done" : index === current ? "current" : "todo", className: "step" },
+            h("span", { className: "dot", "aria-hidden": "true" }),
+            h("span", null, label)
+          ))
+        ),
+        h("p", { style: { margin: "12px 0 0", fontSize: "12px", color: T.text3 } }, "\u9636\u6BB5\u53EA\u6807\u4F4D\u7F6E\uFF0C\u8FDB\u5EA6\u770B\u9A8C\u6536\u3002\u9700\u6C42\u6539\u8FC7\u4E4B\u540E\u9636\u6BB5\u4F1A\u9000\u56DE\uFF0C\u901A\u8FC7\u6570\u4E0D\u4F1A\u3002")
       );
     }
-    function IterationFeedback({ item, root, onRefresh, onPatch }) {
+    function TechnicalDetails({ detail, mode = "body", open, onOpenProgress, onOpenRecord, onOpenSession, extra = null, source = false }) {
+      const run = detail?.summaries?.run ?? {};
+      const candidate = detail?.summaries?.candidate ?? {};
+      const release = detail?.summaries?.release ?? {};
+      const arch = detail?.record?.architecture ?? null;
+      const acceptance = detail?.summaries?.acceptance ?? {};
+      const tests = (detail?.content?.verifiedBy ?? []).filter(Boolean);
+      const modules = (arch?.modules ?? []).map((entry) => entry.path).filter(Boolean);
+      const contracts = (arch?.contracts ?? []).filter(Boolean);
+      const scope = run.scopeDiagnostic ?? null;
+      const dev = candidate.development ?? {};
+      const sc = release.sourceControl ?? {};
+      const branch = dev.devBranch ?? sc.devBranch ?? null;
+      const commit = dev.devCommitSha ?? sc.devCommitSha ?? acceptance.headShaShort ?? null;
+      const rows = (mode === "progress" ? [
+        run.exists ? ["\u5F53\u524D\u8FD0\u884C", `${run.id}${run.status ? ` \xB7 ${run.status}` : ""}${run.phase ? ` \xB7 ${run.phase}` : ""}`] : null,
+        scope && (scope.allowedCount || scope.changedCount) ? ["\u4FEE\u6539\u8303\u56F4", `\u9501\u5B9A ${scope.allowedCount} \u4E2A\u6A21\u5757\uFF0C\u5B9E\u9645\u6539\u52A8 ${scope.changedCount} \u4E2A\u6587\u4EF6${scope.outOfScope?.length ? `\uFF08\u8D8A\u754C ${scope.outOfScope.length} \u4E2A\uFF09` : ""}`] : null,
+        branch ? ["\u4EE3\u7801\u4F4D\u7F6E", `${branch}${commit ? ` @ ${String(commit).slice(0, 7)}` : ""}${dev.pushedToRemoteDev || sc.pushedToMain ? " \xB7 \u5DF2\u63A8\u9001" : ""}`] : null,
+        acceptance.finishedAt ? ["\u6700\u8FD1\u9A8C\u6536", `${relativeStamp(acceptance.finishedAt) ?? ""}${acceptance.result ? ` \xB7 ${acceptance.result}` : ""}`.trim()] : null,
+        run.failure?.message ? ["\u62A5\u9519", run.failure.message] : null,
+        run.sessionId ? ["\u4F1A\u8BDD", run.sessionId] : null
+      ] : [
+        tests.length ? ["\u9A8C\u6536\u7528\u4F8B", tests.join(" / ")] : null,
+        modules.length ? ["\u6D89\u53CA\u6A21\u5757", `${modules.slice(0, 4).join(" \xB7 ")}${modules.length > 4 ? ` \u7B49 ${modules.length} \u4E2A` : ""}`] : null,
+        contracts.length ? ["\u6570\u636E\u5951\u7EA6", contracts.slice(0, 3).join(" \xB7 ")] : null,
+        candidate.exists ? ["\u4EA4\u4ED8\u5019\u9009", `${candidate.id}${candidate.treeHashShort ? ` \xB7 \u6811 ${candidate.treeHashShort}` : ""}`] : null,
+        arch?.path ? ["\u67B6\u6784\u5E95\u7A3F", arch.path] : null,
+        detail?.identity?.revision ? ["\u4FEE\u8BA2", `v${detail.identity.revision}`] : null
+      ]).filter(Boolean);
+      if (!rows.length && !extra) return null;
+      const foot = [
+        mode === "progress" ? h("button", { key: "run", type: "button", onClick: onOpenRecord }, "\u6253\u5F00\u8FD0\u884C\u8BB0\u5F55") : h("button", { key: "progress", type: "button", onClick: onOpenProgress }, "\u6253\u5F00 AI \u8FDB\u5C55"),
+        run.sessionId && onOpenSession ? h("button", { key: "session", type: "button", onClick: () => onOpenSession(run.sessionId) }, "\u5728 DSH \u4E2D\u6253\u5F00\u4F1A\u8BDD") : null
+      ].filter(Boolean);
+      return h(
+        "details",
+        { "data-technical-details": mode, ...source ? { "data-description-source": "true" } : {}, open: open || void 0, className: "fold" },
+        h("summary", null, "\u6280\u672F\u7EC6\u8282", h("span", { className: "sub" }, mode === "progress" ? "\u8FD0\u884C\u8BB0\u5F55\u3001\u65E5\u5FD7\u3001\u4F1A\u8BDD" : "\u539F\u59CB\u8BB0\u5F55\u3001\u9A8C\u6536\u8BC1\u636E\u4E0E\u5951\u7EA6")),
+        h(
+          "div",
+          { className: "foldbody" },
+          ...rows.map(([label, value]) => h("div", { key: label, className: "kv" }, h("span", null, label), h("b", null, value))),
+          extra,
+          foot.length ? h("div", { className: "foldfoot" }, ...foot) : null
+        )
+      );
+    }
+    function IterationFeedback({ item, root, onRefresh, onPatch, passedCount = 0 }) {
       const [feedback, setFeedback] = useState("");
       const [localPatch, setLocalPatch] = useState(null);
       const [resolution, setResolution] = useState("");
@@ -4467,14 +4689,26 @@ window.__ModuleLoader__.load({
       };
       return h(
         "section",
-        { "data-iteration-feedback": "true", style: { margin: "14px 0 0", padding: "12px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
-        h("h2", { style: { fontSize: "16px", margin: "0 0 12px" } }, patch ? "\u9700\u6C42\u6536\u655B\u786E\u8BA4" : "\u8865\u5145\u53CD\u9988\u6216\u8C03\u6574\u9700\u6C42"),
+        { "data-iteration-feedback": "true", className: "det-section", style: { margin: "24px 0 0" } },
+        h("h2", { style: { fontSize: "15px", fontWeight: 600, margin: "0 0 10px" } }, patch ? "\u9700\u6C42\u6536\u655B\u786E\u8BA4" : "\u6211\u8981\u6539\u8FD9\u6761\u9700\u6C42"),
         !patch ? h(
           "div",
           null,
           h("label", { htmlFor: `iteration-feedback-${item.id}`, style: { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clipPath: "inset(50%)" } }, "\u63CF\u8FF0\u9700\u8981\u8C03\u6574\u7684\u5185\u5BB9"),
           h("textarea", { id: `iteration-feedback-${item.id}`, value: feedback, maxLength: 4e3, rows: 2, placeholder: "\u76F4\u63A5\u63CF\u8FF0\u9700\u8981\u5FAE\u8C03\u7684\u4EA4\u4E92\u3001\u8865\u5145\u7684\u89C4\u5219\u6216\u53D1\u73B0\u7684\u95EE\u9898\uFF0CAI \u5C06\u81EA\u52A8\u5224\u65AD\u662F\u4FEE\u590D\u4EE3\u7801\u8FD8\u662F\u5347\u7EA7\u9700\u6C42\u7248\u672C...", onChange: (event) => setFeedback(event.target.value), style: { display: "block", boxSizing: "border-box", width: "100%", margin: "8px 0", background: T.layer, color: T.text, border: `1px solid ${T.line2}`, padding: "8px" } }),
-          h("div", { style: { display: "flex", justifyContent: "flex-end" } }, h("button", { type: "button", style: HUMAN_CONTROL, disabled: busy || !feedback.trim(), onClick: () => send({ action: "feedback", reqId: item.id, feedbackText: feedback }) }, busy ? "\u63D0\u4EA4\u5904\u7406\u4E2D..." : "\u63D0\u4EA4\u53CD\u9988"))
+          // What the click costs, before the click. Changing a requirement
+          // voids the acceptance runs that passed against the old text, and
+          // nobody should learn that afterwards.
+          h(
+            "div",
+            { style: { display: "flex", alignItems: "center", gap: "12px", marginTop: "8px" } },
+            h(
+              "span",
+              { "data-feedback-consequence": passedCount > 0 ? "voids" : "draft", style: { flex: "1 1 auto", minWidth: 0, fontSize: "11.5px", lineHeight: 1.6, color: T.text3 } },
+              passedCount > 0 ? `\u63D0\u4EA4\u540E\u4F1A\u751F\u6210\u65B0\u7248\u9700\u6C42\uFF0C\u5E76\u4F5C\u5E9F\u5DF2\u901A\u8FC7\u7684 ${passedCount} \u9879\u9A8C\u6536\u7ED3\u8BBA\u2014\u2014AI \u9700\u8981\u91CD\u65B0\u9A8C\u8BC1\u3002` : "\u63D0\u4EA4\u540E AI \u5148\u7ED9\u51FA\u8C03\u6574\u8349\u6848\uFF0C\u786E\u8BA4\u540E\u624D\u4F1A\u5199\u5165\u9700\u6C42\u57FA\u7EBF\u3002"
+            ),
+            h("div", { style: { display: "flex", justifyContent: "flex-end" } }, h("button", { type: "button", style: HUMAN_CONTROL, disabled: busy || !feedback.trim(), onClick: () => send({ action: "feedback", reqId: item.id, feedbackText: feedback }) }, busy ? "\u63D0\u4EA4\u5904\u7406\u4E2D..." : "\u63D0\u4EA4\u53CD\u9988"))
+          )
         ) : h(
           "div",
           { "data-pending-patch": "true" },
@@ -4528,7 +4762,7 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { style: { display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" } },
-            decision ? h("button", { style: HUMAN_PRIMARY, disabled: action?.enabled === false, "data-primary-action": action?.id ?? "answer-run", onClick: () => onNavigate("requirement") }, businessDecision ? "\u67E5\u770B\u4E1A\u52A1\u9009\u9879\u5E76\u51B3\u5B9A" : "\u67E5\u770B\u95EE\u9898\u4E0E AI \u5904\u7406\u9009\u9879") : !watch && action?.enabled !== false && handlers[action?.id] ? h("button", { style: HUMAN_PRIMARY, "data-primary-action": action.id, onClick: () => handlers[action.id]() }, action.id === "watch-run" ? "\u67E5\u770B AI \u8FDB\u5C55" : action.label) : null,
+            decision ? h("button", { style: HUMAN_PRIMARY, disabled: action?.enabled === false, "data-primary-action": action?.id ?? "answer-run", onClick: () => onNavigate("requirement") }, businessDecision ? "\u67E5\u770B\u4E1A\u52A1\u9009\u9879\u5E76\u51B3\u5B9A" : "\u67E5\u770B\u95EE\u9898\u4E0E AI \u5904\u7406\u9009\u9879") : !watch && action?.enabled !== false && handlers[action?.id] ? h("button", { style: HUMAN_PRIMARY, "data-primary-action": action.id, onClick: () => handlers[action.id]() }, action.id === "watch-run" ? "\u67E5\u770B AI \u8FDB\u5C55" : cleanActionLabel(action.label)) : null,
             !decision ? (detail.secondaryActions ?? []).filter((entry) => entry?.id === "run-acceptance" && entry.enabled !== false && handlers[entry.id]).map((entry) => h("button", { key: entry.id, style: HUMAN_CONTROL, "data-secondary-action": entry.id, onClick: () => handlers[entry.id]() }, entry.label)) : null,
             progressPage && onRefresh ? h("button", { style: HUMAN_CONTROL, "data-progress-refresh": "true", onClick: onRefresh }, "\u5237\u65B0\u72B6\u6001") : null
           ),
@@ -5294,15 +5528,17 @@ ${text}`)) continue;
           h(
             "div",
             { style: { display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" } },
-            action?.id && handlers?.[action.id] ? h("button", { type: "button", style: HUMAN_PRIMARY, disabled: action.enabled === false || Boolean(pending), "data-pending-action": pending ? action.id : void 0, onClick: () => invoke(action.id) }, pending?.short ?? diagnostic?.actionLabel ?? action.label) : null,
-            onAcceptance && !item.closed ? h("button", { type: "button", style: HUMAN_CONTROL, onClick: () => onAcceptance(item) }, "\u91CD\u65B0\u8FD0\u884C\u9A8C\u8BC1") : null,
-            onOpenSession && run.sessionId ? h("button", { type: "button", style: HUMAN_CONTROL, onClick: () => onOpenSession(run.sessionId) }, "\u5728 DSH \u4E2D\u6253\u5F00\u4F1A\u8BDD") : null,
-            h("button", { type: "button", style: HUMAN_CONTROL, onClick: () => onRefresh?.() }, "\u5237\u65B0\u72B6\u6001")
+            // One row, one height: a 44px primary next to 30px secondaries reads as
+            // three different kinds of control.
+            action?.id && handlers?.[action.id] ? h("button", { type: "button", style: { ...HUMAN_PRIMARY, minHeight: "36px", height: "36px", padding: "0 16px", fontSize: "13px" }, disabled: action.enabled === false || Boolean(pending), "data-pending-action": pending ? action.id : void 0, onClick: () => invoke(action.id) }, pending?.short ?? diagnostic?.actionLabel ?? cleanActionLabel(action.label)) : null,
+            onAcceptance && !item.closed ? h("button", { type: "button", style: { ...HUMAN_CONTROL, minHeight: "36px", height: "36px", padding: "0 12px", fontSize: "13px" }, onClick: () => onAcceptance(item) }, "\u91CD\u65B0\u8FD0\u884C\u9A8C\u8BC1") : null,
+            onOpenSession && run.sessionId ? h("button", { type: "button", style: { ...HUMAN_CONTROL, minHeight: "36px", height: "36px", padding: "0 12px", fontSize: "13px" }, onClick: () => onOpenSession(run.sessionId) }, "\u5728 DSH \u4E2D\u6253\u5F00\u4F1A\u8BDD") : null,
+            h("button", { type: "button", style: { ...HUMAN_CONTROL, minHeight: "36px", height: "36px", padding: "0 12px", fontSize: "13px" }, onClick: () => onRefresh?.() }, "\u5237\u65B0\u72B6\u6001")
           )
         ),
         h(
           "section",
-          { "data-verification-candidate-card": "true", style: { padding: "14px", border: `1px solid ${candidate.current === true ? T.ok : T.line}`, borderRadius: "8px", background: candidate.current === true ? "rgba(53,196,122,.08)" : void 0 } },
+          { "data-verification-candidate-card": "true", style: { padding: "14px", border: `1px solid ${T.line}`, borderLeft: `2px solid ${candidate.current === true ? T.okSolid : T.line}`, borderRadius: "8px", background: candidate.current === true ? "rgba(53,196,122,.05)" : void 0 } },
           h("h2", { style: { margin: "0 0 8px", fontSize: "15px" } }, "\u9A8C\u8BC1\u4E0E\u4EA4\u4ED8\u72B6\u6001"),
           h("p", { style: { margin: 0, fontSize: "13px", color: candidateReady || released ? T.ok : verification.color } }, released ? `\u6700\u8FD1\u9A8C\u8BC1\uFF1A\u{1F7E2} \u9A8C\u8BC1\u901A\u8FC7\uFF08\u53D1\u5E03\u5F52\u6863 ${release.id ?? "\u5DF2\u5B8C\u6210"}\uFF09` : candidateReady ? `\u6700\u8FD1\u9A8C\u8BC1\uFF1A\u{1F7E2} \u9A8C\u8BC1\u901A\u8FC7\uFF08\u4EA4\u4ED8\u5019\u9009 ${candidate.id ?? "\u5DF2\u5C31\u7EEA"} \u5DF2\u5C31\u7EEA\uFF09` : `\u6700\u8FD1\u9A8C\u8BC1\uFF1A${verification.label}${diagnostic?.summary ? ` \xB7 ${diagnostic.summary}` : ""}`),
           acceptance.finishedAt ? h("p", { style: { margin: "5px 0 0", fontSize: "12px", color: T.text2 } }, `\u6700\u8FD1\u6267\u884C\uFF1A${formatLocalStamp(acceptance.finishedAt)}`) : null,
@@ -5313,6 +5549,12 @@ ${text}`)) continue;
         )
       );
     }
+    function sourceLabelOf(item) {
+      if (!item) return "";
+      if (item.sourceSession) return "\u5BF9\u8BDD\u751F\u6210";
+      const labels = (item.sources ?? []).map((source) => ({ chat: "\u5BF9\u8BDD\u751F\u6210", manual: "\u624B\u52A8\u521B\u5EFA", feedback: "\u53CD\u9988", defect: "\u7F3A\u9677" })[String(source).toLowerCase()] ?? source);
+      return labels.filter(Boolean).join("\u3001") || "\u672A\u767B\u8BB0";
+    }
     function V4DetailPage(props) {
       const { item, detail, root, handlers, tab, onNavigate, onClose, onRefresh, scrollRef, pendingAction = null } = props;
       const pendingFor = (id) => pendingAction && pendingAction.id === id ? pendingAction : null;
@@ -5322,6 +5564,8 @@ ${text}`)) continue;
       const [runSelection, setRunSelection] = useState(null);
       const [refreshStatus, setRefreshStatus] = useState(null);
       const [localPendingPatch, setLocalPendingPatch] = useState(null);
+      const [copyNote, setCopyNote] = useState(null);
+      const [techOpen, setTechOpen] = useState(null);
       const selectedRunId = runSelection?.requirementId === item.id && runSelection?.root === (item.root ?? root) ? runSelection.runId : null;
       const mainScroll = useRef(0);
       const titleRef = useRef(null);
@@ -5337,7 +5581,14 @@ ${text}`)) continue;
       }, [item.id]);
       useEffect(() => {
         setRefreshStatus(null);
+        setCopyNote(null);
+        setTechOpen(null);
       }, [item.id]);
+      useEffect(() => {
+        if (!copyNote) return void 0;
+        const handle = setTimeout(() => setCopyNote(null), 4e3);
+        return () => clearTimeout(handle);
+      }, [copyNote]);
       useEffect(() => {
         setLocalPendingPatch(null);
       }, [item.id, item.revision, item.pendingPatch?.patchHash]);
@@ -5419,6 +5670,36 @@ ${text}`)) continue;
           }, 0);
         }
       };
+      const copySummary = () => {
+        const tally2 = acceptanceTally(detail);
+        const text = [
+          `\u3010${item.id}\u3011${item.title}`,
+          `\u72B6\u6001\uFF1A${matter.headline ?? "\u6682\u65E0\u72B6\u6001"}`,
+          `\u8981\u4E0D\u8981\u4F60\uFF1A${needsHuman(item) ? "\u8981\uFF0C" + (matter.action?.label ?? "\u9700\u8981\u4F60\u5904\u7406") : "\u4E0D\u7528\uFF0CAI \u5728\u63A8\u8FDB"}`,
+          `\u9A8C\u6536\uFF1A${tally2.total ? `${tally2.passed}/${tally2.total} \u9879\u901A\u8FC7` : "\u8FD8\u6CA1\u5B9A\u6807\u51C6"}`
+        ].join("\n");
+        const done = () => setCopyNote("\u5DF2\u590D\u5236\uFF0C\u53EF\u76F4\u63A5\u8D34\u5230\u5468\u62A5\u6216\u7FA4\u91CC");
+        const failed = () => setCopyNote("\u590D\u5236\u5931\u8D25\uFF1A\u8BF7\u624B\u52A8\u9009\u62E9\u6587\u672C");
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, failed);
+        else failed();
+      };
+      const openTechnical = () => {
+        const hasRun = detail.summaries?.run?.exists === true;
+        const mode = tab === "delivery" && hasRun ? "progress" : "body";
+        if (mode === "body" && tab !== "requirement") navigate("requirement");
+        setTechOpen(mode);
+        const reveal = (attempt = 0) => {
+          const fold = scrollRef.current?.querySelector?.(`[data-technical-details="${mode}"]`);
+          if (!fold) {
+            if (attempt < 6) setTimeout(() => reveal(attempt + 1), 60);
+            return;
+          }
+          if (fold.tagName === "DETAILS") fold.open = true;
+          fold.scrollIntoView?.({ block: "center", behavior: REDUCE_MOTION ? "auto" : "smooth" });
+          fold.querySelector?.("summary")?.focus?.({ preventScroll: true });
+        };
+        requestAnimationFrame(() => reveal());
+      };
       const navigate = (next, anchor = null, focusHeading = true) => leave(() => {
         if (tab === "requirement") mainScroll.current = scrollRef.current?.scrollTop ?? 0;
         setMore(false);
@@ -5448,9 +5729,19 @@ ${text}`)) continue;
         }, 60);
       });
       const viewRevision = detail.identity?.revision ?? item.revision ?? 1;
+      const tally = acceptanceTally(detail);
       const githubLinks = detail.githubLinks ?? null;
+      const railRow = (label, value, attr) => h(
+        "div",
+        { ...attr ? { [attr]: "true" } : {}, key: label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", padding: "5px 0", fontSize: "12.5px", color: T.text3 } },
+        h("span", null, label),
+        h("b", { style: { color: T.text2, fontWeight: 400, textAlign: "right", minWidth: 0, overflowWrap: "anywhere" } }, value)
+      );
       const sidebarRows = [
-        ...[["\u8D1F\u8D23\u4EBA", item.owner || "\u672A\u5206\u914D"], ["\u4F18\u5148\u7EA7", item.priority || "\u672A\u8BBE\u7F6E"], ["\u6765\u6E90", item.sourceSession ? "\u5BF9\u8BDD\u751F\u6210" : item.sources?.map((source) => ({ chat: "\u5BF9\u8BDD\u751F\u6210", manual: "\u624B\u52A8\u521B\u5EFA" })[String(source).toLowerCase()] ?? source).join("\u3001") || "\u672A\u767B\u8BB0"], ["\u5F53\u524D\u4FEE\u8BA2", `v${viewRevision}`], ["\u6700\u8FD1\u66F4\u65B0", detail.identity?.updatedAt ? formatLocalStamp(detail.identity.updatedAt) : "\u6682\u65E0\u8BB0\u5F55"]].map(([label, value]) => h("div", { key: label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", padding: "6px 0", fontSize: "13px", color: T.text2 } }, h("div", null, label), h("div", { style: { color: T.text, overflowWrap: "anywhere", textAlign: "right", minWidth: 0 } }, value))),
+        railRow("\u8D1F\u8D23\u4EBA", item.owner || "\u672A\u5206\u914D"),
+        railRow("\u4F18\u5148\u7EA7", item.priority || "\u672A\u8BBE\u7F6E"),
+        railRow("\u6765\u6E90", sourceLabelOf(displayItem)),
+        railRow("\u7248\u672C", `v${viewRevision}`),
         h(GitHubDeliveryProperties, { key: "github-delivery", links: githubLinks })
       ];
       const cancelPendingFocus = () => {
@@ -5459,19 +5750,32 @@ ${text}`)) continue;
       };
       return h(
         "section",
-        { "data-detail-shell": "true", "data-detail-page": "v4", onPointerDownCapture: cancelPendingFocus, onKeyDownCapture: cancelPendingFocus, onKeyDown: onTabKeyDown, style: { height: "100%", minHeight: 0, display: "flex", flexDirection: "column", background: T.base, minWidth: 0 } },
+        { "data-detail-shell": "true", "data-detail-page": "v4", onPointerDownCapture: cancelPendingFocus, onKeyDownCapture: cancelPendingFocus, onKeyDown: onTabKeyDown, style: { height: "100%", minHeight: 0, display: "flex", flexDirection: "column", background: T.base, minWidth: 0, containerType: "inline-size" } },
         h("style", null, `[data-detail-page] .v4-reading{box-sizing:border-box;width:100%;max-width:864px;margin:0 auto;padding:24px 32px 48px;font-size:16px;line-height:1.6;overflow-wrap:anywhere;}@container (max-width:959px){[data-detail-page] .v4-reading{padding-left:24px;padding-right:24px}}@container (max-width:639px){[data-detail-page] .v4-reading{padding-left:16px;padding-right:16px}}[data-detail-page] button:focus-visible,[data-detail-page] input:focus-visible,[data-detail-page] textarea:focus-visible,[data-detail-page] summary:focus-visible,[data-detail-page] h1:focus-visible,[data-detail-page] h2:focus-visible,[data-detail-page] [data-detail-anchor]:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] button:disabled{opacity:.5;cursor:not-allowed}[data-detail-page] [data-detail-section] h4{font-size:15px!important;color:${T.text}!important}[data-detail-page] [data-detail-section]{font-size:16px!important;line-height:1.6!important}[data-detail-page] [data-detail-section]>summary{min-height:44px;align-items:center!important;font-size:14px}[data-detail-page] [data-detail-section]>summary h3{font-size:14px!important}[data-detail-page] [data-detail-section] button{min-height:40px;font-size:13px!important;padding:8px 12px!important;color:${T.text}!important;border:1px solid ${T.line2}!important;border-radius:7px}[data-detail-page] [data-detail-section] button:disabled{color:${T.text3}!important}[data-detail-page] [data-detail-section] summary{cursor:pointer}[data-detail-page] [data-detail-section] summary::marker{color:${T.text2}}`),
         h("style", null, `[data-detail-page] select:focus-visible{outline:2px solid ${T.brand};outline-offset:3px}[data-detail-page] [data-human-long]:has(> details[open]) > [data-human-excerpt]{display:none}[data-detail-page] .v4-reading{max-width:1280px!important;margin-left:0!important;margin-right:0!important;padding-left:24px!important;padding-right:24px!important}[data-detail-page] .detail-columns{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:32px;align-items:start}[data-detail-page] .requirement-body{display:flex;flex-direction:column}[data-detail-page] .requirement-body>[data-detail-description]{display:contents}[data-detail-page] .requirement-body [data-human-description]{display:contents}[data-detail-page] .requirement-body [data-description-source]{order:6}[data-detail-page] .requirement-body>[data-human-verification]{order:2}[data-detail-page] .requirement-body>[data-iteration-feedback]{order:5}[data-detail-page] .requirement-body [data-detail-excluded]{order:3}[data-detail-page] .requirement-body [data-detail-constraints]{order:4}[data-detail-page] .requirement-body [data-description-tools]{order:4}[data-detail-page] .description-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}[data-detail-page] #v4-more-actions button:hover{background:${T.layer}}[data-detail-page] .detail-sidebar{border:1px solid ${T.line};border-radius:10px;background:${T.layer};padding:12px 14px;position:sticky;top:0}@container (max-width:800px){[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr)}[data-detail-page] .detail-sidebar{position:static}[data-detail-page] .description-cards{grid-template-columns:minmax(0,1fr)}}`),
+        h("style", null, `[data-detail-page] .dheadwrap{box-sizing:border-box;width:100%;max-width:1280px;padding:18px 24px 0}[data-detail-page] .idline{display:flex;align-items:center;gap:10px;font-size:12px;color:${T.text3};flex-wrap:wrap}[data-detail-page] .idline .pill{border:1px solid ${T.line};border-radius:999px;padding:2px 8px;color:${T.text2};font-size:11.5px}[data-detail-page] .verlink{border:0;background:transparent;color:${T.text2};font-size:12px;padding:0;text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}[data-detail-page] .dtitle{margin:6px 0 4px;font-size:20px;font-weight:600;line-height:1.45;letter-spacing:0}[data-detail-page] .dsubtitle{margin:0;font-size:13px;line-height:1.6;color:${T.text3}}[data-detail-page] .v4-reading{padding-top:20px!important;padding-bottom:72px!important;font-size:14px!important;line-height:1.7!important}[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr) 244px!important;gap:28px!important}[data-detail-page] .description-cards{display:block!important}[data-detail-page] .det-bullets{margin:0;padding:0;list-style:none;display:grid;gap:6px}[data-detail-page] .det-bullets li{position:relative;padding-left:15px;font-size:13.5px;color:${T.text2};line-height:1.75}[data-detail-page] .det-bullets li::before{content:"";position:absolute;left:3px;top:9px;width:5px;height:5px;border-radius:1px;background:${T.line2}}[data-detail-page] .rail-h{margin:0 0 8px;font-size:12px;color:${T.text3};font-weight:500;letter-spacing:.02em}[data-detail-page] .needbox{padding:0 0 11px;font-size:12.5px;line-height:1.7;margin-bottom:11px;border-bottom:1px solid ${T.line}}[data-detail-page] .needbox.yes,[data-detail-page] .needbox.no{background:transparent;border:0;border-bottom:1px solid ${T.line};color:${T.text2}}[data-detail-page] .railbtn{display:flex;align-items:center;width:100%;justify-content:center;min-height:32px;padding:5px 10px;font-size:12.5px;border:1px solid ${T.line2};border-radius:7px;background:transparent;color:${T.text2};cursor:pointer}[data-detail-page] .railbtn:hover{color:${T.text};background:${T.layer2}}[data-detail-page] .detail-sidebar{top:76px;padding:12px 14px}[data-detail-page] .stepper{display:grid;grid-template-columns:repeat(5,1fr);position:relative;margin-top:4px}[data-detail-page] .stepper::before{content:'';position:absolute;left:10%;right:10%;top:6px;height:1px;background:${T.line2}}[data-detail-page] .step{position:relative;display:grid;justify-items:center;gap:7px;text-align:center}[data-detail-page] .step .dot{display:block;width:13px;height:13px;box-sizing:border-box;border-radius:50%!important;background:${T.layer};border:1.5px solid ${T.line2};position:relative;z-index:1}[data-detail-page] .step[data-stage-state="done"] .dot{background:${T.text};border-color:${T.text}}[data-detail-page] .step[data-stage-state="done"] .dot::after{content:'';position:absolute;left:4px;top:3.5px;width:5px;height:3px;border-left:1.5px solid ${T.base};border-bottom:1.5px solid ${T.base};transform:rotate(-45deg)}[data-detail-page] .step[data-stage-state="current"] .dot{background:${T.text};border-color:${T.text};box-shadow:0 0 0 3px color-mix(in srgb, ${T.text} 16%, transparent)}[data-detail-page] .step span{font-size:11.5px;color:${T.text3};white-space:nowrap}[data-detail-page] .step[data-stage-state="done"] span{color:${T.text2}}[data-detail-page] .step[data-stage-state="current"] span{color:${T.text};font-weight:500}@container (max-width:900px){[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr)!important}[data-detail-page] .detail-sidebar{position:static!important}}`),
+        // Everything technical lives behind one fold with one name, in both the
+        // body and the progress tab: evidence in one, the run in the other.
+        h("style", null, `[data-detail-page] .requirement-body>[data-technical-details]{order:7}[data-detail-page] .fold{margin-top:22px;border-top:1px solid ${T.line};padding-top:10px}[data-detail-page] .fold>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:8px;font-size:13px;color:${T.text2};min-height:30px}[data-detail-page] .fold>summary::-webkit-details-marker{display:none}[data-detail-page] .fold>summary::before{content:"\u25B8";font-size:10px;color:${T.text3};margin-right:1px}[data-detail-page] .fold[open]>summary::before{content:"\u25BE"}[data-detail-page] .fold>summary .sub{color:${T.text3};font-size:12px}[data-detail-page] .foldbody{margin-top:6px;border:1px solid ${T.line};border-radius:8px;background:${T.layer};padding:2px 12px 12px}[data-detail-page] .kv{display:flex;justify-content:space-between;gap:18px;font-size:12.5px;padding:8px 0;color:${T.text3};border-bottom:1px solid ${T.line}}[data-detail-page] .kv:last-of-type{border-bottom:0}[data-detail-page] .kv b{color:${T.text2};font-weight:400;text-align:right;word-break:break-word;min-width:0}[data-detail-page] .foldfoot{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}[data-detail-page] .foldfoot{gap:16px!important}[data-detail-page] .foldfoot button{min-height:24px;padding:0;font-size:12px;border:0;background:transparent;color:${T.text3};cursor:pointer;text-decoration:underline;text-decoration-color:${T.line2};text-underline-offset:3px}[data-detail-page] .foldfoot button:hover{color:${T.text};text-decoration-color:currentColor}[data-detail-page] .bandlink:hover{color:${T.text};background:${T.layer2}}`),
+        // One button language for the whole detail page: filled brand for the
+        // single action, hairline for anything else, plain text for shortcuts.
+        // Inline styles cannot express hover/active, which is why the buttons
+        // felt dead under the cursor as well as flat in dark mode.
+        h("style", null, `[data-detail-page] .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;padding:0 14px;border:1px solid transparent;border-radius:8px;background:transparent;color:${T.text};font-family:inherit;font-size:13px;font-weight:500;line-height:1;white-space:nowrap;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease,filter .12s ease}[data-detail-page] .btn:disabled{opacity:.38;cursor:not-allowed}[data-detail-page] .btn-primary{background:${T.text}!important;color:${T.base}!important;border-color:transparent!important;font-weight:600!important;box-shadow:0 1px 2px rgba(0,0,0,.32)}[data-detail-page] .btn-primary:hover:not(:disabled){background:color-mix(in srgb,${T.text} 86%,${T.base})!important}[data-detail-page] .btn-primary:active:not(:disabled){background:color-mix(in srgb,${T.text} 74%,${T.base})!important}[data-detail-page] .btn-primary:focus-visible{outline:2px solid ${T.text};outline-offset:3px}[data-detail-page] .btn-ghost{background:transparent!important;border-color:transparent!important;color:${T.text2}!important}[data-detail-page] .btn-ghost:hover:not(:disabled){background:${T.layer}!important;color:${T.text}!important}[data-detail-page] .dtabs{display:flex;gap:22px;padding:14px 24px 0;overflow-x:auto;border-bottom:1px solid ${T.line}}[data-detail-page] .dtab{flex:none;height:38px;padding:0 0 9px;border:0;border-bottom:2px solid transparent;background:transparent;color:${T.text3};font-family:inherit;font-size:13.5px;font-weight:500;cursor:pointer;transition:color .12s ease,border-color .12s ease}[data-detail-page] .dtab:hover{color:${T.text2}}[data-detail-page] .dtab[aria-selected="true"]{color:${T.text};font-weight:600;border-bottom-color:${T.text}}[data-detail-page] .dtitle{margin:6px 0 6px!important;font-size:22px!important;line-height:1.4!important;letter-spacing:-.2px}[data-detail-page] .dsubtitle{max-width:78ch;font-size:13.5px!important;line-height:1.65!important;color:${T.text2}!important}[data-detail-page] .dheadwrap{padding-bottom:2px}[data-detail-page] .v4-reading{padding-top:22px!important}[data-detail-page] .det-section{margin-top:28px!important}[data-detail-page] .det-section:first-child{margin-top:0!important}[data-detail-page] .det-section>h2{margin:0 0 10px!important;font-size:15px!important;letter-spacing:-.1px}[data-detail-page] .det-section>p,[data-detail-page] .det-section>.det-p{max-width:72ch}[data-detail-page] [data-detail-section] h3{font-size:15px!important;font-weight:600!important;letter-spacing:-.1px}[data-detail-page] [data-detail-section="record-timeline"]{margin-top:0!important;padding-top:0!important;border-top:0!important}[data-detail-page] [data-detail-section] h3{color:${T.text}}[data-detail-page] .det-bullets{gap:7px!important}[data-detail-page] .det-bullets li{line-height:1.8!important}[data-detail-page] .detail-sidebar{padding:14px 16px 12px!important;top:70px!important}[data-detail-page] .rail-h{margin:0 0 10px!important;font-size:11.5px!important;letter-spacing:.04em}[data-detail-page] .raillink{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;height:30px;padding:0;border:0;background:transparent;color:${T.text2};font-family:inherit;font-size:12.5px;cursor:pointer;transition:color .12s ease}[data-detail-page] .raillink:hover{color:${T.text}}[data-detail-page] .raillink .arw{font-style:normal;color:${T.text3}}[data-detail-page] .det-band{padding-top:9px!important;padding-bottom:9px!important}[data-detail-page] .bandin{flex-wrap:nowrap;row-gap:8px}[data-detail-page] .bandin>*{min-width:0}@container (max-width:520px){[data-detail-page] .bandin{flex-wrap:wrap}}@container (max-width:620px){[data-detail-page] .band-when{display:none}}@container (max-width:560px){[data-detail-page] .dnav{gap:6px;padding:8px 12px;flex-wrap:wrap;row-gap:6px}[data-detail-page] .dnav [data-detail-crumb]{display:none}[data-detail-page] .dnav .btn{padding:0 8px!important;font-size:12px!important}}`),
+        // Top rail: where you are on the left, the two things you can do from
+        // anywhere on the right. The primary action lives in the band, next to
+        // the sentence that explains why it is the next step.
         h(
           "nav",
-          { "aria-label": "\u9700\u6C42\u5BFC\u822A", style: { flexShrink: 0, display: "flex", alignItems: "center", gap: "8px", padding: "12px 16px", borderBottom: `1px solid ${T.line}` } },
-          h("button", { style: HUMAN_CONTROL, onClick: () => leave(onClose), "data-drawer-close": "true" }, "\u2190 \u8FD4\u56DE\u9700\u6C42\u5217\u8868"),
+          { "aria-label": "\u9700\u6C42\u5BFC\u822A", className: "dnav", style: { flexShrink: 0, display: "flex", alignItems: "center", gap: "10px", padding: "8px 16px", borderBottom: `1px solid ${T.line}` } },
+          h("button", { type: "button", className: "btn btn-ghost", style: { height: "30px", padding: "0 10px", fontSize: "12.5px" }, onClick: () => leave(onClose), "data-drawer-close": "true" }, "\u2190 \u9700\u6C42\u5217\u8868"),
+          h("span", { "data-detail-crumb": "true", style: { minWidth: 0, color: T.text3, fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, [item.id, item.owner || null, sourceLabelOf(displayItem)].filter(Boolean).join(" \xB7 ")),
           h("span", { style: { flex: 1 } }),
-          matter.action?.enabled !== false && handlers[matter.action?.id] ? h("button", { type: "button", style: HUMAN_PRIMARY, disabled: Boolean(pendingFor(matter.action.id)), "data-pending-action": pendingFor(matter.action.id) ? matter.action.id : void 0, onClick: () => handlers[matter.action.id]() }, pendingFor(matter.action.id)?.short ?? matter.action.label) : null,
+          h("button", { type: "button", className: "btn btn-ghost", style: { height: "30px", padding: "0 10px", fontSize: "12.5px" }, "data-copy-summary": "true", onClick: copySummary }, copyNote ?? "\u590D\u5236\u8FDB\u5C55\u6458\u8981"),
           h(
             "div",
             { ref: moreRef, style: { position: "relative" } },
-            h("button", { style: HUMAN_CONTROL, "aria-expanded": more, "aria-controls": "v4-more-actions", onClick: () => setMore((value) => !value) }, "\u66F4\u591A \u25BE"),
+            h("button", { type: "button", className: "btn btn-ghost", style: { height: "30px", padding: "0 10px", fontSize: "12.5px" }, "aria-expanded": more, "aria-controls": "v4-more-actions", onClick: () => setMore((value) => !value) }, "\u66F4\u591A \u25BE"),
             more ? h(
               "div",
               { id: "v4-more-actions", role: "group", "aria-label": "\u66F4\u591A\u64CD\u4F5C", style: { position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 20, width: "210px", padding: "6px", display: "grid", gap: "4px", border: `1px solid ${T.line2}`, borderRadius: "10px", background: T.base, boxShadow: "0 8px 32px rgba(0,0,0,.24)" } },
@@ -5499,21 +5803,40 @@ ${text}`)) continue;
             ) : null
           )
         ),
-        h("div", { role: "tablist", "aria-label": "\u9700\u6C42\u9875\u7B7E", style: { flexShrink: 0, display: "flex", padding: "0 16px", gap: "8px", overflowX: "auto", borderBottom: `1px solid ${T.line}`, background: T.base } }, HUMAN_TABS.map((entry) => h("button", { key: entry.id, id: `v4-tab-${entry.id}`, role: "tab", tabIndex: tab === entry.id ? 0 : -1, "data-detail-tab": entry.id, "aria-selected": tab === entry.id, "aria-controls": "v4-detail-body", onClick: () => navigate(entry.id), style: { flexShrink: 0, minHeight: "44px", border: 0, borderBottom: `2px solid ${tab === entry.id ? T.brand : "transparent"}`, background: "transparent", color: tab === entry.id ? T.text : T.text2, padding: "8px 12px", fontSize: "14px", fontWeight: tab === entry.id ? 600 : 400, cursor: "pointer" } }, entry.label))),
+        // The title scrolls with the page: the tabs belong to the document, not
+        // to the window, so the header must not be pinned above them.
         h(
           "div",
-          { id: "v4-detail-body", role: "tabpanel", "aria-labelledby": `v4-tab-${tab}`, ref: scrollRef, style: { flex: 1, minHeight: 0, overflowY: "auto", containerType: "inline-size" } },
+          { ref: scrollRef, style: { flex: 1, minHeight: 0, overflowY: "auto", containerType: "inline-size" } },
           h(
-            "article",
-            { className: "v4-reading", "data-progress-reading": tab === "delivery" ? "true" : void 0 },
-            h("div", { "data-detail-id": item.id, style: { fontSize: "12px", color: T.text3, marginBottom: "8px", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } }, h("span", null, item.id, " \xB7 ", h("span", { "data-detail-revision": String(viewRevision) }, `v${viewRevision}`)), h("span", { style: { border: `1px solid ${T.line2}`, borderRadius: "999px", padding: "2px 8px", color: T.text2 } }, item.delivery?.label ?? detail.summaries?.delivery?.label ?? "\u5F85\u63A8\u8FDB")),
-            h("h1", { ref: titleRef, tabIndex: -1, id: detailTitleId(item), style: { fontFamily: "inherit", fontSize: "20px", fontWeight: 600, lineHeight: 1.45, letterSpacing: 0, margin: "0 0 18px" } }, item.title),
-            detailSubtitle(displayItem) ? h("p", { "data-detail-subtitle": "true", style: { margin: "-10px 0 16px", color: T.text2, fontSize: "13px", lineHeight: 1.7, maxWidth: "72ch" } }, detailSubtitle(displayItem)) : null,
-            refreshStatus ? h("p", { role: refreshStatus.error ? "alert" : "status", "data-detail-refresh-status": "true", style: { margin: "-8px 0 14px", fontSize: "13px", color: refreshStatus.error ? T.err : T.text2 } }, refreshStatus.text) : null,
-            pendingAction ? h("p", { role: "status", "aria-live": "polite", "data-detail-pending-action": pendingAction.id, style: { margin: "-8px 0 14px", padding: "8px 12px", border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.brand}`, borderRadius: "8px", background: T.layer, fontSize: "13px", color: T.text2 } }, pendingAction.text) : null,
-            h(DetailStatusBand, { detail, matter, handlers, pendingId: pendingFor, onGotoProgress: () => navigate("delivery"), showProgressLink: tab !== "delivery" }),
+            "header",
+            { className: "dheadwrap" },
+            h(
+              "div",
+              { "data-detail-id": item.id, className: "idline" },
+              h("code", { style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", color: T.text2 } }, item.id),
+              h("span", { "aria-hidden": "true" }, "\xB7"),
+              h("span", { "data-detail-revision": String(viewRevision), style: { color: T.text2 } }, `v${viewRevision}`),
+              viewRevision > 1 ? h("button", { type: "button", className: "verlink", "data-detail-changes": "true", onClick: () => navigate("record") }, "\u67E5\u770B\u8FD9\u4E00\u7248\u7684\u6539\u52A8") : null,
+              item.priority ? h("span", { className: "pill" }, item.priority) : null
+            ),
+            h("h1", { ref: titleRef, tabIndex: -1, id: detailTitleId(item), className: "dtitle" }, item.title),
+            detailSubtitle(displayItem) ? h("p", { "data-detail-subtitle": "true", className: "dsubtitle" }, detailSubtitle(displayItem)) : null,
+            copyNote ? h("p", { role: "status", "aria-live": "polite", "data-copy-note": "true", style: { margin: "6px 0 0", fontSize: "12px", color: T.text3 } }, copyNote) : null,
+            refreshStatus ? h("p", { role: refreshStatus.error ? "alert" : "status", "data-detail-refresh-status": "true", style: { margin: "8px 0 0", fontSize: "13px", color: refreshStatus.error ? T.err : T.text2 } }, refreshStatus.text) : null,
+            pendingAction ? h("p", { role: "status", "aria-live": "polite", "data-detail-pending-action": pendingAction.id, style: { margin: "10px 0 0", padding: "8px 12px", border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.brand}`, borderRadius: "8px", background: T.layer, fontSize: "13px", color: T.text2 } }, pendingAction.text) : null
+          ),
+          h(
+            "div",
+            { className: "dtabs", role: "tablist", "aria-label": "\u9700\u6C42\u9875\u7B7E" },
+            HUMAN_TABS.map((entry) => h("button", { key: entry.id, id: `v4-tab-${entry.id}`, role: "tab", tabIndex: tab === entry.id ? 0 : -1, "data-detail-tab": entry.id, "aria-selected": tab === entry.id, "aria-controls": "v4-detail-body", onClick: () => navigate(entry.id), className: "dtab" }, entry.label))
+          ),
+          h(
+            "div",
+            { id: "v4-detail-body", role: "tabpanel", "aria-labelledby": `v4-tab-${tab}` },
+            h(DetailStatusBand, { detail, matter, handlers, pendingId: pendingFor, needsYou: needsHuman(item) }),
             displayItem.pendingPatch && (tab === "requirement" || tab === "delivery") ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null,
-            h("div", { className: "detail-columns" }, h("div", { style: { minWidth: 0 } }, tab !== "requirement" ? h(
+            h("article", { className: "v4-reading detail-columns", "data-progress-reading": tab === "delivery" ? "true" : void 0 }, h("div", { style: { minWidth: 0 } }, tab !== "requirement" ? h(
               "div",
               null,
               tab === "record" ? h(RequirementRecord, { ...props, onNavigate: (next, anchor) => {
@@ -5526,13 +5849,14 @@ ${text}`)) continue;
                 "div",
                 null,
                 h(DeliveryStage, { item, detail }),
-                !(detail.summaries?.run?.exists || item.run?.id || selectedRunId || detail.summaries?.candidate?.exists || item.candidate?.exists || detail.question || matter.kind === "decision") ? h(
+                // "还没交给 AI · 随时可以开始" over an accepted requirement is
+                // simply false; delivered states belong to the run report.
+                !(detail.summaries?.run?.exists || item.run?.id || selectedRunId || detail.summaries?.candidate?.exists || item.candidate?.exists || detail.question || matter.kind === "decision" || ["accepted", "released", "closed"].includes(matter.kind)) ? h(
                   "section",
                   { "data-progress-not-started": "true", style: { padding: "20px 22px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer } },
                   h("h2", { style: { margin: "0 0 8px", fontSize: "16px" } }, "\u8FD8\u6CA1\u4EA4\u7ED9 AI"),
-                  h("p", { style: { margin: 0, color: T.text2, lineHeight: 1.7, fontSize: "13.5px" } }, "\u9700\u6C42\u5DF2\u7ECF\u6574\u7406\u597D\uFF0C\u968F\u65F6\u53EF\u4EE5\u5F00\u59CB\u3002\u5F00\u59CB\u540E AI \u5728\u6388\u6743\u8303\u56F4\u5185\u81EA\u5DF1\u6539\u4EE3\u7801\u3001\u81EA\u5DF1\u8DD1\u9A8C\u8BC1\uFF1B\u9047\u5230\u4E1A\u52A1\u53D6\u820D\u6216\u8981\u6539\u9700\u6C42\u65F6\u4F1A\u505C\u4E0B\u6765\u95EE\u4F60\uFF0C\u4E0D\u9700\u8981\u4F60\u76EF\u7740\u3002"),
-                  handlers[matter.action?.id] ? h("button", { type: "button", style: { ...HUMAN_PRIMARY, marginTop: "12px" }, disabled: matter.action?.enabled === false, onClick: () => handlers[matter.action.id]() }, "\u4EA4\u7ED9 AI \u63A8\u8FDB") : null,
-                  h("h3", { style: { margin: "18px 0 6px", fontSize: "13px", color: T.text } }, "\u63A5\u4E0B\u6765\u4F1A\u53D1\u751F\u4EC0\u4E48"),
+                  h("p", { style: { margin: 0, color: T.text2, lineHeight: 1.7, fontSize: "13.5px" } }, "\u9700\u6C42\u5DF2\u7ECF\u6574\u7406\u597D\uFF0C\u968F\u65F6\u53EF\u4EE5\u5F00\u59CB\u2014\u2014\u7528\u4E0A\u65B9\u7684\u300C\u4EA4\u7ED9 AI \u63A8\u8FDB\u300D\u3002\u5F00\u59CB\u540E AI \u5728\u6388\u6743\u8303\u56F4\u5185\u81EA\u5DF1\u6539\u4EE3\u7801\u3001\u81EA\u5DF1\u8DD1\u9A8C\u8BC1\uFF1B\u9047\u5230\u4E1A\u52A1\u53D6\u820D\u6216\u8981\u6539\u9700\u6C42\u65F6\u4F1A\u505C\u4E0B\u6765\u95EE\u4F60\uFF0C\u4E0D\u9700\u8981\u4F60\u76EF\u7740\u3002"),
+                  h("h3", { style: { margin: "18px 0 6px", fontSize: "13px", color: T.text, fontWeight: 600 } }, "\u63A5\u4E0B\u6765\u4F1A\u53D1\u751F\u4EC0\u4E48"),
                   h(
                     "ol",
                     { style: { margin: 0, paddingLeft: "20px", color: T.text2, fontSize: "13px", lineHeight: 1.85 } },
@@ -5544,7 +5868,8 @@ ${text}`)) continue;
                   "div",
                   null,
                   h(ExecutionProgress, { item, detail, root: item.root ?? root, handlers, onAcceptance: props.onAcceptance, onRefresh: refreshDetail, onOpenSession: props.onOpenSession, pendingAction }),
-                  h(RunObservationPanel, { item, detail, root: item.root ?? root, initialRunId: selectedRunId, onOpenSession: props.onOpenSession })
+                  h(RunObservationPanel, { item, detail, root: item.root ?? root, initialRunId: selectedRunId, onOpenSession: props.onOpenSession }),
+                  h(TechnicalDetails, { detail, mode: "progress", open: techOpen === "progress", onOpenProgress: () => navigate("delivery"), onOpenRecord: () => navigate("record"), onOpenSession: props.onOpenSession })
                 )
               )
             ) : editing ? h(InlineRequirementEditor, { item, root, onDirty: setDirty, onCancel: () => leave(() => setEditing(false)), onDone: () => {
@@ -5554,30 +5879,29 @@ ${text}`)) continue;
             } }) : h(
               "div",
               { className: "requirement-body" },
-              h(DetailDescription, { item, detail, root, onRefresh: refreshDetail }),
+              h(DetailDescription, { item, detail, root, onRefresh: refreshDetail, technical: { open: techOpen === "body", onOpenProgress: () => navigate("delivery"), onOpenRecord: () => navigate("record") } }),
               h(HumanVerification, { item, detail, matter }),
-              !displayItem.pendingPatch ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch }) : null
+              !displayItem.pendingPatch ? h(IterationFeedback, { key: item.id, item: displayItem, root, onRefresh: refreshDetail, onPatch: setLocalPendingPatch, passedCount: tally.passed }) : null
             )), h(
               "aside",
               { className: "detail-sidebar", "aria-label": "\u9700\u6C42\u72B6\u6001", "data-detail-rail": "true" },
-              h(
-                "div",
-                {
-                  "data-rail-need": needsHuman(item) ? "yes" : "no",
-                  style: needsHuman(item) ? { borderRadius: "7px", padding: "9px 10px", marginBottom: "12px", background: "rgba(231,176,75,.08)", border: "1px solid rgba(231,176,75,.28)", color: T.warn, fontSize: "12.5px", lineHeight: 1.6 } : { borderRadius: "7px", padding: "9px 10px", marginBottom: "12px", background: "rgba(53,196,122,.06)", border: "1px solid rgba(53,196,122,.22)", color: T.ok, fontSize: "12.5px", lineHeight: 1.6 }
-                },
-                h("b", { style: { display: "block", fontSize: "13px", marginBottom: "2px", color: T.text } }, needsHuman(item) ? "\u9700\u8981\u4F60" : "\u4E0D\u9700\u8981\u4F60"),
-                needsHuman(item) ? matter.explanation ?? matter.headline ?? "\u7B49\u4F60\u56DE\u7B54\u6216\u786E\u8BA4\u540E AI \u624D\u80FD\u7EE7\u7EED\u3002" : "AI \u4F1A\u7EE7\u7EED\u63A8\u8FDB\uFF1B\u8DD1\u5B8C\u6216\u5361\u4F4F\u90FD\u4F1A\u56DE\u5230\u5217\u8868\u63D0\u9192\u4F60\u3002"
-              ),
-              h("h2", { style: { margin: "0 0 4px", fontSize: "12px", color: T.text3, fontWeight: 500, letterSpacing: ".02em" } }, "\u4E0B\u4E00\u6B65"),
-              h(
-                "p",
-                { "data-rail-next": "true", style: { margin: "0 0 10px", color: T.text2, fontSize: "12.5px", lineHeight: 1.7 } },
-                matter.action?.label ?? (needsHuman(item) ? "\u7B49\u4F60\u5904\u7406" : "\u7B49 AI \u63A8\u8FDB")
-              ),
+              // The sticky band above already says whether you are needed and
+              // why. Repeating it here made the two halves of the page say the
+              // same sentence twice, so the rail is now pure reference: where
+              // the work stands and who owns it.
+              h("h2", { className: "rail-h" }, "\u8FD9\u6761\u9700\u6C42\u73B0\u5728"),
+              railRow("\u9A8C\u6536", tally.total ? `${tally.passed} / ${tally.total} \u9879\u901A\u8FC7` : "\u8FD8\u6CA1\u5B9A\u6807\u51C6"),
+              railRow("\u4E0B\u4E00\u6B65", matter.action ? cleanActionLabel(matter.action.label, "\u7B49\u4F60\u5904\u7406") : needsHuman(item) ? "\u7B49\u4F60\u5904\u7406" : "\u7B49 AI \u63A8\u8FDB", "data-rail-next"),
               h("div", { style: { height: "1px", background: T.line, margin: "10px 0" } }),
-              h("h2", { style: { margin: "0 0 4px", fontSize: "12px", color: T.text3, fontWeight: 500, letterSpacing: ".02em" } }, "\u9700\u6C42\u5C5E\u6027"),
-              ...sidebarRows
+              h("h2", { className: "rail-h" }, "\u5F52\u5C5E"),
+              ...sidebarRows,
+              h("div", { style: { height: "1px", background: T.line, margin: "10px 0" } }),
+              h(
+                "button",
+                { type: "button", className: "raillink", "data-rail-technical": "true", onClick: openTechnical, title: "\u9A8C\u6536\u8BC1\u636E\u3001\u6A21\u5757\u4E0E\u8FD0\u884C\u8BB0\u5F55" },
+                h("span", null, "\u6253\u5F00\u6280\u672F\u7EC6\u8282"),
+                h("span", { className: "arw", "aria-hidden": "true" }, "\u2192")
+              )
             ))
           )
         )
@@ -5608,6 +5932,15 @@ ${text}`)) continue;
         },
         entry.label
       );
+    }
+    function relativeStamp(iso) {
+      const at = Date.parse(iso ?? "");
+      if (!Number.isFinite(at)) return null;
+      const minutes = Math.round((Date.now() - at) / 6e4);
+      if (minutes < 1) return "\u521A\u521A";
+      if (minutes < 60) return `${minutes} \u5206\u949F\u524D`;
+      if (minutes < 1440) return `${Math.round(minutes / 60)} \u5C0F\u65F6\u524D`;
+      return `${Math.round(minutes / 1440)} \u5929\u524D`;
     }
     function detailSubtitle(item) {
       const doc = item?.detailView?.content?.doc ?? item?.docView?.doc ?? null;
@@ -5664,7 +5997,7 @@ ${text}`)) continue;
         fallbackText: draftText(background?.text)
       };
     }
-    function DetailDescription({ item, detail, root, onRefresh }) {
+    function DetailDescription({ item, detail, root, onRefresh, technical = null }) {
       const model = detailDescriptionModel(item, detail);
       const [organize, setOrganize] = useState({ open: false, busy: false, error: null, draft: null, baseline: null, diff: null, revision: null });
       if (!model) return null;
@@ -5754,23 +6087,31 @@ ${text}`)) continue;
           "data-detail-description": "true",
           "data-description-status": status,
           "aria-label": "\u9700\u6C42\u63CF\u8FF0",
-          style: { margin: "0", paddingTop: "22px", borderTop: `1px solid ${T.line}`, minWidth: 0 }
+          style: { margin: "0", minWidth: 0 }
         },
         h(HumanDescriptionBody, { model, status }),
-        h(
-          "details",
-          { "data-description-source": "true", style: { marginTop: "18px", fontSize: "12px", color: T.text3 } },
-          h("summary", { style: { cursor: "pointer" } }, "\u539F\u59CB\u8BB0\u5F55\u4E0E\u8C03\u67E5\u8BC1\u636E"),
-          h("div", { style: { marginTop: "12px", lineHeight: 1.8, overflowWrap: "anywhere" } }, originalText ? renderRich(originalText) : null),
-          features.some((feature) => feature?.sources?.length) || acceptance.some((entry) => entry?.sources?.length) ? h("div", { style: { marginTop: "12px" } }, list(sourceRows, "")) : null,
-          h(
-            "div",
-            { style: { marginTop: "12px", fontSize: "11px", overflowWrap: "anywhere" } },
-            status === "legacy" ? "\u6309\u73B0\u6709\u6B63\u6587\u5C55\u793A\uFF0C\u5C1A\u672A\u786E\u8BA4\u7ED3\u6784\u5316\u63CF\u8FF0\u3002" : "\u6765\u6E90\uFF1A\u9700\u6C42\u63CF\u8FF0",
-            meta.docHash ? h("p", null, "\u5185\u5BB9\u6307\u7EB9\uFF1A", String(meta.docHash).replace(/^sha256:/, "").slice(0, 8)) : null,
-            meta.revision || item.revision ? h("p", null, `\u4FEE\u8BA2 v${meta.revision ?? item.revision}`) : null
+        h(TechnicalDetails, {
+          detail,
+          mode: "body",
+          source: true,
+          open: technical?.open,
+          onOpenProgress: technical?.onOpenProgress,
+          onOpenRecord: technical?.onOpenRecord,
+          extra: h(
+            "details",
+            { "data-description-record": "true", style: { marginTop: "4px", paddingTop: "4px", borderTop: `1px solid ${T.line}`, fontSize: "12px", color: T.text3 } },
+            h("summary", { style: { cursor: "pointer", padding: "6px 0" } }, "\u539F\u59CB\u8BB0\u5F55\u4E0E\u8C03\u67E5\u8BC1\u636E"),
+            h("div", { style: { marginTop: "6px", lineHeight: 1.8, overflowWrap: "anywhere" } }, originalText ? renderRich(originalText) : null),
+            features.some((feature) => feature?.sources?.length) || acceptance.some((entry) => entry?.sources?.length) ? h("div", { style: { marginTop: "12px" } }, list(sourceRows, "")) : null,
+            h(
+              "div",
+              { style: { marginTop: "12px", fontSize: "11px", overflowWrap: "anywhere" } },
+              status === "legacy" ? "\u6309\u73B0\u6709\u6B63\u6587\u5C55\u793A\uFF0C\u5C1A\u672A\u786E\u8BA4\u7ED3\u6784\u5316\u63CF\u8FF0\u3002" : "\u6765\u6E90\uFF1A\u9700\u6C42\u63CF\u8FF0",
+              meta.docHash ? h("p", null, "\u5185\u5BB9\u6307\u7EB9\uFF1A", String(meta.docHash).replace(/^sha256:/, "").slice(0, 8)) : null,
+              meta.revision || item.revision ? h("p", null, `\u4FEE\u8BA2 v${meta.revision ?? item.revision}`) : null
+            )
           )
-        ),
+        }),
         status === "legacy" ? h(
           "details",
           { "data-description-tools": "true", open: organize.open || void 0, style: { marginTop: "12px", fontSize: "12px", color: T.text3 } },
@@ -6535,10 +6876,10 @@ ${text}`)) continue;
       );
     }
     const PREFLIGHT_STATUS = {
-      fixed: { label: "\u5DF2\u81EA\u52A8\u5904\u7406", tone: "#34d399" },
+      fixed: { label: "\u5DF2\u81EA\u52A8\u5904\u7406", tone: T.ok },
       checked: { label: "\u5DF2\u68C0\u67E5", tone: T.text3 },
-      "carry-over": { label: "\u5E26\u5165\u5F00\u53D1", tone: "#fbbf24" },
-      "needs-decision": { label: "\u5F85\u4F60\u51B3\u5B9A", tone: "#f59e0b" },
+      "carry-over": { label: "\u5E26\u5165\u5F00\u53D1", tone: T.warn },
+      "needs-decision": { label: "\u5F85\u4F60\u51B3\u5B9A", tone: T.warn },
       skipped: { label: "\u8DF3\u8FC7", tone: T.text3 },
       failed: { label: "\u5931\u8D25", tone: "#f87171" }
     };
@@ -6621,7 +6962,7 @@ ${text}`)) continue;
             "div",
             { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "8px" } },
             h("span", { style: { fontSize: "12px", color: T.text3 } }, "\u68C0\u67E5\u7ED3\u8BBA"),
-            h("span", { style: { fontSize: "12.5px", color: record.readiness?.ready ? "#34d399" : "#f59e0b" } }, record.readiness?.ready ? `\u53EF\u4EE5\u4EA4\u7ED9 AI \u63A8\u8FDB${(record.carryOver ?? []).length ? `\uFF1B${record.carryOver.length} \u9879\u9A8C\u6536\u95EE\u9898\u5E26\u5165\u5F00\u53D1` : ""}` : `\u9700\u8981\u4F60\u51B3\u5B9A\uFF08${record.readiness?.label ?? record.decision?.label ?? "\u5F85\u5904\u7406"}\uFF09`)
+            h("span", { style: { fontSize: "12.5px", color: record.readiness?.ready ? T.ok : T.warn } }, record.readiness?.ready ? `\u53EF\u4EE5\u4EA4\u7ED9 AI \u63A8\u8FDB${(record.carryOver ?? []).length ? `\uFF1B${record.carryOver.length} \u9879\u9A8C\u6536\u95EE\u9898\u5E26\u5165\u5F00\u53D1` : ""}` : `\u9700\u8981\u4F60\u51B3\u5B9A\uFF08${record.readiness?.label ?? record.decision?.label ?? "\u5F85\u5904\u7406"}\uFF09`)
           ),
           h(
             "details",
@@ -6648,13 +6989,13 @@ ${text}`)) continue;
           ),
           (record.carryOver ?? []).length ? h(
             "p",
-            { style: { margin: "8px 0 0", fontSize: "11.5px", color: "#fbbf24" } },
+            { style: { margin: "8px 0 0", fontSize: "11.5px", color: T.warn } },
             `\u5E26\u5165\u5F00\u53D1\u7EE7\u7EED\u5904\u7406\uFF1A${record.carryOver.map((entry) => entry.message ?? entry.code ?? entry).join("\uFF1B")}`
           ) : null,
           question ? h(
             "div",
             { style: { marginTop: "12px", border: "1px solid #f59e0b66", borderRadius: "10px", padding: "10px 12px", background: "#f59e0b0d" } },
-            h("div", { style: { fontSize: "12.5px", color: "#f59e0b", marginBottom: "4px" } }, "\u9700\u8981\u4F60\u51B3\u5B9A"),
+            h("div", { style: { fontSize: "12.5px", color: T.warn, marginBottom: "4px" } }, "\u9700\u8981\u4F60\u51B3\u5B9A"),
             h("div", { style: { fontSize: "12.5px", color: T.text2, lineHeight: 1.7 } }, question.message ?? question.code)
           ) : null,
           start ? h(
@@ -6675,7 +7016,7 @@ ${text}`)) continue;
               })
             ),
             h("p", { style: { margin: "8px 0 0", ...muted } }, "\u53EF\u4EE5\u5728\u53F3\u4FA7\u9700\u6C42\u8BE6\u60C5\u91CC\u7EE7\u7EED\u67E5\u770B\u53D8\u66F4\u3001\u4EFB\u52A1\u5361\u4E0E GitHub \u5F52\u5C5E\u3002"),
-            !start.execution ? h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: "#f59e0b" } }, "\u9884\u89C8\u6A21\u5F0F\uFF1A\u672A\u8C03\u5EA6 AI \u63A8\u8FDB\u3002") : start.execution.scheduled ? h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: "#34d399" } }, `AI \u5DF2\u63A5\u624B\u672C\u8F6E\u4EA4\u4ED8\uFF08\u8FD0\u884C ${start.execution.runId ?? "\u2014"} \xB7 \u4F1A\u8BDD ${start.execution.sessionId ?? "\u2014"}\uFF09\uFF1B\u5173\u95ED\u9762\u677F\u540E\u4ECD\u4F1A\u7EE7\u7EED\u3002`) : h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: "#f59e0b" } }, `\u5DF2\u767B\u8BB0\u53D8\u66F4\uFF0C\u4F46\u672A\u542F\u52A8 AI \u63A8\u8FDB\uFF1A${start.execution.message ?? start.execution.reason ?? "\u8F7D\u4F53\u4E0D\u53EF\u7528"}`)
+            !start.execution ? h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: T.warn } }, "\u9884\u89C8\u6A21\u5F0F\uFF1A\u672A\u8C03\u5EA6 AI \u63A8\u8FDB\u3002") : start.execution.scheduled ? h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: T.ok } }, `AI \u5DF2\u63A5\u624B\u672C\u8F6E\u4EA4\u4ED8\uFF08\u8FD0\u884C ${start.execution.runId ?? "\u2014"} \xB7 \u4F1A\u8BDD ${start.execution.sessionId ?? "\u2014"}\uFF09\uFF1B\u5173\u95ED\u9762\u677F\u540E\u4ECD\u4F1A\u7EE7\u7EED\u3002`) : h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: T.warn } }, `\u5DF2\u767B\u8BB0\u53D8\u66F4\uFF0C\u4F46\u672A\u542F\u52A8 AI \u63A8\u8FDB\uFF1A${start.execution.message ?? start.execution.reason ?? "\u8F7D\u4F53\u4E0D\u53EF\u7528"}`)
           ) : null,
           start && projectMeta?.repo ? h(
             "details",
@@ -7678,11 +8019,15 @@ ${text}`)) continue;
       );
     }
     const INTENT_ROUTE_LIST = [
-      ["create", "\u65B0\u5EFA\u9700\u6C42\u8349\u7A3F", "\u628A\u8FD9\u6B21\u6539\u52A8\u5199\u6210\u4E00\u4EFD\u65B0\u7684\u9700\u6C42\u8349\u6848"],
-      ["change", "\u53D8\u66F4\u5DF2\u6709\u9700\u6C42", "\u4FEE\u6539\u5DF2\u5B58\u5728\u627F\u8BFA\uFF0C\u4FDD\u7559\u4FEE\u8BA2\u5386\u53F2"],
-      ["reuse", "\u5DF2\u88AB\u8986\u76D6", "\u73B0\u6709\u627F\u8BFA\u5DF2\u7ECF\u8986\u76D6\uFF0C\u4E0D\u5FC5\u65B0\u5199"],
-      ["investigate", "\u5148\u8C03\u67E5", "\u8BC1\u636E\u4E0D\u8DB3\uFF0C\u5148\u8C03\u67E5\u518D\u51B3\u5B9A"],
-      ["decline", "\u5EFA\u8BAE\u6682\u7F13\u6216\u4E0D\u505A", "\u5F53\u524D\u4E0D\u5EFA\u8BAE\u505A\uFF0C\u8BB0\u4E0B\u7406\u7531"],
+      ["create", "\u65B0\u5EFA\u9700\u6C42", "\u786E\u8BA4\u662F\u65B0\u7684\u3001\u4E14\u4E0E\u5DF2\u6709\u6761\u6B3E\u4E0D\u91CD\u590D"],
+      ["extend", "\u8FFD\u52A0\u5230\u5DF2\u6709\u9700\u6C42", "\u5DF2\u6709\u627F\u8BFA\u8986\u76D6\u5927\u90E8\u5206\uFF0C\u53EA\u8865\u65B0\u589E\u6761\u6B3E"],
+      ["change", "\u4FEE\u8BA2\u5DF2\u6709\u9700\u6C42", "\u5DF2\u6709\u627F\u8BFA\u8BF4\u9519\u4E86\uFF0C\u8981\u6539\u6761\u6B3E"],
+      ["merge", "\u5408\u5E76\u540C\u65CF\u9700\u6C42", "\u4E24\u6761\u8BF4\u7684\u662F\u4E00\u4EF6\u4E8B\uFF0C\u5408\u6210\u4E00\u6761\u7EF4\u62A4"],
+      ["split", "\u62C6\u6210\u591A\u6761", "\u542B\u591A\u4E2A\u53EF\u72EC\u7ACB\u9A8C\u6536\u7684\u51B3\u7B56\u8F74"],
+      ["defer", "\u6682\u7F13\u89C2\u5BDF", "\u786E\u6709\u8BC9\u6C42\u4F46\u73B0\u5728\u4E0D\u662F\u505A\u7684\u65F6\u5019\uFF0C\u5199\u660E\u89E6\u53D1\u6761\u4EF6"],
+      ["decline", "\u62D2\u7EDD\u5E76\u8BB0\u8D26", "\u6709\u53CD\u8BC1\uFF1A\u5DF2\u6709\u66FF\u4EE3 / \u65E0\u4E8C\u6B21\u89E6\u53D1 / \u6210\u672C\u5927\u4E8E\u635F\u5931"],
+      ["reuse", "\u76F4\u63A5\u590D\u7528", "\u73B0\u6709\u627F\u8BFA\u5DF2\u5B8C\u5168\u8986\u76D6\uFF0C\u4E0D\u65B0\u589E"],
+      ["investigate", "\u5148\u8C03\u67E5", "\u8BC1\u636E\u4E0D\u8DB3\uFF0C\u5148\u67E5\u4EE3\u7801\u6216\u6587\u6863"],
       ["answer", "\u76F4\u63A5\u7B54\u7591", "\u53EA\u662F\u95EE\u9898\uFF0C\u4E0D\u6539\u52A8\u8D44\u4EA7"]
     ];
     const INTENT_ROUTE_LABELS = INTENT_ROUTE_LIST.reduce((acc, entry) => {
@@ -7925,7 +8270,7 @@ ${c.acceptance.map((row2) => `- \u5F53 ${row2.precondition || "\u2014"}\uFF0C${r
           "section",
           { "data-intent-draft": "empty", style: { ...card, cursor: "default", marginBottom: "10px", padding: "10px 14px" } },
           h("div", { style: { fontSize: "11px", letterSpacing: ".05em", color: T.text3, textTransform: "uppercase" } }, "\u9700\u6C42\u8349\u7A3F"),
-          h("div", { style: { fontSize: "12px", color: T.text3, marginTop: "4px" } }, "\u8FD9\u4EFD\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u7ED3\u6784\u5316\u9700\u6C42\u8349\u7A3F\uFF08\u65E7\u6A21\u578B\u8F93\u51FA\u6216\u670D\u52A1\u7AEF\u672A\u8FD4\u56DE docDraft\uFF09\uFF0C\u786E\u8BA4\u65F6\u4F1A\u6309\u73B0\u6709\u6B63\u6587\u5904\u7406\u3002")
+          h("div", { style: { fontSize: "12px", color: T.text3, marginTop: "4px" } }, "\u8FD9\u6B21\u8FD8\u6CA1\u6709\u7ED3\u6784\u5316\u9700\u6C42\u8349\u7A3F\uFF1B\u786E\u8BA4\u65F6\u4F1A\u6309\u754C\u9762\u4E0A\u73B0\u6709\u7684\u6B63\u6587\u5904\u7406\uFF0C\u4E0D\u4F1A\u51ED\u7A7A\u8865\u5199\u3002")
         );
       }
       const features = Array.isArray(draft.features) ? draft.features : [];
@@ -8238,6 +8583,7 @@ ${projectId ?? project ?? ""}`;
       const [session, setSession] = useState(null);
       const [manual, setManual] = useState({});
       const [routeChoices, setRouteChoices] = useState({});
+      const [verdictDraft, setVerdictDraft] = useState({});
       const [unknownChoices, setUnknownChoices] = useState({});
       const [conflicts, setConflicts] = useState([]);
       const [busy, setBusy] = useState(false);
@@ -9846,6 +10192,15 @@ ${lines.map((line) => `${line.ref} ${line.text}`).join("\n")}`;
         if (useAi) setManualField(conflict.itemId, conflict.field, conflict.aiValue);
         setConflicts((current) => current.filter((entry) => !(entry.itemId === conflict.itemId && entry.field === conflict.field)));
       };
+      const toLines = (text) => String(text ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const toSplitParts = (text) => toLines(text).map((line, index) => {
+        const [title2, acceptance] = line.split("|");
+        return {
+          partId: `PART-${index + 1}`,
+          title: String(title2 ?? "").trim(),
+          acceptance: String(acceptance ?? "").split(/[；;]/).map((item) => item.trim()).filter(Boolean)
+        };
+      });
       const flushAllEdits = async () => {
         const current = sessionRef.current;
         if (!current?.sessionId) return null;
@@ -9871,6 +10226,14 @@ ${lines.map((line) => `${line.ref} ${line.text}`).join("\n")}`;
             if (edited[field] !== void 0) fields[field] = entry.candidate[field];
           }
           if (routeChoices[entry.item.itemId] !== void 0) fields.route = entry.route;
+          const verdict = typeof verdictDraft === "object" && verdictDraft ? verdictDraft[entry.item.itemId] ?? {} : {};
+          if (verdict.adjudication) fields.adjudication = verdict.adjudication;
+          if (verdict.revisitTrigger !== void 0) fields.revisitTrigger = verdict.revisitTrigger;
+          if (verdict.deferTrigger !== void 0) fields.deferTrigger = verdict.deferTrigger;
+          if (verdict.deferDueAt !== void 0) fields.deferDueAt = verdict.deferDueAt;
+          if (verdict.mergeWith !== void 0) fields.mergeWith = verdict.mergeWith;
+          if (verdict.splitPartsText !== void 0) fields.splitParts = toSplitParts(verdict.splitPartsText);
+          if (verdict.extendClausesText !== void 0) fields.extendClauses = toLines(verdict.extendClausesText);
           if (index === 0) {
             if (ownerChoice.trim()) fields.owner = ownerChoice.trim();
             if (priorityChoice) fields.priority = priorityChoice;
@@ -9892,13 +10255,33 @@ ${lines.map((line) => `${line.ref} ${line.text}`).join("\n")}`;
             warnings: []
           };
         }
-        const reasons = (Array.isArray(readiness.reasons) ? [...readiness.reasons] : []).filter((entry) => !humanConfirmation || entry?.code !== "not-confirmed");
+        const localVerdictOf = (itemId) => {
+          const table = typeof verdictDraft === "object" && verdictDraft ? verdictDraft : null;
+          return table && itemId ? table[itemId] ?? {} : {};
+        };
+        const localLines = (text) => String(text ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const localSplitParts = (text) => localLines(text).map((line) => {
+          const [title2, acceptance] = line.split("|");
+          return { title: String(title2 ?? "").trim(), acceptance: String(acceptance ?? "").split(/[；;]/).map((item) => item.trim()).filter(Boolean) };
+        });
+        const localVerdictSatisfies = (entry) => {
+          const draft = localVerdictOf(entry?.itemId);
+          if (entry?.code === "duplicate-unadjudicated") return draft.adjudication?.duplicate === "new";
+          if (entry?.code === "missing-defer-trigger") return String(draft.deferTrigger ?? "").trim() !== "";
+          if (entry?.code === "missing-extend-increment") return localLines(draft.extendClausesText).length > 0;
+          if (entry?.code === "missing-split-parts") return localSplitParts(draft.splitPartsText).filter((part) => part.title && part.acceptance.length).length >= 2;
+          if (entry?.code === "missing-merge-target") return (draft.mergeWith ?? []).length > 0;
+          if (entry?.code === "missing-decline-reason") return String(draft.declineReason ?? "").trim() !== "" && String(draft.declineAlternative ?? "").trim() !== "";
+          return false;
+        };
+        const reasons = (Array.isArray(readiness.reasons) ? [...readiness.reasons] : []).filter((entry) => !humanConfirmation || entry?.code !== "not-confirmed").filter((entry) => !current?.sessionId || !localVerdictSatisfies(entry));
         const warnings = Array.isArray(readiness.warnings) ? [...readiness.warnings] : [];
         if (adoptionUncertainRef.current) reasons.push({ code: "adoption-unknown", message: "\u8C03\u67E5\u91C7\u7EB3\u7ED3\u679C\u672A\u77E5\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u4F1A\u8BDD\u6838\u5BF9\u540E\u518D\u64CD\u4F5C\u3002" });
         if (busy || editBusy || groupBusy || answerBusy) {
           reasons.push({ code: "client-operation-pending", message: "\u5F53\u524D\u64CD\u4F5C\u5C1A\u672A\u5B8C\u6210\uFF0C\u8BF7\u7A0D\u5019" });
         }
-        const onlyHumanConfirmation = humanConfirmation && readiness.reasons?.length > 0 && readiness.reasons.every((entry) => entry?.code === "not-confirmed");
+        const rawReasons = Array.isArray(readiness.reasons) ? readiness.reasons : [];
+        const onlyHumanConfirmation = humanConfirmation && rawReasons.length > 0 && rawReasons.every((entry) => entry?.code === "not-confirmed" || localVerdictSatisfies(entry));
         return { ready: (readiness.ready === true || onlyHumanConfirmation) && reasons.length === 0, reasons, warnings };
       };
       const confirmationFormGate = () => {
@@ -9990,6 +10373,7 @@ ${lines.map((line) => `${line.ref} ${line.text}`).join("\n")}`;
             }))
           }));
           const leadItem = items[0] ?? null;
+          const leadVerdict = typeof verdictDraft === "object" && verdictDraft && leadItem?.itemId ? verdictDraft[leadItem.itemId] ?? {} : {};
           const body = {
             action: "confirm",
             sessionId: latest.sessionId,
@@ -10003,7 +10387,14 @@ ${lines.map((line) => `${line.ref} ${line.text}`).join("\n")}`;
               route: leadItem?.route ?? "create",
               items,
               owner: ownerChoice.trim() || null,
-              priority: priorityChoice || null
+              priority: priorityChoice || null,
+              // 拒绝必须带理由与替代方案；暂缓必须带触发条件。这些不是备注，
+              // 是判决成立的必要条件（服务端 readiness 会再校验一次）。
+              reason: leadVerdict.declineReason ?? null,
+              alternative: leadVerdict.declineAlternative ?? null,
+              revisitTrigger: leadVerdict.revisitTrigger ?? null,
+              deferTrigger: leadVerdict.deferTrigger ?? null,
+              deferDueAt: leadVerdict.deferDueAt ?? null
             },
             idempotencyKey: idemRef.current,
             actor: "human:local"
@@ -11653,9 +12044,33 @@ ${text}`);
           )
         );
       };
+      const relatedOf = (item) => {
+        const declared = Array.isArray(item?.related) ? item.related : [];
+        const seen = new Set(declared.map((entry) => entry?.uid).filter(Boolean));
+        const machine = [];
+        for (const row2 of session?.context?.readSet ?? []) {
+          if (!row2?.uid || seen.has(row2.uid)) continue;
+          if (!["covered", "related", "conflict"].includes(row2.match)) continue;
+          const clause = (row2.clauseMatches ?? []).find((match) => ["covered", "conflict"].includes(match.verdict));
+          seen.add(row2.uid);
+          machine.push({
+            uid: row2.uid,
+            revision: row2.revision ?? null,
+            match: row2.match,
+            reason: clause ? `${clause.clauseId ?? "\u6761\u6B3E"}\uFF1A${clause.reasons?.[0] ?? clause.verdict}` : (row2.reasons ?? [])[0] ?? "\u673A\u5668\u68C0\u7D22\u547D\u4E2D",
+            machine: true
+          });
+        }
+        return [...declared, ...machine];
+      };
       const renderRelated = (item) => {
-        const related = item.related ?? [];
+        const related = relatedOf(item);
         const contextFailed = session?.context?.queryStatus === "error";
+        const clauseHintOf = (entry) => {
+          const read = (session?.context?.readSet ?? []).find((row2) => row2.uid === entry?.uid);
+          const matches = (read?.clauseMatches ?? []).filter((match) => match.verdict !== "unrelated");
+          return matches.slice(0, 2).map((match) => `${match.clauseId ?? "\u6761\u6B3E"}=${match.verdict}`).join(" \xB7 ");
+        };
         return h(
           "div",
           { style: { marginTop: "10px" } },
@@ -11695,11 +12110,184 @@ ${text}`);
                   h("span", { style: { fontSize: "11px", color: T.warn } }, INTENT_MATCH_LABELS[entry.match] ?? entry.match ?? "\u76F8\u5173")
                 ),
                 relatedTitleOf(entry) ? h("span", { style: { display: "block", marginTop: "2px", fontSize: "12px", color: T.text2, wordBreak: "break-word" } }, relatedTitleOf(entry)) : null,
+                clauseHintOf(entry) ? h("span", { style: { display: "block", marginTop: "2px", fontSize: "11px", color: T.text3 } }, `\u6761\u6B3E\u5224\u5B9A\uFF1A${clauseHintOf(entry)}`) : null,
                 h("span", { style: { display: "block", marginTop: "2px", fontSize: "11.5px", color: T.text3, lineHeight: 1.6 } }, entry.reason ?? "")
               )
             )
           )
         );
+      };
+      const verdictOf = (itemId) => verdictDraft[itemId] ?? {};
+      const verdictBoxStyle = { marginTop: "10px", border: `1px solid ${T.line}`, borderRadius: "10px", padding: "10px 12px", background: T.layer2 };
+      const dedupButtonStyle = { fontSize: "12px", padding: "5px 10px", borderRadius: "8px", border: `1px solid ${T.line}`, background: T.layer, color: T.text, cursor: "pointer" };
+      const setVerdictField = (itemId, key, value) => {
+        invalidateIdem();
+        setServerBlockers([]);
+        setVerdictDraft((current) => ({ ...current, [itemId]: { ...current[itemId] ?? {}, [key]: value } }));
+      };
+      const adjudicationOf = (item) => verdictOf(item.itemId).adjudication ?? item?.fields?.adjudication?.value ?? null;
+      const relatedTitle = (entry) => relatedTitleOf(entry) ?? entry.uid;
+      const renderRejectionHits = () => {
+        const hits = session?.context?.rejections ?? [];
+        if (!hits.length) return null;
+        return h(
+          "div",
+          { "data-intent-rejections": "true", style: { marginTop: "10px", border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.text3}`, borderRadius: "10px", padding: "10px 12px", background: T.layer } },
+          h("div", { style: { fontSize: "12.5px", fontWeight: 500, color: T.text } }, "\u5426\u51B3\u8D26\u672C\u91CC\u5DF2\u6709\u7C7B\u4F3C\u8BC9\u6C42"),
+          h("p", { style: { margin: "4px 0 0", ...muted, lineHeight: 1.7 } }, "\u62D2\u7EDD\u6709\u8BB0\u5FC6\uFF1A\u5982\u679C\u8FD9\u6B21\u7684\u89E6\u53D1\u6761\u4EF6\u4E0D\u6210\u7ACB\uFF0C\u76F4\u63A5\u6CBF\u7528\u4E0A\u6B21\u7684\u7ED3\u8BBA\u5373\u53EF\u3002"),
+          hits.map((entry) => h(
+            "div",
+            { key: entry.id, style: { marginTop: "6px", paddingTop: "6px", borderTop: `1px solid ${T.line}`, fontSize: "11.5px", color: T.text2, lineHeight: 1.75 } },
+            h("div", null, `${entry.id}\uFF08${entry.verdict}\uFF09\uFF1A${entry.statement}`),
+            entry.reason ? h("div", { style: { color: T.text3 } }, `\u7406\u7531\uFF1A${entry.reason}`) : null,
+            entry.alternative ? h("div", { style: { color: T.text3 } }, `\u66FF\u4EE3\uFF1A${entry.alternative}`) : null,
+            entry.revisitTrigger ? h("div", { style: { color: T.text3 } }, `\u518D\u63D0\u6761\u4EF6\uFF1A${entry.revisitTrigger}`) : null
+          ))
+        );
+      };
+      const dedupHitsOf = (item) => {
+        const duplicates = [];
+        const seenDup = /* @__PURE__ */ new Set();
+        for (const entry of item.related ?? []) {
+          if (!entry?.uid || !["covered", "conflict"].includes(entry.match) || seenDup.has(entry.uid)) continue;
+          const read = (session?.context?.readSet ?? []).find((row2) => row2.uid === entry.uid);
+          if (!read) continue;
+          seenDup.add(entry.uid);
+          duplicates.push({ ...entry, machine: false });
+        }
+        for (const read of session?.context?.readSet ?? []) {
+          if (!read?.uid || seenDup.has(read.uid) || !["covered", "conflict"].includes(read.match)) continue;
+          const clause = (read.clauseMatches ?? []).find((match) => ["covered", "conflict"].includes(match.verdict));
+          seenDup.add(read.uid);
+          duplicates.push({ uid: read.uid, match: read.match, reason: clause ? `${clause.clauseId ?? "\u6761\u6B3E"}\uFF1A${clause.reasons?.[0] ?? clause.verdict}` : (read.reasons ?? [])[0], machine: true });
+        }
+        return duplicates;
+      };
+      const renderDedup = (item) => {
+        const duplicates = dedupHitsOf(item);
+        const failed = session?.context?.queryStatus === "error";
+        if (failed || duplicates.length === 0) return null;
+        const adjudication = adjudicationOf(item);
+        const decided = adjudication?.duplicate ?? null;
+        const clauseHints = (entry) => {
+          const read = (session?.context?.readSet ?? []).find((row2) => row2.uid === entry.uid);
+          const matches = (read?.clauseMatches ?? []).filter((match) => match.verdict !== "unrelated");
+          if (!matches.length) return entry.reason ?? "";
+          return matches.slice(0, 2).map((match) => `${match.clauseId ?? "\u6761\u6B3E"}\uFF1A${match.reasons?.[0] ?? match.verdict}`).join(" \xB7 ");
+        };
+        return h(
+          "div",
+          { "data-intent-dedup": "true", style: { marginTop: "10px", border: `1px solid ${T.line2}`, borderLeft: `3px solid ${decided === "new" ? T.ok : T.warn}`, borderRadius: "10px", padding: "10px 12px", background: T.layer } },
+          h(
+            "div",
+            { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } },
+            h("span", { style: { fontSize: "12.5px", fontWeight: 500, color: decided === "new" ? T.ok : T.warn } }, "\u67E5\u91CD\u7ED3\u8BBA\uFF1A\u8FD9\u6761\u8BC9\u6C42\u53EF\u80FD\u5DF2\u7ECF\u5B58\u5728"),
+            decided === "new" ? tonePill("success", "\u5DF2\u88C1\u51B3\uFF1A\u786E\u5B9E\u662F\u65B0\u7684") : tonePill("warn", "\u5F85\u88C1\u51B3")
+          ),
+          h(
+            "p",
+            { style: { margin: "4px 0 6px", ...muted, lineHeight: 1.7 } },
+            decided === "new" ? "\u4F60\u5DF2\u5224\u5B9A\u5B83\u4E0E\u4E0B\u5217\u6761\u6B3E\u4E0D\u540C\uFF0C\u53EF\u4EE5\u7EE7\u7EED\u65B0\u5EFA\uFF1B\u88C1\u51B3\u4F1A\u968F\u9700\u6C42\u4E00\u8D77\u7559\u6863\u3002" : "\u5148\u5224\u5F52\u5C5E\uFF0C\u518D\u5199\u6B63\u6587\uFF1A\u5982\u679C\u5C31\u662F\u8FD9\u6761\uFF0C\u8BF7\u6539\u4E3A\u8FFD\u52A0/\u4FEE\u8BA2/\u5408\u5E76\uFF0C\u4E0D\u8981\u65B0\u5EFA\u7B2C\u4E8C\u6761\u627F\u8BFA\u3002"
+          ),
+          duplicates.map((entry) => h(
+            "div",
+            { key: entry.uid, style: { padding: "6px 0", borderTop: `1px solid ${T.line}` } },
+            h(
+              "div",
+              { style: { display: "flex", gap: "8px", alignItems: "baseline", flexWrap: "wrap" } },
+              h("span", { style: { fontSize: "12px", color: T.text, fontWeight: 500 } }, entry.uid),
+              h("span", { style: { fontSize: "11px", color: entry.match === "conflict" ? T.err : T.warn } }, INTENT_MATCH_LABELS[entry.match] ?? entry.match),
+              entry.machine ? tonePill("neutral", "\u673A\u5668\u5224\u5B9A") : null,
+              h("span", { style: { fontSize: "11.5px", color: T.text2, wordBreak: "break-word" } }, relatedTitle(entry))
+            ),
+            h("div", { style: { marginTop: "2px", fontSize: "11.5px", color: T.text3, lineHeight: 1.7 } }, clauseHints(entry))
+          )),
+          h(
+            "div",
+            { style: { display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px" } },
+            h("button", { type: "button", "data-dedup": "extend", disabled: busy, onClick: () => {
+              setVerdictField(item.itemId, "adjudication", { duplicate: "covered", uids: duplicates.map((entry) => entry.uid), reason: "human: \u5C31\u662F\u8FD9\u6761\uFF0C\u8FFD\u52A0\u6761\u6B3E" });
+              chooseRoute(item, "extend");
+            }, style: { ...dedupButtonStyle, borderColor: T.brand } }, "\u5C31\u662F\u8FD9\u6761 \u2192 \u8FFD\u52A0\u6761\u6B3E"),
+            h("button", { type: "button", "data-dedup": "change", disabled: busy, onClick: () => {
+              setVerdictField(item.itemId, "adjudication", { duplicate: "covered", uids: duplicates.map((entry) => entry.uid), reason: "human: \u5C31\u662F\u8FD9\u6761\uFF0C\u4FEE\u8BA2\u6761\u6B3E" });
+              chooseRoute(item, "change");
+            }, style: dedupButtonStyle }, "\u5C31\u662F\u8FD9\u6761 \u2192 \u4FEE\u8BA2\u6761\u6B3E"),
+            h("button", { type: "button", "data-dedup": "new", disabled: busy, onClick: () => {
+              setVerdictField(item.itemId, "adjudication", { duplicate: "new", uids: duplicates.map((entry) => entry.uid), reason: "human: \u786E\u5B9E\u662F\u65B0\u7684" });
+            }, style: dedupButtonStyle }, "\u786E\u5B9E\u662F\u65B0\u7684")
+          )
+        );
+      };
+      const renderVerdictDetail = (item) => {
+        const route = routeOf(item);
+        const draft = verdictOf(item.itemId);
+        const label = (text2) => h("div", { style: { ...fieldLabelStyle, marginTop: "8px" } }, text2);
+        const text = (key, placeholder, textarea) => textarea ? h("textarea", { "data-verdict-field": key, value: draft[key] ?? "", onChange: (event) => setVerdictField(item.itemId, key, event.target.value), placeholder, style: { ...input, width: "100%", minWidth: 0, minHeight: "56px", resize: "vertical", fontFamily: "inherit", lineHeight: 1.7 } }) : h("input", { "data-verdict-field": key, value: draft[key] ?? "", onChange: (event) => setVerdictField(item.itemId, key, event.target.value), placeholder, style: { ...input, width: "100%", minWidth: 0 } });
+        if (route === "decline") {
+          return h(
+            "div",
+            { "data-verdict-detail": "decline", style: verdictBoxStyle },
+            h("div", { style: { fontSize: "12.5px", color: T.text, fontWeight: 500 } }, "\u62D2\u7EDD\u8981\u7559\u8BC1\u636E\uFF0C\u4E0D\u7559\u7406\u7531\u7B49\u4E8E\u6CA1\u62D2\u7EDD"),
+            label("\u53CD\u8BC1\uFF08\u54EA\u4E00\u6761\u6210\u7ACB\uFF1A\u5DF2\u6709\u66FF\u4EE3 / 90 \u5929\u65E0\u4E8C\u6B21\u89E6\u53D1 / \u6210\u672C > \u635F\u5931\uFF09"),
+            text("declineReason", "\u4F8B\uFF1A\u5DF2\u6709 REQ-ALM-006 \u7684\u5BFC\u5165\u5BFC\u51FA\u8986\u76D6\u4E86\u540C\u4E00\u573A\u666F\uFF0C\u518D\u505A\u4E00\u904D\u53EA\u4F1A\u5206\u53C9"),
+            label("\u66FF\u4EE3\u65B9\u6848\uFF08\u5199\u201C\u65E0\u66FF\u4EE3\u201D\u4E5F\u53EF\u4EE5\uFF0C\u4F46\u5FC5\u987B\u660E\u8BF4\uFF09"),
+            text("declineAlternative", "\u4F8B\uFF1A\u76F4\u63A5\u7528 REQ-ALM-006 \u7684\u5BFC\u51FA\uFF0C\u8865\u4E00\u4E2A\u5B57\u6BB5\u5373\u53EF"),
+            label("\u4EC0\u4E48\u6761\u4EF6\u4E0B\u53EF\u4EE5\u518D\u63D0\uFF08\u89E6\u53D1\u6761\u4EF6\uFF09"),
+            text("revisitTrigger", "\u4F8B\uFF1A\u5BFC\u51FA\u683C\u5F0F\u88AB\u5916\u90E8\u7CFB\u7EDF\u8981\u6C42\u53D8\u66F4\u65F6"),
+            h("p", { style: { margin: "6px 0 0", ...muted } }, "\u786E\u8BA4\u540E\u5199\u5165 .alm/rejections/\uFF0C\u4E0B\u6B21\u540C\u6837\u7684\u8BC9\u6C42\u4F1A\u88AB\u67E5\u91CD\u547D\u4E2D\uFF0C\u800C\u4E0D\u662F\u91CD\u65B0\u8BA8\u8BBA\u4E00\u904D\u3002")
+          );
+        }
+        if (route === "defer") {
+          return h(
+            "div",
+            { "data-verdict-detail": "defer", style: verdictBoxStyle },
+            h("div", { style: { fontSize: "12.5px", color: T.text, fontWeight: 500 } }, "\u6682\u7F13\u5FC5\u987B\u6709\u5230\u671F\u6761\u4EF6\uFF0C\u5426\u5219\u534A\u5E74\u540E\u6C60\u5B50\u91CC\u5168\u662F\u50F5\u5C38"),
+            label("\u89E6\u53D1\u6761\u4EF6\uFF08\u65F6\u95F4 / \u4E8B\u4EF6 / \u6307\u6807\u9608\u503C\uFF09"),
+            text("deferTrigger", "\u4F8B\uFF1A\u9700\u6C42\u6570\u8D85\u8FC7 50 \u6761\uFF0C\u6216\u51FA\u73B0\u7B2C 3 \u6B21\u540C\u7C7B\u5DE5\u5355"),
+            label("\u5230\u671F\u65E5\uFF08\u53EF\u9009\uFF09"),
+            text("deferDueAt", "\u4F8B\uFF1A2027-03-31")
+          );
+        }
+        if (route === "merge") {
+          const related = (item.related ?? []).filter((entry) => entry.uid && ["covered", "related", "conflict"].includes(entry.match));
+          const picked = new Set(draft.mergeWith ?? []);
+          return h(
+            "div",
+            { "data-verdict-detail": "merge", style: verdictBoxStyle },
+            h("div", { style: { fontSize: "12.5px", color: T.text, fontWeight: 500 } }, "\u9009\u62E9\u5408\u5E76\u8FDB\u540C\u4E00\u6761\u7684\u5176\u5B83\u9700\u6C42\uFF08\u81F3\u5C11\u4E00\u6761\uFF09"),
+            related.length === 0 ? h("p", { style: { margin: "6px 0 0", color: T.warn, fontSize: "12px" } }, "\u5F53\u524D\u6CA1\u6709\u53EF\u6838\u5BF9\u7684\u540C\u65CF\u9700\u6C42\uFF1B\u8BF7\u5148\u5206\u6790\u9700\u6C42\u4E0A\u4E0B\u6587\u3002") : related.map((entry) => h(
+              "label",
+              { key: entry.uid, style: { display: "flex", gap: "8px", alignItems: "center", marginTop: "6px", fontSize: "12px", color: T.text2 } },
+              h("input", { type: "checkbox", checked: picked.has(entry.uid), onChange: (event) => {
+                const next = new Set(picked);
+                if (event.target.checked) next.add(entry.uid);
+                else next.delete(entry.uid);
+                setVerdictField(item.itemId, "mergeWith", [...next]);
+              } }),
+              `${entry.uid} \xB7 ${relatedTitle(entry)}`
+            )),
+            h("p", { style: { margin: "6px 0 0", ...muted } }, "\u786E\u8BA4\u540E\u751F\u6210\u5408\u5E76\u8349\u7A3F\uFF0C\u76EE\u6807\u9700\u6C42\u8D70\u6B63\u5F0F\u53D8\u66F4\u6D41\u7A0B\uFF0C\u88AB\u5408\u5E76\u9700\u6C42\u53E6\u884C\u9000\u573A\u3002")
+          );
+        }
+        if (route === "split") {
+          return h(
+            "div",
+            { "data-verdict-detail": "split", style: verdictBoxStyle },
+            h("div", { style: { fontSize: "12.5px", color: T.text, fontWeight: 500 } }, "\u6BCF\u884C\u4E00\u4E2A\u90E8\u5206\uFF0C\u683C\u5F0F\uFF1A\u6807\u9898 | \u9A8C\u65361\uFF1B\u9A8C\u65362"),
+            h("textarea", { "data-verdict-field": "splitParts", value: draft.splitPartsText ?? "", onChange: (event) => setVerdictField(item.itemId, "splitPartsText", event.target.value), placeholder: "\u81EA\u52A8\u53D1\u73B0\u7F3A\u9677 | \u5931\u8D25\u8FD0\u884C\u5199\u5165\u53F0\u8D26\uFF1B\u540C\u4E00\u6307\u7EB9\u7D2F\u52A0\u6B21\u6570\n\u81EA\u52A8\u4FEE\u590D\u7F3A\u9677 | \u7B56\u7565\u53C2\u6570\u8C03\u6574\u540E\u91CD\u8DD1\u6210\u529F\uFF1B\u65E0\u6CD5\u81EA\u6108\u65F6 fail-closed", style: { ...input, width: "100%", minWidth: 0, minHeight: "84px", resize: "vertical", fontFamily: "inherit", lineHeight: 1.7 } }),
+            h("p", { style: { margin: "6px 0 0", ...muted } }, "\u62C6\u5F00\u7684\u6807\u51C6\u53EA\u6709\u4E00\u6761\uFF1A\u6BCF\u90E8\u5206\u80FD\u5426\u5355\u72EC\u9A8C\u6536\u3001\u5355\u72EC\u4E0A\u7EBF\u3002")
+          );
+        }
+        if (route === "extend") {
+          return h(
+            "div",
+            { "data-verdict-detail": "extend", style: verdictBoxStyle },
+            h("div", { style: { fontSize: "12.5px", color: T.text, fontWeight: 500 } }, "\u53EA\u5199\u65B0\u589E\u6761\u6B3E\uFF0C\u4E0D\u8981\u91CD\u5199\u539F\u6709\u9A8C\u6536"),
+            h("textarea", { "data-verdict-field": "extendClauses", value: draft.extendClausesText ?? "", onChange: (event) => setVerdictField(item.itemId, "extendClausesText", event.target.value), placeholder: "\u6BCF\u884C\u4E00\u6761\u65B0\u589E\u9A8C\u6536\uFF0C\u4F8B\uFF1A\u81EA\u6108\u7B56\u7565\u53D8\u66F4\u5FC5\u987B\u7559 revision \u4E0E\u53D8\u66F4\u5386\u53F2", style: { ...input, width: "100%", minWidth: 0, minHeight: "72px", resize: "vertical", fontFamily: "inherit", lineHeight: 1.7 } })
+          );
+        }
+        return null;
       };
       const renderRoutes = (item) => {
         const chosen = routeOf(item);
@@ -11710,7 +12298,7 @@ ${text}`);
           h(
             "summary",
             { style: { cursor: "pointer", fontSize: "13px", color: T.text, lineHeight: 1.7 } },
-            edited ? `\u5DF2\u9009\u53BB\u5411\uFF1A${INTENT_ROUTE_LABELS[chosen] ?? chosen} \xB7 \u4FEE\u6539` : session?.manual ? `\u5F53\u524D\u53BB\u5411\uFF1A${INTENT_ROUTE_LABELS[chosen] ?? chosen} \xB7 \u67E5\u770B\u6216\u4FEE\u6539` : `AI \u5EFA\u8BAE\u53BB\u5411\uFF1A${INTENT_ROUTE_LABELS[chosen] ?? chosen} \xB7 \u67E5\u770B\u6216\u4FEE\u6539`
+            edited ? `\u5DF2\u9009\u53BB\u5411\uFF1A${INTENT_ROUTE_LABELS[chosen] ?? chosen} \xB7 \u4FEE\u6539` : session?.ai === "none" ? `\u9ED8\u8BA4\u53BB\u5411\uFF08\u672A\u7ECF AI \u5224\u65AD\uFF09\uFF1A${INTENT_ROUTE_LABELS[chosen] ?? chosen} \xB7 \u4FEE\u6539` : session?.manual ? `\u5F53\u524D\u53BB\u5411\uFF1A${INTENT_ROUTE_LABELS[chosen] ?? chosen} \xB7 \u67E5\u770B\u6216\u4FEE\u6539` : `AI \u5EFA\u8BAE\u53BB\u5411\uFF1A${INTENT_ROUTE_LABELS[chosen] ?? chosen} \xB7 \u67E5\u770B\u6216\u4FEE\u6539`
           ),
           h(
             "div",
@@ -12005,10 +12593,12 @@ ${text}`);
             total > 1 ? `\u610F\u56FE ${index + 1} / ${total}` : "\u8FD9\u6B21\u610F\u56FE"
           )
         ),
-        h("p", { style: { margin: "6px 0 0", fontSize: "13px", color: T.text, lineHeight: 1.8 } }, item.userProblem || item.desiredOutcome || "\uFF08\u6CA1\u6709\u53EF\u663E\u793A\u7684\u7406\u89E3\uFF09"),
+        h("p", { style: { margin: "6px 0 0", fontSize: "13px", color: T.text, lineHeight: 1.8 } }, item.userProblem || item.desiredOutcome || "\uFF08\u8FD8\u6CA1\u6709\u7406\u89E3\uFF1A\u6A21\u578B\u672A\u53C2\u4E0E\u6216\u5206\u6790\u672A\u8FD4\u56DE\u5185\u5BB9\uFF0C\u4E0B\u9762\u662F\u4F60\u7684\u539F\u8BDD\u4E0E\u673A\u5668\u67E5\u91CD\u7ED3\u679C\uFF09"),
         item.desiredOutcome && item.userProblem ? h("p", { style: { margin: "2px 0 0", ...muted, lineHeight: 1.7 } }, `\u671F\u671B\uFF1A${item.desiredOutcome}`) : null,
         renderValueCheck(item),
+        renderDedup(item),
         renderRoutes(item),
+        renderVerdictDetail(item),
         renderRelated(item),
         h(
           "details",
@@ -12103,7 +12693,7 @@ ${text}`);
           hash ? `\u5C06\u4FDD\u5B58 ${short}` : "\u5C06\u4FDD\u5B58\uFF08\u54C8\u5E0C\u5F85\u751F\u6210\uFF09"
         );
       };
-      const simpleReview = () => activeItems().length === 1 && routeOf(activeItems()[0]) === "create" && !(activeItems()[0].unknowns ?? []).some((entry) => entry.blocking && (!entry.resolution || entry.resolution === "pending" || entry.resolution === "investigate")) && simpleDraft;
+      const simpleReview = () => activeItems().length === 1 && routeOf(activeItems()[0]) === "create" && dedupHitsOf(activeItems()[0]).length === 0 && !(activeItems()[0].unknowns ?? []).some((entry) => entry.blocking && (!entry.resolution || entry.resolution === "pending" || entry.resolution === "investigate")) && simpleDraft;
       const grillApplied = session?.grill?.outcome === "applied";
       const grillFallback = session?.grill?.outcome === "fallback";
       const grillAvailable = session?.grill?.status === "loaded";
@@ -12188,10 +12778,30 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       };
       const renderSimpleReview = () => {
         const field = (label, value, onChange, multiline = false) => h("label", { style: { display: "grid", gap: "6px", color: T.text2, fontSize: "13px" } }, label, h(multiline ? "textarea" : "input", { value, onChange: (event) => onChange(event.target.value), style: { ...input, width: "100%", boxSizing: "border-box" }, ...multiline ? { rows: 2 } : {} }));
+        const lead2 = activeItems()[0] ?? null;
         return h(
           "div",
           { style: { display: "grid", gap: "18px", marginTop: "12px" } },
           renderRequirementMatchCard(),
+          renderRejectionHits(),
+          renderDedup(lead2),
+          // 简版默认“新建”。其余九种判决不是隐藏选项：没有这个入口，用户想拒绝或
+          // 暂缓时只能绕回主对话，判决体系就形同不存在。
+          lead2 ? h(
+            "details",
+            { "data-verdict-switch": "true", style: { fontSize: "12.5px", color: T.text2 } },
+            h("summary", { style: { cursor: "pointer", color: T.text2 } }, "\u4E0D\u662F\u65B0\u5EFA\uFF1F\u6539\u5224\u4E3A\u8FFD\u52A0 / \u4FEE\u8BA2 / \u5408\u5E76 / \u62C6\u5206 / \u6682\u7F13 / \u62D2\u7EDD\u2026"),
+            h(
+              "div",
+              { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px", marginTop: "8px" } },
+              INTENT_ROUTE_LIST.filter(([id]) => id !== "create").map(([id, label, hint]) => h(
+                "button",
+                { key: id, type: "button", "data-route-switch": id, disabled: busy, onClick: () => chooseRoute(lead2, id), style: { textAlign: "left", cursor: "pointer", border: `1px solid ${T.line}`, borderRadius: "10px", padding: "8px 10px", background: T.layer, color: T.text2 } },
+                h("span", { style: { display: "block", fontSize: "12.5px", fontWeight: 500, color: T.text } }, label),
+                h("span", { style: { display: "block", marginTop: "2px", fontSize: "11px", color: T.text3, lineHeight: 1.6 } }, hint)
+              ))
+            )
+          ) : null,
           error ? renderError(error) : null,
           confirmState.error ? renderError(confirmState.error) : null,
           h(
@@ -12273,10 +12883,11 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           h(
             "p",
             { style: { margin: "8px 0 0", fontSize: "13.5px", color: T.text, lineHeight: 1.8 } },
-            items.length === 0 ? "\u6CA1\u6709\u53EF\u786E\u8BA4\u7684\u610F\u56FE\u9879\u3002" : items.length === 1 ? `\u6211\u7684\u7406\u89E3\uFF1A${first.userProblem || first.desiredOutcome || "\uFF08\u89C1\u4E0B\u65B9\u5019\u9009\uFF09"}` : `\u6211\u7684\u7406\u89E3\uFF1A\u8FD9\u91CC\u5176\u5B9E\u662F ${items.length} \u4E2A\u610F\u56FE\uFF0C\u4E0B\u9762\u9010\u4E2A\u786E\u8BA4\u3002`
+            items.length === 0 ? "\u6CA1\u6709\u53EF\u786E\u8BA4\u7684\u610F\u56FE\u9879\u3002" : items.length === 1 ? `\u6211\u7684\u7406\u89E3\uFF1A${first.userProblem || first.desiredOutcome || (first.candidate ? "\uFF08\u89C1\u4E0B\u65B9\u5019\u9009\uFF09" : "\uFF08\u8FD8\u6CA1\u6709\u7406\u89E3\uFF1A\u8FD9\u6B21\u6CA1\u6709\u751F\u6210\u95EE\u9898\u4E0E\u65B9\u6848\uFF09")}` : `\u6211\u7684\u7406\u89E3\uFF1A\u8FD9\u91CC\u5176\u5B9E\u662F ${items.length} \u4E2A\u610F\u56FE\uFF0C\u4E0B\u9762\u9010\u4E2A\u786E\u8BA4\u3002`
           ),
           renderConfirmedDecisions(),
           renderHistoricalAnswers(),
+          renderRejectionHits(),
           renderQuestionGroup() ?? renderQuestion(),
           tonePill(draftPhase().tone, draftPhase().label),
           renderIntentDraft(),
@@ -12298,6 +12909,22 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
             renderClarificationStatus()
           ),
           session?.manual ? tonePill("warn", "\u624B\u52A8\u6A21\u5F0F\uFF08\u672A\u8C03\u7528\u6A21\u578B\uFF09") : null,
+          // AC-03：模型没参与时，界面必须说“未澄清”，不能把空表单摆成结果。
+          session?.ai === "none" ? h(
+            "div",
+            { "data-intent-unclarified": "true", role: "status", style: { marginTop: "10px", border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.warn}`, borderRadius: "10px", padding: "10px 12px", background: T.layer } },
+            h("div", { style: { fontSize: "12.5px", fontWeight: 500, color: T.warn } }, "\u8FD9\u6B21\u6F84\u6E05\u6CA1\u6709\u6A21\u578B\u53C2\u4E0E\uFF1A\u4E0B\u9762\u7684\u5185\u5BB9\u4E0D\u662F\u5206\u6790\u7ED3\u679C"),
+            h(
+              "p",
+              { style: { margin: "4px 0 0", fontSize: "12px", color: T.text2, lineHeight: 1.8, wordWrap: "break-word" } },
+              session.aiNote ?? "\u6CA1\u6709\u751F\u6210\u95EE\u9898\u3001\u6807\u9898\u4E0E\u9A8C\u6536\uFF1B\u8BF7\u81EA\u5DF1\u8865\u5168\uFF0C\u6216\u91CD\u65B0\u5206\u6790\u3002"
+            ),
+            h(
+              "p",
+              { style: { margin: "4px 0 0", fontSize: "12px", color: T.text3, lineHeight: 1.8 } },
+              "\u8865\u5168\u6807\u9898\u4E0E\u81F3\u5C11\u4E00\u6761\u9A8C\u6536\u540E\u624D\u80FD\u786E\u8BA4\uFF1B\u5728\u6B64\u4E4B\u524D\u300C\u786E\u8BA4\u300D\u6309\u94AE\u4F1A\u4FDD\u6301\u4E0D\u53EF\u7528\uFF0C\u907F\u514D\u628A\u672A\u6F84\u6E05\u7684\u5185\u5BB9\u5199\u8FDB\u9700\u6C42\u5E93\u3002"
+            )
+          ) : null,
           editBusy ? h("span", { style: muted }, "\u6B63\u5728\u4FDD\u5B58\u4F60\u7684\u4FEE\u6539\u2026") : null,
           renderInvestigationPanel(),
           renderInvestigations(),
@@ -14998,7 +15625,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       );
     }
     const NATIVE_SOURCE_BUILD_ID = false ? null : null;
-    const NATIVE_CLIENT_BUILD_ID = true ? "9c3a94fc0a58156f792792a657557ccffef97ba1d725408a306bc42065ef5228" : null;
+    const NATIVE_CLIENT_BUILD_ID = true ? "73a5d9755b5a6d478750fce223f227b75e9be282162d4ea8017cb9f341260c3f" : null;
     function NativeDeliveryControl({ root, requirementId }) {
       const [job, setJob] = useState(null);
       const [error, setError] = useState(null);
@@ -15856,9 +16483,9 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           type: "button",
           onClick,
           style: {
-            border: `1px solid ${primary2 ? T.brand : T.line2}`,
-            background: primary2 ? T.brand : "transparent",
-            color: primary2 ? "#fff" : T.text2,
+            border: `1px solid ${primary2 ? T.text : T.line2}`,
+            background: primary2 ? T.text : "transparent",
+            color: primary2 ? T.base : T.text2,
             borderRadius: "7px",
             padding: "5px 10px",
             fontSize: "11.5px",
@@ -15949,8 +16576,8 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           [data-work-views] button { flex-shrink: 0; }
           [data-requirements-workbench] .req-pick { appearance: none; -webkit-appearance: none; width: 15px; height: 15px; border: 1.5px solid #3a424e; border-radius: 4px; background: #0d1014; margin: 3px 0 0; flex: none; cursor: pointer; position: relative; }
           [data-requirements-workbench] .req-pick:hover { border-color: #4c5665; }
-          [data-requirements-workbench] .req-pick:checked { background: ${T.brand}; border-color: ${T.brand}; }
-          [data-requirements-workbench] .req-pick:checked::after { content: ""; position: absolute; left: 3.5px; top: 0.5px; width: 5px; height: 9px; border-right: 1.6px solid #fff; border-bottom: 1.6px solid #fff; transform: rotate(40deg); }
+          [data-requirements-workbench] .req-pick:checked { background: ${T.text}; border-color: ${T.text}; }
+          [data-requirements-workbench] .req-pick:checked::after { content: ""; position: absolute; left: 3.5px; top: 0.5px; width: 5px; height: 9px; border-right: 1.6px solid ${T.base}; border-bottom: 1.6px solid ${T.base}; transform: rotate(40deg); }
           @media (max-width: 760px) { [data-requirements-search] { width: 100% !important; } }
           @media (max-height: 620px) { [data-requirements-workbench] { overflow-y: auto !important; } }
           @media (max-width: 760px) { [data-requirements-workbench] { padding-left: 16px !important; padding-right: 16px !important; overflow-y: auto !important; } }

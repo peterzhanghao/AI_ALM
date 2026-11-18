@@ -1,0 +1,16 @@
+[DOCUMENT]
+TITLE: 需求澄清判决式重构与运行时缺陷自愈
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-014
+TITLE: 需求澄清判决式重构与运行时缺陷自愈
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P1
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-ALM-014.md
+SOURCE: chat

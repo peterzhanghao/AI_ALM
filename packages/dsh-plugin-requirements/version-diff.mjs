@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseSdocAsset } from '../alm-core/src/parse/sdoc.mjs'
+import { runCaptured } from '../alm-core/src/process-capture.mjs'
 import { versionPath } from './version-path.mjs'
 
 export class VersionDiffError extends Error {
@@ -14,7 +14,10 @@ export class VersionDiffError extends Error {
 }
 
 function git(root, args) {
-  return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  const result = runCaptured('git', ['-C', root, ...args])
+  if (result.error) throw Object.assign(new Error(`git ${args[0]} failed: ${result.error.code ?? result.error.message}`), { code: result.error.code })
+  if (result.status !== 0) throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: 'git-failed', stderr: result.stderr })
+  return String(result.stdout ?? '').trim()
 }
 
 function readVersion(root, file, ref) {

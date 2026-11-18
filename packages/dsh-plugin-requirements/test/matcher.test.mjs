@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +6,7 @@ import { test } from 'node:test'
 import { createRequirement } from '../../alm-core/src/requirements/create.mjs'
 import { indexReport } from '../../alm-core/src/commands.mjs'
 import { matchRequirement } from '../../alm-core/src/requirements/matcher.mjs'
+import { runCaptured } from '../../alm-core/src/process-capture.mjs'
 import { handleIntentRequest } from '../intent.mjs'
 
 const EXPERIMENT_TWO = '需求列表里的长标题自动提炼功能，如果用户手动修改过标题，就不要再被 AI 自动提炼覆盖了。'
@@ -81,11 +81,14 @@ test('crystallize auto-attaches a matching feedback without --update and records
       '- 列表展示收敛状态与版本徽章。',
       '- 跨会话反馈收敛后版本号递增。',
     ].join('\n')
-    const output = execFileSync(process.execPath, [
+    const captured = runCaptured(process.execPath, [
       'packages/dsh-plugin-requirements/bin/crystallize.mjs', '--root', root,
       '--feedback', summary, '--source-session', 'external-acceptance-window', '--apply',
-    ], { cwd: new URL('../../..', import.meta.url), encoding: 'utf8' })
-    const result = JSON.parse(output)
+    ], { cwd: new URL('../../..', import.meta.url) })
+    if (captured.error || captured.status !== 0) {
+      throw new Error(`crystallize failed: ${captured.error?.code ?? captured.error?.message ?? captured.stderr}`)
+    }
+    const result = JSON.parse(String(captured.stdout))
     assert.equal(result.autoAttached, true)
     assert.equal(result.matched.matchedReqId, 'REQ-ALM-012')
     assert.equal(result.result.result.requirement, 'REQ-ALM-012')
@@ -119,13 +122,12 @@ test('intent analysis returns the REQ-ALM-011 magnetic match and preserves the c
     assert.equal(result.matchedReq.matchedReqId, 'REQ-ALM-011')
     assert.equal(result.matchedReq.confidence, 'high')
     assert.deepEqual(result.matchedReq.matchedReq, { id: 'REQ-ALM-011', title: '需求列表长标题自动提炼与主操作按钮语义优化', revision: 1 })
-    const draft = result.session.docDraft
-    const acceptance = draft.acceptance.map(entry => entry.text)
-    assert.ok(acceptance.includes('当用户手动修改过需求标题后，AI 自动提炼不得覆盖该标题。'))
-    assert.ok(!acceptance.includes('如果用户手动修改过标题。'))
-    assert.ok(!acceptance.includes('就不要再被 AI 自动提炼覆盖了。'))
-    assert.match(result.session.items[0].candidate.title, /手动修改/)
-    assert.match(result.session.items[0].candidate.title, /保留|不覆盖/)
-    assert.match(draft.problem, /防止用户手动修改后的需求标题/)
+    // AC-03: 模型未参与时不再编造标题/问题/验收。命中仍然是磁性的，但草稿必须
+    // 是空的，条件句必须原样保留在引用里（旧实现会把它拆成三段假验收）。
+    assert.equal(result.session.docDraft ?? null, null)
+    assert.equal(result.session.items[0].candidate, null)
+    const quote = result.session.items[0].sourceRefs[0].quote
+    assert.equal(quote, EXPERIMENT_TWO)
+    assert.match(quote, /如果用户手动修改过标题，就不要再被 AI 自动提炼覆盖了/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { run, VERSION } from '../src/cli.mjs'
@@ -90,4 +90,31 @@ test('verify rejects malformed options instead of guessing', async () => {
   const unknown = await invoke(['verify', 'REQ-X', '--nope'])
   assert.equal(unknown.code, 2)
   assert.match(unknown.err, /unknown option/)
+  const profile = await invoke(['verify', 'REQ-X', '--profile', 'sometimes'])
+  assert.equal(profile.code, 2)
+  assert.match(profile.err, /--profile requires auto or full/)
+})
+
+test('verify gives an environment block its own exit code and honours --profile full', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'alm-verify-blocked-'))
+  execFileSync('git', ['init', '-q'], { cwd: root })
+  writeFileSync(join(root, 'README.md'), '# demo\n')
+  execFileSync('git', ['add', '-A'], { cwd: root })
+  execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init'], { cwd: root })
+  mkdirSync(join(root, '.alm', 'acceptance'), { recursive: true })
+  writeFileSync(join(root, '.alm', 'acceptance', 'REQ-Y-001.json'), JSON.stringify({
+    schema: 'alm.acceptance.config/v1',
+    requirement: 'REQ-Y-001',
+    commands: [{
+      id: 'env',
+      command: ['node', '-e', "console.error('not ok 1 - spawnSync git EPERM'); process.exit(1)"],
+      timeoutMs: 10_000,
+    }],
+  }))
+  const blocked = await invoke(['verify', 'REQ-Y-001', '--root', root])
+  assert.equal(blocked.code, 3, blocked.err || blocked.out)
+  assert.match(blocked.out, /验收被运行环境阻断，不是断言失败/)
+  const full = await invoke(['verify', 'REQ-Y-001', '--root', root, '--profile', 'full'])
+  assert.equal(full.code, 1)
+  assert.match(full.err, /--profile full 不接受环境阻断/)
 })

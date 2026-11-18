@@ -1,6 +1,5 @@
 import { existsSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { STATUS_LABELS } from '../alm-core/src/model/asset.mjs'
@@ -11,6 +10,7 @@ import { buildGraph, findCycles, walk } from '../alm-core/src/index/closure.mjs'
 import { buildIndex } from '../alm-core/src/index/index.mjs'
 import { acceptanceSummary } from '../alm-core/src/acceptance/acceptance.mjs'
 import { candidateView, worktreeSnapshot } from '../alm-core/src/requirements/candidate.mjs'
+import { runCaptured } from '../alm-core/src/process-capture.mjs'
 import { DELIVERY_LABELS, deliveryStateFor, isClosed, readClosure } from '../alm-core/src/requirements/delivery.mjs'
 import { releaseViewFor } from '../alm-core/src/requirements/release.mjs'
 import { defectView, failureDiagnosis, listFailures } from '../alm-core/src/requirements/failure.mjs'
@@ -259,10 +259,10 @@ export function traceFor({ asset, graph, byId }) {
 }
 
 function git(root, args) {
-  return execFileSync('git', ['-C', root, ...args], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim()
+  const result = runCaptured('git', ['-C', root, ...args])
+  if (result.error) throw Object.assign(new Error(`git ${args[0]} failed: ${result.error.code ?? result.error.message}`), { code: result.error.code })
+  if (result.status !== 0) throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: 'git-failed', stderr: result.stderr })
+  return String(result.stdout ?? '').trim()
 }
 
 /** Version history from git: the requirement file is the source of record. */
@@ -814,7 +814,7 @@ export function requirements(root, { requirementId = null } = {}) {
   const versionHistoriesByFile = versionHistories(root, requirementFiles, 20, readContext)
   const createdByFile = creationTimes(root, requirementFiles, readContext)
   let actualBranch = null
-  try { actualBranch = execFileSync('git', ['branch', '--show-current'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null } catch {}
+  try { actualBranch = String(runCaptured('git', ['branch', '--show-current'], { cwd: root }).stdout ?? '').trim() || null } catch {}
   let remoteUrl = null
   try { remoteUrl = git(root, ['remote', 'get-url', 'origin']) || null } catch {}
   const items = (requirementId === null ? requirementAssets : requirementAssets.filter(asset => asset.id === requirementId))

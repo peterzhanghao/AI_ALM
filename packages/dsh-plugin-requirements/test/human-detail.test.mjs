@@ -156,7 +156,7 @@ test('accepted and candidate-ready ACs use green delivery labels and natural num
   assert.deepEqual(cards.map(card => card.props['data-detail-ac']), ['AC-02', 'AC-06', 'AC-11'])
   // All three passed, so the list folds them behind one caption: the number in
   // the caption is derived from the same rows, never counted twice.
-  assert.match(visibleText(rendered), /完成的标准3 项 · 3 项已通过/)
+  assert.match(visibleText(rendered), /完成的标准3 项 · 全部通过/)
   const folds = nodes(rendered).filter(node => node.props?.['data-passed-acceptance'])
   assert.equal(folds.length, 1)
   assert.equal(nodes(folds[0]).filter(node => node.props?.['data-detail-ac']).length, 3)
@@ -165,7 +165,7 @@ test('accepted and candidate-ready ACs use green delivery labels and natural num
     verificationSummary: { criteria: [{ id: 'AC-01', status: 'verified' }, { id: 'AC-02', status: 'failed' }] },
   } })
   // An open criterion stays visible and carries its own state word.
-  assert.match(visibleText(pending), /AC-02未通过未过。/)
+  assert.match(visibleText(pending), /AC-02未过。未通过/)
   assert.match(visibleText(pending), /2 项 · 1 项已通过 · 1 项未通过或待验证/)
 })
 

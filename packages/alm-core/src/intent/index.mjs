@@ -69,6 +69,22 @@ export {
 
 export { buildIntentContext, readBrief, tokensOf } from './context.mjs'
 export { currentInvestigationEvidence } from './investigation-evidence.mjs'
+export {
+  CLAUSE_SCHEMA,
+  CLAUSE_VERDICTS,
+  EVIDENCE_CLASSES,
+  OBSERVATION_SCHEMA,
+  REJECTION_SCHEMA,
+  adjudicateClause,
+  clausesFromBrief,
+  fingerprintClause,
+  matchRejections,
+  readRejections,
+  recallClauses,
+  tokenize as tokenizeText,
+  writeObservation,
+  writeRejection,
+} from './review.mjs'
 
 export {
   SESSIONS_DIR,

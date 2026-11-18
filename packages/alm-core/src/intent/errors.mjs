@@ -20,8 +20,31 @@ export const JOURNAL_SCHEMA = 'alm.intent.journal/v1'
 export const CONTEXT_POLICY = 'intent-context/v1'
 export const LEGACY_SCHEMAS = new Set(['alm.intents.legacy/v0', 'alm.intent.legacy/v0', 'alm.intents/v0'])
 
-export const ROUTES = ['create', 'change', 'reuse', 'investigate', 'decline', 'answer']
+/**
+ * The eight adjudication outcomes (plus the pre-existing `reuse` / `investigate`
+ * / `answer` exits). Every route has machine-checkable preconditions in
+ * `readiness.mjs`; a route without its preconditions cannot be confirmed.
+ *
+ * Order matters only for display: the list is rendered left-to-right in the UI
+ * and create is the default, so it stays first.
+ */
+export const ROUTES = [
+  'create',
+  'extend',
+  'change',
+  'merge',
+  'split',
+  'defer',
+  'decline',
+  'reuse',
+  'investigate',
+  'answer',
+]
 
+/** Routes that write a new promise into the requirement store. */
+export const WRITE_ROUTES = ['create', 'extend', 'change', 'merge']
+
+/** Retained for callers that only need the item-level vocabulary. */
 export const ITEM_ROUTES = ROUTES
 
 export const SESSION_STATES = [

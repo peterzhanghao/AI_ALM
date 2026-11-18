@@ -8,8 +8,8 @@
  * real alm-core intent slice.
  */
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -22,6 +22,7 @@ import { handleIntentRequest } from '../intent.mjs'
 import { evaluateReadiness, saveSession } from '../../alm-core/src/intent/index.mjs'
 import { INVESTIGATION_SCHEMA, writeInvestigation } from '../investigate.mjs'
 import { requirements } from '../query.mjs'
+import { runCaptured } from '../../alm-core/src/process-capture.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 const fixture = join(repoRoot, 'fixtures/order-refund')
@@ -32,11 +33,17 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 function tempFixture(prefix) {
   const dir = mkdtempSync(join(tmpdir(), prefix))
   cpSync(fixture, dir, { recursive: true })
-  execFileSync('git', ['init', '-q'], { cwd: dir })
-  execFileSync('git', ['add', '-A'], { cwd: dir })
-  execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init'], {
-    cwd: dir,
-  })
+  // Go through the shared capture helper: a confined sandbox rejects piped
+  // stdio with EPERM, and the helper retries git with a file descriptor.
+  const git = (...args) => {
+    const result = runCaptured('git', args, { cwd: dir })
+    if (result.error || result.status !== 0) {
+      throw new Error(`git ${args[0]} failed: ${result.error?.code ?? result.error?.message ?? result.stderr}`)
+    }
+  }
+  git('init', '-q')
+  git('add', '-A')
+  git('-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init')
   return dir
 }
 
@@ -75,6 +82,12 @@ function spawnIntentEdit({ root, sessionId, expectedInputRevision, expectedSessi
     }
   `
   return new Promise((resolve, reject) => {
+    // stdout/stderr go to a file rather than a pipe so the child can start in a
+    // sandbox that forbids named pipes. The parent closes its writer once the
+    // child owns the descriptor.
+    const logDir = mkdtempSync(join(tmpdir(), 'intent-edit-'))
+    const logFile = join(logDir, 'output.log')
+    const fd = openSync(logFile, 'w')
     const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
       cwd: repoRoot,
       env: {
@@ -85,18 +98,17 @@ function spawnIntentEdit({ root, sessionId, expectedInputRevision, expectedSessi
         INTENT_SESSION_REVISION: String(expectedSessionRevision),
         INTENT_TITLE: title,
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', fd, fd],
       windowsHide: true,
     })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (chunk) => { stdout += chunk })
-    child.stderr.on('data', (chunk) => { stderr += chunk })
-    child.on('error', reject)
+    closeSync(fd)
+    child.on('error', (error) => { rmSync(logDir, { recursive: true, force: true }); reject(error) })
     child.on('close', (code) => {
-      const line = stdout.trim().split(/\r?\n/).filter(Boolean).at(-1)
-      if (!line) return reject(new Error(`intent child exited ${code}: ${stderr}`))
-      try { resolve(JSON.parse(line)) } catch (error) { reject(new Error(`invalid child output: ${line}\n${stderr}`, { cause: error })) }
+      const text = readFileSync(logFile, 'utf8')
+      rmSync(logDir, { recursive: true, force: true })
+      const line = text.trim().split(/\r?\n/).filter(Boolean).at(-1)
+      if (!line) return reject(new Error(`intent child exited ${code}: ${text}`))
+      try { resolve(JSON.parse(line)) } catch (error) { reject(new Error(`invalid child output: ${line}\n${text}`, { cause: error })) }
     })
   })
 }
@@ -1080,7 +1092,9 @@ test('unusable model JSON on both attempts falls back to a local draft without w
       assert.ok(failed.payload.session, 'the fallback response carries the editable session')
       const sessionId = failed.payload.session.sessionId
       assert.match(sessionId, /^INT-/)
-      assert.equal(failed.payload.session.state, 'ready_for_confirmation')
+      // AC-03: 模型未参与 → 未澄清状态，不是“可确认”。
+      assert.equal(failed.payload.session.state, 'needs_input')
+      assert.equal(failed.payload.session.items[0].candidate, null)
       const stored = readSession(root, sessionId)
       assert.equal(stored.runs.length, 2)
       assert.deepEqual(stored.runs.map((run) => run.status), ['error', 'error'])
@@ -1108,7 +1122,9 @@ test('no model configured falls back to a local draft with a saved editable sess
       assert.equal(payload.localFallback, true)
       assert.ok(payload.session)
       assert.match(payload.session.sessionId, /^INT-/)
-      assert.equal(payload.session.state, 'ready_for_confirmation')
+      // AC-03: 没有模型时状态是“待你补全”，不是“可确认”。
+      assert.equal(payload.session.state, 'needs_input')
+      assert.equal(payload.session.items[0].candidate, null)
 
       const sessionId = payload.session.sessionId
       const loaded = await get(sessionId)

@@ -62,6 +62,7 @@ Commands:
 Options:
   --root <dir>      Repository root for index/check (default: cwd)
   --base <ref>      Base git ref for check (enables STATE-001)
+  --profile <mode>  verify: auto reports environment blocks separately; full requires full process/browser capability
   --out <path>      check: write alm.evidence/v1; baseline create: output dir
   --pr              check: enable APPROVAL-* rules for a PR gate
   --json            Machine-readable output where supported
@@ -192,11 +193,21 @@ export async function run(argv, io = {}) {
     }
 
     if (command === 'verify') {
-      const options = { json: false, root: process.cwd(), limit: 5, requirementId: null }
+      const options = { json: false, root: process.cwd(), limit: 5, requirementId: null, profile: 'auto' }
       for (let i = 0; i < rest.length; i += 1) {
         const arg = rest[i]
         if (arg === '--json') {
           options.json = true
+          continue
+        }
+        if (arg === '--profile') {
+          const value = rest[i + 1]
+          if (!['auto', 'full'].includes(value)) {
+            err.write('alm: --profile requires auto or full\n')
+            return 2
+          }
+          options.profile = value
+          i += 1
           continue
         }
         if (arg === '--root' || arg === '--limit') {
@@ -250,8 +261,18 @@ export async function run(argv, io = {}) {
         return 3
       }
       const summary = summarizeAcceptanceRun(receipt.evidence, { root: options.root, limit: options.limit })
-      if (options.json) out.write(`${JSON.stringify({ ...summary, command: 'verify', persisted: false }, null, 2)}\n`)
+      if (options.json) out.write(`${JSON.stringify({ ...summary, command: 'verify', persisted: false, profile: options.profile }, null, 2)}\n`)
       else out.write(`${summary.line}\n`)
+      // A blocked environment is not a failed assertion. Give it its own exit
+      // code so callers can route the same run to a host/CI profile instead of
+      // "fixing" tests that were never executed.
+      if (summary.status === 'blocked') {
+        if (options.profile === 'full') {
+          err.write('alm: 验收需要完整进程/浏览器能力；--profile full 不接受环境阻断\n')
+          return 1
+        }
+        return 3
+      }
       return receipt.result === 'pass' ? 0 : 1
     }
 
