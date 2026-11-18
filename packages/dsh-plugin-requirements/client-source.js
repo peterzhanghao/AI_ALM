@@ -12729,9 +12729,26 @@ window.__ModuleLoader__.load({
         }
         return [...declared, ...machine]
       }
+      // 用户裁决（2026-11-18）：相关区只展示强关联——covered/conflict，或
+      // related 但条款级有 covered/conflict 强命中；最多 3 条。仅字面共现的
+      // 弱相关（模型自己都在解释「不构成 covered」）折叠成计数，不再刷屏。
+      const strongRelatedOf = (related) => {
+        const clauseStrong = (entry) => {
+          const read = (session?.context?.readSet ?? []).find((row) => row.uid === entry?.uid)
+          return (read?.clauseMatches ?? []).some((match) => ['covered', 'conflict'].includes(match.verdict))
+        }
+        const isStrong = (entry) => ['covered', 'conflict'].includes(entry?.match) || (entry?.match === 'related' && clauseStrong(entry))
+        const rank = { conflict: 0, covered: 1, related: 2 }
+        const matched = related
+          .filter(isStrong)
+          .sort((a, b) => (rank[a?.match] ?? 3) - (rank[b?.match] ?? 3))
+        // weakCount counts entries that never qualified as strong — a strong
+        // entry dropped by the 3-cap must not be reported as "weak".
+        return { strong: matched.slice(0, 3), weakCount: related.length - matched.length }
+      }
       const renderRelated = (item) => {
-        const related = relatedOf(item)
         const contextFailed = session?.context?.queryStatus === 'error'
+        const { strong, weakCount } = strongRelatedOf(relatedOf(item))
         const clauseHintOf = (entry) => {
           const read = (session?.context?.readSet ?? []).find((row) => row.uid === entry?.uid)
           const matches = (read?.clauseMatches ?? []).filter((match) => match.verdict !== 'unrelated')
@@ -12744,17 +12761,20 @@ window.__ModuleLoader__.load({
             'div',
             { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
             h('span', { style: fieldLabelStyle }, '相关承诺'),
-            contextFailed ? tonePill('warn', '相关需求尚未核对') : tonePill('neutral', `${related.length} 条候选`),
+            contextFailed ? tonePill('warn', '相关需求尚未核对') : tonePill('neutral', `${strong.length} 条强关联`),
           ),
           contextFailed
             ? h('p', { style: { margin: '4px 0 0', color: T.warn, fontSize: '12px', lineHeight: 1.7 } }, '检索失败：相关需求尚未核对，不能据此认为“全新”或“没有重复”。')
             : null,
-          related.length === 0
-            ? h('p', { style: { margin: '4px 0 0', ...muted } }, '没有匹配到相关承诺；这不等于没有影响。')
+          weakCount > 0
+            ? h('p', { style: { margin: '4px 0 0', ...muted } }, `另有 ${weakCount} 条弱相关未展示：判定仅为字面相关，不构成重复结论。`)
+            : null,
+          strong.length === 0
+            ? h('p', { style: { margin: '4px 0 0', ...muted } }, '没有强关联需求；这不等于没有影响。')
             : h(
                 'div',
                 { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' } },
-                related.map((entry, index) =>
+                strong.map((entry, index) =>
                   h(
                     'button',
                     {
@@ -13571,7 +13591,7 @@ window.__ModuleLoader__.load({
             ? h(
                 'div',
                 { 'data-intent-unclarified': 'true', role: 'status', style: { marginTop: '10px', border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.warn}`, borderRadius: '10px', padding: '10px 12px', background: T.layer } },
-                h('div', { style: { fontSize: '12.5px', fontWeight: 500, color: T.warn } }, '这次澄清没有模型参与：下面的内容不是分析结果'),
+                h('div', { style: { fontSize: '12.5px', fontWeight: 500, color: T.warn } }, session.aiTried ? '模型参与了这次澄清，但没有返回可用结果：下面的内容不是分析结果' : '这次澄清没有模型参与：下面的内容不是分析结果'),
                 h('p', { style: { margin: '4px 0 0', fontSize: '12px', color: T.text2, lineHeight: 1.8, wordWrap: 'break-word' } },
                   session.aiNote ?? '没有生成问题、标题与验收；请自己补全，或重新分析。'),
                 h('p', { style: { margin: '4px 0 0', fontSize: '12px', color: T.text3, lineHeight: 1.8 } },

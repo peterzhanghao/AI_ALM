@@ -104,6 +104,21 @@ test('模型未参与时显示未澄清，且确认按钮不可用', async t => 
   assert.equal(await page.getByText('补全标题与至少一条验收后才能确认；在此之前「确认」按钮会保持不可用，避免把未澄清的内容写进需求库。').count() >= 1, true)
 })
 
+test('模型参与但输出不可用时，标题不再谎称「没有模型参与」', async t => {
+  const session = sessionFixture({
+    ai: 'none',
+    aiTried: true,
+    aiNote: '这次澄清没有拿到模型结果：AI 返回内容不符合意图契约（已自动重试一次），可重试或手动填写候选。下面的内容是你的原话与机器查重结果，不会凭空补全。',
+    state: 'needs_input',
+    items: [{ itemId: 'ITM-MANUAL-1', recommendedRoute: 'create', unknowns: [], related: [], candidate: null }],
+    docDraft: null,
+    readiness: { ready: false, reasons: [{ code: 'missing-title', message: '缺少标题' }, { code: 'needs-acceptance', message: '缺少验收条件' }] },
+  })
+  const page = await openPage(t, session)
+  await page.getByText('模型参与了这次澄清，但没有返回可用结果：下面的内容不是分析结果').first().waitFor({ timeout: 8000 })
+  assert.equal(await page.getByText('这次澄清没有模型参与：下面的内容不是分析结果').count(), 0)
+})
+
 test('否决账本命中会被摆出来，带理由与再提条件', async t => {
   const session = sessionFixture({
     context: {
@@ -151,8 +166,56 @@ test('机器查重命中的需求必须出现在「相关承诺」里，不能�
   const page = await openPage(t, session)
   await page.getByText('查重结论：这条诉求可能已经存在').first().waitFor({ timeout: 8000 })
   const related = page.locator('div', { hasText: /^相关承诺/ }).first()
-  assert.ok(await page.getByText('1 条候选').count() >= 1, '相关承诺应统计到机器命中的候选')
+  assert.ok(await page.getByText('1 条强关联').count() >= 1, '相关承诺应统计到机器命中的强关联')
   assert.equal(await page.getByText('没有匹配到相关承诺；这不等于没有影响。').count(), 0, '不应再声称没有匹配到相关承诺')
   assert.ok(await page.getByText('REQ-PAY-004').count() >= 1, '机器命中的需求 uid 要出现在相关承诺里')
   assert.ok(await related.count() >= 1, '相关承诺区块应存在')
+})
+
+test('弱相关不再刷屏：只展示强关联，弱候选折叠成计数', async t => {
+  // 用户裁决（2026-11-18）：模型自己都在解释「不构成 covered」的弱相关不许平铺。
+  const weak = (uid) => ({ uid, revision: 1, match: 'related', reason: '仅共用“需求插件”这一表述' })
+  const session = sessionFixture({
+    items: [{
+      itemId: 'ITM-1',
+      recommendedRoute: 'create',
+      unknowns: [],
+      related: [
+        { uid: 'REQ-PAY-004', revision: 2, match: 'covered', reason: '已有幂等条款' },
+        weak('REQ-WEAK-1'),
+        weak('REQ-WEAK-2'),
+        { uid: 'REQ-WEAK-3', revision: 1, match: 'uncertain', reason: '拿不准' },
+        weak('REQ-WEAK-4'),
+        weak('REQ-WEAK-5'),
+      ],
+      candidate: { title: '退款幂等补充约束', problem: 'p', goal: 'g', acceptance: [{ expected: 'e', judgement: 'j' }] },
+    }],
+  })
+  const page = await openPage(t, session)
+  await page.getByText('查重结论：这条诉求可能已经存在').first().waitFor({ timeout: 8000 })
+  assert.ok(await page.getByText('1 条强关联').count() >= 1, '计数只统计强关联')
+  assert.equal(await page.getByText('REQ-WEAK-1').count(), 0, '弱相关不再罗列')
+  assert.equal(await page.getByText('REQ-WEAK-3').count(), 0, 'uncertain 也不罗列')
+  assert.ok(await page.getByText(/另有 5 条弱相关未展示/).count() >= 1, '弱候选折叠成计数提示')
+  assert.equal(await page.getByText('没有强关联需求；这不等于没有影响。').count(), 0, '有强关联时不应显示空态')
+})
+
+test('强关联最多 3 条；被上限裁掉的强关联不得计成弱相关', async t => {
+  const covered = (uid) => ({ uid, revision: 1, match: 'covered', reason: '条款级相同' })
+  // readSet 保留默认的 covered 命中：readSet 为空时前端走简版 review 屏，
+  // renderRelated 不在那条路上，测不到上限逻辑。
+  const session = sessionFixture({
+    items: [{
+      itemId: 'ITM-1',
+      recommendedRoute: 'create',
+      unknowns: [],
+      related: [covered('REQ-S1'), covered('REQ-S2'), covered('REQ-S3'), covered('REQ-S4')],
+      candidate: { title: 'x', problem: 'p', goal: 'g', acceptance: [{ expected: 'e', judgement: 'j' }] },
+    }],
+  })
+  const page = await openPage(t, session)
+  await page.getByText('相关承诺').first().waitFor({ timeout: 8000 })
+  assert.ok(await page.getByText('3 条强关联').count() >= 1, '展示数封顶 3 条')
+  assert.equal(await page.getByText('REQ-S4').count(), 0, '第 4 条强关联不展示')
+  assert.equal(await page.getByText(/另有 \d+ 条弱相关未展示/).count(), 0, '被 3 条上限裁掉的强关联不算弱相关')
 })
