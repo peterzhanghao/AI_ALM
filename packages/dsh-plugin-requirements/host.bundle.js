@@ -38,7 +38,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../alm-core/src/model/asset.mjs
+// packages/alm-core/src/model/asset.mjs
 function requireString(raw, key, where) {
   if (typeof raw[key] !== "string" || raw[key].trim() === "") {
     throw new AssetError(`missing or invalid field: ${key}`, where);
@@ -118,7 +118,7 @@ function normalizeAsset(raw, source) {
 }
 var ASSET_TYPES, ASSET_STATUSES, STATUS_LABELS, STATUS_ALIASES, PRIORITIES, CATEGORIES, SOURCE_KINDS, LINK_TYPES, TYPE_PREFIX, ID_PATTERN, BUSINESS_ID_PATTERN, AssetError;
 var init_asset = __esm({
-  "../alm-core/src/model/asset.mjs"() {
+  "packages/alm-core/src/model/asset.mjs"() {
     ASSET_TYPES = [
       "requirement",
       "architecture-decision",
@@ -184,7 +184,7 @@ var init_asset = __esm({
   }
 });
 
-// ../alm-core/src/project/project.mjs
+// packages/alm-core/src/project/project.mjs
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -283,7 +283,7 @@ function associateProject({
 }
 var PROJECT_ID, PROJECT_SCHEMA, ProjectError;
 var init_project = __esm({
-  "../alm-core/src/project/project.mjs"() {
+  "packages/alm-core/src/project/project.mjs"() {
     PROJECT_ID = /^[A-Z][A-Z0-9]{1,7}$/;
     PROJECT_SCHEMA = "alm.project/v1";
     ProjectError = class extends Error {
@@ -295,7 +295,7 @@ var init_project = __esm({
   }
 });
 
-// ../alm-core/src/github/mapping.mjs
+// packages/alm-core/src/github/mapping.mjs
 import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join2, resolve as resolve2 } from "node:path";
 function mappingPath(root) {
@@ -328,12 +328,12 @@ function writeMapping(root, mapping) {
 }
 var GITHUB_MAPPING;
 var init_mapping = __esm({
-  "../alm-core/src/github/mapping.mjs"() {
+  "packages/alm-core/src/github/mapping.mjs"() {
     GITHUB_MAPPING = ".alm/github.json";
   }
 });
 
-// ../alm-core/src/index/index.mjs
+// packages/alm-core/src/index/index.mjs
 function buildIndex(assets) {
   const byId = /* @__PURE__ */ new Map();
   const byType = /* @__PURE__ */ new Map();
@@ -356,11 +356,11 @@ function buildIndex(assets) {
   };
 }
 var init_index = __esm({
-  "../alm-core/src/index/index.mjs"() {
+  "packages/alm-core/src/index/index.mjs"() {
   }
 });
 
-// ../alm-core/src/index/closure.mjs
+// packages/alm-core/src/index/closure.mjs
 function buildGraph(assets) {
   const forward = /* @__PURE__ */ new Map();
   const reverse = /* @__PURE__ */ new Map();
@@ -430,19 +430,19 @@ function findCycles(graph, startId, direction) {
   return cycles;
 }
 var init_closure = __esm({
-  "../alm-core/src/index/closure.mjs"() {
+  "packages/alm-core/src/index/closure.mjs"() {
   }
 });
 
-// ../alm-core/src/diff/diff.mjs
+// packages/alm-core/src/diff/diff.mjs
 var init_diff = __esm({
-  "../alm-core/src/diff/diff.mjs"() {
+  "packages/alm-core/src/diff/diff.mjs"() {
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/identity.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/identity.js
 var require_identity = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/identity.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/identity.js"(exports) {
     "use strict";
     var ALIAS = Symbol.for("yaml.alias");
     var DOC = Symbol.for("yaml.document");
@@ -497,9 +497,9 @@ var require_identity = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/visit.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/visit.js
 var require_visit = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/visit.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/visit.js"(exports) {
     "use strict";
     var identity = require_identity();
     var BREAK = Symbol("break visit");
@@ -655,9 +655,9 @@ var require_visit = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/directives.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/directives.js
 var require_directives = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/directives.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/directives.js"(exports) {
     "use strict";
     var identity = require_identity();
     var visit = require_visit();
@@ -826,9 +826,9 @@ var require_directives = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/anchors.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/anchors.js
 var require_anchors = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/anchors.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/anchors.js"(exports) {
     "use strict";
     var identity = require_identity();
     var visit = require_visit();
@@ -896,9 +896,9 @@ var require_anchors = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/applyReviver.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/applyReviver.js
 var require_applyReviver = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/applyReviver.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/applyReviver.js"(exports) {
     "use strict";
     function applyReviver(reviver, obj, key, val) {
       if (val && typeof val === "object") {
@@ -946,9 +946,9 @@ var require_applyReviver = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/toJS.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/toJS.js
 var require_toJS = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/toJS.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/toJS.js"(exports) {
     "use strict";
     var identity = require_identity();
     function toJS(value, arg, ctx) {
@@ -976,9 +976,9 @@ var require_toJS = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Node.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Node.js
 var require_Node = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Node.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Node.js"(exports) {
     "use strict";
     var applyReviver = require_applyReviver();
     var identity = require_identity();
@@ -1017,9 +1017,9 @@ var require_Node = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Alias.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Alias.js
 var require_Alias = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Alias.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Alias.js"(exports) {
     "use strict";
     var anchors = require_anchors();
     var visit = require_visit();
@@ -1135,9 +1135,9 @@ var require_Alias = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Scalar.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Scalar.js
 var require_Scalar = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Scalar.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Scalar.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Node = require_Node();
@@ -1165,9 +1165,9 @@ var require_Scalar = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/createNode.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/createNode.js
 var require_createNode = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/createNode.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/createNode.js"(exports) {
     "use strict";
     var Alias = require_Alias();
     var identity = require_identity();
@@ -1240,9 +1240,9 @@ var require_createNode = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Collection.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Collection.js
 var require_Collection = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Collection.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Collection.js"(exports) {
     "use strict";
     var createNode = require_createNode();
     var identity = require_identity();
@@ -1383,9 +1383,9 @@ var require_Collection = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyComment.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyComment.js
 var require_stringifyComment = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyComment.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyComment.js"(exports) {
     "use strict";
     var stringifyComment = (str) => str.replace(/^(?!$)(?: $)?/gm, "#");
     function indentComment(comment, indent) {
@@ -1400,9 +1400,9 @@ var require_stringifyComment = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/foldFlowLines.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/foldFlowLines.js
 var require_foldFlowLines = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/foldFlowLines.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/foldFlowLines.js"(exports) {
     "use strict";
     var FOLD_FLOW = "flow";
     var FOLD_BLOCK = "block";
@@ -1536,9 +1536,9 @@ ${indent}${text6.slice(fold + 1, end2)}`;
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyString.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyString.js
 var require_stringifyString = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyString.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyString.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var foldFlowLines = require_foldFlowLines();
@@ -1819,9 +1819,9 @@ ${indent}`);
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringify.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringify.js
 var require_stringify = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringify.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringify.js"(exports) {
     "use strict";
     var anchors = require_anchors();
     var identity = require_identity();
@@ -1943,9 +1943,9 @@ ${ctx.indent}${str}`;
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyPair.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyPair.js
 var require_stringifyPair = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyPair.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyPair.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -2076,9 +2076,9 @@ ${ctx.indent}`;
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/log.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/log.js
 var require_log = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/log.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/log.js"(exports) {
     "use strict";
     var node_process = __require("process");
     function debug(logLevel, ...messages) {
@@ -2098,9 +2098,9 @@ var require_log = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/merge.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/merge.js
 var require_merge = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/merge.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/merge.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -2158,9 +2158,9 @@ var require_merge = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/addPairToJSMap.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/addPairToJSMap.js
 var require_addPairToJSMap = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/addPairToJSMap.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/addPairToJSMap.js"(exports) {
     "use strict";
     var log = require_log();
     var merge = require_merge();
@@ -2222,9 +2222,9 @@ var require_addPairToJSMap = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Pair.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Pair.js
 var require_Pair = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Pair.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/Pair.js"(exports) {
     "use strict";
     var createNode = require_createNode();
     var stringifyPair = require_stringifyPair();
@@ -2262,9 +2262,9 @@ var require_Pair = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyCollection.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyCollection.js
 var require_stringifyCollection = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyCollection.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyCollection.js"(exports) {
     "use strict";
     var identity = require_identity();
     var stringify = require_stringify();
@@ -2413,9 +2413,9 @@ ${indent}${end}`;
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/YAMLMap.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/YAMLMap.js
 var require_YAMLMap = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/YAMLMap.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/YAMLMap.js"(exports) {
     "use strict";
     var stringifyCollection = require_stringifyCollection();
     var addPairToJSMap = require_addPairToJSMap();
@@ -2557,9 +2557,9 @@ var require_YAMLMap = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/map.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/map.js
 var require_map = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/map.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/map.js"(exports) {
     "use strict";
     var identity = require_identity();
     var YAMLMap = require_YAMLMap();
@@ -2579,9 +2579,9 @@ var require_map = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/YAMLSeq.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/YAMLSeq.js
 var require_YAMLSeq = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/YAMLSeq.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/YAMLSeq.js"(exports) {
     "use strict";
     var createNode = require_createNode();
     var stringifyCollection = require_stringifyCollection();
@@ -2695,9 +2695,9 @@ var require_YAMLSeq = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/seq.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/seq.js
 var require_seq = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/seq.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/seq.js"(exports) {
     "use strict";
     var identity = require_identity();
     var YAMLSeq = require_YAMLSeq();
@@ -2717,9 +2717,9 @@ var require_seq = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/string.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/string.js
 var require_string = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/string.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/string.js"(exports) {
     "use strict";
     var stringifyString = require_stringifyString();
     var string = {
@@ -2736,9 +2736,9 @@ var require_string = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/null.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/null.js
 var require_null = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/null.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/common/null.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var nullTag = {
@@ -2754,9 +2754,9 @@ var require_null = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/bool.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/bool.js
 var require_bool = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/bool.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/bool.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var boolTag = {
@@ -2778,9 +2778,9 @@ var require_bool = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyNumber.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyNumber.js
 var require_stringifyNumber = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyNumber.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyNumber.js"(exports) {
     "use strict";
     function stringifyNumber({ format, minFractionDigits, tag, value }) {
       if (typeof value === "bigint")
@@ -2805,9 +2805,9 @@ var require_stringifyNumber = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/float.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/float.js
 var require_float = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/float.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/float.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var stringifyNumber = require_stringifyNumber();
@@ -2851,9 +2851,9 @@ var require_float = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/int.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/int.js
 var require_int = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/int.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/int.js"(exports) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2896,9 +2896,9 @@ var require_int = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/schema.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/schema.js
 var require_schema = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/schema.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/core/schema.js"(exports) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -2924,9 +2924,9 @@ var require_schema = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/json/schema.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/json/schema.js
 var require_schema2 = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/json/schema.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/json/schema.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var map = require_map();
@@ -2991,9 +2991,9 @@ var require_schema2 = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/binary.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/binary.js
 var require_binary = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/binary.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/binary.js"(exports) {
     "use strict";
     var node_buffer = __require("buffer");
     var Scalar = require_Scalar();
@@ -3057,9 +3057,9 @@ var require_binary = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/pairs.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/pairs.js
 var require_pairs = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/pairs.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/pairs.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -3135,9 +3135,9 @@ ${cn.comment}` : item.comment;
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/omap.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/omap.js
 var require_omap = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/omap.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/omap.js"(exports) {
     "use strict";
     var identity = require_identity();
     var toJS = require_toJS();
@@ -3213,9 +3213,9 @@ var require_omap = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/bool.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/bool.js
 var require_bool2 = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/bool.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/bool.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     function boolStringify({ value, source }, ctx) {
@@ -3245,9 +3245,9 @@ var require_bool2 = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/float.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/float.js
 var require_float2 = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/float.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/float.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var stringifyNumber = require_stringifyNumber();
@@ -3294,9 +3294,9 @@ var require_float2 = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/int.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/int.js
 var require_int2 = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/int.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/int.js"(exports) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -3373,9 +3373,9 @@ var require_int2 = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/set.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/set.js
 var require_set = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/set.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/set.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -3462,9 +3462,9 @@ var require_set = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
 var require_timestamp = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js"(exports) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     function parseSexagesimal(str, asBigInt) {
@@ -3550,9 +3550,9 @@ var require_timestamp = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/schema.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/schema.js
 var require_schema3 = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/schema.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/yaml-1.1/schema.js"(exports) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -3594,9 +3594,9 @@ var require_schema3 = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/tags.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/tags.js
 var require_tags = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/tags.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/tags.js"(exports) {
     "use strict";
     var map = require_map();
     var _null = require_null();
@@ -3688,9 +3688,9 @@ var require_tags = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/Schema.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/Schema.js
 var require_Schema = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/Schema.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/schema/Schema.js"(exports) {
     "use strict";
     var identity = require_identity();
     var map = require_map();
@@ -3720,9 +3720,9 @@ var require_Schema = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyDocument.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyDocument.js
 var require_stringifyDocument = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyDocument.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/stringify/stringifyDocument.js"(exports) {
     "use strict";
     var identity = require_identity();
     var stringify = require_stringify();
@@ -3800,9 +3800,9 @@ var require_stringifyDocument = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/Document.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/Document.js
 var require_Document = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/Document.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/doc/Document.js"(exports) {
     "use strict";
     var Alias = require_Alias();
     var Collection = require_Collection();
@@ -4109,9 +4109,9 @@ var require_Document = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/errors.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/errors.js
 var require_errors = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/errors.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/errors.js"(exports) {
     "use strict";
     var YAMLError = class extends Error {
       constructor(name, pos, code, message) {
@@ -4174,9 +4174,9 @@ ${pointer}
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-props.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-props.js
 var require_resolve_props = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-props.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-props.js"(exports) {
     "use strict";
     function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIndent, startOnNewline }) {
       let spaceBefore = false;
@@ -4308,9 +4308,9 @@ var require_resolve_props = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-contains-newline.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-contains-newline.js
 var require_util_contains_newline = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-contains-newline.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-contains-newline.js"(exports) {
     "use strict";
     function containsNewline(key) {
       if (!key)
@@ -4350,9 +4350,9 @@ var require_util_contains_newline = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-flow-indent-check.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-flow-indent-check.js
 var require_util_flow_indent_check = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-flow-indent-check.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-flow-indent-check.js"(exports) {
     "use strict";
     var utilContainsNewline = require_util_contains_newline();
     function flowIndentCheck(indent, fc, onError) {
@@ -4368,9 +4368,9 @@ var require_util_flow_indent_check = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-map-includes.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-map-includes.js
 var require_util_map_includes = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-map-includes.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-map-includes.js"(exports) {
     "use strict";
     var identity = require_identity();
     function mapIncludes(ctx, items, search) {
@@ -4384,9 +4384,9 @@ var require_util_map_includes = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-map.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-map.js
 var require_resolve_block_map = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-map.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-map.js"(exports) {
     "use strict";
     var Pair = require_Pair();
     var YAMLMap = require_YAMLMap();
@@ -4492,9 +4492,9 @@ var require_resolve_block_map = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-seq.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-seq.js
 var require_resolve_block_seq = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-seq.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-seq.js"(exports) {
     "use strict";
     var YAMLSeq = require_YAMLSeq();
     var resolveProps = require_resolve_props();
@@ -4543,9 +4543,9 @@ var require_resolve_block_seq = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-end.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-end.js
 var require_resolve_end = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-end.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-end.js"(exports) {
     "use strict";
     function resolveEnd(end, offset, reqSpace, onError) {
       let comment = "";
@@ -4586,9 +4586,9 @@ var require_resolve_end = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-flow-collection.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-flow-collection.js
 var require_resolve_flow_collection = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-flow-collection.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-flow-collection.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Pair = require_Pair();
@@ -4780,9 +4780,9 @@ var require_resolve_flow_collection = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-collection.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-collection.js
 var require_compose_collection = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-collection.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-collection.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -4845,9 +4845,9 @@ var require_compose_collection = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-scalar.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-scalar.js
 var require_resolve_block_scalar = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-scalar.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-block-scalar.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     function resolveBlockScalar(ctx, scalar, onError) {
@@ -5028,9 +5028,9 @@ var require_resolve_block_scalar = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-flow-scalar.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-flow-scalar.js
 var require_resolve_flow_scalar = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-flow-scalar.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/resolve-flow-scalar.js"(exports) {
     "use strict";
     var Scalar = require_Scalar();
     var resolveEnd = require_resolve_end();
@@ -5249,9 +5249,9 @@ var require_resolve_flow_scalar = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-scalar.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-scalar.js
 var require_compose_scalar = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-scalar.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-scalar.js"(exports) {
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
@@ -5330,9 +5330,9 @@ var require_compose_scalar = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-empty-scalar-position.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-empty-scalar-position.js
 var require_util_empty_scalar_position = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-empty-scalar-position.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/util-empty-scalar-position.js"(exports) {
     "use strict";
     function emptyScalarPosition(offset, before, pos) {
       if (before) {
@@ -5360,9 +5360,9 @@ var require_util_empty_scalar_position = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-node.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-node.js
 var require_compose_node = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-node.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-node.js"(exports) {
     "use strict";
     var Alias = require_Alias();
     var identity = require_identity();
@@ -5466,9 +5466,9 @@ var require_compose_node = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-doc.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-doc.js
 var require_compose_doc = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-doc.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/compose-doc.js"(exports) {
     "use strict";
     var Document = require_Document();
     var composeNode = require_compose_node();
@@ -5509,9 +5509,9 @@ var require_compose_doc = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/composer.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/composer.js
 var require_composer = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/composer.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/compose/composer.js"(exports) {
     "use strict";
     var node_process = __require("process");
     var directives = require_directives();
@@ -5717,9 +5717,9 @@ ${end.comment}` : end.comment;
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-scalar.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-scalar.js
 var require_cst_scalar = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-scalar.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-scalar.js"(exports) {
     "use strict";
     var resolveBlockScalar = require_resolve_block_scalar();
     var resolveFlowScalar = require_resolve_flow_scalar();
@@ -5902,9 +5902,9 @@ var require_cst_scalar = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-stringify.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-stringify.js
 var require_cst_stringify = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-stringify.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-stringify.js"(exports) {
     "use strict";
     var stringify = (cst) => "type" in cst ? stringifyToken(cst) : stringifyItem(cst);
     function stringifyToken(token) {
@@ -5963,9 +5963,9 @@ var require_cst_stringify = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-visit.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-visit.js
 var require_cst_visit = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-visit.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst-visit.js"(exports) {
     "use strict";
     var BREAK = Symbol("break visit");
     var SKIP = Symbol("skip children");
@@ -6025,9 +6025,9 @@ var require_cst_visit = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst.js
 var require_cst = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/cst.js"(exports) {
     "use strict";
     var cstScalar = require_cst_scalar();
     var cstStringify = require_cst_stringify();
@@ -6127,9 +6127,9 @@ var require_cst = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/lexer.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/lexer.js
 var require_lexer = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/lexer.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/lexer.js"(exports) {
     "use strict";
     var cst = require_cst();
     function isEmpty(ch) {
@@ -6716,9 +6716,9 @@ var require_lexer = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/line-counter.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/line-counter.js
 var require_line_counter = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/line-counter.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/line-counter.js"(exports) {
     "use strict";
     var LineCounter = class {
       constructor() {
@@ -6747,9 +6747,9 @@ var require_line_counter = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/parser.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/parser.js
 var require_parser = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/parser.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/parse/parser.js"(exports) {
     "use strict";
     var node_process = __require("process");
     var cst = require_cst();
@@ -7621,9 +7621,9 @@ var require_parser = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/public-api.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/public-api.js
 var require_public_api = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/public-api.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/public-api.js"(exports) {
     "use strict";
     var composer = require_composer();
     var Document = require_Document();
@@ -7718,9 +7718,9 @@ var require_public_api = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/index.js
+// node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/index.js
 var require_dist = __commonJS({
-  "../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/index.js"(exports) {
+  "node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/index.js"(exports) {
     "use strict";
     var composer = require_composer();
     var Document = require_Document();
@@ -7770,7 +7770,7 @@ var require_dist = __commonJS({
   }
 });
 
-// ../alm-core/src/parse/locator.mjs
+// packages/alm-core/src/parse/locator.mjs
 function lineOf(text6, needle) {
   if (!needle) return 1;
   const index = text6.indexOf(needle);
@@ -7778,11 +7778,11 @@ function lineOf(text6, needle) {
   return text6.slice(0, index).split("\n").length;
 }
 var init_locator = __esm({
-  "../alm-core/src/parse/locator.mjs"() {
+  "packages/alm-core/src/parse/locator.mjs"() {
   }
 });
 
-// ../alm-core/src/parse/markdown.mjs
+// packages/alm-core/src/parse/markdown.mjs
 function parseMarkdownAsset(text6, file) {
   const source = text6.replace(/^\uFEFF/, "");
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
@@ -7806,14 +7806,14 @@ function parseMarkdownAsset(text6, file) {
 }
 var import_yaml;
 var init_markdown = __esm({
-  "../alm-core/src/parse/markdown.mjs"() {
+  "packages/alm-core/src/parse/markdown.mjs"() {
     import_yaml = __toESM(require_dist(), 1);
     init_asset();
     init_locator();
   }
 });
 
-// ../alm-core/src/parse/sdoc.mjs
+// packages/alm-core/src/parse/sdoc.mjs
 function typeOf(uid) {
   return uid.startsWith("TEST-") ? "acceptance-test" : "requirement";
 }
@@ -7925,7 +7925,7 @@ function parseSdocAsset(text6, file) {
 }
 var NODE_RE, FIELD_RE, FIELD_KEYS;
 var init_sdoc = __esm({
-  "../alm-core/src/parse/sdoc.mjs"() {
+  "packages/alm-core/src/parse/sdoc.mjs"() {
     init_asset();
     NODE_RE = /^\[([A-Z][A-Z0-9_-]*)\]\s*$/;
     FIELD_RE = /^([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$/;
@@ -7933,7 +7933,7 @@ var init_sdoc = __esm({
   }
 });
 
-// ../alm-core/src/parse/openapi.mjs
+// packages/alm-core/src/parse/openapi.mjs
 function firstOperationId(paths) {
   for (const item of Object.values(paths ?? {})) {
     if (item === null || typeof item !== "object") continue;
@@ -7982,13 +7982,13 @@ function parseOpenApiAsset(document, text6, file) {
   }
 }
 var init_openapi = __esm({
-  "../alm-core/src/parse/openapi.mjs"() {
+  "packages/alm-core/src/parse/openapi.mjs"() {
     init_asset();
     init_locator();
   }
 });
 
-// ../alm-core/src/parse/yaml.mjs
+// packages/alm-core/src/parse/yaml.mjs
 function parseYamlAsset(text6, file) {
   let doc;
   try {
@@ -8007,7 +8007,7 @@ function parseYamlAsset(text6, file) {
 }
 var import_yaml2;
 var init_yaml = __esm({
-  "../alm-core/src/parse/yaml.mjs"() {
+  "packages/alm-core/src/parse/yaml.mjs"() {
     import_yaml2 = __toESM(require_dist(), 1);
     init_asset();
     init_locator();
@@ -8015,7 +8015,7 @@ var init_yaml = __esm({
   }
 });
 
-// ../alm-core/src/parse/load.mjs
+// packages/alm-core/src/parse/load.mjs
 import { readdirSync as readdirSync2, readFileSync as readFileSync3 } from "node:fs";
 import { basename, join as join3, relative } from "node:path";
 function isAssetSourcePath(file) {
@@ -8074,7 +8074,7 @@ function loadRepo(root) {
 }
 var ASSET_EXTENSIONS, IGNORED_DIRS, ignoredDirectory;
 var init_load = __esm({
-  "../alm-core/src/parse/load.mjs"() {
+  "packages/alm-core/src/parse/load.mjs"() {
     init_asset();
     init_markdown();
     init_sdoc();
@@ -8085,34 +8085,71 @@ var init_load = __esm({
   }
 });
 
-// ../alm-core/src/git-run.mjs
-import { execFileSync as execFileSync2, spawnSync } from "node:child_process";
-import { closeSync, mkdtempSync, openSync, readFileSync as readFileSync4, rmSync } from "node:fs";
+// packages/alm-core/src/process-capture.mjs
+import { spawnSync } from "node:child_process";
+import { closeSync, mkdtempSync, openSync, readFileSync as readFileSync4, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as join4 } from "node:path";
-function gitText(root, args) {
-  if (process.env.ALM_GIT_FILE_STDIO === "1") return gitTextViaFile(root, args);
-  try {
-    return execFileSync2("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch (error) {
-    if (!BLOCKED_SPAWN.has(error?.code)) throw error;
-    return gitTextViaFile(root, args);
-  }
+function isBlockedSpawnError(error) {
+  return BLOCKED_SPAWN_CODES.has(error?.code);
 }
-function gitTextViaFile(root, args) {
-  const directory = mkdtempSync(join4(tmpdir(), "alm-git-"));
-  const file = join4(directory, "stdout");
-  let fd = null;
+function runCaptured(command, args = [], {
+  cwd,
+  input,
+  timeout,
+  env,
+  encoding = "utf8",
+  maxBuffer = 20 * 1024 * 1024,
+  forceFile = process.env.ALM_FILE_STDIO === "1"
+} = {}) {
+  if (!forceFile) {
+    const result = spawnSync(command, args, {
+      cwd,
+      input,
+      timeout,
+      env,
+      encoding,
+      maxBuffer,
+      windowsHide: true
+    });
+    if (!isBlockedSpawnError(result.error)) return result;
+  }
+  return captureViaFiles(command, args, { cwd, input, timeout, env, encoding });
+}
+function captureViaFiles(command, args, { cwd, input, timeout, env, encoding }) {
+  const directory = mkdtempSync(join4(tmpdir(), "alm-capture-"));
+  const stdinPath = join4(directory, "stdin");
+  const stdoutPath = join4(directory, "stdout");
+  const stderrPath = join4(directory, "stderr");
+  const fds = [];
   try {
-    fd = openSync(file, "w");
-    const result = spawnSync("git", ["-C", root, ...args], { stdio: ["ignore", fd, "ignore"] });
-    closeSync(fd);
-    fd = null;
-    if (result.error) throw Object.assign(new Error(`git ${args[0]} failed: ${result.error.code ?? result.error.message}`), { code: result.error.code });
-    if (result.status !== 0) throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: "git-failed" });
-    return readFileSync4(file, "utf8").trim();
+    let stdin = "ignore";
+    if (input !== void 0 && input !== null) {
+      writeFileSync3(stdinPath, input);
+      stdin = openSync(stdinPath, "r");
+      fds.push(stdin);
+    }
+    const stdout = openSync(stdoutPath, "w");
+    const stderr = openSync(stderrPath, "w");
+    fds.push(stdout, stderr);
+    const result = spawnSync(command, args, {
+      cwd,
+      timeout,
+      env,
+      stdio: [stdin, stdout, stderr],
+      windowsHide: true,
+      maxBuffer: 20 * 1024 * 1024
+    });
+    for (const fd of fds) closeSync(fd);
+    fds.length = 0;
+    return {
+      ...result,
+      stdout: readFileSync4(stdoutPath, encoding),
+      stderr: readFileSync4(stderrPath, encoding),
+      fileFallback: true
+    };
   } finally {
-    if (fd !== null) {
+    for (const fd of fds) {
       try {
         closeSync(fd);
       } catch {
@@ -8121,15 +8158,32 @@ function gitTextViaFile(root, args) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-var BLOCKED_SPAWN;
-var init_git_run = __esm({
-  "../alm-core/src/git-run.mjs"() {
-    BLOCKED_SPAWN = /* @__PURE__ */ new Set(["EPERM", "EACCES"]);
+var BLOCKED_SPAWN_CODES;
+var init_process_capture = __esm({
+  "packages/alm-core/src/process-capture.mjs"() {
+    BLOCKED_SPAWN_CODES = /* @__PURE__ */ new Set(["EPERM", "EACCES"]);
   }
 });
 
-// ../alm-core/src/approvals/approval.mjs
-import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "node:fs";
+// packages/alm-core/src/git-run.mjs
+function gitText(root, args) {
+  const result = runCaptured("git", ["-C", root, ...args], { encoding: "utf8" });
+  if (result.error) {
+    throw Object.assign(new Error(`git ${args[0]} failed: ${result.error.code ?? result.error.message}`), { code: result.error.code });
+  }
+  if (result.status !== 0) {
+    throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: "git-failed", stderr: result.stderr });
+  }
+  return String(result.stdout ?? "").trim();
+}
+var init_git_run = __esm({
+  "packages/alm-core/src/git-run.mjs"() {
+    init_process_capture();
+  }
+});
+
+// packages/alm-core/src/approvals/approval.mjs
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname, join as join5 } from "node:path";
 function git(root, ...args) {
   return gitText(root, args);
@@ -8159,13 +8213,13 @@ function commitAgentTrailer(root, sha2) {
 }
 var APPROVAL_DIR;
 var init_approval = __esm({
-  "../alm-core/src/approvals/approval.mjs"() {
+  "packages/alm-core/src/approvals/approval.mjs"() {
     init_git_run();
     APPROVAL_DIR = ".alm/approvals";
   }
 });
 
-// ../alm-core/src/gates/rules/approval-001.mjs
+// packages/alm-core/src/gates/rules/approval-001.mjs
 var approval_001_exports = {};
 __export(approval_001_exports, {
   check: () => check,
@@ -8193,14 +8247,14 @@ function check({ root, requireApproval, prHeadSha }) {
 }
 var id, level;
 var init_approval_001 = __esm({
-  "../alm-core/src/gates/rules/approval-001.mjs"() {
+  "packages/alm-core/src/gates/rules/approval-001.mjs"() {
     init_approval();
     id = "APPROVAL-001";
     level = "block";
   }
 });
 
-// ../alm-core/src/gates/rules/approval-002.mjs
+// packages/alm-core/src/gates/rules/approval-002.mjs
 var approval_002_exports = {};
 __export(approval_002_exports, {
   check: () => check2,
@@ -8237,7 +8291,7 @@ function check2({ root, requireApproval, prHeadSha }) {
 }
 var id2, level2, HUMAN_ACTOR;
 var init_approval_002 = __esm({
-  "../alm-core/src/gates/rules/approval-002.mjs"() {
+  "packages/alm-core/src/gates/rules/approval-002.mjs"() {
     init_approval();
     id2 = "APPROVAL-002";
     level2 = "block";
@@ -8245,7 +8299,7 @@ var init_approval_002 = __esm({
   }
 });
 
-// ../alm-core/src/gates/rules/cov-001.mjs
+// packages/alm-core/src/gates/rules/cov-001.mjs
 var cov_001_exports = {};
 __export(cov_001_exports, {
   check: () => check3,
@@ -8262,13 +8316,13 @@ function check3({ assets }) {
 }
 var id3, level3;
 var init_cov_001 = __esm({
-  "../alm-core/src/gates/rules/cov-001.mjs"() {
+  "packages/alm-core/src/gates/rules/cov-001.mjs"() {
     id3 = "COV-001";
     level3 = "block";
   }
 });
 
-// ../alm-core/src/gates/rules/cov-002.mjs
+// packages/alm-core/src/gates/rules/cov-002.mjs
 var cov_002_exports = {};
 __export(cov_002_exports, {
   check: () => check4,
@@ -8290,13 +8344,13 @@ function check4({ assets }) {
 }
 var id4, level4;
 var init_cov_002 = __esm({
-  "../alm-core/src/gates/rules/cov-002.mjs"() {
+  "packages/alm-core/src/gates/rules/cov-002.mjs"() {
     id4 = "COV-002";
     level4 = "warn";
   }
 });
 
-// ../alm-core/src/gates/rules/id-001.mjs
+// packages/alm-core/src/gates/rules/id-001.mjs
 var id_001_exports = {};
 __export(id_001_exports, {
   check: () => check5,
@@ -8315,13 +8369,13 @@ function check5({ index }) {
 }
 var id5, level5;
 var init_id_001 = __esm({
-  "../alm-core/src/gates/rules/id-001.mjs"() {
+  "packages/alm-core/src/gates/rules/id-001.mjs"() {
     id5 = "ID-001";
     level5 = "block";
   }
 });
 
-// ../alm-core/src/gates/rules/id-002.mjs
+// packages/alm-core/src/gates/rules/id-002.mjs
 var id_002_exports = {};
 __export(id_002_exports, {
   check: () => check6,
@@ -8338,14 +8392,14 @@ function check6({ assets }) {
 }
 var id6, level6;
 var init_id_002 = __esm({
-  "../alm-core/src/gates/rules/id-002.mjs"() {
+  "packages/alm-core/src/gates/rules/id-002.mjs"() {
     init_asset();
     id6 = "ID-002";
     level6 = "block";
   }
 });
 
-// ../alm-core/src/gates/rules/rel-001.mjs
+// packages/alm-core/src/gates/rules/rel-001.mjs
 var rel_001_exports = {};
 __export(rel_001_exports, {
   check: () => check7,
@@ -8369,13 +8423,13 @@ function check7({ index }) {
 }
 var id7, level7;
 var init_rel_001 = __esm({
-  "../alm-core/src/gates/rules/rel-001.mjs"() {
+  "packages/alm-core/src/gates/rules/rel-001.mjs"() {
     id7 = "REL-001";
     level7 = "block";
   }
 });
 
-// ../alm-core/src/gates/rules/rel-002.mjs
+// packages/alm-core/src/gates/rules/rel-002.mjs
 var rel_002_exports = {};
 __export(rel_002_exports, {
   check: () => check8,
@@ -8401,7 +8455,7 @@ function check8({ assets, index }) {
 }
 var id8, level8, ALLOWED;
 var init_rel_002 = __esm({
-  "../alm-core/src/gates/rules/rel-002.mjs"() {
+  "packages/alm-core/src/gates/rules/rel-002.mjs"() {
     id8 = "REL-002";
     level8 = "block";
     ALLOWED = {
@@ -8416,7 +8470,7 @@ var init_rel_002 = __esm({
   }
 });
 
-// ../alm-core/src/gates/rules/rel-003.mjs
+// packages/alm-core/src/gates/rules/rel-003.mjs
 var rel_003_exports = {};
 __export(rel_003_exports, {
   check: () => check9,
@@ -8465,14 +8519,14 @@ function check9({ assets, index }) {
 }
 var id9, level9, EDGES;
 var init_rel_003 = __esm({
-  "../alm-core/src/gates/rules/rel-003.mjs"() {
+  "packages/alm-core/src/gates/rules/rel-003.mjs"() {
     id9 = "REL-003";
     level9 = "block";
     EDGES = /* @__PURE__ */ new Set(["parent_of", "satisfies"]);
   }
 });
 
-// ../alm-core/src/gates/rules/prj-001.mjs
+// packages/alm-core/src/gates/rules/prj-001.mjs
 var prj_001_exports = {};
 __export(prj_001_exports, {
   check: () => check10,
@@ -8513,14 +8567,14 @@ function check10({ root, assets }) {
 }
 var id10, level10;
 var init_prj_001 = __esm({
-  "../alm-core/src/gates/rules/prj-001.mjs"() {
+  "packages/alm-core/src/gates/rules/prj-001.mjs"() {
     init_project();
     id10 = "PRJ-001";
     level10 = "block";
   }
 });
 
-// ../alm-core/src/gates/rules/rev-001.mjs
+// packages/alm-core/src/gates/rules/rev-001.mjs
 var rev_001_exports = {};
 __export(rev_001_exports, {
   check: () => check11,
@@ -8573,13 +8627,13 @@ function check11({ assets, baseAssets }) {
 }
 var id11, level11;
 var init_rev_001 = __esm({
-  "../alm-core/src/gates/rules/rev-001.mjs"() {
+  "packages/alm-core/src/gates/rules/rev-001.mjs"() {
     id11 = "REV-001";
     level11 = "block";
   }
 });
 
-// ../alm-core/src/gates/rules/brief-001.mjs
+// packages/alm-core/src/gates/rules/brief-001.mjs
 var brief_001_exports = {};
 __export(brief_001_exports, {
   check: () => check12,
@@ -8625,13 +8679,13 @@ function check12({ root, assets }) {
 }
 var id12, level12;
 var init_brief_001 = __esm({
-  "../alm-core/src/gates/rules/brief-001.mjs"() {
+  "packages/alm-core/src/gates/rules/brief-001.mjs"() {
     id12 = "BRIEF-001";
     level12 = "warn";
   }
 });
 
-// ../alm-core/src/gates/rules/att-001.mjs
+// packages/alm-core/src/gates/rules/att-001.mjs
 var att_001_exports = {};
 __export(att_001_exports, {
   check: () => check13,
@@ -8699,13 +8753,13 @@ function check13({ root, index }) {
 }
 var id13, level13;
 var init_att_001 = __esm({
-  "../alm-core/src/gates/rules/att-001.mjs"() {
+  "packages/alm-core/src/gates/rules/att-001.mjs"() {
     id13 = "ATT-001";
     level13 = "block";
   }
 });
 
-// ../alm-core/src/gates/rules/ren-001.mjs
+// packages/alm-core/src/gates/rules/ren-001.mjs
 var ren_001_exports = {};
 __export(ren_001_exports, {
   check: () => check14,
@@ -8755,7 +8809,7 @@ function check14({ root }) {
 }
 var id14, level14, LINK_RE;
 var init_ren_001 = __esm({
-  "../alm-core/src/gates/rules/ren-001.mjs"() {
+  "packages/alm-core/src/gates/rules/ren-001.mjs"() {
     init_load();
     id14 = "REN-001";
     level14 = "block";
@@ -8763,7 +8817,7 @@ var init_ren_001 = __esm({
   }
 });
 
-// ../alm-core/src/gates/rules/ren-002.mjs
+// packages/alm-core/src/gates/rules/ren-002.mjs
 var ren_002_exports = {};
 __export(ren_002_exports, {
   EXPECTED_STRICTDOC: () => EXPECTED_STRICTDOC,
@@ -8771,13 +8825,13 @@ __export(ren_002_exports, {
   id: () => id15,
   level: () => level15
 });
-import { execFileSync as execFileSync3 } from "node:child_process";
+import { execFileSync as execFileSync2 } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync7, readFileSync as readFileSync9 } from "node:fs";
 import { join as join8, resolve as resolve4 } from "node:path";
 function gitHead2(root) {
   try {
-    return execFileSync3("git", ["-C", root, "rev-parse", "HEAD"], {
+    return execFileSync2("git", ["-C", root, "rev-parse", "HEAD"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     }).trim();
@@ -8846,14 +8900,14 @@ function check15({ root }) {
 }
 var id15, level15, EXPECTED_STRICTDOC;
 var init_ren_002 = __esm({
-  "../alm-core/src/gates/rules/ren-002.mjs"() {
+  "packages/alm-core/src/gates/rules/ren-002.mjs"() {
     id15 = "REN-002";
     level15 = "warn";
     EXPECTED_STRICTDOC = "0.30.4";
   }
 });
 
-// ../alm-core/src/gates/rules/sec-001.mjs
+// packages/alm-core/src/gates/rules/sec-001.mjs
 var sec_001_exports = {};
 __export(sec_001_exports, {
   check: () => check16,
@@ -8892,7 +8946,7 @@ function check16({ root, index }) {
 }
 var id16, level16, PATTERNS;
 var init_sec_001 = __esm({
-  "../alm-core/src/gates/rules/sec-001.mjs"() {
+  "packages/alm-core/src/gates/rules/sec-001.mjs"() {
     init_load();
     id16 = "SEC-001";
     level16 = "block";
@@ -8906,7 +8960,7 @@ var init_sec_001 = __esm({
   }
 });
 
-// ../alm-core/src/gates/rules/state-001.mjs
+// packages/alm-core/src/gates/rules/state-001.mjs
 var state_001_exports = {};
 __export(state_001_exports, {
   check: () => check17,
@@ -8923,14 +8977,14 @@ function check17() {
 }
 var id17, level17, legacy;
 var init_state_001 = __esm({
-  "../alm-core/src/gates/rules/state-001.mjs"() {
+  "packages/alm-core/src/gates/rules/state-001.mjs"() {
     id17 = "STATE-001";
     level17 = "block";
     legacy = true;
   }
 });
 
-// ../alm-core/src/gates/rules/task-001.mjs
+// packages/alm-core/src/gates/rules/task-001.mjs
 var task_001_exports = {};
 __export(task_001_exports, {
   check: () => check18,
@@ -9000,16 +9054,16 @@ function check18({ root, index }) {
 }
 var id18, level18;
 var init_task_001 = __esm({
-  "../alm-core/src/gates/rules/task-001.mjs"() {
+  "packages/alm-core/src/gates/rules/task-001.mjs"() {
     id18 = "TASK-001";
     level18 = "block";
   }
 });
 
-// ../alm-core/src/gates/registry.mjs
+// packages/alm-core/src/gates/registry.mjs
 var rules;
 var init_registry = __esm({
-  "../alm-core/src/gates/registry.mjs"() {
+  "packages/alm-core/src/gates/registry.mjs"() {
     init_approval_001();
     init_approval_002();
     init_cov_001();
@@ -9051,7 +9105,7 @@ var init_registry = __esm({
   }
 });
 
-// ../alm-core/src/gates/run.mjs
+// packages/alm-core/src/gates/run.mjs
 function runGates({ index, root, baseAssets, requireApproval = false }) {
   const context = { assets: index.assets, index, root, baseAssets, requireApproval };
   const checks = rules.map((rule) => {
@@ -9066,13 +9120,13 @@ function runGates({ index, root, baseAssets, requireApproval = false }) {
   return { result: failedBlocks.length === 0 ? "pass" : "fail", checks };
 }
 var init_run = __esm({
-  "../alm-core/src/gates/run.mjs"() {
+  "packages/alm-core/src/gates/run.mjs"() {
     init_registry();
   }
 });
 
-// ../alm-core/src/commands.mjs
-import { execFileSync as execFileSync4 } from "node:child_process";
+// packages/alm-core/src/commands.mjs
+import { execFileSync as execFileSync3 } from "node:child_process";
 import { existsSync as existsSync9, readFileSync as readFileSync12, statSync } from "node:fs";
 import { resolve as resolve5 } from "node:path";
 function groupErrors(errors) {
@@ -9093,7 +9147,7 @@ function loadRepo2(root) {
 }
 function loadBaseAssets(root, ref) {
   try {
-    const listing = execFileSync4("git", ["-C", root, "ls-tree", "-r", "--name-only", ref], {
+    const listing = execFileSync3("git", ["-C", root, "ls-tree", "-r", "--name-only", ref], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     });
@@ -9102,7 +9156,7 @@ function loadBaseAssets(root, ref) {
       if (!isAssetSourcePath(file)) continue;
       if (/^readme\.md$/i.test(file) || /\/readme\.md$/i.test(file)) continue;
       try {
-        const text6 = execFileSync4("git", ["-C", root, "show", `${ref}:${file}`], {
+        const text6 = execFileSync3("git", ["-C", root, "show", `${ref}:${file}`], {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"]
         });
@@ -9157,7 +9211,7 @@ function checkReport(root, options = {}, context = {}) {
 }
 var PACK;
 var init_commands = __esm({
-  "../alm-core/src/commands.mjs"() {
+  "packages/alm-core/src/commands.mjs"() {
     init_index();
     init_closure();
     init_diff();
@@ -9167,10 +9221,10 @@ var init_commands = __esm({
   }
 });
 
-// ../alm-core/src/github/provider.mjs
-import { execFileSync as execFileSync5 } from "node:child_process";
+// packages/alm-core/src/github/provider.mjs
+import { execFileSync as execFileSync4 } from "node:child_process";
 function githubProvider({ repo, owner, labels = [], projectNumber } = {}) {
-  const gh = (args) => execFileSync5("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const gh = (args) => execFileSync4("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   const repoArgs = repo ? ["--repo", repo] : [];
   return {
     name: "github",
@@ -9221,11 +9275,11 @@ function githubProvider({ repo, owner, labels = [], projectNumber } = {}) {
   };
 }
 var init_provider = __esm({
-  "../alm-core/src/github/provider.mjs"() {
+  "packages/alm-core/src/github/provider.mjs"() {
   }
 });
 
-// ../alm-core/src/github/sync-requirements.mjs
+// packages/alm-core/src/github/sync-requirements.mjs
 import { existsSync as existsSync10, readFileSync as readFileSync13 } from "node:fs";
 import { join as join10 } from "node:path";
 function requirementLabels(project3, asset) {
@@ -9335,7 +9389,7 @@ async function syncRequirementIssues({
 }
 var RequirementSyncError;
 var init_sync_requirements = __esm({
-  "../alm-core/src/github/sync-requirements.mjs"() {
+  "packages/alm-core/src/github/sync-requirements.mjs"() {
     init_commands();
     init_provider();
     init_mapping();
@@ -9349,7 +9403,7 @@ var init_sync_requirements = __esm({
   }
 });
 
-// ../alm-core/src/model/content-hash.mjs
+// packages/alm-core/src/model/content-hash.mjs
 import { createHash as createHash3 } from "node:crypto";
 import { existsSync as existsSync11, readFileSync as readFileSync14 } from "node:fs";
 import { join as join11, resolve as resolve6 } from "node:path";
@@ -9396,16 +9450,16 @@ function relationSnapshotHash({ asset }) {
   return sha2563({ id: asset?.id ?? null, links });
 }
 var init_content_hash = __esm({
-  "../alm-core/src/model/content-hash.mjs"() {
+  "packages/alm-core/src/model/content-hash.mjs"() {
   }
 });
 
-// ../alm-core/src/requirements/worktree-snapshot.mjs
-import { execFileSync as execFileSync6 } from "node:child_process";
+// packages/alm-core/src/requirements/worktree-snapshot.mjs
+import { execFileSync as execFileSync5 } from "node:child_process";
 import { createHash as createHash4 } from "node:crypto";
 import { lstatSync, readFileSync as readFileSync15 } from "node:fs";
 import { join as join12, resolve as resolve7 } from "node:path";
-function worktreeSnapshot(root, { exec: exec2 = execFileSync6 } = {}) {
+function worktreeSnapshot(root, { exec: exec2 = execFileSync5 } = {}) {
   const repo = resolve7(root), reasons = [], files = [];
   const git9 = (args) => {
     try {
@@ -9459,7 +9513,7 @@ function worktreeSnapshot(root, { exec: exec2 = execFileSync6 } = {}) {
 }
 var MAX_FILES, MAX_FILE_BYTES, EXCLUDED_PREFIXES;
 var init_worktree_snapshot = __esm({
-  "../alm-core/src/requirements/worktree-snapshot.mjs"() {
+  "packages/alm-core/src/requirements/worktree-snapshot.mjs"() {
     init_content_hash();
     MAX_FILES = 2e3;
     MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -9467,9 +9521,9 @@ var init_worktree_snapshot = __esm({
   }
 });
 
-// ../alm-core/src/requirements/blueprint-guard.mjs
+// packages/alm-core/src/requirements/blueprint-guard.mjs
 import { createHash as createHash5 } from "node:crypto";
-import { existsSync as existsSync12, mkdirSync as mkdirSync4, readFileSync as readFileSync16, readdirSync as readdirSync5, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync12, mkdirSync as mkdirSync4, readFileSync as readFileSync16, readdirSync as readdirSync5, writeFileSync as writeFileSync5 } from "node:fs";
 import { basename as basename4, dirname as dirname3, extname, join as join13, relative as relative6, resolve as resolve8 } from "node:path";
 function verificationBudget(fileCount) {
   const count = Math.max(1, Number.isInteger(fileCount) ? fileCount : 1);
@@ -9662,7 +9716,7 @@ function createBlueprint({ root, runId, requirementId, asset = null, investigati
 function writeBlueprint(root, blueprint) {
   const target = blueprintPath(root, blueprint.runId);
   mkdirSync4(dirname3(target), { recursive: true });
-  writeFileSync4(target, `${JSON.stringify(blueprint, null, 2)}
+  writeFileSync5(target, `${JSON.stringify(blueprint, null, 2)}
 `, "utf8");
   return target;
 }
@@ -9715,7 +9769,7 @@ function createScopeDecision({ root, runId, inspection }) {
     "## \u6280\u672F\u8BE6\u60C5",
     ...files.map((file) => `- ${file}`)
   ].join("\n") + "\n";
-  writeFileSync4(target, text6, "utf8");
+  writeFileSync5(target, text6, "utf8");
   return { path: `.alm/runs/${runId}-decision.md`, hash: createHash5("sha256").update(Buffer.from(text6)).digest("hex"), files };
 }
 function approveBlueprintExpansion({ root, runId, files = [], decisionHash = null }) {
@@ -9763,7 +9817,7 @@ function verifyTestFileHashes({ root, expected = {} } = {}) {
 }
 var BLUEPRINT_SCHEMA, WORKSPACE_IMPLEMENTATION_AUTHORIZATION, QUICK_VERIFICATION_TIMEOUT_MS, MAX_VERIFICATION_TEST_FILES, VERIFICATION_TIMEOUT_PER_FILE_MS, VERIFICATION_TIMEOUT_MAX_MS, TEST_FILE, SOURCE_EXTENSIONS, RELATED_TEST_DOMAINS;
 var init_blueprint_guard = __esm({
-  "../alm-core/src/requirements/blueprint-guard.mjs"() {
+  "packages/alm-core/src/requirements/blueprint-guard.mjs"() {
     BLUEPRINT_SCHEMA = "alm.execution-blueprint/v1";
     WORKSPACE_IMPLEMENTATION_AUTHORIZATION = Object.freeze([
       "packages/",
@@ -9786,8 +9840,8 @@ var init_blueprint_guard = __esm({
   }
 });
 
-// ../alm-core/src/acceptance/acceptance.mjs
-import { existsSync as existsSync13, mkdirSync as mkdirSync5, readFileSync as readFileSync17, readdirSync as readdirSync6, renameSync, statSync as statSync2, writeFileSync as writeFileSync5 } from "node:fs";
+// packages/alm-core/src/acceptance/acceptance.mjs
+import { existsSync as existsSync13, mkdirSync as mkdirSync5, readFileSync as readFileSync17, readdirSync as readdirSync6, renameSync, statSync as statSync2, writeFileSync as writeFileSync6 } from "node:fs";
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { createHash as createHash6 } from "node:crypto";
 import { dirname as dirname4, isAbsolute, join as join14, relative as relative7, resolve as resolve9 } from "node:path";
@@ -9946,7 +10000,7 @@ function planAcceptanceConfig({ root, requirementId, commands }) {
     applied: false
   };
 }
-function applyAcceptanceConfig({ root, requirementId, commands, writeFile = writeFileSync5 }) {
+function applyAcceptanceConfig({ root, requirementId, commands, writeFile = writeFileSync6 }) {
   const plan2 = planAcceptanceConfig({ root, requirementId, commands });
   const repo = resolve9(root);
   mkdirSync5(join14(repo, ACCEPTANCE_DIR), { recursive: true });
@@ -10050,7 +10104,15 @@ function latestDiagnostic(evidence) {
       ...oversized ? { scale: { fileCount, max: MAX_VERIFICATION_TEST_FILES } } : {}
     };
   }
-  if (failed?.spawnFailed || failed?.error) return { category: "environment", title: "\u9A8C\u8BC1\u73AF\u5883\u6216\u547D\u4EE4\u53D7\u963B", summary: failed?.error?.message ?? `\u65E0\u6CD5\u542F\u52A8\u9A8C\u8BC1\u547D\u4EE4${command ? `\uFF1A${command.join(" ")}` : ""}`, command, log };
+  if (failed?.spawnFailed || failed?.error || environmentBlockedLines(log) > 0) {
+    return {
+      category: "environment",
+      title: "\u9A8C\u8BC1\u88AB\u8FD0\u884C\u73AF\u5883\u963B\u65AD",
+      summary: environmentBlockedSummary(failed, log) ?? failed?.error?.message ?? `\u65E0\u6CD5\u542F\u52A8\u9A8C\u8BC1\u547D\u4EE4${command ? `\uFF1A${command.join(" ")}` : ""}`,
+      command,
+      log
+    };
+  }
   return { category: "verification", title: "\u9A8C\u8BC1\u68C0\u67E5\u672A\u901A\u8FC7", summary: `\u9A8C\u8BC1\u547D\u4EE4\u5931\u8D25${Number.isInteger(failed?.exitCode) ? `\uFF08exit ${failed.exitCode}\uFF09` : ""}${line ? `\uFF1A${line}` : ""}`, command, log };
 }
 function acceptanceSummary(root, requirementId, headSha, context = null) {
@@ -10122,6 +10184,20 @@ function acceptanceSummary(root, requirementId, headSha, context = null) {
     latest
   };
 }
+function clipSummaryText(value, limit = SUMMARY_TEXT_LIMIT) {
+  const text6 = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text6.length > limit ? `${text6.slice(0, limit - 1)}\u2026` : text6;
+}
+function environmentBlockedLines(text6) {
+  return (String(text6 ?? "").match(ENVIRONMENT_BLOCKED_LINE) ?? []).length;
+}
+function environmentBlockedSample(text6) {
+  const lines2 = String(text6 ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines2.find((line) => /not ok(?:\s+\d+)?\s+-/.test(line) && /(?:EPERM|EACCES)/.test(line)) ?? lines2.find((line) => /spawn(?:Sync)?\b/.test(line) && /(?:EPERM|EACCES)/.test(line)) ?? null;
+}
+function environmentBlockedSummary(record, log) {
+  return clipSummaryText(environmentBlockedSample(log) ?? (record?.error?.code ? `\u5B50\u8FDB\u7A0B\u542F\u52A8\u88AB\u62D2\u7EDD\uFF08${record.error.code}\uFF09` : "\u5B50\u8FDB\u7A0B\u88AB\u8FD0\u884C\u73AF\u5883\u62D2\u7EDD"), 160);
+}
 function commandRunRecord({ entry, result, durationMs, maxOutput = MAX_OUTPUT }) {
   const error = result?.error ?? null;
   const errorCode2 = typeof error?.code === "string" ? error.code : error ? "exec-failed" : null;
@@ -10153,13 +10229,13 @@ function persistEvidence(repo, requirementId, headSha, evidence) {
       mkdirSync5(historyDir, { recursive: true });
       const archived = join14(historyDir, `${headSha}-${createHash6("sha256").update(previous).digest("hex")}.json`);
       try {
-        writeFileSync5(archived, previous, { flag: "wx" });
+        writeFileSync6(archived, previous, { flag: "wx" });
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
       }
     }
   }
-  writeFileSync5(target, `${JSON.stringify(evidence, null, 2)}
+  writeFileSync6(target, `${JSON.stringify(evidence, null, 2)}
 `, "utf8");
   return target;
 }
@@ -10396,13 +10472,14 @@ function boundProvenance(root, asset, assets) {
     testRevision: testRevisionHash({ asset, assets: assets ?? [] })
   };
 }
-var ACCEPTANCE_DIR, ACCEPTANCE_SCHEMA, ACCEPTANCE_SUMMARY_SCHEMA, CONFIG_SCHEMA, ALLOWED_BINARIES, MAX_COMMANDS, MAX_TIMEOUT, MAX_OUTPUT, RUNNER, SOURCE, AcceptanceError;
+var ACCEPTANCE_DIR, ACCEPTANCE_SCHEMA, ACCEPTANCE_SUMMARY_SCHEMA, CONFIG_SCHEMA, ALLOWED_BINARIES, MAX_COMMANDS, MAX_TIMEOUT, MAX_OUTPUT, RUNNER, SOURCE, AcceptanceError, SUMMARY_TEXT_LIMIT, ENVIRONMENT_BLOCKED_LINE;
 var init_acceptance = __esm({
-  "../alm-core/src/acceptance/acceptance.mjs"() {
+  "packages/alm-core/src/acceptance/acceptance.mjs"() {
     init_approval();
     init_content_hash();
     init_worktree_snapshot();
     init_blueprint_guard();
+    init_process_capture();
     ACCEPTANCE_DIR = ".alm/acceptance";
     ACCEPTANCE_SCHEMA = "alm.acceptance/v3";
     ACCEPTANCE_SUMMARY_SCHEMA = "alm.acceptance.summary/v3";
@@ -10421,11 +10498,13 @@ var init_acceptance = __esm({
         this.status = status;
       }
     };
+    SUMMARY_TEXT_LIMIT = 120;
+    ENVIRONMENT_BLOCKED_LINE = /(?:^|\n)\s*not ok(?:\s+\d+)?\s+-\s+[^\n]*\b(?:EPERM|EACCES)\b|spawn(?:Sync)?\b[^\n]*\b(?:EPERM|EACCES)\b/g;
   }
 });
 
-// ../alm-core/src/requirements/architecture-impact.mjs
-import { execFileSync as execFileSync7 } from "node:child_process";
+// packages/alm-core/src/requirements/architecture-impact.mjs
+import { execFileSync as execFileSync6 } from "node:child_process";
 import { existsSync as existsSync14, readdirSync as readdirSync7, readFileSync as readFileSync18 } from "node:fs";
 import { join as join15, resolve as resolve10 } from "node:path";
 function isArchitectureNeutral(path) {
@@ -10549,7 +10628,7 @@ function architectureImpactTrailer(impact) {
 }
 function collectChangedPaths(root) {
   try {
-    const output = execFileSync7("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+    const output = execFileSync6("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
       cwd: resolve10(root),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
@@ -10588,7 +10667,7 @@ function declaredModulesOf(asset) {
 }
 var import_yaml4, MODULE_DIR, ARCHITECTURE_RECORD_SCHEMA, TEST_PATH, NEUTRAL_PATTERNS, normalizePath;
 var init_architecture_impact = __esm({
-  "../alm-core/src/requirements/architecture-impact.mjs"() {
+  "packages/alm-core/src/requirements/architecture-impact.mjs"() {
     import_yaml4 = __toESM(require_dist(), 1);
     MODULE_DIR = "architecture";
     ARCHITECTURE_RECORD_SCHEMA = "alm.architecture-record/v1";
@@ -10609,7 +10688,7 @@ var init_architecture_impact = __esm({
   }
 });
 
-// ../alm-core/src/requirements/arch-ledger.mjs
+// packages/alm-core/src/requirements/arch-ledger.mjs
 import { createHash as createHash7 } from "node:crypto";
 function hashRecord(record) {
   return createHash7("sha256").update(JSON.stringify({ modules: record.moduleIds, unchanged: record.declaredNotChanged, trailer: record.trailer })).digest("hex");
@@ -10638,13 +10717,13 @@ function buildArchitectureArchive({ root, asset = null, impact = null, carryModu
   };
 }
 var init_arch_ledger = __esm({
-  "../alm-core/src/requirements/arch-ledger.mjs"() {
+  "packages/alm-core/src/requirements/arch-ledger.mjs"() {
     init_architecture_impact();
   }
 });
 
-// ../alm-core/src/requirements/delivery-scope.mjs
-import { execFileSync as execFileSync8 } from "node:child_process";
+// packages/alm-core/src/requirements/delivery-scope.mjs
+import { execFileSync as execFileSync7 } from "node:child_process";
 import { resolve as resolve11 } from "node:path";
 function isNoisePath(path) {
   const value = normalize(path);
@@ -10723,7 +10802,7 @@ function collectDeliveryScope({ root, allowedPaths = [], requirementPaths = [], 
 }
 var normalize, IMPLEMENTATION_PATH, NOISE_PATTERNS, git2;
 var init_delivery_scope = __esm({
-  "../alm-core/src/requirements/delivery-scope.mjs"() {
+  "packages/alm-core/src/requirements/delivery-scope.mjs"() {
     normalize = (value) => String(value ?? "").replaceAll("\\", "/").replace(/^\.\//, "").trim();
     IMPLEMENTATION_PATH = /\.(?:[cm]?js|jsx|tsx?|css|json|ya?ml|sql|prisma)$/i;
     NOISE_PATTERNS = Object.freeze([
@@ -10740,7 +10819,7 @@ var init_delivery_scope = __esm({
     ]);
     git2 = (root, args, { allowFailure = false } = {}) => {
       try {
-        return execFileSync8("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+        return execFileSync7("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
       } catch (error) {
         if (allowFailure) return null;
         throw Object.assign(new Error(error.stderr?.trim() || error.message), { code: "git-command-failed" });
@@ -10749,8 +10828,8 @@ var init_delivery_scope = __esm({
   }
 });
 
-// ../alm-core/src/requirements/dev-branch-sync.mjs
-import { execFileSync as execFileSync9 } from "node:child_process";
+// packages/alm-core/src/requirements/dev-branch-sync.mjs
+import { execFileSync as execFileSync8 } from "node:child_process";
 import { existsSync as existsSync15 } from "node:fs";
 import { join as join16, resolve as resolve12 } from "node:path";
 function syncDevelopmentBranch({ root, requirementId, revision, candidateId, title, paths = [], scope = null, architecture = null, branch = "develop", remote = "origin", push = true } = {}) {
@@ -10859,7 +10938,7 @@ function syncDevelopmentBranch({ root, requirementId, revision, candidateId, tit
 }
 var normalize2, safe, git3, lines, runtimePath;
 var init_dev_branch_sync = __esm({
-  "../alm-core/src/requirements/dev-branch-sync.mjs"() {
+  "packages/alm-core/src/requirements/dev-branch-sync.mjs"() {
     init_delivery_scope();
     normalize2 = (value) => String(value ?? "").replaceAll("\\", "/").replace(/^\.\//, "").trim();
     safe = (value) => {
@@ -10868,7 +10947,7 @@ var init_dev_branch_sync = __esm({
     };
     git3 = (root, args, { allowFailure = false } = {}) => {
       try {
-        return execFileSync9("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+        return execFileSync8("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
       } catch (error) {
         if (allowFailure) return null;
         throw Object.assign(new Error(error.stderr?.trim() || error.message), { code: "git-command-failed" });
@@ -10879,8 +10958,8 @@ var init_dev_branch_sync = __esm({
   }
 });
 
-// ../alm-core/src/requirements/candidate.mjs
-import { existsSync as existsSync16, mkdirSync as mkdirSync6, readdirSync as readdirSync8, readFileSync as readFileSync19, writeFileSync as writeFileSync6, rmSync as rmSync2 } from "node:fs";
+// packages/alm-core/src/requirements/candidate.mjs
+import { existsSync as existsSync16, mkdirSync as mkdirSync6, readdirSync as readdirSync8, readFileSync as readFileSync19, writeFileSync as writeFileSync7, rmSync as rmSync2 } from "node:fs";
 import { join as join17, resolve as resolve13, relative as relative8, isAbsolute as isAbsolute2 } from "node:path";
 function candidateFile(root, requirementId) {
   return join17(resolve13(root), CANDIDATE_DIR, requirementId);
@@ -10990,7 +11069,7 @@ function createCandidate({ root, asset, acceptance = null, actor = "ai:adopted",
       pushedToRemoteDev: devSync?.pushedToRemoteDev ?? false,
       requiresReverification: devSync?.requiresReverification === true
     };
-    writeFileSync6(join17(dir, `${id19}.json`), `${JSON.stringify(candidate, null, 2)}
+    writeFileSync7(join17(dir, `${id19}.json`), `${JSON.stringify(candidate, null, 2)}
 `, { encoding: "utf8", flag: "wx" });
     return candidate;
   } finally {
@@ -11094,7 +11173,7 @@ function candidateView({ root, asset, assets = null, acceptance = null, readCont
 }
 var CANDIDATE_SCHEMA, CANDIDATE_DIR;
 var init_candidate = __esm({
-  "../alm-core/src/requirements/candidate.mjs"() {
+  "packages/alm-core/src/requirements/candidate.mjs"() {
     init_worktree_snapshot();
     init_worktree_snapshot();
     init_acceptance();
@@ -11108,7 +11187,7 @@ var init_candidate = __esm({
   }
 });
 
-// ../alm-core/src/requirements/run-decision.mjs
+// packages/alm-core/src/requirements/run-decision.mjs
 import { lstatSync as lstatSync2, readFileSync as readFileSync20 } from "node:fs";
 import { join as join18 } from "node:path";
 import { createHash as createHash8 } from "node:crypto";
@@ -11150,12 +11229,12 @@ function pendingDecisionFor({ run, decision = null } = {}) {
   return !Array.isArray(resolved) || !resolved.some((entry) => entry?.path === path && entry.contentHash === decision.contentHash);
 }
 var init_run_decision = __esm({
-  "../alm-core/src/requirements/run-decision.mjs"() {
+  "packages/alm-core/src/requirements/run-decision.mjs"() {
   }
 });
 
-// ../alm-core/src/requirements/run.mjs
-import { existsSync as existsSync17, lstatSync as lstatSync3, mkdirSync as mkdirSync7, readdirSync as readdirSync9, readFileSync as readFileSync21, writeFileSync as writeFileSync7, renameSync as renameSync2, unlinkSync, rmdirSync } from "node:fs";
+// packages/alm-core/src/requirements/run.mjs
+import { existsSync as existsSync17, lstatSync as lstatSync3, mkdirSync as mkdirSync7, readdirSync as readdirSync9, readFileSync as readFileSync21, writeFileSync as writeFileSync8, renameSync as renameSync2, unlinkSync, rmdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { join as join19, resolve as resolve14 } from "node:path";
@@ -11263,7 +11342,7 @@ function writeRun(root, run) {
   const path = runPath(root, run.id);
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
-    writeFileSync7(temporary, `${JSON.stringify(run, null, 2)}
+    writeFileSync8(temporary, `${JSON.stringify(run, null, 2)}
 `, { encoding: "utf8", flag: "wx" });
     renameSync2(temporary, path);
   } finally {
@@ -11339,7 +11418,7 @@ function withRunLock(root, operation) {
     try {
       mkdirSync7(lock);
       try {
-        writeFileSync7(ownerFile, JSON.stringify({ pid: process.pid, hostname: hostname() }), { encoding: "utf8", flag: "wx" });
+        writeFileSync8(ownerFile, JSON.stringify({ pid: process.pid, hostname: hostname() }), { encoding: "utf8", flag: "wx" });
       } catch (error) {
         try {
           rmdirSync(lock);
@@ -11580,7 +11659,7 @@ function runView({ root, requirementId, decisionFor = resolveRunDecision }) {
 }
 var RUN_SCHEMA, RUN_DIR, RUN_STATES, RUN_LABELS, ACTIVE_RUN_STATES, RUN_HEARTBEAT_TIMEOUT_MS, IDLE_RUN_STATES, RESUMABLE_HOST_FAILURE_CODES, ALLOWED_TRANSITIONS;
 var init_run2 = __esm({
-  "../alm-core/src/requirements/run.mjs"() {
+  "packages/alm-core/src/requirements/run.mjs"() {
     init_run_decision();
     RUN_SCHEMA = "alm.execution.run/v1";
     RUN_DIR = ".alm/runs";
@@ -11609,8 +11688,8 @@ var init_run2 = __esm({
   }
 });
 
-// ../alm-core/src/requirements/delivery.mjs
-import { existsSync as existsSync18, mkdirSync as mkdirSync8, readFileSync as readFileSync22, writeFileSync as writeFileSync8 } from "node:fs";
+// packages/alm-core/src/requirements/delivery.mjs
+import { existsSync as existsSync18, mkdirSync as mkdirSync8, readFileSync as readFileSync22, writeFileSync as writeFileSync9 } from "node:fs";
 import { join as join20, resolve as resolve15 } from "node:path";
 function closurePath(root, requirementId) {
   return join20(resolve15(root), CLOSURE_DIR, `${requirementId}.json`);
@@ -11636,7 +11715,7 @@ function writeClosure({ root, requirementId, reason: reason2, actor = "human:loc
     actor,
     at: (/* @__PURE__ */ new Date()).toISOString()
   };
-  writeFileSync8(file, `${JSON.stringify(payload, null, 2)}
+  writeFileSync9(file, `${JSON.stringify(payload, null, 2)}
 `, "utf8");
   return payload;
 }
@@ -11748,7 +11827,7 @@ function deliveryStateFor({ root, asset, decision = null, candidate = null, clos
 }
 var DELIVERY_SCHEMA, DELIVERY_LABELS, CLOSED_STATUS, CLOSURE_SCHEMA, CLOSURE_DIR;
 var init_delivery = __esm({
-  "../alm-core/src/requirements/delivery.mjs"() {
+  "packages/alm-core/src/requirements/delivery.mjs"() {
     init_run2();
     DELIVERY_SCHEMA = "alm.delivery.state/v1";
     DELIVERY_LABELS = {
@@ -11764,7 +11843,7 @@ var init_delivery = __esm({
   }
 });
 
-// ../alm-core/src/requirements/identity.mjs
+// packages/alm-core/src/requirements/identity.mjs
 function trustedHumanSubject(subject, { actor = null } = {}) {
   if (!subject || typeof subject !== "object" || Array.isArray(subject)) return null;
   const id19 = String(subject.id ?? "").trim();
@@ -11784,14 +11863,14 @@ function requireTrustedHumanSubject(subject, { actor = null, error } = {}) {
 }
 var HUMAN_ID, AUTOMATION_ID, TRUSTED_HUMAN_SOURCES;
 var init_identity = __esm({
-  "../alm-core/src/requirements/identity.mjs"() {
+  "packages/alm-core/src/requirements/identity.mjs"() {
     HUMAN_ID = /^human:[A-Za-z0-9._-]+$/;
     AUTOMATION_ID = /^(?:test|automation|ai):/i;
     TRUSTED_HUMAN_SOURCES = /* @__PURE__ */ new Set(["host-authenticated", "local-session"]);
   }
 });
 
-// ../alm-core/src/requirements/doc.mjs
+// packages/alm-core/src/requirements/doc.mjs
 import { createHash as createHash9 } from "node:crypto";
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -12696,7 +12775,7 @@ function diffDoc(before, after) {
 }
 var DOC_SCHEMA, DOC_PROVENANCES, PENDING_STATUSES, FORMAL_PROVENANCE, AI_PROVENANCE, SECTION_TITLES, CANONICAL_HEADINGS, HEADING_ALIASES, HEADING_KIND, SECTION_LABELS, BOLD_LABEL_RE, FEATURE_FIELD_KIND, ACCEPTANCE_FIELD_KIND, FEATURE_HEADING_RE, FEATURE_BULLET_RE, ACCEPTANCE_HEADING_RE, ACCEPTANCE_FIELD_RE, BULLET_RE, NUMBERED_RE, PENDING_LINE_RE, META_LINE_RE, FR_ID_RE, AC_ID_RE, PENDING_ID_RE, REQUIREMENT_ID_RE, HASH_PREFIX;
 var init_doc = __esm({
-  "../alm-core/src/requirements/doc.mjs"() {
+  "packages/alm-core/src/requirements/doc.mjs"() {
     DOC_SCHEMA = "alm.requirement.doc/v1";
     DOC_PROVENANCES = Object.freeze([
       "user-stated",
@@ -12787,13 +12866,13 @@ var init_doc = __esm({
   }
 });
 
-// ../alm-core/src/requirements/release.mjs
-import { existsSync as existsSync19, mkdirSync as mkdirSync9, readdirSync as readdirSync10, readFileSync as readFileSync23, writeFileSync as writeFileSync9 } from "node:fs";
+// packages/alm-core/src/requirements/release.mjs
+import { existsSync as existsSync19, mkdirSync as mkdirSync9, readdirSync as readdirSync10, readFileSync as readFileSync23, writeFileSync as writeFileSync10 } from "node:fs";
 import { join as join21, resolve as resolve16 } from "node:path";
-import { execFileSync as execFileSync10 } from "node:child_process";
+import { execFileSync as execFileSync9 } from "node:child_process";
 function git4(root, args, { allowFailure = false } = {}) {
   try {
-    return execFileSync10("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync9("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch (error) {
     if (allowFailure) return null;
     throw Object.assign(new Error(error.stderr?.trim() || error.message), { code: "git-command-failed" });
@@ -13016,7 +13095,7 @@ function createRelease({ root, items = [], requirementIds = null, target = "stag
     executions: []
   };
   mkdirSync9(releaseDir(root), { recursive: true });
-  writeFileSync9(releasePath(root, releaseId), `${JSON.stringify(payload, null, 2)}
+  writeFileSync10(releasePath(root, releaseId), `${JSON.stringify(payload, null, 2)}
 `, "utf8");
   return payload;
 }
@@ -13060,7 +13139,7 @@ function authorizeRelease({ root, releaseId, items = [], actor = null, subject =
   const authorization = { actor, subject: principal, at: (/* @__PURE__ */ new Date()).toISOString(), contentHash: release.contentHash };
   if (apply) {
     const next = { ...release, status: "authorized", authorization };
-    writeFileSync9(releasePath(root, releaseId), `${JSON.stringify(next, null, 2)}
+    writeFileSync10(releasePath(root, releaseId), `${JSON.stringify(next, null, 2)}
 `, "utf8");
     return { applied: true, release: next };
   }
@@ -13101,7 +13180,7 @@ function recordReleaseExecution({ root, releaseId, result, note = null, actor = 
     archiveOnly: archiveOnly === true
   };
   const next = { ...release, ...verifiedGithub ? { github: verifiedGithub } : {}, ...archiveOnly ? { archiveOnly: true } : {}, status: result, executions: [...release.executions ?? [], execution] };
-  if (apply) writeFileSync9(releasePath(root, releaseId), `${JSON.stringify(next, null, 2)}
+  if (apply) writeFileSync10(releasePath(root, releaseId), `${JSON.stringify(next, null, 2)}
 `, "utf8");
   return { applied: apply === true, release: next, execution };
 }
@@ -13126,7 +13205,7 @@ function releaseNotesFor(item, criteria, candidate) {
   };
 }
 function writeJson(file, value) {
-  writeFileSync9(file, `${JSON.stringify(value, null, 2)}
+  writeFileSync10(file, `${JSON.stringify(value, null, 2)}
 `, "utf8");
 }
 function syncRequirementReleaseToMain({ root, requirementId, releaseId = null, revision = null, apply = false } = {}) {
@@ -13212,7 +13291,7 @@ function archiveRequirementRelease({ root, item, actor, subject = null, apply = 
   };
   const record = { ...snapshot2, archiveHash: sha2563(snapshot2) };
   mkdirSync9(releaseDir(repo), { recursive: true });
-  writeFileSync9(archiveFile, `${JSON.stringify(record, null, 2)}
+  writeFileSync10(archiveFile, `${JSON.stringify(record, null, 2)}
 `, { encoding: "utf8", flag: "wx" });
   const integration = syncRequirementReleaseToMain({ root: repo, requirementId: item.id, releaseId: executed.release.id, revision: item?.revision ?? null, apply: true });
   return {
@@ -13259,7 +13338,7 @@ function releaseViewFor({ root, requirementId }) {
 }
 var RELEASE_SCHEMA, RELEASE_DIR, REQUIREMENT_RELEASE_SCHEMA, RELEASE_LABELS;
 var init_release = __esm({
-  "../alm-core/src/requirements/release.mjs"() {
+  "packages/alm-core/src/requirements/release.mjs"() {
     init_content_hash();
     init_identity();
     init_candidate();
@@ -13279,9 +13358,9 @@ var init_release = __esm({
   }
 });
 
-// ../alm-core/src/requirements/exchange.mjs
+// packages/alm-core/src/requirements/exchange.mjs
 import { createHash as createHash10, createHmac, randomBytes, randomUUID as randomUUID2, timingSafeEqual } from "node:crypto";
-import { closeSync as closeSync2, existsSync as existsSync20, lstatSync as lstatSync4, mkdirSync as mkdirSync10, openSync as openSync2, readFileSync as readFileSync24, readdirSync as readdirSync11, renameSync as renameSync3, rmdirSync as rmdirSync2, rmSync as rmSync3, writeFileSync as writeFileSync10 } from "node:fs";
+import { closeSync as closeSync2, existsSync as existsSync20, lstatSync as lstatSync4, mkdirSync as mkdirSync10, openSync as openSync2, readFileSync as readFileSync24, readdirSync as readdirSync11, renameSync as renameSync3, rmdirSync as rmdirSync2, rmSync as rmSync3, writeFileSync as writeFileSync11 } from "node:fs";
 import { dirname as dirname5, join as join22, resolve as resolve17 } from "node:path";
 function fail(message, code, status) {
   throw new RequirementsExchangeError(message, code, status);
@@ -13605,11 +13684,11 @@ function transaction(repo, writes) {
       ensureDir3(dirname5(target));
       const temp = `${target}.exchange-${randomUUID2()}.tmp`;
       temps.push(temp);
-      writeFileSync10(temp, bytes, { flag: "wx" });
+      writeFileSync11(temp, bytes, { flag: "wx" });
     }
     ensureDir3(dirname5(safePath(repo, JOURNAL)));
     journalWritten = true;
-    writeFileSync10(safePath(repo, JOURNAL), JSON.stringify({ schema: "alm.exchange.transaction/v1", originals }), { flag: "wx" });
+    writeFileSync11(safePath(repo, JOURNAL), JSON.stringify({ schema: "alm.exchange.transaction/v1", originals }), { flag: "wx" });
     let index = 0;
     for (const [path] of writes) {
       renameSync3(temps[index++], safePath(repo, path));
@@ -13623,7 +13702,7 @@ function transaction(repo, writes) {
       try {
         const original = originals.find((o) => o.path === path);
         if (original.before === null) rmSync3(safePath(repo, path), { force: true });
-        else writeFileSync10(safePath(repo, path), Buffer.from(original.before, "base64"));
+        else writeFileSync11(safePath(repo, path), Buffer.from(original.before, "base64"));
       } catch (rollbackError) {
         errors.push(rollbackError.message);
       }
@@ -13661,7 +13740,7 @@ function applyRequirementsImport({ root, payload, expectedLocalHash }) {
 }
 var EXCHANGE_SCHEMA, EXCHANGE_LIMITS, FIELDS, KEY, CREATES, JOURNAL, LOCK, RequirementsExchangeError, TEMPLATE_SAMPLE;
 var init_exchange = __esm({
-  "../alm-core/src/requirements/exchange.mjs"() {
+  "packages/alm-core/src/requirements/exchange.mjs"() {
     init_sdoc();
     EXCHANGE_SCHEMA = "alm.requirements.exchange/v1";
     EXCHANGE_LIMITS = Object.freeze({ bytes: 8 * 1024 * 1024, records: 1e3, briefBytes: 1024 * 1024 });
@@ -13687,9 +13766,9 @@ var init_exchange = __esm({
   }
 });
 
-// ../alm-core/src/requirements/create.mjs
+// packages/alm-core/src/requirements/create.mjs
 import { createHash as createHash11 } from "node:crypto";
-import { existsSync as existsSync21, lstatSync as lstatSync5, mkdirSync as mkdirSync11, rmSync as rmSync4, writeFileSync as writeFileSync11 } from "node:fs";
+import { existsSync as existsSync21, lstatSync as lstatSync5, mkdirSync as mkdirSync11, rmSync as rmSync4, writeFileSync as writeFileSync12 } from "node:fs";
 import { join as join23, resolve as resolve18 } from "node:path";
 function requirementPathsOccupied(root, id19) {
   return [
@@ -13947,7 +14026,7 @@ function writeAttachments({ repo, requirementId, attachments: attachments2 }) {
     if (entry.dataBase64) bytes = Buffer.from(String(entry.dataBase64), "base64");
     else if (typeof entry.text === "string") bytes = Buffer.from(entry.text, "utf8");
     else throw new RequirementCreateError(`attachment ${name} needs dataBase64 or text`, { code: "invalid-attachment" });
-    writeFileSync11(join23(dir, name), bytes);
+    writeFileSync12(join23(dir, name), bytes);
     files.push({
       path: name,
       sha256: createHash11("sha256").update(bytes).digest("hex"),
@@ -13957,7 +14036,7 @@ function writeAttachments({ repo, requirementId, attachments: attachments2 }) {
     });
   }
   files.sort((left, right) => left.path.localeCompare(right.path));
-  writeFileSync11(join23(dir, "manifest.json"), `${JSON.stringify({ requirement: requirementId, files }, null, 2)}
+  writeFileSync12(join23(dir, "manifest.json"), `${JSON.stringify({ requirement: requirementId, files }, null, 2)}
 `, "utf8");
   return files;
 }
@@ -13971,8 +14050,8 @@ function createRequirement({ root, ...input }) {
   const briefFile = join23(repo, plan2.briefFile);
   let attachmentFiles2 = [];
   try {
-    writeFileSync11(sdocFile, plan2.content, "utf8");
-    writeFileSync11(briefFile, plan2.briefContent, "utf8");
+    writeFileSync12(sdocFile, plan2.content, "utf8");
+    writeFileSync12(briefFile, plan2.briefContent, "utf8");
     attachmentFiles2 = writeAttachments({ repo, requirementId: plan2.requirementId, attachments: input.attachments });
   } catch (error) {
     rmSync4(sdocFile, { force: true });
@@ -13991,7 +14070,7 @@ function createRequirement({ root, ...input }) {
 }
 var ID, PRIORITIES2, RequirementCreateError, META_TAIL, AUTO_TITLE_LIMIT, ATTACHMENT_NAME;
 var init_create = __esm({
-  "../alm-core/src/requirements/create.mjs"() {
+  "packages/alm-core/src/requirements/create.mjs"() {
     init_commands();
     init_project();
     init_doc();
@@ -14012,8 +14091,8 @@ var init_create = __esm({
   }
 });
 
-// ../alm-core/src/requirements/failure.mjs
-import { mkdirSync as mkdirSync12, readFileSync as readFileSync25, readdirSync as readdirSync12, renameSync as renameSync4, rmSync as rmSync5, writeFileSync as writeFileSync12 } from "node:fs";
+// packages/alm-core/src/requirements/failure.mjs
+import { mkdirSync as mkdirSync12, readFileSync as readFileSync25, readdirSync as readdirSync12, renameSync as renameSync4, rmSync as rmSync5, writeFileSync as writeFileSync13 } from "node:fs";
 import { dirname as dirname6, join as join24, resolve as resolve19 } from "node:path";
 function monitorError(code, message, status = 400) {
   return new FailureMonitorError(message, { code, status });
@@ -14028,7 +14107,7 @@ function atomicWrite(absolute, content) {
   mkdirSync12(dirname6(absolute), { recursive: true });
   const temp = `${absolute}.tmp-${process.pid}-${Date.now()}-${++tempCounter}`;
   try {
-    writeFileSync12(temp, content, "utf8");
+    writeFileSync13(temp, content, "utf8");
     renameSync4(temp, absolute);
   } finally {
     rmSync5(temp, { force: true });
@@ -15089,7 +15168,7 @@ function writeMonitoring({ root, enabled = null, stages = null, notify = null, u
 }
 var FAILURE_SCHEMA, FAILURE_DIR, FAILURE_KINDS, FAILURE_KIND_LABELS, FAILURE_STAGES, FAILURE_STAGE_LABELS, DEFECT_SCHEMA, DEFECT_DIR, DEFECT_STATES, DEFECT_LABELS, DEFECT_TRANSITIONS, DEFECT_PLAN_SCHEMA, MONITORING_SCHEMA, MONITORING_FILE, DEDUPE_WINDOW_MS, SUMMARY_MAX, ITERATION_RESULTS, SKIP_DEFECT_KINDS, FailureMonitorError, tempCounter, REDACT_PATTERNS, CANCELLED_CODES, EXTERNAL_CODE, PERMISSION_CODES, PLUGIN_CODES, PLUGIN_PREFIXES, STATUS_TIMELINE;
 var init_failure = __esm({
-  "../alm-core/src/requirements/failure.mjs"() {
+  "packages/alm-core/src/requirements/failure.mjs"() {
     init_content_hash();
     init_project();
     init_create();
@@ -15183,8 +15262,8 @@ var init_failure = __esm({
   }
 });
 
-// ../alm-core/src/requirements/update.mjs
-import { existsSync as existsSync22, mkdirSync as mkdirSync13, readFileSync as readFileSync26, renameSync as renameSync5, rmSync as rmSync6, writeFileSync as writeFileSync13 } from "node:fs";
+// packages/alm-core/src/requirements/update.mjs
+import { existsSync as existsSync22, mkdirSync as mkdirSync13, readFileSync as readFileSync26, renameSync as renameSync5, rmSync as rmSync6, writeFileSync as writeFileSync14 } from "node:fs";
 import { dirname as dirname7, isAbsolute as isAbsolute3, join as join25, relative as relative9, resolve as resolve20, sep } from "node:path";
 function normalizeChanges(input) {
   const list2 = Array.isArray(input?.changes) ? input.changes : Array.isArray(input) ? input : [input];
@@ -15438,7 +15517,7 @@ function writeIdempotentResult({ root, requirementId, idempotencyKey, result }) 
   };
   try {
     mkdirSync13(dirname7(file), { recursive: true });
-    writeFileSync13(file, `${JSON.stringify(payload, null, 2)}
+    writeFileSync14(file, `${JSON.stringify(payload, null, 2)}
 `, "utf8");
   } catch {
   }
@@ -15462,7 +15541,7 @@ function writeAuditEvent({ repo, asset, actor, change, plan: plan2, baseline, im
     idempotencyKey,
     ...plan2.briefFile ? { briefFile: plan2.briefFile } : {}
   };
-  writeFileSync13(file, `${JSON.stringify(payload, null, 2)}
+  writeFileSync14(file, `${JSON.stringify(payload, null, 2)}
 `, "utf8");
   return relative9(repo, file).split(sep).join("/");
 }
@@ -15480,7 +15559,7 @@ function rollbackWrites(written) {
   for (const entry of [...written].reverse()) {
     try {
       if (entry.previous === null) rmSync6(entry.absolute, { force: true });
-      else writeFileSync13(entry.absolute, entry.previous);
+      else writeFileSync14(entry.absolute, entry.previous);
     } catch {
     }
   }
@@ -15492,7 +15571,7 @@ function applyRequirementUpdate({
   expectedBaseline,
   actor,
   idempotencyKey,
-  writeFile = writeFileSync13,
+  writeFile = writeFileSync14,
   impactSummary = null,
   resultExtra = null
 } = {}) {
@@ -15586,7 +15665,7 @@ function applyRequirementUpdate({
 }
 var AUDIT_DIR, AUDIT_SCHEMA, IDEMPOTENCY_SCHEMA, UPDATE_SCHEMA, UPDATE_FIELDS, IDEMPOTENCY_DIR, PRIORITIES3, MAX_TITLE, CONTROL_CHARS, NODE_RE2, RequirementUpdateError, tempCounter2;
 var init_update = __esm({
-  "../alm-core/src/requirements/update.mjs"() {
+  "packages/alm-core/src/requirements/update.mjs"() {
     init_approval();
     init_commands();
     init_content_hash();
@@ -15615,9 +15694,9 @@ var init_update = __esm({
   }
 });
 
-// ../alm-core/src/requirements/convergence.mjs
+// packages/alm-core/src/requirements/convergence.mjs
 import { createHash as createHash12 } from "node:crypto";
-import { mkdirSync as mkdirSync14, readdirSync as readdirSync13, readFileSync as readFileSync27, realpathSync, renameSync as renameSync6, rmdirSync as rmdirSync3, writeFileSync as writeFileSync14 } from "node:fs";
+import { mkdirSync as mkdirSync14, readdirSync as readdirSync13, readFileSync as readFileSync27, realpathSync, renameSync as renameSync6, rmdirSync as rmdirSync3, writeFileSync as writeFileSync15 } from "node:fs";
 import { isAbsolute as isAbsolute4, join as join26, relative as relative10, resolve as resolve21, sep as sep2 } from "node:path";
 function readIterationRetry(root, requirementId) {
   try {
@@ -15632,7 +15711,7 @@ function writeIterationRetry(root, requirementId, { feedbackText, status = "pend
   mkdirSync14(join26(resolve21(root), ".alm", "iterations"), { recursive: true });
   const row = { schema: "alm.iteration-retry/v1", requirementId, feedbackText, status, execution, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
   const temp = `${path}.${process.pid}-${Math.random().toString(36).slice(2)}.tmp`;
-  writeFileSync14(temp, JSON.stringify(row), { flag: "wx" });
+  writeFileSync15(temp, JSON.stringify(row), { flag: "wx" });
   renameSync6(temp, path);
   return row;
 }
@@ -15923,7 +16002,7 @@ function proposeSpecDelta({ root, runId, requirementId, afterBrief, evolutionNot
   for (let seq = 1; seq <= 1e5; seq++) {
     const path = deltaPath(root, runId, seq);
     try {
-      writeFileSync14(path, `${JSON.stringify(delta, null, 2)}
+      writeFileSync15(path, `${JSON.stringify(delta, null, 2)}
 `, { encoding: "utf8", flag: "wx" });
       return { delta, deltaHash: digest(delta), path: `.alm/runs/${runId}-spec-delta-${seq}.json` };
     } catch (error) {
@@ -15979,7 +16058,7 @@ function markSpecDeltaRepair({ root, runId, requirementId, deltaHash, baseRequir
     if (readIdempotentResult({ root, requirementId, idempotencyKey: `spec-${runId}-${deltaHash}` })) fail2("delta-consumed", "\u8865\u4E01\u5DF2\u7ECF\u5408\u5165", 409);
     const receipt = { schema: "alm.spec-repair/v1", requirementId, runId, patchId, deltaHash, baseRequirementHash, actor: subject.id, at: (/* @__PURE__ */ new Date()).toISOString() };
     try {
-      writeFileSync14(join26(resolve21(root), ".alm", "runs", `${runId}-repair-${deltaHash}.json`), `${JSON.stringify(receipt, null, 2)}
+      writeFileSync15(join26(resolve21(root), ".alm", "runs", `${runId}-repair-${deltaHash}.json`), `${JSON.stringify(receipt, null, 2)}
 `, { encoding: "utf8", flag: "wx" });
     } catch (error) {
       if (error.code === "EEXIST") fail2("delta-consumed", "\u8865\u4E01\u5DF2\u6309\u4FEE\u590D\u5904\u7406", 409);
@@ -16020,7 +16099,7 @@ function listSpecConvergences(root, requirementId) {
 }
 var fail2, digest, validRun, requirementSpecContext, retryPath, deltaPath, deltaNames, clone2, normalizeClause;
 var init_convergence = __esm({
-  "../alm-core/src/requirements/convergence.mjs"() {
+  "packages/alm-core/src/requirements/convergence.mjs"() {
     init_commands();
     init_doc();
     init_update();
@@ -16048,7 +16127,7 @@ var init_convergence = __esm({
   }
 });
 
-// ../alm-core/src/requirements/turn-brief.mjs
+// packages/alm-core/src/requirements/turn-brief.mjs
 import { createHash as createHash13 } from "node:crypto";
 import { existsSync as existsSync23, readFileSync as readFileSync28 } from "node:fs";
 import { join as join27, resolve as resolve22 } from "node:path";
@@ -16398,7 +16477,7 @@ function previewTurnBrief(options = {}) {
 }
 var BRIEF_BUDGET, MAX_ANCHORS, BRIEF_SCHEMA, BriefRejected, text2, squash, unique, GOAL_LIMIT, CRITERION_LIMIT, MAX_CRITERIA, clampText, GOAL_LINE, ACCEPT_LINE, AC_ID_LINE, CONSTRAINT_LINE;
 var init_turn_brief = __esm({
-  "../alm-core/src/requirements/turn-brief.mjs"() {
+  "packages/alm-core/src/requirements/turn-brief.mjs"() {
     init_architecture_impact();
     BRIEF_BUDGET = 900;
     MAX_ANCHORS = 3;
@@ -16425,7 +16504,7 @@ var init_turn_brief = __esm({
   }
 });
 
-// ../alm-core/src/requirements/decision.mjs
+// packages/alm-core/src/requirements/decision.mjs
 function clampLine(value, max = 600) {
   const text6 = String(value ?? "");
   return text6.length > max ? `${text6.slice(0, max)}\u2026` : text6;
@@ -16831,7 +16910,7 @@ function buildDecisionAnswer(parsed, selections = {}, { note = "" } = {}) {
 }
 var DECISION_REQUEST_SCHEMA, DECISION_REQUEST_GUIDE, HEADING_RE, FENCE_RE, BULLET_RE2, DECISION_HEADING_RE, OPTION_HEADING_RE, OPTION_BULLET_RE, IMPACT_LABEL_RE, QUESTION_LINE_RE, WHY_LINE_RE, RECOMMENDATION_LINE_RE, SECTION_KIND, TECHNICAL_LINE_RE, INLINE_CODE_RE;
 var init_decision = __esm({
-  "../alm-core/src/requirements/decision.mjs"() {
+  "packages/alm-core/src/requirements/decision.mjs"() {
     DECISION_REQUEST_SCHEMA = "alm.decision-request/v1";
     DECISION_REQUEST_GUIDE = [
       "  \u5199\u6210\u51B3\u7B56\u8BF7\u6C42\u65F6\u7528\u4E1A\u52A1\u8BED\u8A00\uFF0C\u8BA9\u4E0D\u61C2\u4EE3\u7801\u7684\u4EBA\u4E5F\u80FD\u76F4\u63A5\u9009\uFF1A",
@@ -16881,7 +16960,7 @@ var init_decision = __esm({
   }
 });
 
-// ../alm-core/src/requirements/decision-presentation.mjs
+// packages/alm-core/src/requirements/decision-presentation.mjs
 function sectionsOf(raw) {
   let fenced = false;
   const prose = raw.split("\n").map((line) => {
@@ -16984,7 +17063,7 @@ function buildProductDecisionAnswer(parsed, response) {
 }
 var DECISION_AUTONOMY_POLICY, TECHNICAL_DELEGATION, REFRAME_DECISION, decisionHeading, technicalTopic, protectedTopic;
 var init_decision_presentation = __esm({
-  "../alm-core/src/requirements/decision-presentation.mjs"() {
+  "packages/alm-core/src/requirements/decision-presentation.mjs"() {
     init_decision();
     DECISION_AUTONOMY_POLICY = [
       "\u51B3\u7B56\u5206\u5DE5\uFF1A\u4EA7\u54C1\u7ECF\u7406\u53EA\u51B3\u5B9A\u4E1A\u52A1\u89C4\u5219\u3001\u529F\u80FD\u884C\u4E3A\u3001\u7528\u6237\u4F53\u9A8C\u548C\u4E1A\u52A1\u8303\u56F4\u53D6\u820D\u3002",
@@ -17002,7 +17081,7 @@ var init_decision_presentation = __esm({
   }
 });
 
-// ../alm-core/src/evidence/decision.mjs
+// packages/alm-core/src/evidence/decision.mjs
 function riskLevel(asset) {
   const priority = asset?.extra?.priority ?? asset?.priority ?? null;
   if (priority === "P0" || priority === "P1") return "high";
@@ -17256,7 +17335,7 @@ function decideEvidence({ asset, review = null, acceptance = null, candidate = n
 }
 var EVIDENCE_SCHEMA, ROLE_IDS, NORMAL_ROLES, LOW_ROLES, ANOMALY_KINDS, LABELS, TONES, STALE_REASONS, SIGNOFF_CODES;
 var init_decision2 = __esm({
-  "../alm-core/src/evidence/decision.mjs"() {
+  "packages/alm-core/src/evidence/decision.mjs"() {
     EVIDENCE_SCHEMA = "alm.evidence.decision/v1";
     ROLE_IDS = ["business", "architecture", "testing", "security", "delivery"];
     NORMAL_ROLES = ["business", "architecture", "testing", "delivery"];
@@ -17297,8 +17376,8 @@ var init_decision2 = __esm({
   }
 });
 
-// ../alm-core/src/requirements/signoff.mjs
-import { existsSync as existsSync24, mkdirSync as mkdirSync15, readFileSync as readFileSync29, writeFileSync as writeFileSync15 } from "node:fs";
+// packages/alm-core/src/requirements/signoff.mjs
+import { existsSync as existsSync24, mkdirSync as mkdirSync15, readFileSync as readFileSync29, writeFileSync as writeFileSync16 } from "node:fs";
 import { join as join28, resolve as resolve23 } from "node:path";
 function signoffPath(root, requirementId) {
   return join28(resolve23(root), SIGNOFF_DIR, `${requirementId}.json`);
@@ -17459,13 +17538,13 @@ function signRequirement({ root, asset, actor, subject = null, apply = false, ac
   };
   const dir = join28(repo, SIGNOFF_DIR);
   mkdirSync15(dir, { recursive: true });
-  writeFileSync15(signoffPath(repo, asset.id), `${JSON.stringify(record, null, 2)}
+  writeFileSync16(signoffPath(repo, asset.id), `${JSON.stringify(record, null, 2)}
 `, "utf8");
   return { ...plan2, applied: true, signoff };
 }
 var SIGNOFF_SCHEMA, SIGNOFF_DIR, RequirementSignoffError;
 var init_signoff = __esm({
-  "../alm-core/src/requirements/signoff.mjs"() {
+  "packages/alm-core/src/requirements/signoff.mjs"() {
     init_acceptance();
     init_approval();
     init_commands();
@@ -17486,8 +17565,8 @@ var init_signoff = __esm({
   }
 });
 
-// ai-review.mjs
-import { existsSync as existsSync25, mkdirSync as mkdirSync16, readdirSync as readdirSync14, readFileSync as readFileSync30, writeFileSync as writeFileSync16 } from "node:fs";
+// packages/dsh-plugin-requirements/ai-review.mjs
+import { existsSync as existsSync25, mkdirSync as mkdirSync16, readdirSync as readdirSync14, readFileSync as readFileSync30, writeFileSync as writeFileSync17 } from "node:fs";
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { dirname as dirname8, join as join29, resolve as resolve24 } from "node:path";
 function briefPath(root, asset) {
@@ -17513,7 +17592,7 @@ function readAiReview(root, requirementId) {
 function writeAiReview(root, report) {
   const file = aiReviewPath(root, report.requirement);
   mkdirSync16(dirname8(file), { recursive: true });
-  writeFileSync16(file, `${JSON.stringify(report, null, 2)}
+  writeFileSync17(file, `${JSON.stringify(report, null, 2)}
 `, "utf8");
   return file;
 }
@@ -17533,7 +17612,7 @@ function writeAiReviewUsage(root, { requirement, provider, model, startedAt, sta
     errorCode: errorCode2,
     complete: false
   };
-  writeFileSync16(join29(dir, `${startedAt.replace(/\D/g, "")}-${receipt.id}.json`), `${JSON.stringify(receipt, null, 2)}
+  writeFileSync17(join29(dir, `${startedAt.replace(/\D/g, "")}-${receipt.id}.json`), `${JSON.stringify(receipt, null, 2)}
 `, { encoding: "utf8", flag: "wx" });
   return receipt;
 }
@@ -17796,7 +17875,7 @@ function adoptAiReview({ root, asset, report, selectedSuggestionIds = [] }) {
   const changed = nextContent !== existing;
   if (changed) {
     mkdirSync16(dirname8(file), { recursive: true });
-    writeFileSync16(file, nextContent, "utf8");
+    writeFileSync17(file, nextContent, "utf8");
   }
   const adopted = {
     at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -17810,7 +17889,7 @@ function adoptAiReview({ root, asset, report, selectedSuggestionIds = [] }) {
 }
 var AI_REVIEW_SCHEMA, AI_REVIEW_DIR, AiReviewError, ADOPT_HEADING;
 var init_ai_review = __esm({
-  "ai-review.mjs"() {
+  "packages/dsh-plugin-requirements/ai-review.mjs"() {
     AI_REVIEW_SCHEMA = "alm.ai-review/v1";
     AI_REVIEW_DIR = ".alm/reviews";
     AiReviewError = class extends Error {
@@ -17825,7 +17904,7 @@ var init_ai_review = __esm({
   }
 });
 
-// github-web.mjs
+// packages/dsh-plugin-requirements/github-web.mjs
 function text3(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -17895,11 +17974,11 @@ function githubDeliveryLinks({ remoteUrl, devBranch, mainBranch, devCommitSha, m
   return links;
 }
 var init_github_web = __esm({
-  "github-web.mjs"() {
+  "packages/dsh-plugin-requirements/github-web.mjs"() {
   }
 });
 
-// detail-view.mjs
+// packages/dsh-plugin-requirements/detail-view.mjs
 import { createHash as createHash14 } from "node:crypto";
 function humanRunReason(value) {
   return RUN_REASON_LABELS[textOrNull(value)] ?? null;
@@ -19070,7 +19149,7 @@ function deriveDetailView(item, options = {}) {
 }
 var DETAIL_VIEW_SCHEMA, BRIEF_SECTION_TITLES, BRIEF_INLINE_TITLES, INLINE_LABEL_RE, AI_TITLE_RE, REL_LABELS, RELATION_GROUPS, CLAIM_TITLES, ACCEPTANCE_TITLES, BACKGROUND_TITLES, CONSTRAINT_TITLES, PROVENANCE_TITLES, STALE_REASON_LABELS, ACTION_LABELS, ACTION_BY_KIND, RUN_REASON_LABELS, timelineHash;
 var init_detail_view = __esm({
-  "detail-view.mjs"() {
+  "packages/dsh-plugin-requirements/detail-view.mjs"() {
     init_doc();
     init_github_web();
     DETAIL_VIEW_SCHEMA = "alm.detail.view/v1";
@@ -19156,9 +19235,14 @@ var init_detail_view = __esm({
   }
 });
 
-// version-path.mjs
-import { execFileSync as execFileSync11 } from "node:child_process";
+// packages/dsh-plugin-requirements/version-path.mjs
 import { isAbsolute as isAbsolute5, relative as relative11, resolve as resolve25 } from "node:path";
+function git5(root, args) {
+  const result = runCaptured("git", ["-C", root, ...args]);
+  if (result.error) throw Object.assign(new Error(`git ${args[0]} failed: ${result.error.code ?? result.error.message}`), { code: result.error.code });
+  if (result.status !== 0) throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: "git-failed", stderr: result.stderr });
+  return String(result.stdout ?? "");
+}
 function versionPath(root, file, ref) {
   const top = git5(root, ["rev-parse", "--show-toplevel"]).trim();
   const current = relative11(top, resolve25(root, file)).replace(/\\/g, "/");
@@ -19173,14 +19257,13 @@ function versionPath(root, file, ref) {
   }
   return { top, path: current };
 }
-var git5;
 var init_version_path = __esm({
-  "version-path.mjs"() {
-    git5 = (root, args) => execFileSync11("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  "packages/dsh-plugin-requirements/version-path.mjs"() {
+    init_process_capture();
   }
 });
 
-// auto-advance.mjs
+// packages/dsh-plugin-requirements/auto-advance.mjs
 import { createHash as createHash15 } from "node:crypto";
 function progressFingerprint({ snapshot: snapshot2, evidence }) {
   const files = (snapshot2?.files ?? []).filter(({ path }) => !/(^|\/)(artifacts|logs|reports)(\/|$)|\.(log|md)$/i.test(path));
@@ -19216,13 +19299,13 @@ function nextAutomaticAction({ run, pendingDecision, carrier, repairPending, fac
 }
 var MAX_AUTO_DISPATCHES, hash2;
 var init_auto_advance = __esm({
-  "auto-advance.mjs"() {
+  "packages/dsh-plugin-requirements/auto-advance.mjs"() {
     MAX_AUTO_DISPATCHES = 3;
     hash2 = (value) => createHash15("sha256").update(JSON.stringify(value)).digest("hex");
   }
 });
 
-// reject-candidate.mjs
+// packages/dsh-plugin-requirements/reject-candidate.mjs
 import { lstatSync as lstatSync6, readdirSync as readdirSync15, readFileSync as readFileSync31 } from "node:fs";
 import { createHash as createHash16 } from "node:crypto";
 import { resolve as resolve26, relative as relative12, isAbsolute as isAbsolute6, dirname as dirname9 } from "node:path";
@@ -19330,7 +19413,7 @@ function rearmRejectedCheckpoint(run, review, actor, text6) {
 }
 var hash3, fail3, hex;
 var init_reject_candidate = __esm({
-  "reject-candidate.mjs"() {
+  "packages/dsh-plugin-requirements/reject-candidate.mjs"() {
     init_content_hash();
     init_candidate();
     init_acceptance();
@@ -19347,9 +19430,8 @@ var init_reject_candidate = __esm({
   }
 });
 
-// query.mjs
+// packages/dsh-plugin-requirements/query.mjs
 import { existsSync as existsSync26, statSync as statSync3 } from "node:fs";
-import { execFileSync as execFileSync12 } from "node:child_process";
 import { isAbsolute as isAbsolute7, join as join30, relative as relative13, resolve as resolve27 } from "node:path";
 import { readFileSync as readFileSync32 } from "node:fs";
 function normaliseRoot(value) {
@@ -19497,10 +19579,10 @@ function traceFor({ asset, graph, byId }) {
   };
 }
 function git6(root, args) {
-  return execFileSync12("git", ["-C", root, ...args], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
-  }).trim();
+  const result = runCaptured("git", ["-C", root, ...args]);
+  if (result.error) throw Object.assign(new Error(`git ${args[0]} failed: ${result.error.code ?? result.error.message}`), { code: result.error.code });
+  if (result.status !== 0) throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: "git-failed", stderr: result.stderr });
+  return String(result.stdout ?? "").trim();
 }
 function versionHistory(root, file, limit = 20) {
   try {
@@ -19911,7 +19993,7 @@ function requirements(root, { requirementId = null } = {}) {
   const createdByFile = creationTimes(root, requirementFiles, readContext);
   let actualBranch = null;
   try {
-    actualBranch = execFileSync12("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
+    actualBranch = String(runCaptured("git", ["branch", "--show-current"], { cwd: root }).stdout ?? "").trim() || null;
   } catch {
   }
   let remoteUrl = null;
@@ -20204,7 +20286,7 @@ function requirementsAll(projects = []) {
 }
 var NEXT, NODE_TYPES, RUN_STATUSES_WITHOUT_PROGRESS;
 var init_query = __esm({
-  "query.mjs"() {
+  "packages/dsh-plugin-requirements/query.mjs"() {
     init_asset();
     init_project();
     init_mapping();
@@ -20213,6 +20295,7 @@ var init_query = __esm({
     init_index();
     init_acceptance();
     init_candidate();
+    init_process_capture();
     init_delivery();
     init_release();
     init_failure();
@@ -20262,7 +20345,7 @@ var init_query = __esm({
   }
 });
 
-// workspaces.mjs
+// packages/dsh-plugin-requirements/workspaces.mjs
 import { existsSync as existsSync27, readFileSync as readFileSync33 } from "node:fs";
 import { homedir } from "node:os";
 import { join as join31, resolve as resolve28 } from "node:path";
@@ -20317,12 +20400,12 @@ function listWorkspaces({ file = workspacesFile() } = {}) {
   return { schema: "alm.workspaces/v1", source: file, defaultWorkspaceId, workspaces, errors };
 }
 var init_workspaces = __esm({
-  "workspaces.mjs"() {
+  "packages/dsh-plugin-requirements/workspaces.mjs"() {
     init_project();
   }
 });
 
-// ../alm-core/src/feedback/redact.mjs
+// packages/alm-core/src/feedback/redact.mjs
 function redactSecretsInText(text6) {
   let value = String(text6);
   if (BEARER_VALUE.test(value)) {
@@ -20414,7 +20497,7 @@ function redactText(value) {
 }
 var SECRET_KEY, BEARER_VALUE, PREFIXED_VALUE, ABSOLUTE_PATH_PATTERNS, REDACTED, MAX_REDACT_DEPTH;
 var init_redact = __esm({
-  "../alm-core/src/feedback/redact.mjs"() {
+  "packages/alm-core/src/feedback/redact.mjs"() {
     SECRET_KEY = /(password|passwd|secret|token|authorization|cookie|api[-_]?key|credential)/i;
     BEARER_VALUE = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi;
     PREFIXED_VALUE = /\b(?:sk-|ghp_|xoxb-)[A-Za-z0-9._-]{8,}/g;
@@ -20427,7 +20510,7 @@ var init_redact = __esm({
   }
 });
 
-// ../alm-core/src/feedback/paths.mjs
+// packages/alm-core/src/feedback/paths.mjs
 import { readdirSync as readdirSync24 } from "node:fs";
 import { join as join57, resolve as resolve40 } from "node:path";
 function resolveRoot3(root) {
@@ -20469,7 +20552,7 @@ function padSequence(value) {
 }
 var FEEDBACK_DIR, FEEDBACK_SETTINGS_FILE, FEEDBACK_RECORDS_DIR, FEEDBACK_PROPOSALS_DIR, FEEDBACK_RECORD_ID, FEEDBACK_PROPOSAL_ID, CONTEXT_SNAPSHOT_ID;
 var init_paths = __esm({
-  "../alm-core/src/feedback/paths.mjs"() {
+  "packages/alm-core/src/feedback/paths.mjs"() {
     FEEDBACK_DIR = ".alm/feedback";
     FEEDBACK_SETTINGS_FILE = "settings.json";
     FEEDBACK_RECORDS_DIR = "records";
@@ -20480,8 +20563,8 @@ var init_paths = __esm({
   }
 });
 
-// ../alm-core/src/feedback/store.mjs
-import { existsSync as existsSync46, mkdirSync as mkdirSync30, readFileSync as readFileSync54, renameSync as renameSync15, rmSync as rmSync17, writeFileSync as writeFileSync34 } from "node:fs";
+// packages/alm-core/src/feedback/store.mjs
+import { existsSync as existsSync46, mkdirSync as mkdirSync30, readFileSync as readFileSync54, renameSync as renameSync15, rmSync as rmSync17, writeFileSync as writeFileSync35 } from "node:fs";
 import { dirname as dirname18 } from "node:path";
 function feedbackError(code, message, status = 400, details = null) {
   return new FeedbackError(message, { code, status, ...details ? { details } : {} });
@@ -20490,7 +20573,7 @@ function atomicWrite6(absolute, content) {
   mkdirSync30(dirname18(absolute), { recursive: true });
   const temp = `${absolute}.tmp-${process.pid}-${Date.now()}-${++tempCounter4}`;
   try {
-    writeFileSync34(temp, content, "utf8");
+    writeFileSync35(temp, content, "utf8");
     renameSync15(temp, absolute);
   } finally {
     rmSync17(temp, { force: true });
@@ -20722,7 +20805,7 @@ function normalizeRequirementLink(requirement, { root = null } = {}) {
 }
 var FEEDBACK_SCHEMA, FEEDBACK_CONTEXT_SCHEMA, FEEDBACK_SETTINGS_SCHEMA, FEEDBACK_INBOX_SCHEMA, PROPOSAL_SCHEMA, FEEDBACK_CATEGORIES, FEEDBACK_CATEGORY_LABELS, FEEDBACK_STATUSES, FEEDBACK_STAGES, FEEDBACK_PAGES, PROPOSAL_STATUSES, PROPOSAL_KINDS, FEEDBACK_LIMITS, DEFAULT_FEEDBACK_SETTINGS, FeedbackError, tempCounter4;
 var init_store = __esm({
-  "../alm-core/src/feedback/store.mjs"() {
+  "packages/alm-core/src/feedback/store.mjs"() {
     init_content_hash();
     init_paths();
     FEEDBACK_SCHEMA = "alm.feedback/v1";
@@ -20772,7 +20855,7 @@ var init_store = __esm({
   }
 });
 
-// ../alm-core/src/feedback/context.mjs
+// packages/alm-core/src/feedback/context.mjs
 import { basename as basename7, isAbsolute as isAbsolute13 } from "node:path";
 function normalizeText3(value, max = MAX_STRING) {
   if (typeof value !== "string") return void 0;
@@ -21064,7 +21147,7 @@ function normalizeContextEnvelope(raw, options = {}) {
 }
 var TARGET_PRODUCT, COMPONENTS, MAX_ARRAY, MAX_STRING;
 var init_context = __esm({
-  "../alm-core/src/feedback/context.mjs"() {
+  "packages/alm-core/src/feedback/context.mjs"() {
     init_store();
     init_redact();
     init_paths();
@@ -21075,9 +21158,9 @@ var init_context = __esm({
   }
 });
 
-// ../alm-core/src/feedback/attachments.mjs
+// packages/alm-core/src/feedback/attachments.mjs
 import { createHash as createHash22 } from "node:crypto";
-import { existsSync as existsSync47, mkdirSync as mkdirSync31, writeFileSync as writeFileSync35 } from "node:fs";
+import { existsSync as existsSync47, mkdirSync as mkdirSync31, writeFileSync as writeFileSync36 } from "node:fs";
 import { join as join58, resolve as resolve41 } from "node:path";
 function oneLine3(value, max) {
   const text6 = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -21120,7 +21203,7 @@ function saveAttachment({ root, name, type, dataBase64 } = {}) {
   const absolute = join58(repo, relative21);
   if (!existsSync47(absolute)) {
     mkdirSync31(join58(repo, ".alm", "feedback", "attachments"), { recursive: true });
-    writeFileSync35(absolute, buffer);
+    writeFileSync36(absolute, buffer);
   }
   return {
     schema: ATTACHMENT_SCHEMA,
@@ -21142,7 +21225,7 @@ function readAttachment({ root, sha256: sha2565 } = {}) {
 }
 var ATTACHMENT_SCHEMA, ATTACHMENT_LIMITS, TYPES, BASE64;
 var init_attachments = __esm({
-  "../alm-core/src/feedback/attachments.mjs"() {
+  "packages/alm-core/src/feedback/attachments.mjs"() {
     init_store();
     ATTACHMENT_SCHEMA = "alm.feedback.attachment/v1";
     ATTACHMENT_LIMITS = Object.freeze({
@@ -21162,8 +21245,8 @@ var init_attachments = __esm({
   }
 });
 
-// ../alm-core/src/feedback/records.mjs
-import { existsSync as existsSync48, mkdirSync as mkdirSync32, rmSync as rmSync18, statSync as statSync8, writeFileSync as writeFileSync36 } from "node:fs";
+// packages/alm-core/src/feedback/records.mjs
+import { existsSync as existsSync48, mkdirSync as mkdirSync32, rmSync as rmSync18, statSync as statSync8, writeFileSync as writeFileSync37 } from "node:fs";
 import { createHash as createHash23 } from "node:crypto";
 import { join as join59 } from "node:path";
 function normalizeRootOption(root) {
@@ -21210,7 +21293,7 @@ function validateDestination({ root, workspace, probeWrite = true } = {}) {
         const probeDir = join59(repo, ".alm", "feedback");
         mkdirSync32(probeDir, { recursive: true });
         const probe = join59(probeDir, ".write-probe");
-        writeFileSync36(probe, "", "utf8");
+        writeFileSync37(probe, "", "utf8");
         rmSync18(probe, { force: true });
       } catch {
         return failureResult("destination-not-writable", "\u76EE\u6807\u5DE5\u4F5C\u533A\u4E0D\u53EF\u5199", { projectId, workspaceId });
@@ -21779,7 +21862,7 @@ function markFeedbackReconciliation({ root, id: id19, state, requirementId = nul
 }
 var PROJECT_ID2, FEEDBACK_DISPOSITIONS, FEEDBACK_RESOLUTION_STATES, MAX_SUPPLEMENTS, FEEDBACK_PROCESSING_STATES, PROCESSING_ORDER, FEEDBACK_CONVERSION_STATES, FEEDBACK_RECONCILIATION_STATES;
 var init_records = __esm({
-  "../alm-core/src/feedback/records.mjs"() {
+  "packages/alm-core/src/feedback/records.mjs"() {
     init_store();
     init_paths();
     init_context();
@@ -21795,7 +21878,7 @@ var init_records = __esm({
   }
 });
 
-// ../alm-core/src/feedback/proposals.mjs
+// packages/alm-core/src/feedback/proposals.mjs
 import { existsSync as existsSync49 } from "node:fs";
 function normalizeFingerprintText(value) {
   return String(value ?? "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
@@ -22056,7 +22139,7 @@ function confirmProposal({
 }
 var TARGET_PRODUCT2, COMPONENTS2, PAGE_COMPONENT;
 var init_proposals = __esm({
-  "../alm-core/src/feedback/proposals.mjs"() {
+  "packages/alm-core/src/feedback/proposals.mjs"() {
     init_store();
     init_paths();
     init_redact();
@@ -22066,7 +22149,7 @@ var init_proposals = __esm({
   }
 });
 
-// ../alm-core/src/feedback/index.mjs
+// packages/alm-core/src/feedback/index.mjs
 var feedback_exports = {};
 __export(feedback_exports, {
   ATTACHMENT_LIMITS: () => ATTACHMENT_LIMITS,
@@ -22131,7 +22214,7 @@ __export(feedback_exports, {
   writeFeedbackSettings: () => writeFeedbackSettings
 });
 var init_feedback = __esm({
-  "../alm-core/src/feedback/index.mjs"() {
+  "packages/alm-core/src/feedback/index.mjs"() {
     init_paths();
     init_store();
     init_redact();
@@ -22142,7 +22225,7 @@ var init_feedback = __esm({
   }
 });
 
-// build-info.mjs
+// packages/dsh-plugin-requirements/build-info.mjs
 function feedbackBuildInfo() {
   return {
     schema: "alm.feedback.build/v1",
@@ -22152,14 +22235,14 @@ function feedbackBuildInfo() {
 }
 var FEEDBACK_BUILD, FEEDBACK_BUILD_AT, FEEDBACK_CLIENT_BUILD;
 var init_build_info = __esm({
-  "build-info.mjs"() {
+  "packages/dsh-plugin-requirements/build-info.mjs"() {
     FEEDBACK_BUILD = "feedback-v2/2026-11-03.1";
     FEEDBACK_BUILD_AT = "2026-11-03T10:50:00+08:00";
     FEEDBACK_CLIENT_BUILD = FEEDBACK_BUILD;
   }
 });
 
-// feedback.mjs
+// packages/dsh-plugin-requirements/feedback.mjs
 var feedback_exports2 = {};
 __export(feedback_exports2, {
   FeedbackRequestError: () => FeedbackRequestError,
@@ -23550,7 +23633,7 @@ async function handleFeedbackRequest({ root, method = "GET", body = {}, query = 
 }
 var GET_ACTIONS, FALLBACK_CATEGORIES, CATEGORY_ALIASES, PRIORITIES8, MAX_STATEMENT, MAX_CLIENT_REQUEST_ID, UI_KEYS, LINK_KEYS, TARGET_PRODUCT_KEYS, RUNTIME_KEYS, EVIDENCE_KEYS, FEEDBACK_ID, FeedbackRequestError, generateLocks;
 var init_feedback2 = __esm({
-  "feedback.mjs"() {
+  "packages/dsh-plugin-requirements/feedback.mjs"() {
     init_project();
     init_feedback();
     init_create();
@@ -23606,7 +23689,7 @@ var init_feedback2 = __esm({
   }
 });
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_query();
 import { existsSync as existsSync50, readFileSync as readFileSync56, statSync as statSync9 } from "node:fs";
 import { spawn } from "node:child_process";
@@ -23614,13 +23697,13 @@ import { createHash as createHash24, randomUUID as randomUUID4 } from "node:cryp
 import { fileURLToPath } from "node:url";
 import { join as join60, resolve as resolve42, relative as relative20, isAbsolute as isAbsolute14 } from "node:path";
 
-// exchange.mjs
+// packages/dsh-plugin-requirements/exchange.mjs
 init_exchange();
 
-// ../alm-core/src/requirements/exchange-xlsx.mjs
+// packages/alm-core/src/requirements/exchange-xlsx.mjs
 import { createHash as createHash17 } from "node:crypto";
 
-// ../alm-core/src/requirements/exchange-zip.mjs
+// packages/alm-core/src/requirements/exchange-zip.mjs
 import { inflateRawSync } from "node:zlib";
 var MAX_XLSX_BYTES = 8 * 1024 * 1024;
 var MAX_EXPANDED = 32 * 1024 * 1024;
@@ -23739,7 +23822,7 @@ function readXlsxZip(input) {
   }
 }
 
-// ../alm-core/src/requirements/exchange-xlsx.mjs
+// packages/alm-core/src/requirements/exchange-xlsx.mjs
 var SCHEMA = "alm.requirements.exchange/v1";
 var FIELDS2 = ["title", "brief", "priority", "owner"];
 var HEADERS = ["\u9700\u6C42\u7F16\u53F7", "\u9879\u76EE", "\u6807\u9898", "\u9700\u6C42\u63CF\u8FF0", "\u4F18\u5148\u7EA7", "\u8D1F\u8D23\u4EBA"];
@@ -23973,7 +24056,7 @@ function decodeRequirementsXlsx(buffer) {
   }
 }
 
-// exchange.mjs
+// packages/dsh-plugin-requirements/exchange.mjs
 var MAX_FILE = 8 * 1024 * 1024;
 var MAX_EXCHANGE_BODY = 12 * 1024 * 1024;
 var XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -24030,22 +24113,22 @@ function exchangeRequest({ root, body }) {
   return { ok: true, build: EXCHANGE_BUILD, ...applyRequirementsImport({ root, payload, expectedLocalHash: body.expectedLocalHash }) };
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_query();
 init_project();
 init_workspaces();
 
-// ../alm-core/src/changes/open.mjs
+// packages/alm-core/src/changes/open.mjs
 init_commands();
 init_project();
-import { execFileSync as execFileSync13 } from "node:child_process";
-import { existsSync as existsSync29, mkdirSync as mkdirSync18, readdirSync as readdirSync16, rmSync as rmSync7, writeFileSync as writeFileSync18 } from "node:fs";
+import { execFileSync as execFileSync10 } from "node:child_process";
+import { existsSync as existsSync29, mkdirSync as mkdirSync18, readdirSync as readdirSync16, rmSync as rmSync7, writeFileSync as writeFileSync19 } from "node:fs";
 import { basename as basename5, dirname as dirname10, join as join33, resolve as resolve29 } from "node:path";
 
-// ../alm-core/src/tasks/draft.mjs
+// packages/alm-core/src/tasks/draft.mjs
 init_commands();
 init_project();
-import { existsSync as existsSync28, mkdirSync as mkdirSync17, readFileSync as readFileSync34, writeFileSync as writeFileSync17 } from "node:fs";
+import { existsSync as existsSync28, mkdirSync as mkdirSync17, readFileSync as readFileSync34, writeFileSync as writeFileSync18 } from "node:fs";
 import { join as join32 } from "node:path";
 var CHANGE_ID = /^CHG-[A-Z0-9][A-Z0-9-]{2,}$/;
 var TaskDraftError = class extends Error {
@@ -24196,11 +24279,11 @@ function draftTasks({ root, changeId, requirementIds, outDir = "changes", force 
     tasks
   };
   mkdirSync17(dir, { recursive: true });
-  writeFileSync17(join32(dir, "proposal.md"), `${proposal}
+  writeFileSync18(join32(dir, "proposal.md"), `${proposal}
 `, "utf8");
-  writeFileSync17(join32(dir, "tasks.md"), `${tasksDoc}
+  writeFileSync18(join32(dir, "tasks.md"), `${tasksDoc}
 `, "utf8");
-  writeFileSync17(join32(dir, "tasks.json"), `${JSON.stringify(payload, null, 2)}
+  writeFileSync18(join32(dir, "tasks.json"), `${JSON.stringify(payload, null, 2)}
 `, "utf8");
   return {
     schema: "alm.tasks.draft/v1",
@@ -24211,7 +24294,7 @@ function draftTasks({ root, changeId, requirementIds, outDir = "changes", force 
   };
 }
 
-// ../alm-core/src/changes/open.mjs
+// packages/alm-core/src/changes/open.mjs
 var CHANGE_ID2 = /^CHG-[A-Z0-9][A-Z0-9-]{2,}$/;
 var CHANGE_DIR = ".alm/changes";
 var DRAFT_DIR = "changes";
@@ -24224,7 +24307,7 @@ var ChangeError = class extends Error {
   }
 };
 function git7(root, args) {
-  return execFileSync13("git", ["-C", root, ...args], {
+  return execFileSync10("git", ["-C", root, ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   }).trim();
@@ -24353,7 +24436,7 @@ function openChange({ root, requirementIds, changeId, apply = false, isolate = f
   const writeDraft = (targetRoot) => {
     const changeFile = join33(targetRoot, CHANGE_DIR, `${plan2.changeId}.json`);
     mkdirSync18(join33(targetRoot, CHANGE_DIR), { recursive: true });
-    writeFileSync18(changeFile, `${JSON.stringify(record, null, 2)}
+    writeFileSync19(changeFile, `${JSON.stringify(record, null, 2)}
 `, "utf8");
     try {
       const draft = draftTasks({ root: targetRoot, changeId: plan2.changeId, requirementIds: plan2.requirementIds });
@@ -24390,14 +24473,14 @@ function openChange({ root, requirementIds, changeId, apply = false, isolate = f
   }
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_create();
 
-// ../alm-core/src/requirements/archive.mjs
+// packages/alm-core/src/requirements/archive.mjs
 init_commands();
 init_content_hash();
 init_delivery();
-import { existsSync as existsSync30, mkdirSync as mkdirSync19, readFileSync as readFileSync35, renameSync as renameSync7, rmSync as rmSync8, writeFileSync as writeFileSync19 } from "node:fs";
+import { existsSync as existsSync30, mkdirSync as mkdirSync19, readFileSync as readFileSync35, renameSync as renameSync7, rmSync as rmSync8, writeFileSync as writeFileSync20 } from "node:fs";
 import { dirname as dirname11, isAbsolute as isAbsolute8, join as join34, relative as relative14, resolve as resolve30, sep as sep3 } from "node:path";
 var ARCHIVE_SCHEMA = "alm.requirement.archive/v1";
 var ARCHIVE_STATUS = "archived";
@@ -24557,7 +24640,7 @@ function writeIdempotent({ repo, requirementId, key, result }) {
   const file = idempotencyPath2(repo, requirementId, key);
   try {
     mkdirSync19(dirname11(file), { recursive: true });
-    writeFileSync19(
+    writeFileSync20(
       file,
       `${JSON.stringify({ schema: ARCHIVE_IDEMPOTENCY_SCHEMA, requirement: requirementId, idempotencyKey: key, at: (/* @__PURE__ */ new Date()).toISOString(), result }, null, 2)}
 `,
@@ -24587,7 +24670,7 @@ function writeAudit({ repo, plan: plan2, actor, baseline, at, key }) {
     before: plan2.before,
     after: plan2.after
   };
-  writeFileSync19(file, `${JSON.stringify(payload, null, 2)}
+  writeFileSync20(file, `${JSON.stringify(payload, null, 2)}
 `, "utf8");
   return relative14(repo, file).split(sep3).join("/");
 }
@@ -24611,7 +24694,7 @@ function atomicWrite3(absolute, content, writeFile) {
     rmSync8(temp, { force: true });
   }
 }
-function applyArchive({ root, asset, expectedBaseline, actor, reason: reason2, idempotencyKey, writeFile = writeFileSync19 } = {}) {
+function applyArchive({ root, asset, expectedBaseline, actor, reason: reason2, idempotencyKey, writeFile = writeFileSync20 } = {}) {
   const repo = resolve30(root);
   if (!asset || typeof asset !== "object" || typeof asset.id !== "string" || asset.id === "") {
     throw new ArchiveError("requirement asset is required", { code: "unknown-requirement", status: 404 });
@@ -24667,10 +24750,10 @@ function applyArchive({ root, asset, expectedBaseline, actor, reason: reason2, i
   return result;
 }
 
-// ../alm-core/src/requirements/archive-yaml.mjs
+// packages/alm-core/src/requirements/archive-yaml.mjs
 init_commands();
 init_content_hash();
-import { existsSync as existsSync31, mkdirSync as mkdirSync20, readFileSync as readFileSync36, renameSync as renameSync8, rmSync as rmSync9, writeFileSync as writeFileSync20 } from "node:fs";
+import { existsSync as existsSync31, mkdirSync as mkdirSync20, readFileSync as readFileSync36, renameSync as renameSync8, rmSync as rmSync9, writeFileSync as writeFileSync21 } from "node:fs";
 import { dirname as dirname12, isAbsolute as isAbsolute9, join as join35, relative as relative15, resolve as resolve31, sep as sep4 } from "node:path";
 var YAML_FORMATS = ["yaml", "yml"];
 var IDEMPOTENCY_SCHEMA2 = "alm.audit.idempotency/v1";
@@ -24781,7 +24864,7 @@ function writeIdempotent2({ repo, requirementId, key, result }) {
   const file = idempotencyPath3(repo, requirementId, key);
   try {
     mkdirSync20(dirname12(file), { recursive: true });
-    writeFileSync20(file, `${JSON.stringify({ schema: IDEMPOTENCY_SCHEMA2, requirement: requirementId, idempotencyKey: key, at: (/* @__PURE__ */ new Date()).toISOString(), result }, null, 2)}
+    writeFileSync21(file, `${JSON.stringify({ schema: IDEMPOTENCY_SCHEMA2, requirement: requirementId, idempotencyKey: key, at: (/* @__PURE__ */ new Date()).toISOString(), result }, null, 2)}
 `, "utf8");
   } catch {
   }
@@ -24792,7 +24875,7 @@ function writeAudit2({ repo, plan: plan2, actor, baseline, at, key }) {
   const stamp2 = at.replace(/[-:.]/g, "");
   let file = join35(dir, `${safeSegment3(plan2.requirement)}-${stamp2}-archive-${safeSegment3(key)}.json`);
   for (let attempt = 2; existsSync31(file); attempt += 1) file = join35(dir, `${safeSegment3(plan2.requirement)}-${stamp2}-archive-${safeSegment3(key)}-${attempt}.json`);
-  writeFileSync20(
+  writeFileSync21(
     file,
     `${JSON.stringify({
       schema: "alm.audit/v1",
@@ -24834,7 +24917,7 @@ function atomicWrite4(absolute, content, writeFile) {
     rmSync9(temp, { force: true });
   }
 }
-function applyArchiveYaml({ root, asset, expectedBaseline, actor, reason: reason2, idempotencyKey, writeFile = writeFileSync20 } = {}) {
+function applyArchiveYaml({ root, asset, expectedBaseline, actor, reason: reason2, idempotencyKey, writeFile = writeFileSync21 } = {}) {
   const repo = resolve31(root);
   requireAsset(asset);
   if (!isYamlAsset(asset)) throw new ArchiveError("\u8BE5\u9700\u6C42\u4E0D\u662F YAML \u8D44\u4EA7\uFF0C\u8BF7\u4F7F\u7528 sdoc \u5F52\u6863", { code: "invalid-format", status: 409 });
@@ -24884,10 +24967,10 @@ function applyArchiveYaml({ root, asset, expectedBaseline, actor, reason: reason
   return result;
 }
 
-// ../alm-core/src/ci/ci.mjs
+// packages/alm-core/src/ci/ci.mjs
 init_approval();
 init_commands();
-import { existsSync as existsSync32, mkdirSync as mkdirSync21, readFileSync as readFileSync37, writeFileSync as writeFileSync21 } from "node:fs";
+import { existsSync as existsSync32, mkdirSync as mkdirSync21, readFileSync as readFileSync37, writeFileSync as writeFileSync22 } from "node:fs";
 import { join as join36 } from "node:path";
 var pkg = JSON.parse(readFileSync37(new URL("../../package.json", new URL("./../alm-core/src/ci/ci.mjs", import.meta.url).href), "utf8"));
 var PACK2 = JSON.parse(readFileSync37(new URL("../gates/pack.json", new URL("./../alm-core/src/ci/ci.mjs", import.meta.url).href), "utf8"));
@@ -24926,17 +25009,17 @@ function runCi({ root, base }) {
     }
   }
   mkdirSync21(join36(root, CI_DIR, headSha), { recursive: true });
-  writeFileSync21(file, `${JSON.stringify(evidence, null, 2)}
+  writeFileSync22(file, `${JSON.stringify(evidence, null, 2)}
 `, "utf8");
   return { schema: "alm.ci.run/v1", status: "created", path: file, headSha, runId: evidence.runId, result: evidence.result };
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_acceptance();
 
-// acceptance-registry.mjs
+// packages/dsh-plugin-requirements/acceptance-registry.mjs
 init_acceptance();
-import { mkdirSync as mkdirSync22, renameSync as renameSync9, writeFileSync as writeFileSync22 } from "node:fs";
+import { mkdirSync as mkdirSync22, renameSync as renameSync9, writeFileSync as writeFileSync23 } from "node:fs";
 import { join as join37, resolve as resolve32 } from "node:path";
 var ALLOWED_BINARIES2 = ["node", "npm", "pnpm"];
 var MAX_COMMANDS2 = 10;
@@ -25046,7 +25129,7 @@ function fallbackApply({ root, requirementId, commands }) {
   mkdirSync22(join37(resolve32(root), ".alm/acceptance"), { recursive: true });
   const payload = { schema: "alm.acceptance.config/v1", requirement: plan2.requirement, commands: plan2.commands };
   const temp = `${plan2.file}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync22(temp, `${JSON.stringify(payload, null, 2)}
+  writeFileSync23(temp, `${JSON.stringify(payload, null, 2)}
 `, "utf8");
   renameSync9(temp, plan2.file);
   return { ...plan2, applied: true };
@@ -25058,7 +25141,7 @@ function applyAcceptanceConfig2(args) {
   return typeof applyAcceptanceConfig === "function" ? applyAcceptanceConfig(args) : fallbackApply(args);
 }
 
-// ../alm-core/src/rehearsal/rehearsal.mjs
+// packages/alm-core/src/rehearsal/rehearsal.mjs
 init_closure();
 init_update();
 import { existsSync as existsSync33, readFileSync as readFileSync38 } from "node:fs";
@@ -25368,9 +25451,9 @@ function applyRehearsal({ root, asset, assets, change, expectedBaseline, actor, 
   }
 }
 
-// ../alm-core/src/requirements/remove.mjs
+// packages/alm-core/src/requirements/remove.mjs
 init_commands();
-import { existsSync as existsSync34, mkdirSync as mkdirSync23, readFileSync as readFileSync39, renameSync as renameSync10, rmSync as rmSync10, writeFileSync as writeFileSync23 } from "node:fs";
+import { existsSync as existsSync34, mkdirSync as mkdirSync23, readFileSync as readFileSync39, renameSync as renameSync10, rmSync as rmSync10, writeFileSync as writeFileSync24 } from "node:fs";
 import { dirname as dirname13, join as join38, relative as relative16, resolve as resolve34, sep as sep5 } from "node:path";
 var REMOVE_SCHEMA = "alm.requirement.remove/v1";
 var NODE_RE4 = /^\[([A-Z][A-Z0-9_-]*)\]\s*$/;
@@ -25476,7 +25559,7 @@ function writeAudit3({ repo, plan: plan2, actor, baseline, at, key }) {
   const base = `${safeSegment4(plan2.requirement)}-${stamp2}-remove-${safeSegment4(key)}`;
   let file = join38(dir, `${base}.json`);
   for (let attempt = 2; existsSync34(file); attempt += 1) file = join38(dir, `${base}-${attempt}.json`);
-  writeFileSync23(
+  writeFileSync24(
     file,
     `${JSON.stringify(
       {
@@ -25504,7 +25587,7 @@ function atomicWrite5(absolute, content) {
   mkdirSync23(dirname13(absolute), { recursive: true });
   const temp = `${absolute}.tmp-${process.pid}-${Date.now()}`;
   try {
-    writeFileSync23(temp, content, "utf8");
+    writeFileSync24(temp, content, "utf8");
     renameSync10(temp, absolute);
   } finally {
     rmSync10(temp, { force: true });
@@ -25550,13 +25633,13 @@ function applyRemove({ root, asset, expectedBaseline, actor, reason: reason2, id
   };
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_candidate();
 init_delivery_scope();
 init_content_hash();
 init_auto_advance();
 
-// run-observation.mjs
+// packages/dsh-plugin-requirements/run-observation.mjs
 init_run2();
 init_redact();
 import { createHash as createHash18 } from "node:crypto";
@@ -26106,13 +26189,13 @@ async function observeUsage({ ctx = null, root, requirementId, runId, segment = 
   }
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_detail_view();
 init_release();
 init_run2();
 init_convergence();
 
-// ../alm-core/src/requirements/matcher.mjs
+// packages/alm-core/src/requirements/matcher.mjs
 init_commands();
 init_doc();
 import { existsSync as existsSync35, readdirSync as readdirSync17, readFileSync as readFileSync40, statSync as statSync4 } from "node:fs";
@@ -26241,7 +26324,7 @@ function matchRequirement({ root, text: text6 = "", changedFiles = [], assets = 
   };
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_blueprint_guard();
 init_turn_brief();
 init_doc();
@@ -26253,18 +26336,18 @@ init_reject_candidate();
 init_failure();
 init_delivery();
 
-// github-sync.mjs
+// packages/dsh-plugin-requirements/github-sync.mjs
 init_project();
 init_mapping();
 init_sync_requirements();
 import { existsSync as existsSync37 } from "node:fs";
 import { join as join41 } from "node:path";
 
-// ../alm-core/src/tasks/sync.mjs
-import { existsSync as existsSync36, readFileSync as readFileSync41, writeFileSync as writeFileSync24 } from "node:fs";
+// packages/alm-core/src/tasks/sync.mjs
+import { existsSync as existsSync36, readFileSync as readFileSync41, writeFileSync as writeFileSync25 } from "node:fs";
 import { join as join40 } from "node:path";
 
-// ../alm-scm/src/gitea.mjs
+// packages/alm-scm/src/gitea.mjs
 var GiteaError = class extends Error {
   /**
    * @param {string} message
@@ -26415,7 +26498,7 @@ function createGiteaClient({
   };
 }
 
-// ../alm-core/src/tasks/sync.mjs
+// packages/alm-core/src/tasks/sync.mjs
 init_provider();
 init_mapping();
 var TaskSyncError = class extends Error {
@@ -26477,7 +26560,7 @@ function providerFor(name, labels, project3) {
   throw new TaskSyncError(`unknown provider: ${name}`, { code: "unknown-provider" });
 }
 function writePayload(path, payload) {
-  writeFileSync24(path, `${JSON.stringify(payload, null, 2)}
+  writeFileSync25(path, `${JSON.stringify(payload, null, 2)}
 `, "utf8");
 }
 async function syncTasks({
@@ -26548,7 +26631,7 @@ async function syncTasks({
   };
 }
 
-// github-sync.mjs
+// packages/dsh-plugin-requirements/github-sync.mjs
 var GithubSyncError = class extends Error {
   constructor(message, { code = "github-sync", status = 400 } = {}) {
     super(message);
@@ -26634,14 +26717,14 @@ async function applyGithub({ root, changeId, createProvider }) {
   };
 }
 
-// github-release.mjs
+// packages/dsh-plugin-requirements/github-release.mjs
 init_project();
 init_worktree_snapshot();
 init_release();
 init_identity();
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtempSync as mkdtempSync2, writeFileSync as writeFileSync25, rmSync as rmSync11 } from "node:fs";
+import { mkdtempSync as mkdtempSync2, writeFileSync as writeFileSync26, rmSync as rmSync11 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join42 } from "node:path";
 var exec = promisify(execFile);
@@ -26718,7 +26801,7 @@ async function publishGithubRelease({ root, items, requirementIds, subject, rele
       const temporary = mkdtempSync2(join42(tmpdir2(), "alm-release-pr-"));
       try {
         const bodyFile = join42(temporary, "body.md");
-        writeFileSync25(bodyFile, `\u5C06\u5DF2\u9A8C\u6536\u7684\u4EA4\u4ED8\u4ECE ${source} \u53D1\u5E03\u5230 ${target}\u3002
+        writeFileSync26(bodyFile, `\u5C06\u5DF2\u9A8C\u6536\u7684\u4EA4\u4ED8\u4ECE ${source} \u53D1\u5E03\u5230 ${target}\u3002
 
 \u9700\u6C42\uFF1A${plan2.deliveries.map((d) => d.requirement).join("\u3001")}
 \u63D0\u4EA4\uFF1A${head}
@@ -26735,7 +26818,7 @@ async function publishGithubRelease({ root, items, requirementIds, subject, rele
       pr2 = reread.github.pr;
     }
     release = { ...release, github: { repository, source, target, head, pr: pr2.number, url: pr2.url, verified: false } };
-    writeFileSync25(releasePath(root, release.id), JSON.stringify(release, null, 2) + "\n");
+    writeFileSync26(releasePath(root, release.id), JSON.stringify(release, null, 2) + "\n");
     return { ok: true, release, message: "\u53D1\u5E03 PR \u5DF2\u51C6\u5907\uFF0C\u7B49\u5F85\u68C0\u67E5\u548C\u8BC4\u5BA1\uFF1B\u5C1A\u672A\u5408\u5E76\u6216\u5173\u95ED\u9700\u6C42\u3002", plan: await inspectGithubRelease({ root, items, requirementIds, run }) };
   }
   const pr = plan2.github.pr;
@@ -26757,10 +26840,10 @@ async function publishGithubRelease({ root, items, requirementIds, subject, rele
   return { ...recordReleaseExecution({ root, releaseId: release.id, result: "released", note: "GitHub \u53D1\u5E03 PR \u5DF2\u5408\u5E76\u5E76\u56DE\u8BFB\u9A8C\u8BC1", actor: principal.id, apply: true, items: currentItems, verifiedGithub: github }), ok: true, message: "\u53D1\u5E03 PR \u5DF2\u5408\u5165\u4E3B\u5206\u652F\uFF0C\u672C\u6B21\u9700\u6C42\u5DF2\u5173\u95ED\u3002" };
 }
 
-// version-diff.mjs
+// packages/dsh-plugin-requirements/version-diff.mjs
 init_sdoc();
+init_process_capture();
 init_version_path();
-import { execFileSync as execFileSync14 } from "node:child_process";
 import { readFileSync as readFileSync42 } from "node:fs";
 import { join as join43, resolve as resolve36 } from "node:path";
 var VersionDiffError = class extends Error {
@@ -26772,7 +26855,10 @@ var VersionDiffError = class extends Error {
   }
 };
 function git8(root, args) {
-  return execFileSync14("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const result = runCaptured("git", ["-C", root, ...args]);
+  if (result.error) throw Object.assign(new Error(`git ${args[0]} failed: ${result.error.code ?? result.error.message}`), { code: result.error.code });
+  if (result.status !== 0) throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: "git-failed", stderr: result.stderr });
+  return String(result.stdout ?? "").trim();
 }
 function readVersion(root, file, ref) {
   if (ref === "worktree") return readFileSync42(join43(root, file), "utf8");
@@ -26843,16 +26929,16 @@ function diffRequirementVersions({ root, file, assetId, from, to = "worktree" })
   };
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_commands();
 init_signoff();
 
-// intake.mjs
-import { existsSync as existsSync39, mkdtempSync as mkdtempSync3, readFileSync as readFileSync43, rmSync as rmSync12, writeFileSync as writeFileSync26 } from "node:fs";
+// packages/dsh-plugin-requirements/intake.mjs
+import { existsSync as existsSync39, mkdtempSync as mkdtempSync3, readFileSync as readFileSync43, rmSync as rmSync12, writeFileSync as writeFileSync27 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { join as join45 } from "node:path";
 
-// ../alm-core/src/intake/chat.mjs
+// packages/alm-core/src/intake/chat.mjs
 var INLINE_TIME = /^\s*[-*]?\s*(?:\[|\()?(\d{1,2}:\d{2}(?::\d{2})?)(?:\]|\))?\s*[-–—]?\s*(?:\*\*)?([^：:*]{1,40}?)(?:\*\*)?\s*[：:]\s*(.+)$/;
 var HEADER = /^\s*[-*]?\s*(?:\*\*)?([^：:*]{1,40}?)(?:\*\*)?\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*[：:]?\s*$/;
 var INLINE = /^\s*[-*]?\s*(?:\*\*)?([^：:*]{1,40}?)(?:\*\*)?\s*[：:]\s*(.+)$/;
@@ -26904,7 +26990,7 @@ ${clean(trimmed)}` : clean(trimmed);
   return { format: "markdown-chat", messages, warnings: messages.length === 0 ? ["no chat messages found"] : [] };
 }
 
-// ../alm-core/src/intake/ocr.mjs
+// packages/alm-core/src/intake/ocr.mjs
 import { spawnSync as spawnSync3, execFile as execFile2 } from "node:child_process";
 import { existsSync as existsSync38, readdirSync as readdirSync18 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
@@ -26995,7 +27081,7 @@ async function runOcrAsync(image, { runtime = resolveOcrRuntime(), timeoutMs = 1
   return normalizeOcrResult(parseOcrJson(stdout), image);
 }
 
-// intake.mjs
+// packages/dsh-plugin-requirements/intake.mjs
 var IntakeError = class extends Error {
   constructor(message, { code = "intake", status = 400 } = {}) {
     super(message);
@@ -27054,7 +27140,7 @@ async function extractOcrAsync({ imageBase64, filename = "screenshot.png", runti
   try {
     const extension = /\.(png|jpe?g|webp)$/i.exec(String(filename))?.[0]?.toLowerCase() ?? ".png";
     const image = join45(dir, `image${extension}`);
-    writeFileSync26(image, bytes);
+    writeFileSync27(image, bytes);
     const result = await runOcrAsync(image, { runtime, signal });
     const name = String(filename);
     return {
@@ -27074,10 +27160,10 @@ async function extractOcrAsync({ imageBase64, filename = "screenshot.png", runti
   }
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 init_ai_review();
 
-// ai-draft.mjs
+// packages/dsh-plugin-requirements/ai-draft.mjs
 init_ai_review();
 var AI_DRAFT_SCHEMA = "alm.ai-draft/v1";
 var PRIORITIES4 = /* @__PURE__ */ new Set(["P0", "P1", "P2"]);
@@ -27257,12 +27343,12 @@ ${value}`
   };
 }
 
-// preflight.mjs
+// packages/dsh-plugin-requirements/preflight.mjs
 init_acceptance();
 init_blueprint_guard();
 init_worktree_snapshot();
-import { existsSync as existsSync40, mkdirSync as mkdirSync24, readFileSync as readFileSync44, writeFileSync as writeFileSync27 } from "node:fs";
-import { execFileSync as execFileSync15 } from "node:child_process";
+init_process_capture();
+import { existsSync as existsSync40, mkdirSync as mkdirSync24, readFileSync as readFileSync44, writeFileSync as writeFileSync28 } from "node:fs";
 import { join as join46, resolve as resolve37 } from "node:path";
 var PREFLIGHT_SCHEMA = "alm.preflight/v1";
 var PREFLIGHT_DIR = ".alm/preflight";
@@ -27300,8 +27386,8 @@ function derivationInput(item) {
 }
 function workingTreeChangedFiles(root) {
   try {
-    const tracked = execFileSync15("git", ["diff", "--name-only", "HEAD"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    const untracked = execFileSync15("git", ["ls-files", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const tracked = String(runCaptured("git", ["diff", "--name-only", "HEAD"], { cwd: root }).stdout ?? "");
+    const untracked = String(runCaptured("git", ["ls-files", "--others", "--exclude-standard"], { cwd: root }).stdout ?? "");
     return [...new Set(`${tracked}
 ${untracked}`.split(/\r?\n/).map((path) => path.trim()).filter(Boolean))];
   } catch {
@@ -27543,18 +27629,18 @@ function writePreflightAudit(root, record) {
   mkdirSync24(dir, { recursive: true });
   const stamp2 = String(record.startedAt ?? (/* @__PURE__ */ new Date()).toISOString()).replace(/[:.]/g, "-");
   const file = join46(dir, `${stamp2}.json`);
-  writeFileSync27(file, `${JSON.stringify(record, null, 2)}
+  writeFileSync28(file, `${JSON.stringify(record, null, 2)}
 `, "utf8");
   return file;
 }
 
-// intent.mjs
+// packages/dsh-plugin-requirements/intent.mjs
 import { createHash as createHash21, randomBytes as randomBytes4 } from "node:crypto";
-import { lstatSync as lstatSync7, mkdirSync as mkdirSync29, readFileSync as readFileSync53, readdirSync as readdirSync23, rmSync as rmSync16, rmdirSync as rmdirSync4, writeFileSync as writeFileSync33 } from "node:fs";
+import { lstatSync as lstatSync7, mkdirSync as mkdirSync29, readFileSync as readFileSync53, readdirSync as readdirSync23, rmSync as rmSync16, rmdirSync as rmdirSync4, writeFileSync as writeFileSync34 } from "node:fs";
 import { homedir as homedir3, hostname as hostname2 } from "node:os";
 import { join as join56 } from "node:path";
 
-// ../alm-core/src/intent/index.mjs
+// packages/alm-core/src/intent/index.mjs
 var intent_exports = {};
 __export(intent_exports, {
   ANALYSIS_SCHEMA: () => ANALYSIS_SCHEMA,
@@ -27688,7 +27774,7 @@ __export(intent_exports, {
   writeRejection: () => writeRejection
 });
 
-// ../alm-core/src/intent/errors.mjs
+// packages/alm-core/src/intent/errors.mjs
 var INTENT_SCHEMA = "alm.intent-session/v1";
 var INTENT_SCHEMA_VERSION = 1;
 var ANALYSIS_SCHEMA = "intent-review.v1";
@@ -27795,7 +27881,7 @@ function rethrowAsIntent(error, fallback) {
   });
 }
 
-// ../alm-core/src/intent/util.mjs
+// packages/alm-core/src/intent/util.mjs
 import { createHash as createHash19, randomBytes as randomBytes2 } from "node:crypto";
 import {
   existsSync as existsSync41,
@@ -27805,7 +27891,7 @@ import {
   renameSync as renameSync11,
   rmSync as rmSync13,
   statSync as statSync5,
-  writeFileSync as writeFileSync28
+  writeFileSync as writeFileSync29
 } from "node:fs";
 import { dirname as dirname14, isAbsolute as isAbsolute10, join as join47, relative as relative17, resolve as resolve38, sep as sep6 } from "node:path";
 function canonicalJson(value) {
@@ -27914,7 +28000,7 @@ function writeFileAtomic(path, content) {
   ensureDir(dirname14(path));
   const temp = `${path}.tmp-${process.pid}-${randomHex(3)}`;
   try {
-    writeFileSync28(temp, content, "utf8");
+    writeFileSync29(temp, content, "utf8");
     renameSync11(temp, path);
   } catch (error) {
     rmSync13(temp, { force: true });
@@ -27964,15 +28050,15 @@ function repoRelative(root, absolutePath) {
   return relative17(resolve38(root), absolutePath).split(sep6).join("/");
 }
 
-// ../alm-core/src/intent/context.mjs
+// packages/alm-core/src/intent/context.mjs
 init_commands();
 init_content_hash();
 init_project();
 import { existsSync as existsSync43, readFileSync as readFileSync47 } from "node:fs";
 import { join as join49 } from "node:path";
 
-// ../alm-core/src/intent/review.mjs
-import { existsSync as existsSync42, mkdirSync as mkdirSync26, readdirSync as readdirSync20, readFileSync as readFileSync46, writeFileSync as writeFileSync29 } from "node:fs";
+// packages/alm-core/src/intent/review.mjs
+import { existsSync as existsSync42, mkdirSync as mkdirSync26, readdirSync as readdirSync20, readFileSync as readFileSync46, writeFileSync as writeFileSync30 } from "node:fs";
 import { dirname as dirname15, join as join48 } from "node:path";
 var CLAUSE_SCHEMA = "alm.clause.fingerprint/v1";
 var REJECTION_SCHEMA = "alm.rejection/v1";
@@ -28548,7 +28634,7 @@ function writeRejection(root, entry = {}) {
     }
   }
   ensureDir2(path);
-  writeFileSync29(path, `${JSON.stringify(record, null, 2)}
+  writeFileSync30(path, `${JSON.stringify(record, null, 2)}
 `, "utf8");
   return record;
 }
@@ -28575,12 +28661,12 @@ function writeObservation(root, entry = {}) {
   };
   const path = join48(root, OBSERVATION_DIR, `${id19}.json`);
   ensureDir2(path);
-  writeFileSync29(path, `${JSON.stringify(record, null, 2)}
+  writeFileSync30(path, `${JSON.stringify(record, null, 2)}
 `, "utf8");
   return record;
 }
 
-// ../alm-core/src/intent/context.mjs
+// packages/alm-core/src/intent/context.mjs
 var CJK = /[\u3400-\u9fff]/;
 var QUOTED = /[「“"'`]([^」”"'`]{2,60})[」”"'`]/g;
 function clampLimit(value) {
@@ -28986,7 +29072,7 @@ function buildIntentContext({
   };
 }
 
-// ../alm-core/src/intent/investigation-evidence.mjs
+// packages/alm-core/src/intent/investigation-evidence.mjs
 import { readFileSync as readFileSync48, realpathSync as realpathSync2, statSync as statSync6 } from "node:fs";
 import { isAbsolute as isAbsolute11, join as join50, relative as relative18, sep as sep7 } from "node:path";
 function currentInvestigationEvidence(root, session) {
@@ -29020,11 +29106,11 @@ function currentInvestigationEvidence(root, session) {
   });
 }
 
-// ../alm-core/src/intent/session.mjs
+// packages/alm-core/src/intent/session.mjs
 import { existsSync as existsSync44 } from "node:fs";
 import { join as join51 } from "node:path";
 
-// ../alm-core/src/intent/analysis.mjs
+// packages/alm-core/src/intent/analysis.mjs
 init_doc();
 var ANALYSIS_SCHEMA_V3 = "intent-review.v3";
 var DOC_DRAFT_SCHEMA = "alm.requirement.doc.draft/v1";
@@ -30165,7 +30251,7 @@ function applyAnalysis({ session, analysis, model, runId, inputRevision, now } =
   return next;
 }
 
-// ../alm-core/src/intent/session.mjs
+// packages/alm-core/src/intent/session.mjs
 var SESSIONS_DIR = ".alm/intents/sessions";
 var MAX_INPUT_TEXT = 2e5;
 var PRIORITIES5 = /* @__PURE__ */ new Set(["P0", "P1", "P2", "P3"]);
@@ -30971,7 +31057,7 @@ function routeOfSession(session) {
   return item?.recommendedRoute && ROUTES.includes(item.recommendedRoute) ? item.recommendedRoute : null;
 }
 
-// ../alm-core/src/intent/readiness.mjs
+// packages/alm-core/src/intent/readiness.mjs
 var READINESS_CODES = [
   "no-items",
   "unknown-route",
@@ -31373,7 +31459,7 @@ function evaluateDraftReadiness(options = {}) {
   return evaluateReadiness({ ...options, mode: "draft" });
 }
 
-// ../alm-core/src/intent/messages.mjs
+// packages/alm-core/src/intent/messages.mjs
 var INTENT_SYSTEM_PROMPT = `\u4F60\u662F AI_ALM \u7684\u300C\u9700\u6C42\u610F\u56FE\u6F84\u6E05\u300D\u5206\u6790\u5668\u3002\u4F60\u53EA\u63D0\u51FA\u5019\u9009\u89E3\u91CA\u4E0E\u6F84\u6E05\u95EE\u9898\uFF0C\u4E0D\u505A\u51B3\u7B56\u3002
 
 \u4E0D\u53D8\u91CF\uFF08\u5FC5\u987B\u9075\u5B88\uFF09\uFF1A
@@ -31558,7 +31644,7 @@ ${contextBlock}`,
   ];
 }
 
-// ../alm-core/src/intent/confirm.mjs
+// packages/alm-core/src/intent/confirm.mjs
 init_commands();
 init_closure();
 init_content_hash();
@@ -32550,7 +32636,7 @@ function confirmIntent({ root, sessionId, confirmation, actor = "human:local", i
   }
 }
 
-// ../alm-core/src/intent/view.mjs
+// packages/alm-core/src/intent/view.mjs
 var SESSION_VIEW_SCHEMA = "alm.intent.session-view/v1";
 function historicalAnswerPage(session, offset = 0) {
   const history = (Array.isArray(session?.answers) ? session.answers : []).filter((entry) => entry && (entry.supersededBy != null || entry.inputRevision !== session.input?.inputRevision)).reverse().map((entry) => ({
@@ -32835,9 +32921,9 @@ function renderSessionView(session) {
   };
 }
 
-// ../alm-core/src/intent/migrate.mjs
+// packages/alm-core/src/intent/migrate.mjs
 init_project();
-import { readFileSync as readFileSync50, renameSync as renameSync12, rmSync as rmSync14, writeFileSync as writeFileSync30 } from "node:fs";
+import { readFileSync as readFileSync50, renameSync as renameSync12, rmSync as rmSync14, writeFileSync as writeFileSync31 } from "node:fs";
 import { basename as basename6, join as join53 } from "node:path";
 var BACKUP_DIR = ".alm/intents/backup";
 var LEGACY_BUNDLE = ".alm/intents/legacy.json";
@@ -33001,7 +33087,7 @@ function backupFile(root, file, backupDir, relativeLabel) {
   const relative21 = relativeLabel ?? file.slice(root.length).replace(/^[\\/]/, "");
   const target = join53(backupDir, relative21);
   ensureDir(join53(target, ".."));
-  writeFileSync30(target, readFileSync50(file));
+  writeFileSync31(target, readFileSync50(file));
   return relative21.replace(/\\/g, "/");
 }
 function migrateIntentStore({ root, now } = {}) {
@@ -33061,7 +33147,7 @@ function migrateIntentStore({ root, now } = {}) {
     try {
       renameSync12(bundleFile, join53(backupDir, basename6(bundleFile)));
     } catch {
-      writeFileSync30(bundleFile, JSON.stringify({ migratedAt: at, backupDir: BACKUP_DIR }));
+      writeFileSync31(bundleFile, JSON.stringify({ migratedAt: at, backupDir: BACKUP_DIR }));
     }
   }
   report.sort((left, right) => String(left.sessionId).localeCompare(String(right.sessionId)));
@@ -33073,11 +33159,11 @@ function migrateIntentStore({ root, now } = {}) {
   };
 }
 
-// intent.mjs
+// packages/dsh-plugin-requirements/intent.mjs
 init_create();
 init_doc();
 
-// investigate.mjs
+// packages/dsh-plugin-requirements/investigate.mjs
 import { createHash as createHash20, randomBytes as randomBytes3 } from "node:crypto";
 import {
   appendFileSync,
@@ -33087,7 +33173,7 @@ import {
   realpathSync as realpathSync3,
   renameSync as renameSync13,
   statSync as statSync7,
-  writeFileSync as writeFileSync31
+  writeFileSync as writeFileSync32
 } from "node:fs";
 import { dirname as dirname16, extname as extname2, isAbsolute as isAbsolute12, join as join54, relative as relative19, sep as sep8 } from "node:path";
 var INVESTIGATION_SCHEMA2 = "alm.intent-investigation/v1";
@@ -33815,7 +33901,7 @@ function writeInvestigation(root, investigation) {
   const target = investigationPath(root, investigation.investigationId);
   mkdirSync27(dirname16(target), { recursive: true });
   const temp = `${target}.${randomBytes3(4).toString("hex")}.tmp`;
-  writeFileSync31(temp, `${JSON.stringify(investigation, null, 2)}
+  writeFileSync32(temp, `${JSON.stringify(investigation, null, 2)}
 `, "utf8");
   renameSync13(temp, target);
   const rootReal = assertRoot(root);
@@ -33903,9 +33989,9 @@ function buildEvidenceNote(investigations, { maxChars = 8e3 } = {}) {
   return truncated(lines2.join("\n"), maxChars);
 }
 
-// self-heal.mjs
+// packages/dsh-plugin-requirements/self-heal.mjs
 init_failure();
-import { mkdirSync as mkdirSync28, readFileSync as readFileSync52, readdirSync as readdirSync22, renameSync as renameSync14, rmSync as rmSync15, writeFileSync as writeFileSync32 } from "node:fs";
+import { mkdirSync as mkdirSync28, readFileSync as readFileSync52, readdirSync as readdirSync22, renameSync as renameSync14, rmSync as rmSync15, writeFileSync as writeFileSync33 } from "node:fs";
 import { dirname as dirname17, join as join55, resolve as resolve39 } from "node:path";
 var HEAL_POLICY_SCHEMA = "alm.self-heal.policy/v1";
 var POLICY_FILE = ".alm/self-heal/policy.json";
@@ -33928,7 +34014,7 @@ function writeJsonAtomic2(absolute, value) {
   mkdirSync28(dirname17(absolute), { recursive: true });
   const temp = `${absolute}.tmp-${process.pid}-${Date.now()}-${++tempCounter3}`;
   try {
-    writeFileSync32(temp, `${JSON.stringify(value, null, 2)}
+    writeFileSync33(temp, `${JSON.stringify(value, null, 2)}
 `, "utf8");
     renameSync14(temp, absolute);
   } finally {
@@ -34194,7 +34280,7 @@ function applyHeal({ root, failure: failure2 = null, policy = null, reason: reas
   return { applied: written.applied, plan: plan2, policy: written.after, before: written.before };
 }
 
-// intent.mjs
+// packages/dsh-plugin-requirements/intent.mjs
 var MAX_BODY_BYTES = 64 * 1024;
 var MAX_INPUT_TEXT2 = 2e4;
 var MAX_EXTRACTED_TEXT2 = 4e4;
@@ -34636,7 +34722,7 @@ async function withIntentSessionLock(root, sessionId, operation) {
     try {
       mkdirSync29(reclaimLock);
       try {
-        writeFileSync33(join56(reclaimLock, "owner.json"), JSON.stringify({ pid: process.pid, hostname: hostname2(), startedAt: (/* @__PURE__ */ new Date()).toISOString() }), "utf8");
+        writeFileSync34(join56(reclaimLock, "owner.json"), JSON.stringify({ pid: process.pid, hostname: hostname2(), startedAt: (/* @__PURE__ */ new Date()).toISOString() }), "utf8");
       } catch (error) {
         try {
           rmSync16(reclaimLock, { recursive: true, force: true });
@@ -34677,7 +34763,7 @@ async function withIntentSessionLock(root, sessionId, operation) {
     try {
       mkdirSync29(lock);
       try {
-        writeFileSync33(ownerFile, JSON.stringify({ pid: process.pid, hostname: hostname2(), startedAt: (/* @__PURE__ */ new Date()).toISOString() }), "utf8");
+        writeFileSync34(ownerFile, JSON.stringify({ pid: process.pid, hostname: hostname2(), startedAt: (/* @__PURE__ */ new Date()).toISOString() }), "utf8");
       } catch (error) {
         try {
           rmSync16(lock, { recursive: true, force: true });
@@ -36589,7 +36675,7 @@ async function handleIntentLoad({ root, projectId, query } = {}) {
   );
 }
 
-// render.mjs
+// packages/dsh-plugin-requirements/render.mjs
 init_github_web();
 var ESCAPE = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 function escapeHtml(value) {
@@ -36805,7 +36891,7 @@ function renderRequirementsPage(payload, options = {}) {
 </div></body></html>`;
 }
 
-// sidebar.mjs
+// packages/dsh-plugin-requirements/sidebar.mjs
 import { createServer } from "node:http";
 var SIDEBAR_PORT = 60870;
 var SIDEBAR_PATH = "/alm/requirements";
@@ -36831,7 +36917,7 @@ function startSidebarServer({ port = SIDEBAR_PORT, handler }) {
   });
 }
 
-// index.js
+// packages/dsh-plugin-requirements/index.js
 var pkg2 = JSON.parse(readFileSync56(new URL("./package.json", new URL("./index.js", import.meta.url).href), "utf8"));
 var NATIVE_SOURCE_BUILD_ID = false ? null : null;
 var NATIVE_CLIENT_BUILD_ID = true ? "73a5d9755b5a6d478750fce223f227b75e9be282162d4ea8017cb9f341260c3f" : null;

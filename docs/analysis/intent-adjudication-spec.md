@@ -306,6 +306,16 @@ S4 成型  → G5 验收不可执行不入库
 
 自愈**只改策略参数**（预算、模型链、提示拆分），不改源码。策略落 `.alm/self-heal/policy.json`，下一次分析直接生效。让 AI 改源码再重启插件风险过高，且无法验证；策略调参可验证、可回滚。
 
+### 9.5 环境阻断：验收器不得把 EPERM 当代码失败
+
+`alm verify` 是代理在 workspace-write 会话里的自查，而验收套件可能同时需要管道子进程与浏览器。过去两类失败都被压成「验收未通过，退出码 1」，于是下一轮代理去修一个并不存在的代码缺陷，甚至倾向于删用例换绿灯。现在的分层：
+
+- **统一捕获**：git、node CLI、测试 fixture 都走 `runCaptured`（`packages/alm-core/src/process-capture.mjs`）。先试管道；`EPERM/EACCES` 时改用临时文件描述符，stdin/stdout/stderr 与退出码语义不变。
+- **结果分类**：`classifyAcceptanceRun` 把「失败行全是 EPERM/EACCES」或「命令本身 spawnFailed」判为 `blocked`；只要出现一条真实断言失败，仍是 `fail`，不因同批有环境问题而转绿。
+- **退出语义**：`status=blocked` 时 `alm verify` 退出 3 并打印「验收被运行环境阻断，不是断言失败」、受限命令与所需能力；`--profile full` 下环境阻断按失败退出 1。`blocked` 永远不等于通过。
+- **能力去向**：纯逻辑与 git fixture 在沙箱内可跑完；Playwright 用例无法用文件描述符替代浏览器管道，明确留给宿主/CI，由宿主进程跑全量并铸验收证据。
+- **工作区对账**：交付前必须把脏工作区采纳进变更并提交到变更分支，避免「任务说没有改动、磁盘上却已有一版实现」再次消耗一轮诊断。
+
 ## 10. 数据模型
 
 | 位置 | 内容 | 状态 |
