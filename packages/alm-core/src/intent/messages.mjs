@@ -19,6 +19,7 @@ export const INTENT_SYSTEM_PROMPT = `你是 AI_ALM 的「需求意图澄清」�
 6b. 人类最多提交 3 轮回答。接近预算时不要追问低价值细节；重大冲突仍未解决时保留 major 问题并允许保存/暂停，不得为了收敛伪造 ready。
 7. project-fact 类问题（代码、仓库、文档里能查到的）不要问用户，写进 unknowns 并给 resolution=investigate；不得把 priority/owner 当作澄清问题来问。
 8. 先给反例（counterexample，status=unverified）与最小价值验证（valueCheck），再谈方案。
+8a. 你的回答必须以完整的 intent-review JSON 正文结束。思考可以放在推理里，但推理结束后必须输出正文；只输出推理、正文为空或 JSON 被截断都视为失败回答。宁可精简推理，也要保证 JSON 完整闭合。
 9. 推荐去向只能是 create / extend / change / merge / split / defer / reuse / investigate / decline / answer。判据（缺一条就不能出该去向）：
    - create：三查（已实现/在办/已否决）没有 covered 或 conflict；一条需求只有一个决策轴。
    - extend：命中已核对需求，增量只新增条款、不改动其现有验收；产出是条款 diff，不是新需求。

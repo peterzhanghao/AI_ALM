@@ -1121,7 +1121,15 @@ async function streamOutput({ stream, selection, messages, onFirstToken, signal 
       system: systemParts.join('\n\n'),
       messages: dialog,
       temperature: 0.2,
-      maxTokens: 8000,
+      // deepseek-flash is a reasoning model and reasoning shares the output
+      // budget: three clarify runs on 2026-11-18 died with chunks=
+      // block-start|reasoning-delta|block-end|usage|finish — the thinking
+      // consumed the whole 8000-token allowance, so no content ever streamed
+      // (RUN-mwlh6nmd) or the JSON was cut mid-answer (first token at 43.9s,
+      // dead 3.9s later). The cap is raised to 100000 so thinking and the full
+      // intent-review JSON both fit; a provider that clamps instead of erroring
+      // makes the raise a no-op.
+      maxTokens: 100000,
       signal,
     })) {
       if (['text-delta', 'reasoning-delta', 'finish', 'usage', 'block-start', 'block-end'].includes(chunk?.type) && seen.length < 8 && !seen.includes(chunk.type)) seen.push(chunk.type)
@@ -1527,7 +1535,14 @@ async function runAnalysis({
         timing: timingSnapshot(),
         now,
       })
-      throw error
+      // An empty stream — the model reasoning-ed but wrote nothing (chunks=
+      // block-start|reasoning-delta|block-end|usage|finish, RUN-mwlh6nmd) — is
+      // worth exactly one repair chance instead of failing the run outright:
+      // normalize('') fails immediately, so the flow below hands the empty
+      // answer to the repair retry, and reasoning variance usually produces
+      // content on the second call. Timeouts and provider faults still abort.
+      if (error?.code !== 'ai-invalid-output') throw error
+      firstOutput = ''
     }
     let fresh = await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId, baseSessionRevision })
     let contextUsed = context ?? fresh.context

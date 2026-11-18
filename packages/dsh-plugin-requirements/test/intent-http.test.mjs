@@ -171,6 +171,16 @@ function createAi(script) {
         yield { type: 'finish', reason: { kind: 'error', message: 'upstream provider failure: secret-key-xyz' } }
         return
       }
+      // A reasoning-only stream: the model thought, wrote nothing, and ended
+      // with an unmapped finish reason — the exact empty-return signature of
+      // RUN-mwlh6nmd (chunks=block-start|reasoning-delta|block-end|usage|finish).
+      if (output && output.type === 'empty-stream') {
+        yield { type: 'block-start', kind: 'reasoning' }
+        yield { type: 'reasoning-delta', text: 'let me think about the requirement...' }
+        yield { type: 'block-end' }
+        yield { type: 'finish', reason: { kind: 'unknown' } }
+        return
+      }
       const text = typeof output === 'string' ? output : JSON.stringify(output)
       yield { type: 'text-delta', text }
       yield { type: 'finish', reason: { kind: 'stop' } }
@@ -416,7 +426,7 @@ test('analyze creates an editable session with at most one question and never wr
       for (const message of call.messages) assert.ok(Array.isArray(message.content), 'content is a parts array')
       assert.equal(typeof call.system, 'string')
       assert.equal(call.temperature, 0.2)
-      assert.equal(call.maxTokens, 8000)
+      assert.equal(call.maxTokens, 100000)
       assert.equal(call.provider, 'fake')
 
       const stored = readSession(root, payload.session.sessionId)
@@ -429,6 +439,37 @@ test('analyze creates an editable session with at most one question and never wr
     })
     assert.deepEqual(requirementFiles(root), before)
     assert.deepEqual(sessionFiles(root).length, 1)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a reasoning-only empty stream gets exactly one repair retry instead of failing the run', async () => {
+  const root = tempFixture('alm-intent-empty-stream-')
+  try {
+    const before = requirementFiles(root)
+    // First call: reasoning consumed the whole turn, no content (the
+    // RUN-mwlh6nmd signature). Second call: the repair retry answers.
+    const ai = createAi([{ type: 'empty-stream' }, needsInputAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(status, 200, JSON.stringify(payload))
+      assert.equal(payload.ok, true)
+      assert.equal(payload.session.state, 'needs_input')
+      assert.equal(ai.state.calls.length, 2, 'empty output must trigger the repair retry')
+      // The repair call carries the nudge that names the empty answer.
+      const repairSystem = ai.state.calls[1].system
+      assert.equal(typeof repairSystem, 'string')
+      assert.ok(ai.state.calls[1].messages.some((message) => JSON.stringify(message.content).includes('intent-review')), 'repair replay keeps the contract prompt')
+
+      const stored = readSession(root, payload.session.sessionId)
+      assert.ok(stored.runs.length >= 2, 'both the empty attempt and the retry are on the ledger')
+      assert.equal(stored.runs[0].status, 'error')
+      assert.equal(stored.runs[0].errorCode, 'ai-invalid-output')
+      assert.equal(stored.runs[stored.runs.length - 1].status, 'success')
+      assert.equal(stored.convergence?.timing?.retries ?? 0, 1)
+    })
+    assert.deepEqual(requirementFiles(root), before)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -1808,6 +1849,8 @@ test('investigate returns quote-verified evidence, stores it and exposes it on G
       assert.equal(readSession(root, sessionId).state, 'needs_input')
 
       // The investigate prompt is host-shaped: string system + parts arrays.
+      // investigate keeps its own 8000-token budget; only the clarify path
+      // needed the raise for reasoning headroom.
       const call = ai.state.calls[1]
       assert.equal(typeof call.system, 'string')
       assert.ok(Array.isArray(call.messages[0].content))
