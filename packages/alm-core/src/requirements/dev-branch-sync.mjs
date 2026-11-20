@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { IMPLEMENTATION_PATH, developWorktree, isNoisePath } from './delivery-scope.mjs'
+import { IMPLEMENTATION_PATH, belongsToOtherRequirement, developWorktree, isNoisePath } from './delivery-scope.mjs'
 
 const normalize = value => String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '').trim()
 const safe = value => {
@@ -16,6 +16,10 @@ const git = (root, args, { allowFailure = false } = {}) => {
 }
 const lines = value => String(value ?? '').split(/\r?\n/).map(normalize).filter(Boolean)
 const runtimePath = path => /^(?:\.alm\/|artifacts\/|validation\/|tmp\/|\.tmp\/)/.test(path)
+// `changes/<CHG>/` holds one change's proposal and task cards. They belong to
+// the change, not to the delivered product, and must not ride in a delivery
+// commit — nor block one.
+const changeArtifactPath = path => /^changes\//.test(path)
 
 /**
  * Commit and (by default) push one requirement's verified delivery to develop.
@@ -61,9 +65,17 @@ export function syncDevelopmentBranch({ root, requirementId, revision, candidate
     ...lines(git(target, ['diff', '--name-only'])),
     ...lines(git(target, ['ls-files', '--others', '--exclude-standard'])),
   ])].map(normalize).filter(Boolean)
+  // A dirty worktree is shared: another requirement's in-flight work and this
+  // change's own proposal cards are committed by their own delivery, so counting
+  // them as "unattributed" deadlocked every parallel delivery (REQ-ALM-014's two
+  // dirty files vetoed REQ-ALM-016 forever). Only code-shaped content this
+  // requirement does not own may veto the commit; a stray screenshot or note
+  // stays uncommitted instead of blocking the delivery.
   const uncovered = dirty.filter(path => {
     if (runtimePath(path) || isNoisePath(path) || noise.has(path) || selected.includes(path)) return false
-    return scope ? true : IMPLEMENTATION_PATH.test(path)
+    if (changeArtifactPath(path)) return false
+    if (belongsToOtherRequirement(path, requirementId)) return false
+    return IMPLEMENTATION_PATH.test(path)
   })
   if (uncovered.length) {
     const preview = uncovered.slice(0, 3).join('、')

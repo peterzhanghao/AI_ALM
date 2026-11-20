@@ -412,7 +412,7 @@ test('runInvestigation writes the store + audit and leaves repository files unto
   assert.equal(typeof calls[0].system, 'string')
   assert.ok(Array.isArray(calls[0].messages[0].content))
   assert.equal(calls[0].messages[0].content[0].type, 'text')
-  assert.equal(calls[0].maxTokens, 8000)
+  assert.equal(calls[0].maxTokens, 100000)
   assert.equal(calls[0].temperature, 0.2)
 
   assert.ok(statSync(join(root, '.alm/intents/investigations', `${investigation.investigationId}.json`)).isFile())

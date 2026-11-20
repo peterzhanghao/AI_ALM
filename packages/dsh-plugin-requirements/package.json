@@ -22,7 +22,6 @@
     "query.mjs",
     "client.js",
     "client-source.js",
-    "client.bundle.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",

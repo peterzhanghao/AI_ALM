@@ -17,6 +17,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { listFailures, readFailure } from '../../alm-core/src/requirements/failure.mjs'
 import {
+  DEFAULT_POLICY,
   POLICY_FILE,
   captureIntentFailure,
   planHeal,
@@ -60,7 +61,7 @@ function loadSessions() {
 
 function failedRuns(session) {
   return (Array.isArray(session.runs) ? session.runs : []).filter(
-    (run) => run?.status === 'error' && /ai-call-failed|ai-timeout|ai-invalid-output/.test(String(run.errorCode ?? '')),
+    (run) => run?.status === 'error' && /ai-call-failed|ai-timeout|ai-invalid-output|ai-output-budget-exhausted/.test(String(run.errorCode ?? '')),
   )
 }
 
@@ -124,7 +125,7 @@ if (command === 'status') {
   const policy = readHealPolicy(root)
   const failures = listFailures(root, { limit: 20 })
   const verification = verifyHeal({ root, policy })
-  process.stdout.write(`${JSON.stringify({ ok: true, policyFile: POLICY_FILE, policy: { revision: policy.revision, firstTokenMs: policy.firstTokenMs, outputMs: policy.outputMs, updatedAt: policy.updatedAt }, failures: failures.map((entry) => ({ id: entry.id, errorType: entry.errorType, kind: entry.kind, at: entry.at })), verification }, null, 2)}\n`)
+  process.stdout.write(`${JSON.stringify({ ok: true, policyFile: POLICY_FILE, policy: { revision: policy.revision, firstTokenMs: policy.firstTokenMs, outputMs: policy.outputMs, maxOutputTokens: policy.maxOutputTokens, modelChain: policy.modelChain, updatedAt: policy.updatedAt }, failures: failures.map((entry) => ({ id: entry.id, errorType: entry.errorType, kind: entry.kind, at: entry.at })), verification }, null, 2)}\n`)
   process.exit(0)
 }
 
@@ -170,8 +171,8 @@ if (command === 'run') {
     healed,
     blocked,
     policy: {
-      before: { firstTokenMs: before.firstTokenMs, outputMs: before.outputMs },
-      after: { firstTokenMs: policy.firstTokenMs, outputMs: policy.outputMs },
+      before: { firstTokenMs: before.firstTokenMs, outputMs: before.outputMs, maxOutputTokens: before.maxOutputTokens },
+      after: { firstTokenMs: policy.firstTokenMs, outputMs: policy.outputMs, maxOutputTokens: policy.maxOutputTokens },
       revision: policy.revision,
     },
     verification,
@@ -180,7 +181,19 @@ if (command === 'run') {
 }
 
 if (command === 'reset-policy') {
-  const written = writeHealPolicy({ root, patch: { firstTokenMs: 15_000, outputMs: 90_000 }, reason: 'manual reset', actor: 'human:local', apply: true })
+  const written = writeHealPolicy({
+    root,
+    patch: {
+      firstTokenMs: 15_000,
+      outputMs: 90_000,
+      maxOutputTokens: DEFAULT_POLICY.maxOutputTokens,
+      repairReasoningEffort: DEFAULT_POLICY.repairReasoningEffort,
+      modelChain: DEFAULT_POLICY.modelChain,
+    },
+    reason: 'manual reset',
+    actor: 'human:local',
+    apply: true,
+  })
   process.stdout.write(`${JSON.stringify({ ok: true, policy: written.after }, null, 2)}\n`)
   process.exit(0)
 }

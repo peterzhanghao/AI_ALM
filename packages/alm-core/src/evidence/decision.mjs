@@ -157,9 +157,46 @@ function staleGap(latest) {
   }
 }
 
+/**
+ * A delivery that moved a module the requirement never claimed cannot be
+ * committed at all (dev-branch-sync refuses), so no amount of re-acceptance
+ * clears it. The gap carries the exact declaration to add, because "补充
+ * allocated_to 关系" as prose is not an actionable instruction.
+ */
+function architectureGap(architecture, asset = null) {
+  const undeclared = (Array.isArray(architecture?.undeclared) ? architecture.undeclared : [])
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+  const modules = undeclared.length > 0
+    ? undeclared
+    : (Array.isArray(architecture?.blockingModules) ? architecture.blockingModules : [])
+  const snippet = (modules ?? []).map((id) => `[RELATION]\nType: allocated_to\nValue: ${id}`).join('\n\n')
+  return {
+    code: 'architecture-undeclared',
+    message: architecture?.reason
+      ? `${architecture.reason}；未补声明前，交付无法提交与发布`
+      : `实现改动了需求未声明的模块${modules.length > 0 ? `：${modules.join('、')}` : ''}；未补声明前，交付无法提交与发布`,
+    fix: '在需求文档补充 allocated_to 声明后重新执行验收',
+    severity: 'block',
+    action: 'declare-allocation',
+    modules,
+    snippet,
+    path: asset?.source?.path ?? null,
+  }
+}
+
+/** True when the candidate's architecture record blocks delivery. */
+function architectureBlocking(architecture) {
+  return Boolean(architecture && architecture.blocking === true)
+}
+
 function nextStepFor(state, topGap) {
   if (state === 'archived') return { label: '已归档，无需操作', action: 'none' }
-  if (state === 'blocked') return { label: '修复阻塞项', action: 'fix-blockers' }
+  if (state === 'blocked') {
+    return topGap?.action === 'declare-allocation'
+      ? { label: '补架构声明', action: 'declare-allocation' }
+      : { label: '修复阻塞项', action: 'fix-blockers' }
+  }
   if (state === 'needs-clarification') return { label: '处理数据异常', action: 'fix-anomaly' }
   if (state === 'failed') return { label: '修复后重新执行验收', action: 'run-acceptance' }
   if (state === 'stale') return { label: '重新执行验收', action: 'run-acceptance' }
@@ -195,7 +232,7 @@ function signoffFor(state, gaps) {
  * Priority is strict: blockers > ambiguity > failed > stale > review > coverage
  * > acceptance registration > acceptance run > signed.
  */
-export function decideEvidence({ asset, review = null, acceptance = null, candidate = null, humanAcceptance = null, anomalies = [], legacyHumanSignoff = false } = {}) {
+export function decideEvidence({ asset, review = null, acceptance = null, candidate = null, humanAcceptance = null, anomalies = [], legacyHumanSignoff = false, architecture = null, closed = false } = {}) {
   const policy = requirementPolicy(asset)
   const coverage = coverageOf(policy, review)
   const blockers = Number(review?.summary?.blockers ?? 0)
@@ -243,6 +280,12 @@ export function decideEvidence({ asset, review = null, acceptance = null, candid
   } else if (latest && latest.current === true && latest.result === 'fail') {
     state = 'failed'
     gaps = [failedGap(latest)]
+  } else if (architectureBlocking(architecture) && !closed) {
+    // Priority sits between a failing acceptance and stale evidence: a fresh
+    // acceptance cannot unblock delivery, so promising only a re-run would loop
+    // the human through an action that provably cannot succeed.
+    state = 'blocked'
+    gaps = [architectureGap(architecture, asset)]
   } else if (latest && (!latest.complete || !latest.current)) {
     state = 'stale'
     gaps = [staleGap(latest)]
@@ -327,6 +370,12 @@ export function decideEvidence({ asset, review = null, acceptance = null, candid
     }
   }
 
+  // The gate is independent of the evidence state: keep it visible even when
+  // another blocker outranks it, so the next attempt does not lose the reason.
+  if (architectureBlocking(architecture) && !closed && !gaps.some((gap) => gap.code === 'architecture-undeclared')) {
+    gaps = [...gaps, architectureGap(architecture, asset)]
+  }
+
   const topGap = gaps[0] ?? null
   return {
     schema: EVIDENCE_SCHEMA,
@@ -339,6 +388,16 @@ export function decideEvidence({ asset, review = null, acceptance = null, candid
     signoff: signoffFor(state, gaps),
     candidate: candidate && typeof candidate === 'object'
       ? { exists: candidate.exists === true, current: candidate.current === true, id: candidate.id ?? null }
+      : null,
+    architecture: architecture && typeof architecture === 'object'
+      ? {
+          blocking: architecture.blocking === true,
+          changed: architecture.changed === true,
+          undeclared: Array.isArray(architecture.undeclared) ? architecture.undeclared : [],
+          declaredNotChanged: Array.isArray(architecture.declaredNotChanged) ? architecture.declaredNotChanged : [],
+          reason: architecture.reason ?? null,
+          trailer: architecture.trailer ?? null,
+        }
       : null,
     humanAccepted: trustedHumanSignoff,
     policy,

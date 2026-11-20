@@ -28,6 +28,50 @@ test('legacy detail tabs link to the active panel while navigating by keyboard',
   } finally { await browser.close() }
 })
 
+test('requirement body draws Mermaid diagrams in the browser and keeps failures local', async () => {
+  const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+  const marker = '    return {\n      inject:'
+  const fence = String.fromCharCode(96, 96, 96)
+  const body = `前文说明\n\n${fence}mermaid\nerDiagram\n  CUSTOMER ||--o{ ORDER : places\n  CUSTOMER {\n    string name PK\n  }\n${fence}\n\n中段说明\n\n${fence}mermaid\nflowchart LR\n  actor([用户])\n  login([登录])\n  actor --> login\n${fence}\n\n后文说明`
+  const broken = `前文\n\n${fence}mermaid\nflowchart LR\n  %% no nodes\n${fence}\n\n后文`
+  const entry = `import React from 'react'; import {createRoot} from 'react-dom/client';
+    window.__ModuleLoader__={load({factory}){factory(()=>React)}}; ${source.replace(marker, '    globalThis.TestRich = renderRich;\n' + marker)}
+    const body=${JSON.stringify(body)}, broken=${JSON.stringify(broken)};
+    createRoot(document.getElementById('root')).render(React.createElement('div', null,
+      React.createElement('div', {id:'ok'}, globalThis.TestRich(body)),
+      React.createElement('div', {id:'bad'}, globalThis.TestRich(broken))));`
+  const bundle = await build({ stdin: { contents: entry, resolveDir: fileURLToPath(new URL('../../../', import.meta.url)), loader: 'js' }, bundle: true, write: false, platform: 'browser', format: 'esm' })
+  const browser = await chromium.launch({ headless: true })
+  const page = await browser.newPage({ viewport: { width: 900, height: 800 } })
+  await page.route('http://test.local/**', route => route.fulfill(route.request().url().endsWith('/app.js') ? { contentType: 'text/javascript', body: bundle.outputFiles[0].text } : { contentType: 'text/html', body: '<div id="root"></div><script type="module" src="/app.js"></script>' }))
+  try {
+    await page.goto('http://test.local/')
+    const ok = page.locator('#ok')
+    assert.equal(await ok.locator('[data-mermaid-diagram="true"]').count(), 2)
+    assert.equal(await ok.locator('[data-mermaid-type="er"]').isVisible(), true)
+    assert.equal(await ok.locator('[data-mermaid-type="flow"]').isVisible(), true)
+    assert.equal(await ok.locator('[data-mermaid-svg]').count(), 2)
+    assert.equal(await ok.getByText('erDiagram', { exact: false }).count(), 0)
+    assert.equal(await ok.getByText('前文说明').isVisible(), true)
+    assert.equal(await ok.getByText('后文说明').isVisible(), true)
+    // Printing runs against the same DOM: the document keeps the diagram and
+    // does not clip it to the screen viewport.
+    await page.emulateMedia({ media: 'print' })
+    assert.equal(await ok.locator('[data-mermaid-diagram="true"]').first().isVisible(), true)
+    assert.equal(await ok.locator('[data-mermaid-diagram="true"]').first().evaluate(node => getComputedStyle(node).breakInside === 'avoid' || getComputedStyle(node).pageBreakInside === 'avoid'), true)
+    await page.emulateMedia({ media: 'screen' })
+
+    const bad = page.locator('#bad')
+    const alert = bad.getByRole('alert')
+    await alert.waitFor()
+    assert.match(await alert.innerText(), /无法渲染 Mermaid 图/)
+    assert.equal(await bad.getByText('flowchart LR').isVisible(), true)
+    assert.equal(await bad.getByText('前文', { exact: true }).isVisible(), true)
+    assert.equal(await bad.getByText('后文', { exact: true }).isVisible(), true)
+    assert.equal(await bad.locator('[data-mermaid-diagram]').count(), 0)
+  } finally { await browser.close() }
+})
+
 test('idle review-result progress exposes recovery and compact validation controls', async () => {
   const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
   const marker = '    return {\n      inject:'
@@ -246,6 +290,22 @@ test('new structured delivery prompts are folded as dispatched work instead of u
   assert.match(source, /推进任务已派发/)
   assert.match(detailSource, /确认签收 \(Signoff\)/)
   assert.match(source, /发布归档/)
+})
+
+test('continuing or fixing a blocked delivery declares its modules in the same click', () => {
+  const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+  assert.match(source, /function declareArchitectureIfBlocked\(entry, root\)/)
+  const start = source.indexOf('onStart: async (entry, options) => {')
+  const continueRun = source.indexOf('onContinueRun: (entry) => {')
+  const resumeRun = source.indexOf('onResumeRun: async (entry) => {')
+  assert.ok(start > 0 && continueRun > start && resumeRun > continueRun, 'expected the three continuation handlers')
+  assert.match(source.slice(start, continueRun), /declareArchitectureIfBlocked\(entry, targetRoot\)/)
+  assert.match(source.slice(continueRun, resumeRun), /declareArchitectureIfBlocked\(entry, targetRoot\)/)
+  assert.match(source.slice(resumeRun, resumeRun + 1200), /declareArchitectureIfBlocked\(entry, targetRoot\)/)
+  // The separate declaration control is gone; the footer never renders it.
+  assert.doesNotMatch(source, /id: 'declare-allocation', label: '补架构声明'/)
+  assert.doesNotMatch(source, /'declare-allocation': \(\) =>/)
+  assert.match(source, /entry\.id !== 'declare-allocation'/)
 })
 
 test('run history times out and retries without losing earlier entries', async () => {

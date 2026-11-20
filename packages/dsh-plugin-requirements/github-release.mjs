@@ -7,6 +7,7 @@ import { readProject } from '../alm-core/src/project/project.mjs'
 import { worktreeSnapshot } from '../alm-core/src/requirements/worktree-snapshot.mjs'
 import { planRelease, createRelease, authorizeRelease, readRelease, recordReleaseExecution, releasePath } from '../alm-core/src/requirements/release.mjs'
 import { requireTrustedHumanSubject } from '../alm-core/src/requirements/identity.mjs'
+import { githubWebUrl } from './github-web.mjs'
 
 const exec = promisify(execFile)
 const execute = async (command, args, root) => (await exec(command, args, { cwd: root, encoding: 'utf8', timeout: 30000, maxBuffer: 2 * 1024 * 1024, windowsHide: true })).stdout.trim()
@@ -40,8 +41,7 @@ export async function inspectGithubRelease({ root, items, requirementIds, run = 
   try {
     const remote = await run('git', ['remote', 'get-url', 'origin'], root)
     // Compare the repository component exactly; never publish into another host/repository.
-    const normalized = remote.replace(/^https:\/\/github\.com\//i, '').replace(/^git@github\.com:/i, '').replace(/\.git\/?$/, '').replace(/\/$/, '')
-    if (normalized.toLowerCase() !== repository.toLowerCase()) add('remote-mismatch', 'origin 与关联的 GitHub 仓库不一致，请先核对工作区。')
+    if (githubWebUrl(remote)?.toLowerCase() !== `https://github.com/${repository.toLowerCase()}`) add('remote-mismatch', 'origin 与关联的 GitHub 仓库不一致，请先核对工作区。')
     const repo = await gh(['repo', 'view', repository, '--json', 'defaultBranchRef'])
     if (repo.defaultBranchRef?.name !== target) add('default-branch-mismatch', '配置的发布分支与 GitHub 默认分支不一致。')
     const remoteHead = await gh(['api', `repos/${repository}/git/ref/heads/${source}`])
@@ -59,7 +59,7 @@ export async function inspectGithubRelease({ root, items, requirementIds, run = 
     const checks = github.pr?.statusCheckRollup ?? []
     github.checksPassed = checks.length > 0 && checks.every(check => check.status === 'COMPLETED' ? check.conclusion === 'SUCCESS' : check.state === 'SUCCESS')
     github.mergeReady = github.protected && github.pr?.state === 'OPEN' && github.pr.isDraft === false && github.pr.reviewDecision === 'APPROVED' && github.pr.mergeable === 'MERGEABLE' && github.checksPassed
-  } catch (error) {
+  } catch {
     add('github-unavailable', '无法核验 GitHub 仓库、分支或 PR。请检查 gh 登录、网络与仓库读取权限后重试。')
   }
   return { ...plan, ok: blockers.length === 0, blockers, warnings, github }

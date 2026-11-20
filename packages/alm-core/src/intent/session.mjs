@@ -917,8 +917,11 @@ export function recordAnalysis({
   next.runs.push(run)
   next.convergence.analysisRuns += 1
   for (const key of TIMING_KEYS) {
-    next.convergence.timing[key] += normalizedTiming?.[key] ?? 0
+    if (key !== 'firstTokenMs') next.convergence.timing[key] += normalizedTiming?.[key] ?? 0
   }
+  // Use the attempt records so a measured 0 ms is distinct from the empty summary's default.
+  const firstMeasurement = next.runs.find((entry) => Number.isFinite(entry.timing?.firstTokenMs) && entry.timing.firstTokenMs >= 0)
+  next.convergence.timing.firstTokenMs = firstMeasurement?.timing.firstTokenMs ?? next.convergence.timing.firstTokenMs ?? 0
   if (analysis) {
     next = applyAnalysis({ session: next, analysis, model, runId: run.analysisRunId, inputRevision: revision, now })
     next.answerAnalysisRequired = false

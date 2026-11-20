@@ -14,6 +14,7 @@ function fixture() {
     readFileSync: () => 'artifact', createHash: () => ({ update: () => ({ digest: () => 'a'.repeat(64) }) }),
     runCore: { activeRunFor: () => state.run, readRun: () => state.run, listRuns: () => [state.run] },
     candidateCore: { latestCandidate: () => ({ id: 'CAND-1' }) },
+    autoAdvanceCore: { authorizationScopeMatchesFacts: (authorization, facts) => authorization?.requirementHash === facts?.requirementHash },
     acceptanceCore: { ACCEPTANCE_SCHEMA: 'acceptance', runAcceptance: () => { state.executions++; return state.payload } } })
   const service = new Service()
   Object.assign(service, { root: '/repo', activeRuns: new Map(), pendingRepairs: new Map(), repairJobs: new Map(), deliveryRootKey: (r) => r, executionKey: (root, id) => JSON.stringify([root, id]),

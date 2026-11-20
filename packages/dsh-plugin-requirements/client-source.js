@@ -219,7 +219,6 @@ window.__ModuleLoader__.load({
       neutral: { color: T.text3, bg: 'rgba(107,116,128,.12)' },
     }
 
-    const FEEDBACK_PRIORITIES = ['P0', 'P1', 'P2']
     const FEEDBACK_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'text/plain', 'text/markdown', 'application/json']
     const FEEDBACK_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024
     const FEEDBACK_MAX_STATEMENT = 4000
@@ -772,11 +771,6 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Green tick is only allowed when the backend says human signoff is possible/done. */
-    function stateIsGreen(decision) {
-      return decision?.state === 'ready-for-human' || decision?.state === 'verified'
-    }
-
     function gapSeverityMeta(severity) {
       if (severity === 'block') return { label: '阻塞', color: T.err, bg: 'rgba(255,139,139,.14)' }
       if (severity === 'warn') return { label: '建议', color: T.warn, bg: 'rgba(231,176,75,.14)' }
@@ -886,27 +880,6 @@ window.__ModuleLoader__.load({
 
     function statusMeta(status) {
       return STATUS[status] ?? { label: status, color: T.text2, bg: 'rgba(154,163,174,.14)' }
-    }
-
-    function Pill({ status, label }) {
-      const meta = statusMeta(status)
-      return h(
-        'span',
-        {
-          style: {
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            fontSize: '11.5px',
-            padding: '2px 9px',
-            borderRadius: '999px',
-            color: meta.color,
-            background: meta.bg,
-          },
-        },
-        h('span', { style: { width: '5px', height: '5px', borderRadius: '50%', background: 'currentColor' } }),
-        label ?? meta.label,
-      )
     }
 
     /** Delivery state (待推进/推进中/待验收/已验收/已关闭), never a raw STATUS. */
@@ -1086,167 +1059,6 @@ window.__ModuleLoader__.load({
       return { label: '交给 AI 推进', icon: 'play', variant: 'primary', onClick: () => actions.onStart?.(item) }
     }
 
-    function DecisionBar({ decision, item, actions }) {
-      if (!decision) return null
-      const gap = decision.topGap
-      const tone = decisionTone(decision)
-      const risk = riskText(decision)
-      const coverage = coverageText(decision, item)
-      const action = primaryActionFor(item, decision, actions)
-      const extra = Math.max(0, (decision.gaps?.length ?? 0) - (gap ? 1 : 0))
-      return h(
-        'section',
-        {
-          'data-decision-state': decision.state,
-          'aria-label': `证据结论：${decision.label}`,
-          style: {
-            background: T.layer2,
-            border: `1px solid ${T.line2}`,
-            borderLeft: `3px solid ${tone.color}`,
-            borderRadius: '10px',
-            padding: '11px 14px',
-            marginBottom: '12px',
-          },
-        },
-        h(
-          'div',
-          { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
-          h(DecisionPill, { decision }),
-          risk ? h('span', { style: { fontSize: '11.5px', color: T.text3 } }, risk) : null,
-          coverage ? h('span', { style: { fontSize: '11.5px', color: T.text3 } }, coverage) : null,
-          action
-            ? h('div', { style: { marginLeft: 'auto' } }, h(ActionButton, { label: action.label, icon: action.icon, variant: action.variant, onClick: action.onClick }))
-            : null,
-        ),
-        gap
-          ? h(
-              'p',
-              { style: { margin: '8px 0 0', fontSize: '12.5px', lineHeight: 1.7, color: T.text2 } },
-              h('span', { style: { color: tone.color, fontWeight: 600 } }, gap.severity === 'block' ? '阻塞 ' : '缺口 '),
-              h(
-                'code',
-                { style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11.5px', color: T.text2, marginRight: '2px' } },
-                gap.code,
-              ),
-              ' · ',
-              gap.message,
-              gap.fix ? h('span', { style: { color: T.text3 } }, `　修复：${gap.fix}`) : null,
-              extra ? h('span', { style: { color: T.text3 } }, `　另有 ${extra} 项见下方`) : null,
-            )
-          : h('p', { style: { margin: '8px 0 0', fontSize: '12.5px', color: T.ok } }, '必需证据已满足，可以进入下一步。'),
-      )
-    }
-
-    /**
-     * First screen answers four questions: what is being built, what the AI is
-     * doing, what is wrong, and what the human must decide now.
-     */
-    function CurrentStateStrip({ item, actions }) {
-      const delivery = deliveryOf(item)
-      const decision = item?.decision ?? null
-      const candidate = item?.candidate ?? null
-      const next = item?.nextActionLabel ?? null
-      const human = needsHuman(item)
-      const run = item?.run ?? null
-      // The run record is the only honest source for "is the AI really
-      // working": a stopped heartbeat reads as interrupted, never as running,
-      // and a waiting turn reads as waiting for a human answer.
-      const lastActivity = run?.lastActivityAt ? formatLocalStamp(run.lastActivityAt) : null
-      const runBusy = run?.active === true
-      // Older host core has no awaitingAnswer/idleHandback: fall back to the
-      // decision request path it does expose, so the panel stays honest.
-      const runWaiting = run?.awaitingAnswer === true || (run?.awaitingAnswer === undefined && run?.status === 'waiting-input' && Boolean(run?.decision))
-      const runIdleHandback = run?.idleHandback === true || (run?.awaitingAnswer === undefined && run?.status === 'waiting-input' && !run?.decision)
-      const runStale = run?.stale === true
-      const runLabel = run?.exists
-        ? runStale
-          ? `已中断${lastActivity ? `（最后活动 ${lastActivity}）` : ''}`
-          : runWaiting
-            ? `等待回答${lastActivity ? `（${lastActivity}）` : ''}`
-            : `${run.label}${run.phase ? ` · ${run.phase}` : ''}${lastActivity ? `（${lastActivity}）` : ''}${run.failure?.message ? ` · ${run.failure.message}` : ''}`
-        : null
-      const decideNow = runStale
-        ? '本轮推进已中断：恢复推进或取消'
-        : human
-          ? next ?? '验收'
-          : runWaiting
-            ? '回答决策请求'
-            : runIdleHandback
-              ? '查看本轮结果并决定下一步'
-              : runBusy
-                ? '无（AI 推进中）'
-                : delivery.key === 'accepted'
-                  ? '发布决定'
-                  : '无'
-      const rows = [
-        ['交付状态', delivery.label],
-        ['AI 当前动作', runLabel ? `${runLabel}（${decision?.label ?? '未检查'}）` : decision?.label ?? '未检查'],
-        [
-          '交付候选',
-          candidate?.exists
-            ? candidate.current
-              ? `当前 · ${shortHash(candidate.treeHash, 8)}`
-              : `已过期 · ${(candidate.reasons ?? []).join('、') || '需重新生成'}`
-            : '尚未生成',
-        ],
-        ['待你决定', decideNow],
-      ]
-      // When a previous run stopped, the rollback reason belongs next to the
-      // state, not buried in the run file.
-      if (delivery.reason) rows.push(['中断原因', delivery.reason])
-      const runActions =
-        run?.exists && (runBusy || runWaiting || runStale)
-          ? h(
-              'div',
-              { key: 'run-actions', style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' } },
-              runStale && actions?.onResumeRun
-                ? h(
-                    'button',
-                    {
-                      key: 'resume-run',
-                      title: '上一轮推进已中断（心跳停止）：从中断处继续，不会重做已完成工作',
-                      style: { ...button, fontSize: '11.5px', padding: '2px 8px', borderColor: 'transparent', background: T.ok, color: T.base },
-                      onClick: () => actions.onResumeRun(item, run),
-                    },
-                    '恢复推进',
-                  )
-                : null,
-              runWaiting && actions?.onAnswer
-                ? h(
-                    'button',
-                    {
-                      key: 'answer-run',
-                      title: 'AI 正在等你回答决策请求：回答后会顺着原会话继续推进',
-                      style: { ...button, fontSize: '11.5px', padding: '2px 8px', borderColor: 'transparent', background: T.warn, color: T.base },
-                      onClick: () => actions.onAnswer(item, run),
-                    },
-                    '回答并继续',
-                  )
-                : null,
-              (runBusy || runWaiting) && actions?.onCancelRun
-                ? h('button', { key: 'cancel-run', style: { ...button, marginTop: '0px', fontSize: '11.5px', padding: '2px 8px' }, onClick: () => actions.onCancelRun(item, run) }, '取消推进')
-                : null,
-            )
-          : null
-      return h(
-        'section',
-        {
-          'aria-label': '当前状态与待你决定',
-          'data-delivery': delivery.key,
-          style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer, padding: '10px 12px', marginBottom: '12px' },
-        },
-        rows.map(([label, value], index) =>
-          h(
-            'div',
-            { key: label, style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' } },
-            h('span', { style: { fontSize: '10.5px', color: T.text3, letterSpacing: '.02em' } }, label),
-            h('span', { style: { fontSize: '12.5px', color: index === 3 && human ? T.warn : runStale && index === 1 ? T.err : T.text, fontWeight: index === 3 && human ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis' } }, value),
-            index === 1 ? runActions : null,
-          ),
-        ),
-      )
-    }
-
     /** Expandable gap row: rule, file:line, reason and fix suggestion. */
     function GapDetail({ gap, index }) {
       const severity = gapSeverityMeta(gap.severity ?? (gap.rule ? 'block' : 'info'))
@@ -1275,19 +1087,6 @@ window.__ModuleLoader__.load({
           h('div', null, h('span', { style: { color: T.text3 } }, '来源：'), gap.rule ? '门禁 check' : '证据判定'),
           gap.project ? h('div', null, h('span', { style: { color: T.text3 } }, '项目：'), gap.project) : null,
         ),
-      )
-    }
-
-    function GapsList({ decision }) {
-      const gaps = decision?.gaps ?? []
-      if (!decision) {
-        return h('p', { style: { margin: 0, ...muted } }, '决策数据尚未返回；暂按原始评审与验收数据展示。')
-      }
-      if (gaps.length === 0) return h('p', { style: { margin: 0, ...muted } }, '没有未解决的证据缺口。')
-      return h(
-        'div',
-        { style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '2px 12px' } },
-        gaps.map((gap, index) => h(GapDetail, { key: `${gap.code ?? 'gap'}-${index}`, gap, index })),
       )
     }
 
@@ -1326,83 +1125,6 @@ window.__ModuleLoader__.load({
               { key: label, style: { ...row, fontSize: '12px', borderBottom: index === rows.length - 1 ? 'none' : `1px solid ${T.line}` } },
               h('span', { style: rowLabel }, label),
               h('span', { style: { color: T.text, fontSize: '12px', wordBreak: 'break-all', minWidth: 0 } }, value),
-            ),
-          ),
-        ),
-      )
-    }
-
-    function AnomalyBlock({ anomalies, summary, onOpen }) {
-      const list = anomalies ?? []
-      if (list.length === 0) return null
-      const counts = summary ?? {}
-      const summaryLabel = [
-        counts.duplicateId ? `ID 重复 ${counts.duplicateId}` : null,
-        counts.duplicateBusinessId ? `业务 ID 重复 ${counts.duplicateBusinessId}` : null,
-        counts.dangling ? `悬空关系 ${counts.dangling}` : null,
-      ]
-        .filter(Boolean)
-        .join(' · ')
-      return h(
-        'section',
-        { style: { marginTop: '28px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.err}`, borderRadius: '12px', background: T.layer, padding: '14px 16px' } },
-        h(
-          'div',
-          { style: { display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' } },
-          h('h3', { style: { margin: 0, fontSize: '13.5px', fontWeight: 600, color: T.text } }, `数据异常（${list.length}）`),
-          summaryLabel ? h('span', { style: muted }, summaryLabel) : null,
-        ),
-        h(
-          'p',
-          { style: { margin: '6px 0 10px', fontSize: '12.5px', color: T.text2, lineHeight: 1.8 } },
-          '这些记录不会自动修复：保留两条记录、不自动合并；点击条目打开对应需求后人工核对。',
-        ),
-        h(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-          list.map((anomaly, index) =>
-            h(
-              'div',
-              { key: `${anomaly.kind}-${index}`, style: { border: `1px solid ${T.line}`, borderRadius: '10px', padding: '9px 11px' } },
-              h(
-                'div',
-                { style: { display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap', fontSize: '12.5px', color: T.text2 } },
-                h('span', { style: { color: T.err, fontSize: '11px', border: `1px solid ${T.line2}`, borderRadius: '5px', padding: '0 6px' } }, ANOMALY_LABELS[anomaly.kind] ?? anomaly.kind),
-                anomaly.message,
-              ),
-              anomaly.occurrences?.length
-                ? h(
-                    'div',
-                    { style: { display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '6px' } },
-                    anomaly.occurrences.map((occurrence, occurrenceIndex) =>
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          key: `${occurrence.occurrenceKey ?? occurrenceIndex}-${occurrenceIndex}`,
-                          title: '打开对应需求',
-                          onClick: () => onOpen?.(occurrence),
-                          style: { display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap', textAlign: 'left', border: 0, background: 'transparent', color: T.text2, padding: '2px 0', fontSize: '12px', cursor: 'pointer' },
-                        },
-                        h('code', { style: { color: T.brand } }, occurrence.assetId ?? occurrence.id ?? occurrence.occurrenceKey ?? '—'),
-                        occurrence.title ? h('span', null, occurrence.title) : null,
-                        h(
-                          'span',
-                          { style: { color: T.text3 } },
-                          `${occurrence.file ?? anomaly.file ?? '—'}${(occurrence.line ?? anomaly.line) ? `:${occurrence.line ?? anomaly.line}` : ''}`,
-                        ),
-                      ),
-                    ),
-                  )
-                : h(
-                    'button',
-                    {
-                      type: 'button',
-                      onClick: () => onOpen?.({ assetId: anomaly.requirementIds?.[0], file: anomaly.file, line: anomaly.line }),
-                      style: { marginTop: '4px', border: 0, background: 'transparent', color: T.brand, padding: 0, fontSize: '12px', cursor: 'pointer' },
-                    },
-                    `${anomaly.ref ?? anomaly.file ?? '—'}${anomaly.line ? `:${anomaly.line}` : ''} · 打开需求`,
-                  ),
             ),
           ),
         ),
@@ -1482,7 +1204,7 @@ window.__ModuleLoader__.load({
           .then((result) => {
             if (!alive) return
             setSelections({})
-            setState({ loading: false, decision: result.decision ?? null, decisionIdentity: result.decisionIdentity ?? null, text: result.text ?? null, presentation: result.presentation ?? null, error: null, saving: false, result: null })
+            setState({ loading: false, decision: result.decision ?? null, decisionIdentity: result.decisionIdentity ?? null, runRoot: result.runRoot ?? root, runId: result.runId ?? null, text: result.text ?? null, presentation: result.presentation ?? null, error: null, saving: false, result: null })
           })
           .catch((error) => {
             if (!alive) return
@@ -1508,7 +1230,8 @@ window.__ModuleLoader__.load({
         }
         submitting.current = true
         setState((prev) => ({ ...prev, saving: true, error: null }))
-        writeJson('run', { mode: 'answer', requirementId: item.id, decisionResponse: { action, selections: action === 'choose' ? selections : {}, note: answer.trim() }, expectedDecision: state.decisionIdentity }, root)
+        const expectedDecision = { ...state.decisionIdentity, ...(state.runId ? { runId: state.runId } : {}) }
+        writeJson('run', { mode: 'answer', requirementId: item.id, decisionResponse: { action, selections: action === 'choose' ? selections : {}, note: answer.trim() }, expectedDecision }, state.runRoot ?? root)
           .then((result) => {
             if (result?.resumed === false) throw new Error(result.message ?? '运行尚未恢复，请刷新后检查当前状态')
             if (result?.autoAdvanceResumed === false) window.alert(`已继续本轮，但自动推进未恢复（${result.autoAdvanceReason}）。需在原生界面检查版本与执行预算；未新增授权。`)
@@ -1625,21 +1348,119 @@ window.__ModuleLoader__.load({
     function acceptanceChecklistFor(item) {
       const explicit = item.detailView?.content?.doc?.acceptance
       const criteria = explicit?.length ? explicit : item.detailView?.verificationSummary?.criteria ?? []
-      if (criteria.length) return criteria.map((entry, index) => ({ id: entry.id ?? 'AC-' + (index + 1), text: entry.text || entry.title || entry.id }))
-      return (item.verifiedBy ?? []).map(id => ({ id, text: item.trace?.nodes?.find(node => node.id === id)?.title ?? id }))
+      if (criteria.length) {
+        return criteria.map((entry, index) => ({
+          id: entry.id ?? 'AC-' + (index + 1),
+          text: entry.text || entry.title || entry.id || '',
+          precondition: typeof entry.precondition === 'string' ? entry.precondition : '',
+          action: typeof entry.action === 'string' ? entry.action : '',
+          expected: typeof entry.expected === 'string' ? entry.expected : '',
+          judgement: typeof entry.judgement === 'string' ? entry.judgement : '',
+        }))
+      }
+      return (item.verifiedBy ?? []).map(id => ({
+        id,
+        text: item.trace?.nodes?.find(node => node.id === id)?.title ?? id,
+        precondition: '', action: '', expected: '', judgement: '',
+      }))
+    }
+
+    /**
+     * The executable half of one acceptance clause.
+     *
+     * A product manager verifies a requirement by preparing something, doing
+     * something and observing something; "首 token 超时必须能被自动分类" is a
+     * claim, a procedure. These rows are the authored precondition/action/
+     * expected fields — never a step invented by the dialog.
+     */
+    function acceptancePlanRows(entry) {
+      return [
+        ['input', '输入 / 前置', entry?.precondition],
+        ['action', '操作', entry?.action],
+        ['expected', '预期', entry?.expected],
+        ['judgement', '判定', entry?.judgement],
+      ]
+        .filter(([, , text]) => typeof text === 'string' && text.trim() !== '')
+        .map(([key, label, text]) => ({ key, label, text: text.trim() }))
+    }
+
+    /** Without an action and an expected result a clause cannot be executed by
+     * a human reviewer; the dialog says so instead of presenting prose as a procedure. */
+    function acceptanceMissingSteps(entry) {
+      return !String(entry?.action ?? '').trim() || !String(entry?.expected ?? '').trim()
+    }
+
+    function acceptanceProgress(criteria, checks) {
+      const total = criteria.length
+      const passed = criteria.filter(entry => checks[entry.id] === true).length
+      return { total, passed, complete: total > 0 && passed === total }
+    }
+
+    /** Select-all for the acceptance list. One control, one state source: it
+     * counts the same checks the step cards toggle, so it can never disagree. */
+    function AcceptanceAllControl({ total, passed, disabled, onChange }) {
+      const checked = total > 0 && passed === total
+      return h('label', { 'data-acceptance-all-row': 'true', style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: T.text2, cursor: disabled || total === 0 ? 'default' : 'pointer' } },
+        h('input', { type: 'checkbox', name: 'acceptance-all', 'data-acceptance-all': 'true', checked, disabled: disabled || total === 0, onChange: event => onChange(event.target.checked) }),
+        h('span', null, `全选（已通过 ${passed} / ${total} 项）`))
+    }
+
+    function AcceptancePlanCard({ entry, checked, onToggle, disabled }) {
+      const rows = acceptancePlanRows(entry)
+      const missing = acceptanceMissingSteps(entry)
+      return h('div', { 'data-acceptance-ac': entry.id, style: { padding: '12px 0', borderBottom: '1px solid ' + T.line } },
+        h('label', { style: { display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' } },
+          h('input', { type: 'checkbox', name: `acceptance-${entry.id}`, 'aria-label': `验收要求：${entry.text}`, checked, disabled, onChange: event => onToggle(entry.id, event.target.checked), style: { marginTop: '6px', flexShrink: 0 } }),
+          h('span', null, h('span', { style: { color: T.text3, fontSize: '12px', marginRight: '8px' } }, entry.id), entry.text)),
+        rows.length ? h('div', { 'data-acceptance-plan-rows': entry.id, style: { margin: '6px 0 0 28px', fontSize: '12.5px', lineHeight: 1.75, color: T.text2 } },
+          rows.map(row => h('div', { key: row.key, 'data-acceptance-plan': row.key, style: { display: 'flex', gap: '8px' } },
+            h('span', { style: { flex: 'none', width: '76px', color: T.text3 } }, row.label),
+            h('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } }, row.text)))) : null,
+        missing ? h('p', { 'data-acceptance-missing': entry.id, style: { margin: '6px 0 0 28px', fontSize: '12px', color: T.warn } }, '未登记可执行的验收步骤（操作 / 预期）；只能按需求文字自行核对。') : null)
+    }
+
+    function AcceptanceStepPanel({ entry, index, total, checked, onToggle, onPrev, onNext, disabled }) {
+      const rows = acceptancePlanRows(entry)
+      const missing = acceptanceMissingSteps(entry)
+      return h('div', { 'data-acceptance-step': entry.id, style: { border: '1px solid ' + T.line2, borderRadius: '10px', padding: '14px 16px', marginTop: '10px' } },
+        h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' } },
+          h('span', { style: { fontSize: '12px', color: T.text3, fontVariantNumeric: 'tabular-nums' } }, `第 ${index + 1} / ${total} 步`),
+          h('span', { style: { fontSize: '12px', color: T.text3 } }, entry.id)),
+        h('div', { style: { marginTop: '6px', fontSize: '14px', lineHeight: 1.8, color: T.text } }, entry.text),
+        rows.length ? h('div', { 'data-acceptance-plan-rows': entry.id, style: { marginTop: '8px', padding: '10px 12px', background: 'rgba(255,255,255,.03)', borderRadius: '8px', fontSize: '13px', lineHeight: 1.8 } },
+          rows.map(row => h('div', { key: row.key, 'data-acceptance-plan': row.key, style: { display: 'flex', gap: '10px' } },
+            h('span', { style: { flex: 'none', width: '76px', color: T.text3 } }, row.label),
+            h('span', { style: { minWidth: 0, overflowWrap: 'anywhere', color: T.text2 } }, row.text)))) : null,
+        missing ? h('p', { 'data-acceptance-missing': entry.id, role: 'status', style: { margin: '8px 0 0', fontSize: '12.5px', color: T.warn } }, '该项未登记「操作 / 预期」，无法给出可执行步骤；请按需求文字自行核对。') : null,
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '13px', cursor: 'pointer' } },
+          h('input', { type: 'checkbox', name: `acceptance-step-${entry.id}`, 'data-acceptance-step-pass': entry.id, checked, disabled, onChange: event => onToggle(entry.id, event.target.checked) }),
+          '我已在交付版本中执行并确认本步通过'),
+        h('div', { style: { display: 'flex', gap: '8px', marginTop: '12px' } },
+          h('button', { key: 'prev', type: 'button', 'data-acceptance-prev': 'true', style: { ...HUMAN_CONTROL, padding: '6px 12px', minHeight: '34px' }, disabled: disabled || index === 0, onClick: onPrev }, '上一步'),
+          h('button', { key: 'next', type: 'button', 'data-acceptance-next': 'true', style: { ...HUMAN_CONTROL, padding: '6px 12px', minHeight: '34px' }, disabled: disabled || index >= total - 1, onClick: onNext }, '下一步')))
     }
 
     function SignoffModal({ item, root, onClose, onDone }) {
       const criteria = acceptanceChecklistFor(item)
       const [checks, setChecks] = useState({})
       const [confirmed, setConfirmed] = useState(false)
+      const [stepIndex, setStepIndex] = useState(0)
+      const [view, setView] = useState('steps')
       const [state, setState] = useState({ loading: false, result: null, error: null })
       const submitting = useRef(false)
       const candidate = item.candidate
       const identity = (candidate?.id ?? '') + ':' + (candidate?.treeHash ?? '')
-      useEffect(() => { setChecks({}); setConfirmed(false) }, [identity])
-      const complete = confirmed && criteria.length > 0 && criteria.every(entry => checks[entry.id])
+      useEffect(() => { setChecks({}); setConfirmed(false); setStepIndex(0) }, [identity])
+      const progress = acceptanceProgress(criteria, checks)
+      const missing = criteria.filter(acceptanceMissingSteps)
+      const safeStep = Math.max(0, Math.min(stepIndex, criteria.length - 1))
+      const current = criteria[safeStep] || null
+      const complete = confirmed && progress.complete
       const allowed = item.decision?.signoff?.allowed === true && candidate?.current === true
+      const setCheck = (id, value) => setChecks(items => ({ ...items, [id]: value === true }))
+      const setAll = (value) => setChecks(Object.fromEntries(criteria.map(entry => [entry.id, value === true])))
+      const move = (delta) => setStepIndex(value => Math.max(0, Math.min(criteria.length - 1, value + delta)))
+      const switchStyle = active => ({ ...(active ? HUMAN_PRIMARY : HUMAN_CONTROL), padding: '5px 10px', minHeight: '30px', fontSize: '12.5px' })
       const submit = async () => {
         if (submitting.current || !complete || !allowed) return
         submitting.current = true
@@ -1652,7 +1473,7 @@ window.__ModuleLoader__.load({
       }
       return h(ModalShell, {
         title: '验收交付 · ' + item.id,
-        lead: '先在实际交付版本中操作验证，再逐项确认。自动检查通过只是参考；本次确认会记录为你的人工验收。',
+        lead: '先在实际交付版本中按每项的「输入 / 操作 / 预期」执行，再逐项确认。自动检查通过只是参考；本次确认会记录为你的人工验收。',
         onClose, feedbackContext: feedbackContextFor(item), width: '720px',
         footer: [
           h('button', { key: 'close', style: HUMAN_CONTROL, onClick: onClose }, state.result ? '返回需求' : '稍后验收'),
@@ -1660,12 +1481,22 @@ window.__ModuleLoader__.load({
         ],
       },
         h('section', { 'data-human-acceptance-guide': 'true', style: { lineHeight: 1.8, fontSize: '14px', padding: '16px 0' } },
-          h('h3', { style: { margin: '0 0 8px', fontSize: '18px' } }, state.result ? '人工验收已记录，可以发布归档' : '在交付版本中逐项验证'),
-          h('p', { style: { margin: '0 0 12px', color: T.text2 } }, '打开本需求涉及的功能页面，按照下面每项要求实际操作，比较结果。发现问题时暂不确认，返回需求选择“退回 AI 修复”。'),
-          criteria.map(entry => h('label', { key: entry.id, style: { display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 0', borderBottom: '1px solid ' + T.line, cursor: 'pointer' } },
-            h('input', { type: 'checkbox', name: `acceptance-${entry.id}`, 'aria-label': `验收要求：${entry.text}`, checked: checks[entry.id] === true, disabled: state.loading || Boolean(state.result), onChange: event => setChecks(current => ({ ...current, [entry.id]: event.target.checked })), style: { marginTop: '6px', flexShrink: 0 } }),
-            h('span', null, h('span', { style: { color: T.text3, fontSize: '12px', marginRight: '8px' } }, entry.id), entry.text))),
+          h('h3', { style: { margin: '0 0 8px', fontSize: '18px' } }, state.result ? '人工验收已记录，可以发布归档' : '在交付版本中逐步验证'),
+          h('p', { style: { margin: '0 0 12px', color: T.text2 } }, '打开本需求涉及的功能页面，按下面的输入、操作与预期实际操作，比较结果。发现问题时暂不确认，返回需求选择“退回 AI 修复”。'),
+          missing.length && !state.result ? h('p', { role: 'status', 'data-acceptance-missing-banner': 'true', style: { margin: '0 0 10px', color: T.warn } }, `${missing.length} 项没有登记「操作 / 预期」，无法据此逐步执行；请按需求文字自行核对，或先在需求里补充验收步骤。`) : null,
+          !state.result ? h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '10px 0', borderTop: '1px solid ' + T.line, borderBottom: '1px solid ' + T.line } },
+            h(AcceptanceAllControl, { total: progress.total, passed: progress.passed, disabled: state.loading, onChange: value => setAll(value) }),
+            h('span', { style: { color: T.text3, fontSize: '12px' } }, `已通过 ${progress.passed} / ${progress.total} 项`),
+            h('div', { key: 'views', style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
+              h('button', { key: 'steps', type: 'button', 'data-acceptance-mode': 'steps', style: switchStyle(view === 'steps'), onClick: () => setView('steps') }, '逐步验收'),
+              h('button', { key: 'list', type: 'button', 'data-acceptance-mode': 'list', style: switchStyle(view === 'list'), onClick: () => setView('list') }, '全部条目'))) : null,
           !criteria.length ? h('p', { role: 'alert', style: { color: T.warn } }, '缺少明确的业务验收清单，请先补充验收要求。') : null,
+          criteria.length && view === 'steps' && current
+            ? h(AcceptanceStepPanel, { entry: current, index: safeStep, total: criteria.length, checked: checks[current.id] === true, disabled: state.loading || Boolean(state.result), onToggle: setCheck, onPrev: () => move(-1), onNext: () => move(1) })
+            : null,
+          criteria.length && view === 'list'
+            ? h('div', { key: 'checklist' }, criteria.map(entry => h(AcceptancePlanCard, { key: entry.id, entry, checked: checks[entry.id] === true, disabled: state.loading || Boolean(state.result), onToggle: setCheck })))
+            : null,
           h('label', { style: { display: 'flex', gap: '10px', padding: '16px 0', cursor: 'pointer' } }, h('input', { type: 'checkbox', name: 'acceptance-confirmed', 'aria-label': '确认我已在当前交付版本实际验证以上要求', checked: confirmed, disabled: state.loading || Boolean(state.result), onChange: event => setConfirmed(event.target.checked) }), '我已在当前交付版本实际验证以上要求，同意本次交付。'),
           !allowed && !state.result ? h('p', { role: 'status', style: { color: T.warn } }, item.decision?.topGap?.message ?? '当前交付证据不再满足验收条件，请重新核验。') : null,
           state.error ? h('p', { role: 'alert', style: { color: T.err } }, state.error) : null,
@@ -1705,110 +1536,6 @@ window.__ModuleLoader__.load({
           !state.done ? h('p', { style: { color: T.text2, fontSize: '13px', margin: '14px 0 0' } }, '归档会再次校验交付候选、人工签收和工作区快照。任一受保护内容在签收后发生变化都会被拒绝。') : null,
           state.error ? h('p', { role: 'alert', style: { color: T.err, fontSize: '13px' } }, state.error) : null,
         ),
-      )
-    }
-
-    function VersionList({ item, onSnapshot, onDiff, compact }) {
-      const [storedHistory, setHistory] = useState(null)
-      const history = storedHistory?.root === item.root && storedHistory?.id === item.id ? storedHistory : { versions: null, head: null, next: 0, loading: false, error: false }
-      const loadHistory = useRef(null)
-      useEffect(() => {
-        const lifetime = new AbortController()
-        let head = null, offset = 0, busy = false
-        const seen = new Set()
-        setHistory({ root: item.root, id: item.id, versions: null, head: null, next: 0, loading: false, error: false })
-        loadHistory.current = async () => {
-          if (busy || lifetime.signal.aborted || offset === null) return
-          busy = true
-          const controller = new AbortController()
-          const cancel = () => controller.abort()
-          lifetime.signal.addEventListener('abort', cancel, { once: true })
-          let timeout
-          setHistory(previous => ({ ...previous, loading: true, error: false }))
-          try {
-            const params = new URLSearchParams({ root: item.root ?? '', asset: item.id, mode: 'history', offset: String(offset) })
-            if (head) params.set('head', head)
-            const { response, data } = await Promise.race([
-              fetch(`/api/alm/requirements/version?${params}`, { headers: { accept: 'application/json' }, signal: controller.signal }).then(async response => ({ response, data: await response.json() })),
-              new Promise((_, reject) => { timeout = setTimeout(() => { cancel(); reject(new Error('version timeout')) }, 10000) }),
-            ])
-            if (!response.ok) throw new Error('unavailable')
-            if (data.schema !== 'alm.version.history/v1' || data.asset !== item.id || !/^[0-9a-f]{40,64}$/.test(data.head ?? '') || (head && data.head !== head) || !Array.isArray(data.versions) || data.versions.length > 20 || data.versions.some(version => !version || !/^[0-9a-f]{40,64}$/.test(version.sha ?? '') || typeof version.subject !== 'string' || seen.has(version.sha)) || new Set(data.versions.map(version => version.sha)).size !== data.versions.length || (data.next !== null && (data.next !== offset + 20 || data.versions.length !== 20))) throw new Error('invalid')
-            if (controller.signal.aborted) throw new Error('cancelled')
-            for (const version of data.versions) seen.add(version.sha)
-            head = data.head
-            offset = data.next
-            setHistory(previous => ({ root: item.root, id: item.id, versions: previous.versions === null ? data.versions : [...previous.versions, ...data.versions], head, next: offset, loading: false, error: false }))
-          } catch { if (!lifetime.signal.aborted) setHistory(previous => ({ ...previous, loading: false, error: true })) }
-          finally { clearTimeout(timeout); lifetime.signal.removeEventListener('abort', cancel); busy = false }
-        }
-        return () => { lifetime.abort(); loadHistory.current = null }
-      }, [item.root, item.id])
-      const versions = history.versions ?? item.versions ?? []
-      return h(
-        'div',
-        null,
-        h(
-          'div',
-          { style: { ...row, paddingTop: 0 } },
-          h('span', { style: rowLabel }, '当前修订'),
-          h('span', { style: { color: T.text } }, item.revision == null || item.revision === '' ? '未登记' : `v${item.revision}`),
-        ),
-        versions.length === 0
-          ? h('p', { style: { margin: '6px 0 0', ...muted } }, '未读取到版本记录；可能尚未提交或历史暂不可用。')
-          : h(
-              'div',
-              { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
-              versions.map((version) =>
-                h(
-                  'div',
-                  {
-                    key: version.sha,
-                    style: { display: 'flex', alignItems: 'baseline', gap: '8px', borderTop: `1px solid ${T.line}`, padding: '4px 0' },
-                  },
-                  h(
-                    'button',
-                    {
-                      'data-version-sha': version.sha,
-                      onClick: () => onSnapshot(item, version),
-                      style: {
-                        display: 'flex',
-                        alignItems: 'baseline',
-                        gap: '8px',
-                        flex: 1,
-                        minWidth: 0,
-                        textAlign: 'left',
-                        border: 0,
-                        background: 'transparent',
-                        color: T.text2,
-                        padding: '1px 0',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                        lineHeight: 1.6,
-                      },
-                    },
-                    h('span', { style: { color: T.text3, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11px', flex: 'none' } }, version.short),
-                    h('span', { style: { color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, version.subject),
-                  ),
-                  h('span', { style: { color: T.text3, fontSize: '11px', flex: 'none' } }, version.date?.slice(0, 10)),
-                  onDiff
-                    ? h(
-                        'button',
-                        {
-                          'data-diff-sha': version.sha,
-                          onClick: () => onDiff(item, version),
-                          style: { border: 0, background: 'transparent', color: T.brand, padding: 0, fontSize: '11px', cursor: 'pointer', flex: 'none' },
-                        },
-                        '对比当前',
-                      )
-                    : null,
-                ),
-              ),
-            ),
-        history.loading ? h('p', { role: 'status', style: muted }, '正在读取版本历史…') : null,
-        history.error ? h('p', { role: 'alert', style: muted }, '版本历史暂不可用。 ', h('button', { type: 'button', style: DETAIL_LINK, onClick: () => loadHistory.current?.() }, '重试')) : null,
-        history.next !== null && !history.error ? h('button', { type: 'button', style: DETAIL_LINK, disabled: history.loading, onClick: () => loadHistory.current?.() }, history.versions === null ? '读取版本历史' : '加载更多版本') : null,
-        compact ? null : h('p', { style: { margin: '8px 0 0', ...muted } }, history.versions === null ? '这里只显示已读取的版本，较早记录可能未包含。快照和对比不会改动工作区。' : '版本按首次读取时的提交固定；快照和对比不会改动工作区。'),
       )
     }
 
@@ -1878,40 +1605,6 @@ window.__ModuleLoader__.load({
         return `请为 ${item.id} 发起变更：先读 docs/planning/skill-plan.md 与 alm-change-workflow 技能，用 alm workspace create --baseline <sha> --change CHG-<DOMAIN>-<NNN> 建工作区，再改资产并跑 alm check${at}。`
       }
       return `请评估 ${item.id} 的影响面：运行 node packages/alm-core/bin/alm.mjs impact --asset ${item.id}${at}，并检查是否需要更新基线。`
-    }
-
-    function CopyPrompt({ text }) {
-      const [state, setState] = useState('idle')
-      const copy = useCallback(async () => {
-        try {
-          await navigator.clipboard.writeText(text)
-          setState('copied')
-        } catch {
-          setState('failed')
-        }
-        setTimeout(() => setState('idle'), 1800)
-      }, [text])
-      return h(
-        'div',
-        { style: { marginTop: '10px' } },
-        h('button', { style: button, onClick: copy }, state === 'copied' ? '已复制' : state === 'failed' ? '复制失败，请手动选择' : '复制提示词'),
-        h(
-          'pre',
-          {
-            style: {
-              margin: '8px 0 0',
-              padding: '10px',
-              fontSize: '12px',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              background: T.base,
-              border: `1px solid ${T.line}`,
-              borderRadius: '8px',
-            },
-          },
-          text,
-        ),
-      )
     }
 
     // data must already be masked to the current request scope by useRequirements.
@@ -2034,15 +1727,6 @@ window.__ModuleLoader__.load({
     const LIST_COLUMNS = 'minmax(0, 1fr) 108px 88px 76px 156px 124px'
     const LIST_COLUMNS_NARROW = 'minmax(0, 1fr) 104px 148px 124px'
     const LIST_COLUMNS_MOBILE = 'minmax(0, 1fr) 108px'
-
-    function listColumns(narrow, mobile) {
-      if (mobile) return LIST_COLUMNS_MOBILE
-      return narrow ? LIST_COLUMNS_NARROW : LIST_COLUMNS
-    }
-
-    function listCell(extra) {
-      return { minWidth: 0, display: 'flex', alignItems: 'center', ...extra }
-    }
 
     /** Acceptance join is a plain count: the list does not fake a drill-down. */
     function acceptanceLabel(item) {
@@ -2167,6 +1851,11 @@ window.__ModuleLoader__.load({
       const occurrences = Number(defect?.occurrenceCount ?? 0)
       const action = rowAction(item, actionHandlers)
       const executing = isExecutingRequirement(item)
+      // List preview: only rows whose body carries a Mermaid fence pay for the
+      // parse, and the diagrams open in place instead of leaving the list.
+      const diagramBlocks = /(?:^|\n)\s*(?:```|~~~)\s*mermaid\s*$/im.test(String(item.briefText ?? ''))
+        ? extractMermaidBlocks(item.briefText)
+        : []
       const idleDays = isArchivedRequirement(item) ? null : idleDaysOf(item)
       const githubLinks = item.detailView?.githubLinks ?? null
       const [hover, setHover] = useState(false)
@@ -2427,6 +2116,14 @@ window.__ModuleLoader__.load({
               : acc.concat(h('span', { key: `sep-${index}`, 'aria-hidden': 'true', style: { color: T.line2, fontSize: '11px' } }, '·'), node)), []),
           ),
           anomaly ? h('div', { style: { marginTop: '3px', color: T.err, fontSize: '11.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, anomaly) : null,
+          diagramBlocks.length
+            ? h(
+                'details',
+                { 'data-list-preview': 'true', onClick: (event) => event.stopPropagation(), style: { marginTop: '5px', minWidth: 0 } },
+                h('summary', { style: { color: T.text3, fontSize: '11px', cursor: 'pointer' } }, `预览正文图表（${diagramBlocks.length}）`),
+                h('div', { style: { marginTop: '6px' } }, diagramBlocks.map((block, index) => h(MermaidDiagram, { key: index, source: block.source, closed: block.closed }))),
+              )
+            : null,
         ),
         // State and action share one cluster on the right: the pill says where
         // the record stands, the button says what the reader can do about it.
@@ -2836,84 +2533,6 @@ window.__ModuleLoader__.load({
       return h('div', null, blocks)
     }
 
-    function Section({ title, action, children, style }) {
-      return h(
-        'div',
-        { style },
-        h('div', { style: sectionTitle }, title, action ?? null),
-        children,
-      )
-    }
-
-    function GithubBlock({ item, projectMeta }) {
-      const projectName = projectMeta?.name ?? item.projectName ?? item.project ?? '未归属项目'
-      const repo = item.github?.repo ?? projectMeta?.repo ?? '—'
-      if (!item.github) {
-        return h(
-          'div',
-          {
-            style: {
-              border: `1px dashed ${T.line2}`,
-              borderRadius: '10px',
-              padding: '12px 14px',
-              fontSize: '12.5px',
-              color: T.text2,
-              lineHeight: 1.8,
-            },
-          },
-          h('div', null, '尚未建立 GitHub 归属：需求 Issue、任务子议题与看板条目会在「交给 AI 推进」时按项目配置创建。'),
-          h('div', { style: { ...muted, marginTop: '6px' } }, `${projectName} · ${repo}${projectMeta?.board ? ` · ProjectV2 #${projectMeta.board}` : ''}`),
-        )
-      }
-      const labels = item.github.labels ?? []
-      const board = item.github.board
-      return h(
-        'div',
-        { style: { border: `1px solid ${T.line}`, borderRadius: '10px', overflow: 'hidden' } },
-        [
-          ['仓库', h('span', { style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11.5px' } }, repo)],
-          [
-            '需求 Issue',
-            h(
-              'span',
-              null,
-              item.github.url
-                ? h('a', { href: item.github.url, target: '_blank', rel: 'noreferrer', style: { color: T.brand } }, `#${item.github.issue}`)
-                : `#${item.github.issue}`,
-              ` · [${item.id}] ${item.title}`,
-            ),
-          ],
-          ['标签', h('span', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, labels.map((label) => h(Chip, { key: label }, label)))],
-          [
-            '看板',
-            h(
-              'span',
-              null,
-              board ? `ProjectV2 #${board.number}` : '未配置看板',
-              board?.status ? h('span', { style: { marginLeft: '8px', color: T.ok } }, `· ${board.status}`) : null,
-            ),
-          ],
-          [
-            '任务子议题',
-            h(
-              'span',
-              null,
-              (item.github.tasks ?? []).length
-                ? item.github.tasks.map((task) => `#${task.number}`).join(' · ')
-                : '尚未创建（交给 AI 推进时生成）',
-              item.github.tasks?.length ? h('span', { style: { ...muted, marginLeft: '6px' } }, `（parent #${item.github.issue}）`) : null,
-            ),
-          ],
-          [
-            'PR / 交付',
-            h('span', { style: muted }, '尚未关联 PR；PR 模板要求填写项目 / 需求 Issue / 变更 / 看板状态'),
-          ],
-        ].map(([label, value], index) =>
-          h('div', { key: label, style: { ...row, borderBottom: index === 5 ? 'none' : `1px solid ${T.line}` } }, h('span', { style: rowLabel }, label), h('span', { style: { color: T.text, minWidth: 0 } }, value)),
-        ),
-      )
-    }
-
     function relationsOf(item, allItems) {
       const groups = [
         ['上级', []],
@@ -2974,29 +2593,6 @@ window.__ModuleLoader__.load({
         'button',
         { style: { border: 0, background: 'transparent', color: T.text2, padding: 0, fontSize: '11.5px', cursor: 'pointer' }, onClick },
         '查看追溯图 ›',
-      )
-    }
-
-    function GroupCard({ title, hint, accent, children }) {
-      return h(
-        'section',
-        {
-          style: {
-            marginTop: '14px',
-            border: `1px solid ${T.line}`,
-            borderLeft: `2px solid ${accent}`,
-            borderRadius: '12px',
-            background: T.layer,
-            padding: '13px 16px 15px',
-          },
-        },
-        h(
-          'div',
-          { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '10px', marginBottom: '10px' } },
-          h('div', { style: { fontSize: '12.5px', fontWeight: 600, color: T.text2, letterSpacing: '.01em' } }, title),
-          hint ?? null,
-        ),
-        children,
       )
     }
 
@@ -3098,6 +2694,1345 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // --- Mermaid diagram engine ------------------------------------------------
+    // Dependency-free Mermaid renderer for requirement bodies. It converts fenced
+    // Mermaid source into an abstract SVG scene (rects/text/lines) so the plugin can
+    // draw it with React and also serialize a standalone SVG for HTML export.
+    //
+    // Security boundary: only SVG primitives and escaped text are emitted. Mermaid
+    // click/link/HTML directives are never interpreted and no URL is opened.
+
+    const MERMAID_TYPE_LABELS = {
+      er: 'ER 图', flow: '流程图', sequence: '时序图', class: '类图', state: '状态图',
+      pie: '饼图', gantt: '甘特图', journey: '用户旅程', timeline: '时间线', mindmap: '思维导图',
+      git: 'Git 图', requirement: '需求图', quadrant: '象限图', xychart: 'XY 图表', sankey: '桑基图',
+      packet: '数据包图', block: '块图', architecture: '架构图', kanban: '看板', radar: '雷达图',
+      treemap: '矩形树图', c4: 'C4 架构图', zenuml: '时序图',
+    }
+
+    const MERMAID_TYPE_KEYWORDS = [
+      [/^erdiagram\b/i, 'er'], [/^(flowchart|graph)(\s|$)/i, 'flow'], [/^usecase(diagram)?\b/i, 'flow'], [/^sequencediagram\b/i, 'sequence'],
+      [/^classdiagram\b/i, 'class'], [/^statediagram(-v2)?\b/i, 'state'], [/^pie\b/i, 'pie'],
+      [/^gantt\b/i, 'gantt'], [/^journey\b/i, 'journey'], [/^timeline\b/i, 'timeline'],
+      [/^mindmap\b/i, 'mindmap'], [/^gitgraph\b/i, 'git'], [/^requirementdiagram\b/i, 'requirement'],
+      [/^quadrantchart\b/i, 'quadrant'], [/^xychart(-beta)?\b/i, 'xychart'], [/^sankey(-beta)?\b/i, 'sankey'],
+      [/^packet(-beta)?\b/i, 'packet'], [/^block(-beta)?\b/i, 'block'], [/^architecture(-beta)?\b/i, 'architecture'],
+      [/^kanban\b/i, 'kanban'], [/^radar(-beta)?\b/i, 'radar'], [/^treemap(-beta)?\b/i, 'treemap'],
+      [/^c4(context|container|component|dynamic|deployment)\b/i, 'c4'], [/^zenuml\b/i, 'zenuml'],
+    ]
+
+    const MERMAID_INK = 'currentColor'
+    const MERMAID_NODE_FILL = 'rgba(127,137,153,.10)'
+    const MERMAID_NODE_STROKE = 'rgba(127,137,153,.55)'
+    const MERMAID_ACCENT = '#4d6bfe'
+    const MERMAID_ACCENT_FILL = 'rgba(77,107,254,.14)'
+    const MERMAID_SOFT = 'rgba(127,137,153,.16)'
+    const MERMAID_PIE_COLORS = ['#4d6bfe', '#35c47a', '#e7b04b', '#ff8b8b', '#8b7cf6', '#2bb3c0', '#d97757', '#7c8aa0']
+
+    class MERMAID_MermaidError extends Error {}
+    const mx_fail = (message) => { throw new MERMAID_MermaidError(message) }
+
+    const isCjk = (char) => /[\u2e80-\u9fff\uff00-\uffef]/.test(char)
+    function mx_textWidth(value, size = 12) {
+      let width = 0
+      for (const char of String(value ?? '')) width += isCjk(char) ? size : size * 0.56
+      return width
+    }
+    function mx_wrap(value, maxChars = 16) {
+      const source = String(value ?? '').trim()
+      if (!source) return ['']
+      const lines = []
+      let current = ''
+      for (const char of source) {
+        current += char
+        if (Array.from(current).length >= maxChars) { lines.push(current); current = '' }
+      }
+      if (current) lines.push(current)
+      return lines.slice(0, 6)
+    }
+    function mx_cleanLabel(value) {
+      return String(value ?? '')
+        .replace(/^["'`]+|["'`]+$/g, '')
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .trim()
+    }
+    function mx_nodeSize(label, options = {}) {
+      const lines = options.lines ?? mx_wrap(label, options.maxChars ?? 16)
+      const width = options.width ?? Math.min(260, Math.max(options.minWidth ?? 96, Math.max(0, ...lines.map((line) => mx_textWidth(line))) + 28))
+      const height = options.height ?? Math.max(36, lines.length * (options.lineHeight ?? 15) + 16)
+      return { lines, width, height }
+    }
+    const mx_round = (value) => Math.round(Number(value) * 10) / 10
+
+    function mx_text(x, y, value, options = {}) {
+      return { tag: 'text', attrs: { x, y, fill: options.fill ?? MERMAID_INK, 'font-size': options.size ?? 12, 'font-weight': options.weight ?? 400, 'text-anchor': options.anchor ?? 'middle', 'dominant-baseline': options.baseline ?? 'middle', 'fill-opacity': options.opacity ?? 1, 'font-family': options.mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined }, text: String(value ?? '') }
+    }
+    function mx_rect(x, y, width, height, options = {}) {
+      return { tag: 'rect', attrs: { x, y, width, height, rx: options.rx ?? 6, fill: options.fill ?? MERMAID_NODE_FILL, stroke: options.stroke ?? MERMAID_NODE_STROKE, 'stroke-width': options.strokeWidth ?? 1, 'stroke-dasharray': options.dashed ? '5 4' : undefined, 'fill-opacity': options.fillOpacity } }
+    }
+    function mx_line(x1, y1, x2, y2, options = {}) {
+      return { tag: 'line', attrs: { x1, y1, x2, y2, stroke: options.stroke ?? MERMAID_NODE_STROKE, 'stroke-width': options.strokeWidth ?? 1.2, 'stroke-dasharray': options.dashed ? '5 4' : undefined, 'marker-end': options.arrow === false ? undefined : 'url(#alm-mermaid-arrow)' } }
+    }
+    function mx_circle(cx, cy, r, options = {}) {
+      return { tag: 'circle', attrs: { cx, cy, r, fill: options.fill ?? MERMAID_NODE_FILL, stroke: options.stroke ?? MERMAID_NODE_STROKE, 'stroke-width': options.strokeWidth ?? 1.2 } }
+    }
+    function mx_path(d, options = {}) {
+      return { tag: 'path', attrs: { d, fill: options.fill ?? 'none', stroke: options.stroke ?? MERMAID_NODE_STROKE, 'stroke-width': options.strokeWidth ?? 1.2, 'stroke-dasharray': options.dashed ? '5 4' : undefined, opacity: options.opacity } }
+    }
+    function mx_polygon(points, options = {}) {
+      return { tag: 'polygon', attrs: { points: points.map(([x, y]) => `${mx_round(x)},${mx_round(y)}`).join(' '), fill: options.fill ?? MERMAID_NODE_FILL, stroke: options.stroke ?? MERMAID_NODE_STROKE, 'stroke-width': options.strokeWidth ?? 1.2, 'fill-opacity': options.fillOpacity } }
+    }
+    function mx_textBlock(cx, cy, lines, options = {}) {
+      const lineHeight = options.lineHeight ?? 15
+      const start = cy - ((lines.length - 1) * lineHeight) / 2
+      return lines.map((entry, index) => mx_text(cx, start + index * lineHeight, entry, { size: options.size, weight: options.weight, fill: options.fill, opacity: options.opacity, mono: options.mono }))
+    }
+    function mx_header(title, aside) {
+      return [mx_text(16, 18, title, { size: 12, weight: 600, anchor: 'start' }), mx_text(16 + mx_textWidth(title, 12) + 10, 18, aside ?? '', { size: 11, anchor: 'start', opacity: 0.6 })]
+    }
+    function mx_finish(type, shapes, width, height, label) {
+      return { ok: true, type, label: label ?? MERMAID_TYPE_LABELS[type] ?? 'Mermaid 图', width: Math.max(220, Math.ceil(width)), height: Math.max(88, Math.ceil(height)), shapes: [{ tag: 'g', attrs: {}, children: shapes }] }
+    }
+
+    function mx_nodeShape(node, x, y, size, options = {}) {
+      const shapes = []
+      const kind = node.kind ?? 'rect'
+      if (kind === 'diamond') shapes.push(mx_polygon([[x + size.width / 2, y], [x + size.width, y + size.height / 2], [x + size.width / 2, y + size.height], [x, y + size.height / 2]], { fill: options.fill }))
+      else if (kind === 'circle') shapes.push(mx_circle(x + size.width / 2, y + size.height / 2, Math.min(size.width, size.height) / 2, { fill: options.fill }))
+      else if (kind === 'hex') {
+        const cut = Math.min(18, size.width / 4)
+        shapes.push(mx_polygon([[x + cut, y], [x + size.width - cut, y], [x + size.width, y + size.height / 2], [x + size.width - cut, y + size.height], [x + cut, y + size.height], [x, y + size.height / 2]], { fill: options.fill }))
+      } else if (kind === 'cylinder') shapes.push(mx_path(`M ${x} ${y + 7} A ${size.width / 2} 7 0 0 1 ${x + size.width} ${y + 7} L ${x + size.width} ${y + size.height - 7} A ${size.width / 2} 7 0 0 1 ${x} ${y + size.height - 7} Z`, { fill: options.fill }))
+      else shapes.push(mx_rect(x, y, size.width, size.height, { rx: kind === 'stadium' ? size.height / 2 : 6, fill: options.fill }))
+      shapes.push(...mx_textBlock(x + size.width / 2, y + size.height / 2, size.lines, { weight: options.weight }))
+      return shapes
+    }
+
+    function parseNodeToken(source) {
+      const match = /^([A-Za-z_][\w.-]*)\s*(\(\[[^\]]*\]\)|\[\[[^\]]*\]\]|\[\([^)]*\)\]|\(\([^)]*\)\)|\{\{[^}]*\}\}|\[[^\]]*\]|\{[^}]*\}|\([^)]*\)|>[^\]]*\])?$/.exec(String(source ?? '').trim())
+      if (!match) return null
+      const id = match[1]
+      const token = match[2] ?? ''
+      let kind = 'rect'
+      if (token.startsWith('([')) kind = 'stadium'
+      else if (token.startsWith('[(')) kind = 'cylinder'
+      else if (token.startsWith('((')) kind = 'circle'
+      else if (token.startsWith('{{')) kind = 'hex'
+      else if (token.startsWith('{')) kind = 'diamond'
+      else if (token.startsWith('(')) kind = 'stadium'
+      const label = mx_cleanLabel(token.replace(/^\(\[|\]\)$/g, '').replace(/^\[\[|\]\]$/g, '').replace(/^\[\(|\)\]$/g, '').replace(/^\(\(|\)\)$/g, '').replace(/^\{\{|\}\}$/g, '').replace(/^\[|\]$/g, '').replace(/^\{|\}$/g, '').replace(/^\(|\)$/g, '').replace(/^>|\]$/g, ''))
+      return { id, label: label || id, kind }
+    }
+
+    function mx_parseFlow(lines) {
+      const nodes = new Map()
+      const edges = []
+      let direction = 'TB'
+      const declare = (token) => {
+        const node = parseNodeToken(token)
+        if (!node) return null
+        const existing = nodes.get(node.id)
+        if (!existing || (node.label !== node.id && existing.label === existing.id)) nodes.set(node.id, node)
+        return node
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        if (/^(subgraph|end|classDef|class|style|linkStyle|click|accTitle|accDescr)\b/.test(source)) return
+        const dir = /^direction\s+(TB|TD|BT|LR|RL)$/i.exec(source)
+        if (dir) { direction = dir[1].toUpperCase() === 'TD' ? 'TB' : dir[1].toUpperCase(); return }
+        const stripped = source.replace(/([A-Za-z_][\w.-]*)\s*(\(\[[^\]]*\]\)|\[\[[^\]]*\]\]|\[\([^)]*\)\]|\(\([^)]*\)\)|\{\{[^}]*\}\}|\[[^\]]*\]|\{[^}]*\}|\([^)]*\)|>[^\]]*\])/g, (match, id, shape) => { declare(`${id}${shape}`); return id })
+        let match = /^([A-Za-z_][\w.-]*)\s*(<-->|<?-\.-+>|<?={2,}>|<?-{2,}[ox]|<?-{2,}>|<?-{3,}>?)\s*(?:\|([^|]*)\|)?\s*([A-Za-z_][\w.-]*)$/.exec(stripped)
+        if (match) {
+          declare(match[1]); declare(match[4])
+          edges.push({ from: match[1], to: match[4], label: mx_cleanLabel(match[3] ?? ''), dashed: /\./.test(match[2]), arrow: /[->]$/.test(match[2]) })
+          return
+        }
+        match = /^([A-Za-z_][\w.-]*)\s*--\s*(.+?)\s*-->\s*([A-Za-z_][\w.-]*)$/.exec(stripped)
+        if (match) { declare(match[1]); declare(match[3]); edges.push({ from: match[1], to: match[3], label: mx_cleanLabel(match[2]) }); return }
+        if (/^[A-Za-z_][\w.-]*$/.test(stripped)) declare(stripped)
+      })
+      return { nodes: [...nodes.values()], edges, direction }
+    }
+
+    function mx_assignDepth(nodes, edges) {
+      const depth = new Map(nodes.map((node) => [node.id, null]))
+      const outgoing = new Map(nodes.map((node) => [node.id, []]))
+      const incoming = new Map(nodes.map((node) => [node.id, []]))
+      edges.forEach((edge) => {
+        if (!outgoing.has(edge.from) || !incoming.has(edge.to)) return
+        outgoing.get(edge.from).push(edge.to)
+        incoming.get(edge.to).push(edge.from)
+      })
+      const queue = nodes.filter((node) => incoming.get(node.id).length === 0).map((node) => node.id)
+      if (!queue.length && nodes.length) queue.push(nodes[0].id)
+      queue.forEach((id) => depth.set(id, 0))
+      let guard = 0
+      while (queue.length && guard++ < nodes.length * 4) {
+        const id = queue.shift()
+        const level = depth.get(id) ?? 0
+        for (const target of outgoing.get(id) ?? []) if (depth.get(target) === null) { depth.set(target, level + 1); queue.push(target) }
+      }
+      nodes.forEach((node) => { if (depth.get(node.id) === null) depth.set(node.id, 0) })
+      return depth
+    }
+
+    function mx_borderPoint(box, towardX, towardY) {
+      const cx = box.x + box.width / 2
+      const cy = box.y + box.height / 2
+      const dx = towardX - cx
+      const dy = towardY - cy
+      if (dx === 0 && dy === 0) return [cx, cy]
+      const scale = Math.min(dx === 0 ? Infinity : (box.width / 2) / Math.abs(dx), dy === 0 ? Infinity : (box.height / 2) / Math.abs(dy))
+      return [cx + dx * scale, cy + dy * scale]
+    }
+
+    function mx_layoutGraph(nodes, edges, options = {}) {
+      const horizontal = (options.direction ?? 'TB') === 'LR'
+      const items = nodes.map((node) => ({ ...node, size: mx_nodeSize(node.label, { maxChars: options.maxChars ?? 16, minWidth: node.kind === 'start' || node.kind === 'circle' ? 20 : options.minWidth }) }))
+      if (options.padded) items.forEach((node) => { node.size.height += options.padded(node) })
+      const depth = mx_assignDepth(items, edges)
+      const layers = []
+      items.forEach((node) => { const level = depth.get(node.id) ?? 0; (layers[level] ??= []).push(node) })
+      const mainGap = options.gapMain ?? 48
+      const crossGap = options.gapCross ?? 22
+      const padding = options.padding ?? 18
+      const positions = new Map()
+      if (horizontal) {
+        let x = padding
+        layers.forEach((layer) => {
+          const width = Math.max(0, ...layer.map((node) => node.size.width))
+          const total = layer.reduce((sum, node) => sum + node.size.height, 0) + crossGap * Math.max(0, layer.length - 1)
+          let y = padding
+          layer.forEach((node) => { positions.set(node.id, { x: x + (width - node.size.width) / 2, y, width: node.size.width, height: node.size.height }); y += node.size.height + crossGap })
+          void total
+          x += width + mainGap
+        })
+      } else {
+        let y = padding
+        layers.forEach((layer) => {
+          const height = Math.max(0, ...layer.map((node) => node.size.height))
+          let x = padding
+          layer.forEach((node) => { positions.set(node.id, { x, y: y + (height - node.size.height) / 2, width: node.size.width, height: node.size.height }); x += node.size.width + crossGap })
+          y += height + mainGap
+        })
+      }
+      const width = Math.max(0, ...[...positions.values()].map((box) => box.x + box.width)) + padding
+      const height = Math.max(0, ...[...positions.values()].map((box) => box.y + box.height)) + padding
+      return { positions, width, height }
+    }
+
+    function mx_renderGraph(nodes, edges, options = {}) {
+      const layout = mx_layoutGraph(nodes, edges, options)
+      const shapes = []
+      const byId = new Map(nodes.map((node) => [node.id, node]))
+      edges.forEach((edge) => {
+        const from = layout.positions.get(edge.from)
+        const to = layout.positions.get(edge.to)
+        if (!from || !to) return
+        if (edge.from === edge.to) {
+          const x = from.x + from.width
+          const y = from.y + from.height / 2
+          shapes.push(mx_path(`M ${x} ${y - 8} C ${x + 34} ${y - 26}, ${x + 34} ${y + 26}, ${x} ${y + 8}`, { dashed: edge.dashed }))
+          if (edge.label) shapes.push(mx_text(x + 38, y, edge.label, { size: 10.5, anchor: 'start', opacity: 0.75 }))
+          return
+        }
+        const [x1, y1] = mx_borderPoint(from, to.x + to.width / 2, to.y + to.height / 2)
+        const [x2, y2] = mx_borderPoint(to, from.x + from.width / 2, from.y + from.height / 2)
+        shapes.push(mx_line(x1, y1, x2, y2, { dashed: edge.dashed, arrow: edge.arrow !== false, stroke: edge.accent ? MERMAID_ACCENT : MERMAID_NODE_STROKE }))
+        if (edge.label) shapes.push(mx_text((x1 + x2) / 2, (y1 + y2) / 2 - 7, edge.label, { size: 10.5, opacity: 0.8 }))
+      })
+      nodes.forEach((node) => {
+        const box = layout.positions.get(node.id)
+        if (!box) return
+        const kind = byId.get(node.id)?.kind
+        if (kind === 'start' || kind === 'end') { shapes.push(mx_circle(box.x + box.width / 2, box.y + box.height / 2, 8, { fill: kind === 'start' ? MERMAID_ACCENT : MERMAID_INK, stroke: kind === 'start' ? MERMAID_ACCENT : MERMAID_INK })); return }
+        shapes.push(...mx_nodeShape(node, box.x, box.y, box.size ?? { width: box.width, height: box.height, lines: mx_wrap(node.label, options.maxChars ?? 16) }, { fill: node.accent ? MERMAID_ACCENT_FILL : MERMAID_NODE_FILL }))
+      })
+      return mx_finish(options.type ?? 'flow', shapes, layout.width, layout.height, options.label)
+    }
+
+    function parseEr(lines) {
+      const entities = new Map()
+      const relations = []
+      let current = null
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        if (current) {
+          if (source === '}') { current = null; return }
+          const attribute = /^([A-Za-z_][\w-]*)\s+([A-Za-z_][\w-]*)(?:\s+(PK|FK|UK))?(?:\s+"([^"]*)")?/.exec(source)
+          if (attribute) current.attributes.push({ name: attribute[1], type: attribute[2], key: attribute[3] ?? '', comment: attribute[4] ?? '' })
+          return
+        }
+        const block = /^("[^"]+"|[A-Za-z_][\w-]*)\s*\{$/.exec(source)
+        if (block) { const id = mx_cleanLabel(block[1]); current = { id, attributes: [] }; entities.set(id, current); return }
+        const relation = /^("[^"]+"|[A-Za-z_][\w-]*)\s+([|}{o?*+]+--[|}{o?*+]+)\s+("[^"]+"|[A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(source)
+        if (relation) {
+          const left = mx_cleanLabel(relation[1])
+          const right = mx_cleanLabel(relation[3])
+          if (!entities.has(left)) entities.set(left, { id: left, attributes: [] })
+          if (!entities.has(right)) entities.set(right, { id: right, attributes: [] })
+          relations.push({ from: left, to: right, cardinality: relation[2], label: mx_cleanLabel(relation[4]) })
+        }
+      })
+      return { entities: [...entities.values()], relations }
+    }
+
+    function renderEr(data) {
+      const cards = []
+      data.entities.forEach((entity) => {
+        const card = mx_nodeSize(entity.id, { maxChars: 20, minWidth: 150 })
+        card.id = entity.id
+        card.attributes = entity.attributes
+        card.height += 8 + Math.max(1, entity.attributes.length) * 17
+        cards.push(card)
+      })
+      const columns = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(cards.length))))
+      const gapX = 34
+      const gapY = 34
+      let x = 18
+      let y = 18
+      let rowHeight = 0
+      cards.forEach((card, index) => {
+        if (index > 0 && index % columns === 0) { x = 18; y += rowHeight + gapY; rowHeight = 0 }
+        card.x = x
+        card.y = y
+        x += card.width + gapX
+        rowHeight = Math.max(rowHeight, card.height)
+      })
+      const shapes = []
+      data.relations.forEach((relation) => {
+        const from = cards.find((card) => card.id === relation.from)
+        const to = cards.find((card) => card.id === relation.to)
+        if (!from || !to) return
+        const [x1, y1] = mx_borderPoint(from, to.x + to.width / 2, to.y + to.height / 2)
+        const [x2, y2] = mx_borderPoint(to, from.x + from.width / 2, from.y + from.height / 2)
+        shapes.push(mx_line(x1, y1, x2, y2, { stroke: MERMAID_ACCENT }))
+        shapes.push(mx_text(x1 + (x2 - x1) * 0.1, y1 + (y2 - y1) * 0.1 - 7, relation.cardinality, { size: 9.5, opacity: 0.8 }))
+        if (relation.label) shapes.push(mx_text((x1 + x2) / 2, (y1 + y2) / 2 - 8, relation.label, { size: 10.5 }))
+      })
+      cards.forEach((card) => {
+        shapes.push(mx_rect(card.x, card.y, card.width, card.height, { fill: 'rgba(127,137,153,.05)' }))
+        shapes.push(mx_rect(card.x, card.y, card.width, 26, { fill: MERMAID_SOFT, rx: 6 }))
+        shapes.push(mx_text(card.x + card.width / 2, card.y + 14, card.id, { weight: 600 }))
+        if (!card.attributes.length) shapes.push(mx_text(card.x + card.width / 2, card.y + 42, '（无属性）', { size: 10.5, opacity: 0.55 }))
+        card.attributes.forEach((attribute, index) => {
+          const rowY = card.y + 26 + 14 + index * 17
+          shapes.push(mx_text(card.x + 12, rowY, attribute.name, { size: 10.5, anchor: 'start' }))
+          shapes.push(mx_text(card.x + card.width - 12, rowY, [attribute.type, attribute.key].filter(Boolean).join(' '), { size: 10.5, anchor: 'end', opacity: 0.65 }))
+        })
+      })
+      return mx_finish('er', shapes, Math.max(...cards.map((card) => card.x + card.width)) + 18, Math.max(...cards.map((card) => card.y + card.height)) + 18, 'ER 图')
+    }
+
+    function renderPie(lines) {
+      let title = ''
+      const entries = []
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const head = /^title\s+(.*)$/i.exec(source)
+        if (head) { title = mx_cleanLabel(head[1]); return }
+        if (/^showData\b/i.test(source)) return
+        const entry = /^"([^"]*)"\s*:\s*([-+]?\d+(?:\.\d+)?)$/.exec(source) ?? /^'([^']*)'\s*:\s*([-+]?\d+(?:\.\d+)?)$/.exec(source) ?? /^([^:\s]+)\s*:\s*([-+]?\d+(?:\.\d+)?)$/.exec(source)
+        if (entry) entries.push({ label: mx_cleanLabel(entry[1]), value: Math.max(0, Number(entry[2])) })
+      })
+      if (!entries.length) mx_fail('饼图缺少数据项（形如 "标签" : 数值）')
+      const total = entries.reduce((sum, entry) => sum + entry.value, 0) || 1
+      const radius = 86
+      const cx = 128
+      const cy = 150
+      const shapes = mx_header(title || '饼图', `合计 ${total}`)
+      let angle = -Math.PI / 2
+      entries.forEach((entry, index) => {
+        const sweep = (entry.value / total) * Math.PI * 2
+        const end = angle + sweep
+        const sx = cx + radius * Math.cos(angle)
+        const sy = cy + radius * Math.sin(angle)
+        const ex = cx + radius * Math.cos(end)
+        const ey = cy + radius * Math.sin(end)
+        const color = MERMAID_PIE_COLORS[index % MERMAID_PIE_COLORS.length]
+        shapes.push(mx_path(`M ${cx} ${cy} L ${sx} ${sy} A ${radius} ${radius} 0 ${sweep > Math.PI ? 1 : 0} 1 ${ex} ${ey} Z`, { fill: color, stroke: 'var(--alm-diagram-bg, #ffffff)', strokeWidth: 1.5 }))
+        if (sweep > 0.22) { const mid = angle + sweep / 2; shapes.push(mx_text(cx + radius * 0.62 * Math.cos(mid), cy + radius * 0.62 * Math.sin(mid), `${Math.round((entry.value / total) * 100)}%`, { size: 11, fill: '#ffffff', weight: 600 })) }
+        angle = end
+      })
+      entries.forEach((entry, index) => {
+        const legendY = 44 + index * 20
+        shapes.push(mx_rect(cx + radius + 34, legendY - 5, 10, 10, { fill: MERMAID_PIE_COLORS[index % MERMAID_PIE_COLORS.length], stroke: 'none', rx: 2 }))
+        shapes.push(mx_text(cx + radius + 50, legendY, `${entry.label}  ${entry.value}`, { size: 11, anchor: 'start' }))
+      })
+      return mx_finish('pie', shapes, cx + radius + 280, cy + radius + 26, title || '饼图')
+    }
+
+    function parseSequence(lines, type = 'sequence') {
+      const participants = new Map()
+      const messages = []
+      const notes = []
+      let title = ''
+      const add = (id, label, kind = 'participant') => {
+        const key = mx_cleanLabel(id)
+        if (!participants.has(key)) participants.set(key, { id: key, label: mx_cleanLabel(label) || key, kind })
+        return key
+      }
+      const message = (source) => {
+        const match = /^([^\s:]+)\s*(-->>|->>|-->|->|--x|-x|-\)|\.\.>>|\.\.>)\s*([^:]+):\s*(.*)$/.exec(source)
+        if (!match) return false
+        messages.push({ from: add(match[1], match[1]), to: add(match[3].trim(), match[3].trim()), label: mx_cleanLabel(match[4]), dashed: /--|\.\./.test(match[2]), async: />>/.test(match[2]) })
+        return true
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const titleMatch = /^title\s+(.*)$/i.exec(source)
+        if (titleMatch) { title = mx_cleanLabel(titleMatch[1]); return }
+        if (/^(autonumber|activate|deactivate|destroy|box|end box)\b/i.test(source)) return
+        if (/^(loop|alt|opt|par|critical|break|rect)\b/i.test(source)) {
+          const label = mx_cleanLabel(source.replace(/^(loop|alt|opt|par|critical|break|rect)\s*/i, ''))
+          if (label) messages.push({ kind: 'block', label })
+          return
+        }
+        if (/^end$/i.test(source)) return
+        if (/^(participant|actor)\s+/i.test(source)) {
+          const match = /^(participant|actor)\s+([^\s]+)(?:\s+as\s+(.*))?$/i.exec(source)
+          if (match) add(match[2], match[3] ?? match[2], match[1].toLowerCase())
+          return
+        }
+        const note = /^note\s+(over|left of|right of)\s+([^:]+):\s*(.*)$/i.exec(source)
+        if (note) { notes.push({ ids: note[2].split(',').map((id) => add(id.trim(), id.trim())), label: mx_cleanLabel(note[3]), position: note[1].toLowerCase() }); return }
+        if (message(source)) return
+        const method = /^([^\s.:]+)\.([\w$]+)\(\)$/.exec(source)
+        if (method) { add(method[1], method[1]); messages.push({ kind: 'block', label: method[2] }); return }
+        if (/^return\b/i.test(source)) { messages.push({ kind: 'block', label: mx_cleanLabel(source) }); return }
+        if (/^[^\s:]+$/.test(source)) add(source, source)
+      })
+      return { participants: [...participants.values()], messages, notes, title, type }
+    }
+
+    function renderSequence(data) {
+      const participants = data.participants.length ? data.participants : [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }]
+      const spacing = Math.max(150, Math.max(0, ...participants.map((entry) => mx_textWidth(entry.label) + 46)))
+      const indexOf = new Map(participants.map((entry, index) => [entry.id, index]))
+      const left = 26
+      const top = 58
+      const rowGap = 34
+      const xOf = (id) => left + (indexOf.get(id) ?? 0) * spacing + spacing / 2
+      const width = left * 2 + (participants.length - 1) * spacing + 30
+      const rows = data.messages.filter((entry) => entry.kind !== 'block')
+      const bottom = top + 12 + rows.length * rowGap + data.notes.length * rowGap + 40
+      const shapes = mx_header(data.title || '时序图', `${participants.length} 个参与者`)
+      participants.forEach((entry) => {
+        const cx = xOf(entry.id)
+        const boxWidth = Math.max(74, mx_textWidth(entry.label) + 30)
+        shapes.push(mx_rect(cx - boxWidth / 2, 30, boxWidth, entry.kind === 'actor' ? 30 : 26, { rx: entry.kind === 'actor' ? 15 : 6, fill: MERMAID_SOFT }))
+        shapes.push(...mx_textBlock(cx, 43, mx_wrap(entry.label, 14), { weight: 600, size: 11.5 }))
+        shapes.push(mx_line(cx, 60, cx, bottom, { dashed: true, arrow: false, stroke: 'rgba(127,137,153,.45)' }))
+      })
+      let y = top + 6
+      data.messages.forEach((entry) => {
+        if (entry.kind === 'block') {
+          shapes.push(mx_rect(left - 6, y - 10, width - left, 22, { fill: MERMAID_SOFT, stroke: 'none', rx: 4 }))
+          shapes.push(mx_text(left + 8, y, entry.label, { size: 10.5, anchor: 'start', weight: 600 }))
+          y += rowGap
+          return
+        }
+        const x1 = xOf(entry.from)
+        const x2 = xOf(entry.to)
+        if (entry.from === entry.to) {
+          shapes.push(mx_path(`M ${x1} ${y - 7} C ${x1 + 34} ${y - 24}, ${x1 + 34} ${y + 16}, ${x1} ${y + 7}`, { dashed: entry.dashed }))
+          shapes.push(mx_text(x1 + 42, y, entry.label, { size: 10.5, anchor: 'start' }))
+        } else {
+          shapes.push(mx_line(x1, y, x2, y, { dashed: entry.dashed, stroke: entry.async ? MERMAID_ACCENT : MERMAID_NODE_STROKE }))
+          shapes.push(mx_text((x1 + x2) / 2, y - 8, entry.label, { size: 10.5 }))
+        }
+        y += rowGap
+      })
+      data.notes.forEach((note) => {
+        const xs = note.ids.map((id) => xOf(id))
+        const noteWidth = Math.max(100, mx_textWidth(note.label) + 20)
+        const leftX = Math.min(...xs)
+        const rightX = Math.max(...xs)
+        const x = note.position === 'left of' ? leftX - noteWidth - 6 : note.position === 'right of' ? rightX + 6 : (leftX + rightX) / 2 - noteWidth / 2
+        shapes.push(mx_rect(x, y - 12, noteWidth, 24, { fill: 'rgba(231,176,75,.14)', stroke: 'rgba(231,176,75,.5)', rx: 4 }))
+        shapes.push(mx_text(x + noteWidth / 2, y, note.label, { size: 10.5 }))
+        y += rowGap
+      })
+      return mx_finish(data.type ?? 'sequence', shapes, width, Math.max(bottom, y + 18), data.title || (data.type === 'zenuml' ? 'Zenuml 时序' : '时序图'))
+    }
+
+    function parseClass(lines) {
+      const classes = new Map()
+      const relations = []
+      let current = null
+      const ensure = (id) => {
+        const key = mx_cleanLabel(id)
+        if (!classes.has(key)) classes.set(key, { id: key, members: [] })
+        return classes.get(key)
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        if (current) {
+          if (source === '}') { current = null; return }
+          if (!/^(class|note|end)\b/.test(source)) current.members.push(mx_cleanLabel(source))
+          return
+        }
+        const block = /^class\s+([A-Za-z_][\w-]*)\s*\{$/.exec(source)
+        if (block) { current = ensure(block[1]); return }
+        const declaration = /^class\s+([A-Za-z_][\w-]*)$/.exec(source)
+        if (declaration) { ensure(declaration[1]); return }
+        const member = /^([A-Za-z_][\w-]*)\s*:\s*(.+)$/.exec(source)
+        if (member) { ensure(member[1]).members.push(mx_cleanLabel(member[2])); return }
+        const relation = /^([A-Za-z_][\w-]*|"[^"]+")\s*(<\|--|--\|>|\*--|--\*|o--|--o|\.\.\|>|\.\.>|-->|<--|\.\.)\s*([A-Za-z_][\w-]*|"[^"]+")(?:\s*:\s*(.*))?$/.exec(source)
+        if (relation) relations.push({ from: ensure(relation[1]).id, to: ensure(relation[3]).id, arrow: relation[2], label: mx_cleanLabel(relation[4] ?? '') })
+      })
+      return { classes: [...classes.values()], relations }
+    }
+
+    function renderClass(data) {
+      const cards = new Map()
+      data.classes.forEach((entry) => {
+        const card = mx_nodeSize(entry.id, { maxChars: 22, minWidth: 140 })
+        card.id = entry.id
+        card.members = entry.members
+        card.height = 30 + Math.max(1, entry.members.length) * 17
+        cards.set(entry.id, card)
+      })
+      const columns = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(data.classes.length))))
+      let x = 18
+      let y = 18
+      let rowHeight = 0
+      data.classes.forEach((entry, index) => {
+        const card = cards.get(entry.id)
+        if (index > 0 && index % columns === 0) { x = 18; y += rowHeight + 36; rowHeight = 0 }
+        card.x = x
+        card.y = y
+        x += card.width + 40
+        rowHeight = Math.max(rowHeight, card.height)
+      })
+      const shapes = []
+      data.relations.forEach((relation) => {
+        const from = cards.get(relation.from)
+        const to = cards.get(relation.to)
+        const [x1, y1] = mx_borderPoint(from, to.x + to.width / 2, to.y + to.height / 2)
+        const [x2, y2] = mx_borderPoint(to, from.x + from.width / 2, from.y + from.height / 2)
+        shapes.push(mx_line(x1, y1, x2, y2, { dashed: /\.\./.test(relation.arrow), stroke: MERMAID_ACCENT }))
+        if (relation.label) shapes.push(mx_text((x1 + x2) / 2, (y1 + y2) / 2 - 7, relation.label, { size: 10.5 }))
+      })
+      data.classes.forEach((entry) => {
+        const card = cards.get(entry.id)
+        shapes.push(mx_rect(card.x, card.y, card.width, card.height, { fill: 'rgba(127,137,153,.05)' }))
+        shapes.push(mx_rect(card.x, card.y, card.width, 24, { fill: MERMAID_SOFT, rx: 6 }))
+        shapes.push(mx_text(card.x + card.width / 2, card.y + 13, entry.id, { weight: 600, size: 12 }))
+        entry.members.forEach((memberText, index) => shapes.push(mx_text(card.x + 10, card.y + 38 + index * 17, memberText, { size: 10.5, anchor: 'start', mono: true })))
+      })
+      return mx_finish('class', shapes, Math.max(...[...cards.values()].map((card) => card.x + card.width)) + 18, Math.max(...[...cards.values()].map((card) => card.y + card.height)) + 18, '类图')
+    }
+
+    function parseState(lines) {
+      const states = new Map()
+      const transitions = []
+      const ensure = (id) => {
+        const key = mx_cleanLabel(id)
+        if (key === '[*]') return key
+        if (!states.has(key)) states.set(key, { id: key, label: key })
+        return key
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%') || /^(direction|classDef|class|style|note)\b/.test(source)) return
+        const declaration = /^state\s+"([^"]*)"\s+as\s+([A-Za-z_][\w-]*)$/.exec(source)
+        if (declaration) { const key = ensure(declaration[2]); states.get(key).label = mx_cleanLabel(declaration[1]); return }
+        const simple = /^state\s+([A-Za-z_][\w-]*)\s*\{?$/.exec(source)
+        if (simple) { ensure(simple[1]); return }
+        if (source === '}') return
+        const transition = /^(\[\*\]|[A-Za-z_][\w-]*)\s*-->\s*(\[\*\]|[A-Za-z_][\w-]*)(?:\s*:\s*(.*))?$/.exec(source)
+        if (transition) transitions.push({ from: ensure(transition[1]), to: ensure(transition[2]), label: mx_cleanLabel(transition[3] ?? '') })
+      })
+      const nodes = [...states.values()]
+      let start = 0
+      let end = 0
+      transitions.forEach((transition) => {
+        if (transition.from === '[*]') { const id = `start_${start++}`; nodes.push({ id, label: '', kind: 'start' }); transition.from = id }
+        if (transition.to === '[*]') { const id = `end_${end++}`; nodes.push({ id, label: '', kind: 'end' }); transition.to = id }
+      })
+      return { nodes, edges: transitions }
+    }
+
+    function parseRequirement(lines) {
+      const requirements = new Map()
+      const relations = []
+      let current = null
+      const ensure = (id) => {
+        const key = mx_cleanLabel(id)
+        if (!requirements.has(key)) requirements.set(key, { id: key, fields: [] })
+        return requirements.get(key)
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        if (current) {
+          if (source === '}') { current = null; return }
+          const field = /^([A-Za-z_][\w-]*)\s*:\s*(.+)$/.exec(source)
+          if (field) current.fields.push({ key: field[1], value: mx_cleanLabel(field[2]) })
+          return
+        }
+        const block = /^(requirement|element|functionalRequirement|performanceRequirement|interfaceRequirement|physicalRequirement|designConstraint)\s+([A-Za-z_][\w-]*)\s*\{$/.exec(source)
+        if (block) { current = ensure(block[2]); return }
+        const relation = /^([A-Za-z_][\w-]*)\s*-\s*(contains|copies|derives|satisfies|verifies|refines|traces|dependsOn)\s*->\s*([A-Za-z_][\w-]*)$/.exec(source)
+        if (relation) { ensure(relation[1]); ensure(relation[3]); relations.push({ from: relation[1], to: relation[3], label: relation[2] }) }
+      })
+      return { requirements: [...requirements.values()], relations }
+    }
+
+    function renderRequirement(data) {
+      const nodes = data.requirements.map((entry) => ({ id: entry.id, label: entry.id, kind: 'rect', fields: entry.fields }))
+      const rows = new Map(nodes.map((node) => [node.id, Math.max(1, node.fields.length)]))
+      const layout = mx_layoutGraph(nodes, data.relations, { direction: 'TB', maxChars: 20, minWidth: 150, padded: (node) => rows.get(node.id) * 16 + 8 })
+      const shapes = []
+      data.relations.forEach((relation) => {
+        const from = layout.positions.get(relation.from)
+        const to = layout.positions.get(relation.to)
+        if (!from || !to) return
+        const [x1, y1] = mx_borderPoint(from, to.x + to.width / 2, to.y + to.height / 2)
+        const [x2, y2] = mx_borderPoint(to, from.x + from.width / 2, from.y + from.height / 2)
+        shapes.push(mx_line(x1, y1, x2, y2, { stroke: MERMAID_ACCENT }))
+        shapes.push(mx_text((x1 + x2) / 2, (y1 + y2) / 2 - 7, relation.label, { size: 10.5 }))
+      })
+      nodes.forEach((node) => {
+        const box = layout.positions.get(node.id)
+        if (!box) return
+        shapes.push(mx_rect(box.x, box.y, box.width, box.height, { fill: 'rgba(127,137,153,.05)' }))
+        shapes.push(mx_rect(box.x, box.y, box.width, 26, { fill: MERMAID_SOFT, rx: 6 }))
+        shapes.push(mx_text(box.x + box.width / 2, box.y + 14, node.id, { weight: 600, size: 11.5 }))
+        node.fields.forEach((field, index) => shapes.push(mx_text(box.x + 10, box.y + 40 + index * 16, `${field.key}: ${field.value}`, { size: 10, anchor: 'start' })))
+      })
+      return mx_finish('requirement', shapes, layout.width, layout.height, '需求图')
+    }
+
+    function parseC4(lines) {
+      const nodes = new Map()
+      const edges = []
+      const ensure = (alias, label) => {
+        const key = mx_cleanLabel(alias)
+        if (!nodes.has(key)) nodes.set(key, { id: key, label: mx_cleanLabel(label) || key })
+        return key
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%') || /^(title|UpdateLayoutConfig|UpdateRelStyle|UpdateElementStyle|Boundary|Enterprise_Boundary|System_Boundary|Container_Boundary)\b/.test(source)) return
+        const element = /^(Person|System|System_Ext|SystemDb|SystemDb_Ext|Container|Container_Ext|ContainerDb|ContainerDb_Ext|Component|Component_Ext|Node|Node_Ext)\s*\(\s*([^,]+?)\s*,\s*"([^"]*)"(?:,\s*"([^"]*)")?/.exec(source)
+        if (element) { ensure(element[2], element[3]); return }
+        const relation = /^Rel(?:_[A-Za-z]+)?\s*\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*"([^"]*)"/.exec(source)
+        if (relation) edges.push({ from: ensure(relation[1], relation[1]), to: ensure(relation[2], relation[2]), label: mx_cleanLabel(relation[3]) })
+      })
+      return { nodes: [...nodes.values()], edges }
+    }
+
+    function parseMindmap(lines) {
+      const raw = []
+      lines.slice(1).forEach((entry) => {
+        if (!String(entry ?? '').trim() || String(entry).trim().startsWith('%%')) return
+        const indent = String(entry).replace(/\t/g, '  ').match(/^ */)[0].length
+        const label = mx_cleanLabel(String(entry).trim().replace(/^[+*.-]\s*/, '').replace(/^\(\[|\]\)$/g, '').replace(/^\(\(|\)\)$/g, '').replace(/^\[\[|\]\]$/g, '').replace(/^\[|\]$/g, '').replace(/^\(|\)$/g, '').replace(/^\{\{|\}\}$/g, ''))
+        if (label) raw.push({ indent, label })
+      })
+      const levels = [...new Set(raw.map((entry) => entry.indent))].sort((a, b) => a - b)
+      return raw.map((entry, index) => ({ id: `n${index}`, label: entry.label, depth: levels.indexOf(entry.indent) }))
+    }
+
+    function renderMindmap(nodes) {
+      const shapes = []
+      const startX = 40
+      let y = 18
+      nodes.forEach((node, index) => {
+        const x = startX + node.depth * 34
+        const size = mx_nodeSize(node.label, { maxChars: 18, minWidth: 90 })
+        shapes.push(mx_rect(x, y, size.width, size.height, { rx: 6, fill: node.depth === 0 ? MERMAID_ACCENT_FILL : MERMAID_NODE_FILL }))
+        shapes.push(...mx_textBlock(x + size.width / 2, y + size.height / 2, size.lines, { weight: node.depth === 0 ? 600 : 400 }))
+        if (index > 0) {
+          const parent = [...nodes.slice(0, index)].reverse().find((candidate) => candidate.depth === node.depth - 1)
+          if (parent && parent.rowY !== undefined) {
+            const parentSize = mx_nodeSize(parent.label, { maxChars: 18, minWidth: 90 })
+            const px = startX + parent.depth * 34 + parentSize.width
+            shapes.push(mx_path(`M ${px} ${parent.rowY + parentSize.height / 2} C ${px + 18} ${parent.rowY + parentSize.height / 2}, ${x - 18} ${y + size.height / 2}, ${x} ${y + size.height / 2}`, { stroke: MERMAID_NODE_STROKE }))
+          }
+        }
+        node.rowY = y
+        y += Math.max(38, size.height + 10)
+      })
+      const width = Math.max(240, ...nodes.map((node) => startX + node.depth * 34 + mx_nodeSize(node.label, { minWidth: 90 }).width + 20))
+      return mx_finish('mindmap', shapes, width, y + 10, '思维导图')
+    }
+
+    function parseTimeline(lines) {
+      const rows = []
+      let title = ''
+      let section = ''
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const titleMatch = /^title\s+(.*)$/i.exec(source)
+        if (titleMatch) { title = mx_cleanLabel(titleMatch[1]); return }
+        const sectionMatch = /^section\s+(.*)$/i.exec(source)
+        if (sectionMatch) { section = mx_cleanLabel(sectionMatch[1]); return }
+        const parts = source.split(/\s*:\s*/).filter(Boolean)
+        if (parts.length >= 2) rows.push({ time: mx_cleanLabel(parts[0]), events: parts.slice(1).map(mx_cleanLabel), section })
+      })
+      return { rows, title }
+    }
+
+    function renderTimeline(data) {
+      const rows = data.rows.length ? data.rows : [{ time: '—', events: [] }]
+      const shapes = mx_header(data.title || '时间线', `${rows.length} 个节点`)
+      const startY = 44
+      shapes.push(mx_line(30, startY + 8, 60 + rows.length * 150, startY + 8, { arrow: false, stroke: 'rgba(127,137,153,.45)' }))
+      rows.forEach((row, index) => {
+        const x = 60 + index * 150
+        shapes.push(mx_circle(x, startY + 8, 6, { fill: MERMAID_ACCENT, stroke: MERMAID_ACCENT }))
+        shapes.push(mx_text(x, startY - 2, row.time, { size: 11, weight: 600 }))
+        row.events.forEach((event, eventIndex) => {
+          const boxY = startY + 22 + eventIndex * 22
+          shapes.push(mx_rect(x - 66, boxY, 132, 18, { rx: 4 }))
+          shapes.push(mx_text(x, boxY + 9, event, { size: 10.5 }))
+        })
+      })
+      return mx_finish('timeline', shapes, 80 + rows.length * 150, startY + 26 + Math.max(1, ...rows.map((row) => row.events.length)) * 22 + 10, data.title || '时间线')
+    }
+
+    function parseGantt(lines) {
+      const tasks = []
+      let title = ''
+      let section = ''
+      const base = Date.UTC(2024, 0, 1)
+      const dateOf = (value) => {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+        return match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const titleMatch = /^title\s+(.*)$/i.exec(source)
+        if (titleMatch) { title = mx_cleanLabel(titleMatch[1]); return }
+        const sectionMatch = /^section\s+(.*)$/i.exec(source)
+        if (sectionMatch) { section = mx_cleanLabel(sectionMatch[1]); return }
+        if (/^(dateFormat|axisFormat|excludes|todayMarker|tickInterval|weekday)\b/.test(source)) return
+        const parts = source.split(/\s*:\s*/)
+        if (parts.length < 2) return
+        const name = mx_cleanLabel(parts[0])
+        const spec = parts.slice(1).join(':').split(',').map((entry) => entry.trim()).filter(Boolean)
+        if (!name || !spec.length) return
+        const startEntry = spec.map(dateOf).find((value) => value !== null)
+        const durationText = spec.find((entry) => /^\d+(\.\d+)?[dhmw]$/i.test(entry))
+        const duration = durationText ? Number.parseFloat(durationText) * (/d$/i.test(durationText) ? 1 : /w$/i.test(durationText) ? 7 : 1 / 24) : 1
+        tasks.push({ name, section, start: startEntry ?? (base + tasks.length * 86400000), duration: Math.max(0.4, duration), milestone: spec.some((entry) => /^milestone$/i.test(entry)) })
+      })
+      return { tasks, title }
+    }
+
+    function renderGantt(data) {
+      const tasks = data.tasks.length ? data.tasks : [{ name: '（无任务）', start: 0, duration: 1, section: '' }]
+      const min = Math.min(...tasks.map((task) => task.start))
+      const max = Math.max(...tasks.map((task) => task.start + task.duration * 86400000))
+      const span = Math.max(86400000, max - min)
+      const labelWidth = 150
+      const chartWidth = 420
+      const rowHeight = 30
+      const top = 44
+      const shapes = mx_header(data.title || '甘特图', `${tasks.length} 项`)
+      let row = 0
+      let lastSection = null
+      tasks.forEach((task) => {
+        if (task.section && task.section !== lastSection) {
+          shapes.push(mx_text(16, top + row * rowHeight - 9, task.section, { size: 10.5, anchor: 'start', weight: 600, opacity: 0.7 }))
+          lastSection = task.section
+          row += 0.5
+        }
+        const y = top + row * rowHeight
+        shapes.push(mx_text(16, y + 15, task.name, { size: 11, anchor: 'start' }))
+        const x = labelWidth + ((task.start - min) / span) * chartWidth
+        const width = Math.max(task.milestone ? 10 : 6, (task.duration * 86400000 / span) * chartWidth)
+        if (task.milestone) shapes.push(mx_polygon([[x, y + 8], [x + 9, y + 15], [x, y + 22], [x - 9, y + 15]], { fill: MERMAID_ACCENT, stroke: MERMAID_ACCENT }))
+        else shapes.push(mx_rect(x, y + 6, width, 18, { rx: 4, fill: 'rgba(77,107,254,.28)', stroke: MERMAID_ACCENT }))
+        row += 1
+      })
+      return mx_finish('gantt', shapes, labelWidth + chartWidth + 30, top + row * rowHeight + 16, data.title || '甘特图')
+    }
+
+    function parseJourney(lines) {
+      const rows = []
+      let title = ''
+      let section = ''
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const titleMatch = /^title\s+(.*)$/i.exec(source)
+        if (titleMatch) { title = mx_cleanLabel(titleMatch[1]); return }
+        const sectionMatch = /^section\s+(.*)$/i.exec(source)
+        if (sectionMatch) { section = mx_cleanLabel(sectionMatch[1]); return }
+        const match = /^(.+?)\s*:\s*(\d+)\s*:\s*(.*)$/.exec(source)
+        if (match) rows.push({ name: mx_cleanLabel(match[1]), score: Math.max(0, Math.min(5, Number(match[2]))), actors: match[3].split(',').map(mx_cleanLabel).filter(Boolean), section })
+      })
+      return { rows, title }
+    }
+
+    function renderJourney(data) {
+      const shapes = mx_header(data.title || '用户旅程', `${data.rows.length} 步`)
+      let y = 44
+      let lastSection = null
+      data.rows.forEach((row) => {
+        if (row.section && row.section !== lastSection) { shapes.push(mx_text(16, y, row.section, { size: 10.5, anchor: 'start', weight: 600, opacity: 0.7 })); y += 20; lastSection = row.section }
+        shapes.push(mx_text(16, y + 9, row.name, { size: 11, anchor: 'start' }))
+        for (let index = 0; index < 5; index += 1) shapes.push(mx_rect(170 + index * 22, y + 1, 17, 16, { rx: 3, fill: index < row.score ? 'rgba(231,176,75,.55)' : MERMAID_SOFT, stroke: index < row.score ? 'rgba(231,176,75,.8)' : MERMAID_NODE_STROKE }))
+        shapes.push(mx_text(286, y + 9, row.actors.join('、'), { size: 10.5, anchor: 'start', opacity: 0.75 }))
+        y += 28
+      })
+      return mx_finish('journey', shapes, 560, Math.max(178, y + 20), data.title || '用户旅程')
+    }
+
+    function parseGit(lines) {
+      const commits = []
+      const branches = new Map([['main', 0]])
+      let current = 'main'
+      let lane = 1
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const branch = /^branch\s+([A-Za-z0-9_./-]+)/.exec(source)
+        if (branch) { if (!branches.has(branch[1])) branches.set(branch[1], lane++); current = branch[1]; return }
+        const checkout = /^(checkout|switch)\s+([A-Za-z0-9_./-]+)/.exec(source)
+        if (checkout) { if (!branches.has(checkout[2])) branches.set(checkout[2], lane++); current = checkout[2]; return }
+        if (/^commit\b/.test(source)) {
+          const id = /id:\s*"([^"]+)"/.exec(source)?.[1] ?? /id:\s*([^\s,]+)/.exec(source)?.[1] ?? `c${commits.length + 1}`
+          const tag = /tag:\s*"([^"]+)"/.exec(source)?.[1] ?? ''
+          commits.push({ id: mx_cleanLabel(id), branch: current, tag: mx_cleanLabel(tag), type: 'commit' })
+          return
+        }
+        const merge = /^merge\s+([A-Za-z0-9_./-]+)/.exec(source)
+        if (merge) commits.push({ id: `merge ${merge[1]}`, branch: current, merge: true })
+      })
+      return { commits, branches: [...branches.entries()] }
+    }
+
+    function renderGit(data) {
+      const commits = data.commits.length ? data.commits : [{ id: 'commit', branch: 'main' }]
+      const laneOf = new Map(data.branches)
+      const top = 50
+      const laneGap = 34
+      const xGap = Math.min(110, Math.max(60, 520 / Math.max(1, commits.length)))
+      const shapes = mx_header('Git 图', `${data.branches.length} 条分支`)
+      data.branches.forEach(([name, lane]) => {
+        const y = top + lane * laneGap
+        shapes.push(mx_text(16, y, name, { size: 10.5, anchor: 'start', opacity: 0.7 }))
+        shapes.push(mx_line(64, y, 80 + commits.length * xGap, y, { arrow: false, stroke: 'rgba(127,137,153,.35)' }))
+      })
+      commits.forEach((commit, index) => {
+        const lane = laneOf.get(commit.branch) ?? 0
+        const x = 80 + index * xGap
+        const y = top + lane * laneGap
+        shapes.push(mx_circle(x, y, 5.5, { fill: commit.merge ? 'rgba(231,176,75,.9)' : MERMAID_ACCENT, stroke: commit.merge ? 'rgba(231,176,75,.9)' : MERMAID_ACCENT }))
+        if (index > 0) {
+          const prev = commits[index - 1]
+          const prevLane = laneOf.get(prev.branch) ?? 0
+          const prevX = 80 + (index - 1) * xGap
+          if (prevLane !== lane) shapes.push(mx_path(`M ${prevX} ${top + prevLane * laneGap} C ${prevX + xGap / 2} ${top + prevLane * laneGap}, ${x - xGap / 2} ${y}, ${x} ${y}`, { stroke: MERMAID_NODE_STROKE }))
+          else shapes.push(mx_line(prevX + 5.5, y, x - 5.5, y, { arrow: false, stroke: MERMAID_NODE_STROKE }))
+        }
+        shapes.push(mx_text(x, y + 20, commit.id, { size: 10 }))
+        if (commit.tag) shapes.push(mx_text(x, y - 15, `tag: ${commit.tag}`, { size: 10, opacity: 0.75 }))
+      })
+      return mx_finish('git', shapes, 100 + commits.length * xGap, top + data.branches.length * laneGap + 34, 'Git 图')
+    }
+
+    function parseQuadrant(lines) {
+      const points = []
+      const result = { points, title: '', xLeft: '低', xRight: '高', yLow: '低', yHigh: '高' }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const titleMatch = /^title\s+(.*)$/i.exec(source)
+        if (titleMatch) { result.title = mx_cleanLabel(titleMatch[1]); return }
+        const xAxis = /^x-axis\s+(.*)$/i.exec(source)
+        if (xAxis) { const labels = xAxis[1].split(/\s*-->\s*/); result.xLeft = mx_cleanLabel(labels[0] ?? '低'); result.xRight = mx_cleanLabel(labels[1] ?? '高'); return }
+        const yAxis = /^y-axis\s+(.*)$/i.exec(source)
+        if (yAxis) { const labels = yAxis[1].split(/\s*-->\s*/); result.yLow = mx_cleanLabel(labels[0] ?? '低'); result.yHigh = mx_cleanLabel(labels[1] ?? '高'); return }
+        if (/^quadrant-\d/.test(source)) return
+        const point = /^(.+?)\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]$/.exec(source)
+        if (point) points.push({ label: mx_cleanLabel(point[1]), x: Math.max(0, Math.min(1, Number(point[2]))), y: Math.max(0, Math.min(1, Number(point[3]))) })
+      })
+      return result
+    }
+
+    function renderQuadrant(data) {
+      const size = 240
+      const left = 54
+      const top = 40
+      const shapes = mx_header(data.title || '象限图', `${data.points.length} 个点`)
+      shapes.push(mx_rect(left, top, size, size, { fill: 'rgba(127,137,153,.04)' }))
+      shapes.push(mx_line(left + size / 2, top, left + size / 2, top + size, { arrow: false, stroke: 'rgba(127,137,153,.35)' }))
+      shapes.push(mx_line(left, top + size / 2, left + size, top + size / 2, { arrow: false, stroke: 'rgba(127,137,153,.35)' }))
+      shapes.push(mx_text(left, top + size + 16, data.xLeft, { size: 10.5, anchor: 'start', opacity: 0.7 }))
+      shapes.push(mx_text(left + size, top + size + 16, data.xRight, { size: 10.5, anchor: 'end', opacity: 0.7 }))
+      shapes.push(mx_text(left - 8, top, data.yHigh, { size: 10.5, anchor: 'end', opacity: 0.7 }))
+      shapes.push(mx_text(left - 8, top + size, data.yLow, { size: 10.5, anchor: 'end', opacity: 0.7 }))
+      data.points.forEach((point) => {
+        const x = left + point.x * size
+        const y = top + (1 - point.y) * size
+        shapes.push(mx_circle(x, y, 4.5, { fill: MERMAID_ACCENT, stroke: MERMAID_ACCENT }))
+        shapes.push(mx_text(x + 7, y - 8, point.label, { size: 10, anchor: 'start' }))
+      })
+      return mx_finish('quadrant', shapes, left + size + 120, top + size + 42, data.title || '象限图')
+    }
+
+    function parseXychart(lines) {
+      const data = { title: '', xLabels: [], yTitle: '', min: 0, max: 100, bars: null, line: null }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const titleMatch = /^title\s+(.*)$/i.exec(source)
+        if (titleMatch) { data.title = mx_cleanLabel(titleMatch[1]); return }
+        const xAxis = /^x-axis\s+(.*)$/i.exec(source)
+        if (xAxis) { const bracket = /\[(.*)\]/.exec(xAxis[1]); data.xLabels = (bracket ? bracket[1] : xAxis[1]).split(',').map(mx_cleanLabel).filter(Boolean); return }
+        const yAxis = /^y-axis\s+(.*)$/i.exec(source)
+        if (yAxis) {
+          const quoted = /"([^"]*)"/.exec(yAxis[1])
+          if (quoted) data.yTitle = quoted[1]
+          const range = /([\d.]+)\s*-->\s*([\d.]+)/.exec(yAxis[1])
+          if (range) { data.min = Number(range[1]); data.max = Number(range[2]) }
+          return
+        }
+        const bars = /^bar\s+\[(.*)\]$/.exec(source)
+        if (bars) { data.bars = bars[1].split(',').map((value) => Number(value.trim())).filter(Number.isFinite); return }
+        const lineData = /^line\s+\[(.*)\]$/.exec(source)
+        if (lineData) data.line = lineData[1].split(',').map((value) => Number(value.trim())).filter(Number.isFinite)
+      })
+      return data
+    }
+
+    function renderXychart(data) {
+      const series = data.bars ?? data.line ?? []
+      const values = [...(data.bars ?? []), ...(data.line ?? [])]
+      const min = Math.min(data.min, 0)
+      const max = Math.max(data.max, ...values, 1)
+      const left = 54
+      const top = 46
+      const width = 360
+      const height = 190
+      const shapes = mx_header(data.title || 'XY 图表', data.yTitle)
+      shapes.push(mx_line(left, top, left, top + height, { arrow: false, stroke: MERMAID_NODE_STROKE }))
+      shapes.push(mx_line(left, top + height, left + width, top + height, { arrow: false, stroke: MERMAID_NODE_STROKE }))
+      const scaleY = (value) => top + height - ((value - min) / (max - min || 1)) * height
+      const slot = width / Math.max(1, series.length)
+      ;(data.bars ?? []).forEach((value, index) => {
+        const x = left + index * slot + slot * 0.2
+        const barWidth = slot * 0.6
+        shapes.push(mx_rect(x, scaleY(value), barWidth, top + height - scaleY(value), { fill: 'rgba(77,107,254,.35)', stroke: MERMAID_ACCENT, rx: 2 }))
+        shapes.push(mx_text(x + barWidth / 2, scaleY(value) - 6, String(value), { size: 9.5 }))
+      })
+      if (data.line) {
+        const points = data.line.map((value, index) => [left + index * slot + slot / 2, scaleY(value)])
+        shapes.push({ tag: 'polyline', attrs: { points: points.map(([x, y]) => `${mx_round(x)},${mx_round(y)}`).join(' '), fill: 'none', stroke: '#e7b04b', 'stroke-width': 1.6 } })
+        points.forEach(([x, y]) => shapes.push(mx_circle(x, y, 3, { fill: '#e7b04b', stroke: '#e7b04b' })))
+      }
+      data.xLabels.forEach((label, index) => shapes.push(mx_text(left + index * slot + slot / 2, top + height + 16, label, { size: 9.5, opacity: 0.75 })))
+      shapes.push(mx_text(left - 8, top, String(max), { size: 9.5, anchor: 'end', opacity: 0.65 }))
+      shapes.push(mx_text(left - 8, top + height, String(min), { size: 9.5, anchor: 'end', opacity: 0.65 }))
+      return mx_finish('xychart', shapes, left + width + 24, top + height + 42, data.title || 'XY 图表')
+    }
+
+    function parseSankey(lines) {
+      const links = []
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const match = /^"?([^",]+)"?\s*,\s*"?([^",]+)"?\s*,\s*([\d.]+)$/.exec(source)
+        if (match) links.push({ from: mx_cleanLabel(match[1]), to: mx_cleanLabel(match[2]), value: Number(match[3]) })
+      })
+      return links
+    }
+
+    function renderSankey(links) {
+      const total = links.reduce((sum, link) => sum + link.value, 0) || 1
+      const sources = [...new Set(links.map((link) => link.from))]
+      const targets = [...new Set(links.map((link) => link.to))]
+      const leftX = 90
+      const rightX = 500
+      const top = 50
+      const height = Math.max(170, Math.max(sources.length, targets.length) * 46 + 60)
+      const shapes = mx_header('桑基图', `${links.length} 条流量`)
+      const place = (items, side) => {
+        const usable = height - top - 20
+        let cursor = top
+        return new Map(items.map((id) => {
+          const value = links.filter((link) => (side === 'left' ? link.from : link.to) === id).reduce((sum, link) => sum + link.value, 0)
+          const boxHeight = Math.max(12, (value / total) * usable)
+          const box = { id, x: side === 'left' ? leftX : rightX, y: cursor, height: boxHeight }
+          cursor += boxHeight + 8
+          return [id, box]
+        }))
+      }
+      const sourceBoxes = place(sources, 'left')
+      const targetBoxes = place(targets, 'right')
+      links.forEach((link, index) => {
+        const from = sourceBoxes.get(link.from)
+        const to = targetBoxes.get(link.to)
+        if (!from || !to) return
+        const thickness = Math.max(3, (link.value / total) * (height - top - 20))
+        const color = MERMAID_PIE_COLORS[index % MERMAID_PIE_COLORS.length]
+        shapes.push(mx_path(`M ${from.x + 12} ${from.y} C ${from.x + 140} ${from.y}, ${to.x - 140} ${to.y}, ${to.x} ${to.y} L ${to.x} ${to.y + thickness} C ${to.x - 140} ${to.y + thickness}, ${from.x + 140} ${from.y + thickness}, ${from.x + 12} ${from.y + thickness} Z`, { fill: color, stroke: 'none', opacity: 0.35 }))
+      })
+      ;[[sourceBoxes, true], [targetBoxes, false]].forEach(([boxes, isLeft]) => boxes.forEach((box) => {
+        shapes.push(mx_rect(box.x, box.y, 12, box.height, { fill: 'rgba(127,137,153,.45)', stroke: MERMAID_NODE_STROKE, rx: 3 }))
+        shapes.push(mx_text(isLeft ? box.x - 6 : box.x + 18, box.y + box.height / 2, box.id, { size: 10.5, anchor: isLeft ? 'end' : 'start' }))
+      }))
+      return mx_finish('sankey', shapes, 620, height, '桑基图')
+    }
+
+    function parsePacket(lines) {
+      const fields = []
+      let title = ''
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const titleMatch = /^title\s+(.*)$/i.exec(source)
+        if (titleMatch) { title = mx_cleanLabel(titleMatch[1]); return }
+        const field = /^([\d]+)\s*-\s*([\d]+)\s*:\s*(.+)$/.exec(source)
+        if (field) fields.push({ start: Number(field[1]), end: Number(field[2]), label: mx_cleanLabel(field[3]) })
+      })
+      return { fields, title }
+    }
+
+    function renderPacket(data) {
+      const fields = data.fields.length ? data.fields : [{ start: 0, end: 31, label: '（无字段）' }]
+      const total = Math.max(...fields.map((field) => field.end)) + 1 || 32
+      const width = 540
+      const left = 22
+      const shapes = mx_header(data.title || '数据包图', `${total} 位`)
+      let x = left
+      fields.forEach((field, index) => {
+        const fieldWidth = Math.max(24, ((field.end - field.start + 1) / total) * width)
+        shapes.push(mx_rect(x, 42, fieldWidth, 54, { rx: 0, fill: index % 2 ? 'rgba(127,137,153,.10)' : 'rgba(77,107,254,.10)' }))
+        shapes.push(mx_text(x + fieldWidth / 2, 58, `${field.start}–${field.end}`, { size: 9.5, opacity: 0.7 }))
+        shapes.push(...mx_textBlock(x + fieldWidth / 2, 80, mx_wrap(field.label, Math.max(5, Math.floor(fieldWidth / 7))), { size: 10.5 }))
+        x += fieldWidth
+      })
+      shapes.push(mx_text(left, 112, '0', { size: 9.5, anchor: 'start', opacity: 0.65 }))
+      shapes.push(mx_text(left + width, 112, String(total - 1), { size: 9.5, anchor: 'end', opacity: 0.65 }))
+      return mx_finish('packet', shapes, width + 44, 132, data.title || '数据包图')
+    }
+
+    function parseKanban(lines) {
+      const columns = []
+      let current = null
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const column = /^column\s+([A-Za-z_][\w-]*)(?:\["([^"]*)"\]|\[([^\]]*)\])?$/.exec(source)
+        if (column) { current = { label: mx_cleanLabel(column[2] ?? column[3] ?? column[1]), cards: [] }; columns.push(current); return }
+        if (!current) { current = { label: '未分组', cards: [] }; columns.push(current) }
+        const card = /^[A-Za-z_][\w-]*\s*\["([^"]*)"\]$/.exec(source)?.[1] ?? /^[A-Za-z_][\w-]*\s*\[([^\]]*)\]$/.exec(source)?.[1] ?? mx_cleanLabel(source)
+        if (card) current.cards.push(mx_cleanLabel(card))
+      })
+      return columns
+    }
+
+    function renderKanban(columns) {
+      const data = columns.length ? columns : [{ label: '待办', cards: [] }]
+      const columnWidth = 160
+      const gap = 16
+      const shapes = mx_header('看板', `${data.length} 列`)
+      let maxHeight = 150
+      data.forEach((column, index) => {
+        const x = 18 + index * (columnWidth + gap)
+        const height = 40 + column.cards.length * 30
+        maxHeight = Math.max(maxHeight, height + 58)
+        shapes.push(mx_rect(x, 38, columnWidth, height, { fill: 'rgba(127,137,153,.05)', rx: 8 }))
+        shapes.push(mx_text(x + 12, 54, column.label, { size: 11, anchor: 'start', weight: 600 }))
+        column.cards.forEach((card, cardIndex) => {
+          shapes.push(mx_rect(x + 8, 66 + cardIndex * 30, columnWidth - 16, 24, { rx: 5 }))
+          shapes.push(mx_text(x + 16, 78 + cardIndex * 30, card, { size: 10.5, anchor: 'start' }))
+        })
+      })
+      return mx_finish('kanban', shapes, 36 + data.length * (columnWidth + gap), maxHeight, '看板')
+    }
+
+    function parseRadar(lines) {
+      const axes = []
+      const curves = []
+      const result = { axes, curves, title: '', max: 5 }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const titleMatch = /^title\s+(.*)$/i.exec(source)
+        if (titleMatch) { result.title = mx_cleanLabel(titleMatch[1]); return }
+        const maxMatch = /^max\s+([\d.]+)$/i.exec(source)
+        if (maxMatch) { result.max = Number(maxMatch[1]); return }
+        const axis = /^axis\s+([^\s[]+)\s*\["([^"]*)"\]$/.exec(source)
+        if (axis) { axes.push(mx_cleanLabel(axis[2])); return }
+        const curve = /^curve\s+([^\s[]+)\s*(?:\["([^"]*)"\])?\s*\{([^}]*)\}$/.exec(source)
+        if (curve) curves.push({ label: mx_cleanLabel(curve[2] ?? curve[1]), values: curve[3].split(',').map((value) => Number(value.trim())).filter(Number.isFinite) })
+      })
+      return result
+    }
+
+    function renderRadar(data) {
+      const axes = data.axes.length ? data.axes : ['A', 'B', 'C']
+      const curves = data.curves.length ? data.curves : [{ label: '系列', values: axes.map(() => 1) }]
+      const cx = 190
+      const cy = 152
+      const radius = 96
+      const shapes = mx_header(data.title || '雷达图', `${curves.length} 个系列`)
+      const angleAt = (index) => -Math.PI / 2 + (index / axes.length) * Math.PI * 2
+      axes.forEach((label, index) => {
+        const angle = angleAt(index)
+        shapes.push(mx_line(cx, cy, cx + radius * Math.cos(angle), cy + radius * Math.sin(angle), { arrow: false, stroke: 'rgba(127,137,153,.35)' }))
+        shapes.push(mx_text(cx + (radius + 16) * Math.cos(angle), cy + (radius + 16) * Math.sin(angle), label, { size: 10.5 }))
+      })
+      curves.forEach((curve, curveIndex) => {
+        const points = axes.map((_, index) => {
+          const value = Math.max(0, Math.min(1, (curve.values[index] ?? 0) / (data.max || 1)))
+          const angle = angleAt(index)
+          return [cx + radius * value * Math.cos(angle), cy + radius * value * Math.sin(angle)]
+        })
+        shapes.push(mx_polygon(points, { fill: MERMAID_PIE_COLORS[curveIndex % MERMAID_PIE_COLORS.length], stroke: MERMAID_PIE_COLORS[curveIndex % MERMAID_PIE_COLORS.length], strokeWidth: 1.5, fillOpacity: 0.18 }))
+        shapes.push(mx_rect(18, 38 + curveIndex * 18, 10, 10, { fill: MERMAID_PIE_COLORS[curveIndex % MERMAID_PIE_COLORS.length], stroke: 'none', rx: 2 }))
+        shapes.push(mx_text(34, 43 + curveIndex * 18, curve.label, { size: 10.5, anchor: 'start' }))
+      })
+      return mx_finish('radar', shapes, 370, 300, data.title || '雷达图')
+    }
+
+    function parseTreemap(lines) {
+      const items = []
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const match = /^"?([^":]+)"?\s*:\s*([\d.]+)$/.exec(source)
+        if (match) items.push({ label: mx_cleanLabel(match[1]), value: Number(match[2]) })
+      })
+      return items
+    }
+
+    function renderTreemap(items) {
+      const data = items.length ? items : [{ label: '（无数据）', value: 1 }]
+      const total = data.reduce((sum, item) => sum + item.value, 0) || 1
+      const width = 460
+      const height = 230
+      const shapes = mx_header('矩形树图', `${data.length} 项`)
+      let y = 36
+      data.forEach((item, index) => {
+        const itemHeight = Math.max(22, (item.value / total) * height)
+        shapes.push(mx_rect(18, y, width - 18, itemHeight - 4, { rx: 4, fill: MERMAID_PIE_COLORS[index % MERMAID_PIE_COLORS.length], stroke: 'none', fillOpacity: 0.35 }))
+        shapes.push(mx_text(26, y + (itemHeight - 4) / 2, `${item.label}  ${item.value}`, { size: 10.5, anchor: 'start' }))
+        y += itemHeight
+      })
+      return mx_finish('treemap', shapes, width + 18, y + 12, '矩形树图')
+    }
+
+    function parseBlock(lines) {
+      const nodes = new Map()
+      const edges = []
+      let columns = 0
+      const ensure = (id, label) => {
+        if (!nodes.has(id)) nodes.set(id, { id, label: label ?? id })
+        return nodes.get(id)
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%')) return
+        const cols = /^columns\s+(\d+)$/.exec(source)
+        if (cols) { columns = Number(cols[1]); return }
+        if (/^(block|end|space|style|classDef|class)\b/.test(source)) return
+        const node = /^([A-Za-z_][\w-]*)\s*(?:\["([^"]*)"\]|\[([^\]]*)\]|\(([^)]*)\))?$/.exec(source)
+        if (node) { ensure(node[1], mx_cleanLabel(node[2] ?? node[3] ?? node[4] ?? node[1])); return }
+        const edge = /^([A-Za-z_][\w-]*)\s*-->\s*([A-Za-z_][\w-]*)(?:\s*:\s*(.*))?$/.exec(source)
+        if (edge) { ensure(edge[1]); ensure(edge[2]); edges.push({ from: edge[1], to: edge[2], label: mx_cleanLabel(edge[3] ?? '') }) }
+      })
+      return { nodes: [...nodes.values()], edges, columns }
+    }
+
+    function renderBlock(data) {
+      const nodes = data.nodes.length ? data.nodes : [{ id: 'block', label: '（无块）' }]
+      const columns = Math.max(1, data.columns || Math.min(3, Math.ceil(Math.sqrt(nodes.length))))
+      const cellWidth = 120
+      const cellHeight = 54
+      const gap = 14
+      const layout = nodes.map((node, index) => ({ node, x: 18 + (index % columns) * (cellWidth + gap), y: 38 + Math.floor(index / columns) * (cellHeight + gap) }))
+      const shapes = []
+      data.edges.forEach((edge) => {
+        const from = layout.find((entry) => entry.node.id === edge.from)
+        const to = layout.find((entry) => entry.node.id === edge.to)
+        if (from && to) shapes.push(mx_line(from.x + cellWidth / 2, from.y + cellHeight / 2, to.x + cellWidth / 2, to.y + cellHeight / 2, { stroke: MERMAID_ACCENT }))
+      })
+      layout.forEach((entry) => {
+        shapes.push(mx_rect(entry.x, entry.y, cellWidth, cellHeight, { rx: 6 }))
+        shapes.push(...mx_textBlock(entry.x + cellWidth / 2, entry.y + cellHeight / 2, mx_wrap(entry.node.label, 14)))
+      })
+      return mx_finish('block', shapes, 36 + columns * (cellWidth + gap), 56 + Math.ceil(nodes.length / columns) * (cellHeight + gap), '块图')
+    }
+
+    function parseArchitecture(lines) {
+      const nodes = new Map()
+      const edges = []
+      const ensure = (id, label) => {
+        if (!nodes.has(id)) nodes.set(id, { id, label: label ?? id })
+        return id
+      }
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? '').trim()
+        if (!source || source.startsWith('%%') || /^(title|accTitle|accDescr|group|end)\b/.test(source)) return
+        const edge = /^([A-Za-z_][\w-]*)(?::[A-Za-z])?\s*-->\s*[A-Za-z]?:?([A-Za-z_][\w-]*)$/.exec(source)
+        if (edge) { ensure(edge[1]); ensure(edge[2]); edges.push({ from: edge[1], to: edge[2] }); return }
+        const node = /^[A-Za-z_-]+\s+([A-Za-z_][\w-]*)(?:\([^)]*\))?(?:\[([^\]]*)\])?$/.exec(source)
+        if (node) ensure(node[1], mx_cleanLabel(node[2] ?? node[1]))
+      })
+      return { nodes: [...nodes.values()], edges }
+    }
+
+    function renderArchitecture(data) {
+      const nodes = data.nodes.length ? data.nodes : [{ id: 'service', label: '（无服务）' }]
+      const layout = new Map(nodes.map((node, index) => [node.id, { x: 18 + index * 150, y: 44, width: 130, height: 48 }]))
+      const shapes = []
+      data.edges.forEach((edge) => {
+        const from = layout.get(edge.from)
+        const to = layout.get(edge.to)
+        if (from && to) shapes.push(mx_line(from.x + from.width, from.y + from.height / 2, to.x, to.y + to.height / 2, { stroke: MERMAID_ACCENT }))
+      })
+      nodes.forEach((node) => {
+        const box = layout.get(node.id)
+        shapes.push(mx_rect(box.x, box.y, box.width, box.height, { rx: 6 }))
+        shapes.push(...mx_textBlock(box.x + box.width / 2, box.y + box.height / 2, mx_wrap(node.label, 14)))
+      })
+      return mx_finish('architecture', shapes, 36 + nodes.length * 150, 110, '架构图')
+    }
+
+    function mx_detectType(lines) {
+      const filtered = lines.filter((entry) => String(entry).trim() !== '' && !String(entry).trim().startsWith('%%'))
+      if (!filtered.length) mx_fail('图中没有可渲染的内容')
+      for (const [pattern, type] of MERMAID_TYPE_KEYWORDS) if (pattern.test(String(filtered[0]).trim())) return type
+      mx_fail(`暂不支持该 Mermaid 图类型：${String(filtered[0]).trim().split(/\s+/)[0]}`)
+    }
+
+    function buildMermaidDiagram(source) {
+      const text = String(source ?? '').replace(/\r\n?/g, '\n')
+      if (!text.trim()) return { ok: false, type: 'invalid', error: '图中没有可渲染的内容', source: text }
+      let lines = text.split('\n')
+      if (lines[0].trim() === '---') {
+        const end = lines.findIndex((entry, index) => index > 0 && entry.trim() === '---')
+        if (end > 0) lines = lines.slice(end + 1)
+      }
+      // Leading blanks and Mermaid init directives are not diagram content:
+      // every parser treats line 0 as the type declaration.
+      while (lines.length && (!lines[0].trim() || lines[0].trim().startsWith('%%'))) lines.shift()
+      try {
+        const type = mx_detectType(lines)
+        if (type === 'er') {
+          const data = parseEr(lines)
+          if (!data.entities.length) mx_fail('ER 图缺少实体定义')
+          return renderEr(data)
+        }
+        if (type === 'flow') {
+          const data = mx_parseFlow(lines)
+          if (!data.nodes.length) mx_fail('流程图缺少节点定义')
+          return mx_renderGraph(data.nodes, data.edges, { type: 'flow', direction: data.direction, label: '流程图' })
+        }
+        if (type === 'sequence') return renderSequence(parseSequence(lines))
+        if (type === 'zenuml') return renderSequence(parseSequence(lines, 'zenuml'))
+        if (type === 'class') {
+          const data = parseClass(lines)
+          if (!data.classes.length) mx_fail('类图缺少类定义')
+          return renderClass(data)
+        }
+        if (type === 'state') {
+          const data = parseState(lines)
+          if (!data.nodes.length) mx_fail('状态图缺少状态定义')
+          return mx_renderGraph(data.nodes, data.edges, { type: 'state', label: '状态图', direction: 'TB', maxChars: 14 })
+        }
+        if (type === 'pie') return renderPie(lines)
+        if (type === 'gantt') return renderGantt(parseGantt(lines))
+        if (type === 'journey') return renderJourney(parseJourney(lines))
+        if (type === 'timeline') return renderTimeline(parseTimeline(lines))
+        if (type === 'mindmap') {
+          const nodes = parseMindmap(lines)
+          if (!nodes.length) mx_fail('思维导图缺少节点')
+          return renderMindmap(nodes)
+        }
+        if (type === 'git') return renderGit(parseGit(lines))
+        if (type === 'requirement') {
+          const data = parseRequirement(lines)
+          if (!data.requirements.length) mx_fail('需求图缺少需求定义')
+          return renderRequirement(data)
+        }
+        if (type === 'c4') {
+          const data = parseC4(lines)
+          if (!data.nodes.length) mx_fail('C4 架构图缺少元素定义')
+          return mx_renderGraph(data.nodes, data.edges, { type: 'c4', direction: 'TB', label: MERMAID_TYPE_LABELS.c4, maxChars: 18, minWidth: 130 })
+        }
+        if (type === 'quadrant') return renderQuadrant(parseQuadrant(lines))
+        if (type === 'xychart') {
+          const data = parseXychart(lines)
+          if (!data.bars && !data.line) mx_fail('XY 图表缺少 bar / line 数据')
+          return renderXychart(data)
+        }
+        if (type === 'sankey') {
+          const links = parseSankey(lines)
+          if (!links.length) mx_fail('桑基图缺少流量数据')
+          return renderSankey(links)
+        }
+        if (type === 'packet') return renderPacket(parsePacket(lines))
+        if (type === 'block') return renderBlock(parseBlock(lines))
+        if (type === 'architecture') return renderArchitecture(parseArchitecture(lines))
+        if (type === 'kanban') return renderKanban(parseKanban(lines))
+        if (type === 'radar') return renderRadar(parseRadar(lines))
+        if (type === 'treemap') return renderTreemap(parseTreemap(lines))
+        mx_fail(`暂不支持该 Mermaid 图类型：${type}`)
+      } catch (error) {
+        if (error instanceof MERMAID_MermaidError) return { ok: false, type: 'invalid', error: error.message, source: text }
+        return { ok: false, type: 'invalid', error: `图语法无法解析：${error.message}`, source: text }
+      }
+    }
+
+    function extractMermaidBlocks(text) {
+      const lines = String(text ?? '').split(/\r?\n/)
+      const blocks = []
+      let current = null
+      lines.forEach((entry, index) => {
+        if (current) {
+          if (new RegExp(`^\\s*${current.marker}\\s*$`).test(entry)) { blocks.push({ source: current.lines.join('\n'), closed: true, line: current.start }); current = null; return }
+          current.lines.push(entry)
+          return
+        }
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(entry)
+        if (open) current = { start: index + 1, marker: open[1], lines: [] }
+      })
+      if (current) blocks.push({ source: current.lines.join('\n'), closed: false, line: current.start })
+      return blocks
+    }
+
+    const MERMAID_VOID_TAGS = new Set(['rect', 'circle', 'line', 'path', 'polygon', 'ellipse', 'polyline'])
+    function mx_escapeXml(value) {
+      return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    }
+    function mx_attrsMarkup(attrs) {
+      return Object.entries(attrs ?? {}).filter(([, value]) => value !== undefined && value !== null).map(([key, value]) => `${key}="${mx_escapeXml(value)}"`).join(' ')
+    }
+    function mx_shapeMarkup(shape) {
+      if (shape.tag === 'g') return `<g>${(shape.children ?? []).map(mx_shapeMarkup).join('')}</g>`
+      const attrs = mx_attrsMarkup(shape.attrs)
+      if (MERMAID_VOID_TAGS.has(shape.tag)) return `<${shape.tag}${attrs ? ` ${attrs}` : ''}/>`
+      return `<${shape.tag}${attrs ? ` ${attrs}` : ''}>${mx_escapeXml(shape.text)}</${shape.tag}>`
+    }
+
+    /** Serialize a diagram model to standalone, script-free inline SVG. */
+    function diagramSvgMarkup(model) {
+      if (!model?.ok) return ''
+      const body = model.shapes.map(mx_shapeMarkup).join('')
+      const label = mx_escapeXml(model.label)
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${model.width} ${model.height}" width="${model.width}" height="${model.height}" role="img" aria-label="${label}"><title>${label}</title><defs><marker id="alm-mermaid-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs>${body}</svg>`
+    }
+
+
     // --- Rich, safe rendering for brief / AI review text. ---------------------
     // Markdown-ish text from users and models is rendered as text nodes only:
     // never dangerouslySetInnerHTML, so pasted HTML/script stays inert.
@@ -3148,6 +4083,7 @@ window.__ModuleLoader__.load({
       const blocks = []
       let list = null
       let ordered = false
+      let fence = null
       const flush = () => {
         if (!list) return
         blocks.push(
@@ -3159,7 +4095,26 @@ window.__ModuleLoader__.load({
         )
         list = null
       }
+      const pushDiagram = (block) => {
+        flush()
+        blocks.push(h(MermaidDiagram, { key: `mermaid-${block.start}`, source: block.source, closed: block.closed }))
+      }
       lines.forEach((line, index) => {
+        if (fence) {
+          if (new RegExp(`^\\s*${fence.marker}\\s*$`).test(line)) {
+            pushDiagram({ ...fence, source: fence.lines.join('\n'), closed: true })
+            fence = null
+            return
+          }
+          fence.lines.push(line)
+          return
+        }
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line)
+        if (open) {
+          flush()
+          fence = { start: index, marker: open[1], lines: [] }
+          return
+        }
         const trimmed = line.trim()
         if (!trimmed) {
           flush()
@@ -3202,8 +4157,243 @@ window.__ModuleLoader__.load({
         }
         blocks.push(h('p', { key: `p-${index}`, style: { margin: '0 0 6px', color: T.text2, fontSize: '12.5px', lineHeight: 1.75 } }, renderInline(trimmed, `p-${index}`)))
       })
+      if (fence) pushDiagram({ ...fence, source: fence.lines.join('\n'), closed: false })
       flush()
       return blocks
+    }
+
+    const MERMAID_REACT_ATTR = {
+      'stroke-width': 'strokeWidth',
+      'stroke-dasharray': 'strokeDasharray',
+      'font-size': 'fontSize',
+      'font-weight': 'fontWeight',
+      'font-family': 'fontFamily',
+      'text-anchor': 'textAnchor',
+      'dominant-baseline': 'dominantBaseline',
+      'fill-opacity': 'fillOpacity',
+      'stroke-opacity': 'strokeOpacity',
+      'marker-end': 'markerEnd',
+      'marker-start': 'markerStart',
+    }
+
+    function mermaidReactProps(attrs) {
+      const props = {}
+      for (const [key, value] of Object.entries(attrs ?? {})) props[MERMAID_REACT_ATTR[key] ?? key] = value
+      return props
+    }
+
+    function MermaidShape({ shape }) {
+      if (!shape) return null
+      if (shape.tag === 'g') {
+        return h('g', null, (shape.children ?? []).map((child, index) => h(MermaidShape, { key: index, shape: child })))
+      }
+      return h(shape.tag, mermaidReactProps(shape.attrs), shape.text ?? null)
+    }
+
+    // The scene is drawn with SVG primitives and text nodes only: no HTML is
+    // injected, so a diagram label can never become markup or a live link.
+    function MermaidSvg({ model }) {
+      return h(
+        'svg',
+        {
+          viewBox: `0 0 ${model.width} ${model.height}`,
+          width: model.width,
+          height: model.height,
+          role: 'img',
+          'aria-label': model.label,
+          'data-mermaid-svg': 'true',
+          style: { display: 'block', maxWidth: '100%', height: 'auto', color: T.text2 },
+        },
+        h('title', null, model.label),
+        h(
+          'defs',
+          null,
+          h(
+            'marker',
+            { id: 'alm-mermaid-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
+            h('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: 'currentColor' }),
+          ),
+        ),
+        (model.shapes ?? []).map((shape, index) => h(MermaidShape, { key: index, shape })),
+      )
+    }
+
+    /**
+     * A fenced Mermaid block, rendered in place. A diagram that cannot be parsed
+     * keeps its source at that exact position with an explicit error, and never
+     * spills into the surrounding text.
+     */
+    function MermaidDiagram({ source, closed = true }) {
+      const raw = String(source ?? '').replace(/\s+$/, '')
+      const [showSource, setShowSource] = useState(false)
+      const model = buildMermaidDiagram(raw)
+      const error = closed ? (model.ok ? null : model.error) : 'Mermaid 代码围栏未闭合'
+      if (error) {
+        return h(
+          'div',
+          {
+            'data-mermaid-error': 'true',
+            role: 'alert',
+            style: { margin: '10px 0 12px', border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.err}`, borderRadius: '8px', background: 'rgba(255,139,139,.06)', padding: '9px 12px', minWidth: 0, breakInside: 'avoid' },
+          },
+          h('div', { style: { color: T.err, fontSize: '12.5px', fontWeight: 600, lineHeight: 1.7 } }, `无法渲染 Mermaid 图：${error}`),
+          h(
+            'pre',
+            { 'data-mermaid-source': 'true', style: { margin: '7px 0 0', padding: '8px 10px', overflowX: 'auto', borderRadius: '6px', background: T.layer2, color: T.text2, fontSize: '11.5px', lineHeight: 1.6 } },
+            h('code', null, raw || '（空图）'),
+          ),
+          h('div', { style: { margin: '5px 0 0', color: T.text3, fontSize: '11.5px', lineHeight: 1.7 } }, '已保留原始语法；正文其余内容照常显示。'),
+        )
+      }
+      return h(
+        'figure',
+        {
+          'data-mermaid-diagram': 'true',
+          'data-mermaid-type': model.type,
+          'aria-label': model.label,
+          style: { margin: '10px 0 12px', padding: '10px 12px', border: `1px solid ${T.line}`, borderRadius: '10px', background: T.layer, minWidth: 0, breakInside: 'avoid', pageBreakInside: 'avoid' },
+        },
+        h(
+          'figcaption',
+          { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' } },
+          h('span', { style: { color: T.text, fontSize: '12px', fontWeight: 600 } }, `📊 ${model.label}`),
+          h('span', { style: { color: T.text3, fontSize: '11px' } }, `${model.width}×${model.height}`),
+          h(
+            'details',
+            { className: 'mermaid-source-toggle', style: { marginLeft: 'auto' }, onToggle: (event) => setShowSource(event.currentTarget.open) },
+            h('summary', { style: { color: T.text3, fontSize: '11px', cursor: 'pointer' } }, '查看图表源码'),
+            showSource
+              ? h(
+                  'pre',
+                  { 'data-mermaid-source': 'true', style: { margin: '6px 0 0', padding: '8px 10px', overflowX: 'auto', borderRadius: '6px', background: T.layer2, color: T.text2, fontSize: '11.5px', lineHeight: 1.6 } },
+                  h('code', null, raw),
+                )
+              : null,
+          ),
+        ),
+        h('div', { style: { overflowX: 'auto', minWidth: 0 } }, h(MermaidSvg, { model })),
+      )
+    }
+
+    function escapeHtmlText(value) {
+      return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    }
+
+    function inlineRichHtml(value) {
+      return escapeHtmlText(value)
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+    }
+
+    /**
+     * HTML projection for the "export / print" positions. It reuses the same
+     * diagram engine, so an export cannot disagree with what the page shows; the
+     * result contains inline SVG only and no script or external resource.
+     */
+    function requirementBodyHtml(text) {
+      const lines = String(text ?? '').replace(/<!--\s*alm:meta\b[\s\S]*?-->/g, '').split(/\r?\n/)
+      const out = []
+      let list = null
+      let listTag = 'ul'
+      let fence = null
+      const flush = () => {
+        if (!list) return
+        out.push(`<${listTag}>${list.join('')}</${listTag}>`)
+        list = null
+      }
+      const pushDiagram = (block) => {
+        flush()
+        const model = buildMermaidDiagram(block.source)
+        if (block.closed && model.ok) {
+          out.push(`<figure data-mermaid-diagram="true" data-mermaid-type="${escapeHtmlText(model.type)}"><figcaption>${escapeHtmlText(model.label)}</figcaption>${diagramSvgMarkup(model)}<details><summary>查看图表源码</summary><pre>${escapeHtmlText(block.source)}</pre></details></figure>`)
+          return
+        }
+        const error = block.closed ? model.error : 'Mermaid 代码围栏未闭合'
+        out.push(`<div data-mermaid-error="true"><p class="mermaid-error">无法渲染 Mermaid 图：${escapeHtmlText(error)}</p><pre>${escapeHtmlText(block.source)}</pre><p class="mermaid-hint">已保留原始语法；正文其余内容照常显示。</p></div>`)
+      }
+      lines.forEach((line, index) => {
+        if (fence) {
+          if (new RegExp(`^\\s*${fence.marker}\\s*$`).test(line)) {
+            pushDiagram({ start: fence.start, source: fence.lines.join('\n'), closed: true })
+            fence = null
+            return
+          }
+          fence.lines.push(line)
+          return
+        }
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line)
+        if (open) {
+          flush()
+          fence = { start: index, marker: open[1], lines: [] }
+          return
+        }
+        const trimmed = line.trim()
+        if (!trimmed) { flush(); return }
+        const heading = /^(#{2,6})\s+(.*)$/.exec(trimmed)
+        if (heading) { flush(); out.push(`<h4>${inlineRichHtml(heading[2])}</h4>`); return }
+        const ordered = /^(\d+)\.\s+(.*)$/.exec(trimmed)
+        if (ordered) {
+          if (!list || listTag !== 'ol') { flush(); listTag = 'ol'; list = [] }
+          list.push(`<li>${inlineRichHtml(ordered[2])}</li>`)
+          return
+        }
+        if (/^[-*]\s+/.test(trimmed)) {
+          if (!list || listTag !== 'ul') { flush(); listTag = 'ul'; list = [] }
+          list.push(`<li>${inlineRichHtml(trimmed.replace(/^[-*]\s+/, ''))}</li>`)
+          return
+        }
+        if (trimmed.startsWith('>')) { flush(); out.push(`<blockquote>${inlineRichHtml(trimmed.replace(/^>\s?/, ''))}</blockquote>`); return }
+        out.push(`<p>${inlineRichHtml(trimmed)}</p>`)
+      })
+      if (fence) pushDiagram({ start: fence.start, source: fence.lines.join('\n'), closed: false })
+      flush()
+      return out.join('\n')
+    }
+
+    function buildRequirementExportHtml({ item, detail }) {
+      const title = String(item?.title ?? detail?.identity?.title ?? '需求正文')
+      const id = String(item?.id ?? detail?.identity?.id ?? '')
+      const sections = detail?.content?.sections ?? []
+      const body = String(item?.briefText ?? '').trim() || sections.map((section) => `### ${section.title || '正文'}\n${section.text ?? ''}`).join('\n\n')
+      return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtmlText(title)}</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;padding:32px 24px;background:#fff;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.8}
+main{max-width:880px;margin:0 auto}
+header{border-bottom:1px solid #d0d7de;padding-bottom:14px;margin-bottom:22px}
+h1{margin:0 0 6px;font-size:22px;line-height:1.4}
+.meta{margin:0;color:#59636e;font-size:12px}
+h4{margin:18px 0 6px;font-size:14px}
+p{margin:0 0 8px}
+ul,ol{margin:0 0 8px;padding-left:20px}
+blockquote{margin:6px 0 10px;padding:2px 0 2px 12px;border-left:2px solid #d0d7de;color:#59636e}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;background:#f3f4f6;border-radius:4px;padding:0 3px}
+figure[data-mermaid-diagram]{margin:12px 0;padding:10px 12px;border:1px solid #d0d7de;border-radius:10px;break-inside:avoid;page-break-inside:avoid}
+figure[data-mermaid-diagram] figcaption{font-size:12px;font-weight:600;margin-bottom:6px;color:#1f2328}
+figure[data-mermaid-diagram] svg{display:block;max-width:100%;height:auto;color:#3d444d}
+figure[data-mermaid-diagram] details{margin-top:6px;color:#59636e;font-size:11px}
+pre{white-space:pre-wrap;word-break:break-word;background:#f6f8fa;border-radius:6px;padding:8px 10px;font-size:11.5px;line-height:1.6;overflow-wrap:anywhere}
+[data-mermaid-error]{margin:12px 0;padding:9px 12px;border:1px solid #d0d7de;border-left:3px solid #cf222e;border-radius:8px;background:#ffebe9;break-inside:avoid;page-break-inside:avoid}
+[data-mermaid-error] .mermaid-error{margin:0 0 6px;color:#cf222e;font-weight:600;font-size:12.5px}
+[data-mermaid-error] .mermaid-hint{margin:5px 0 0;color:#59636e;font-size:11.5px}
+@media print{body{padding:0}figure[data-mermaid-diagram]{border-color:#bbb}figure[data-mermaid-diagram] details{display:none}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>${escapeHtmlText(title)}</h1>
+<p class="meta">${escapeHtmlText(id)}${id ? ' · ' : ''}需求正文 · 图表以内联 SVG 呈现，不加载脚本或外部资源</p>
+</header>
+${requirementBodyHtml(body)}
+</main>
+</body>
+</html>`
     }
 
     function renderBrief(text) {
@@ -3218,9 +4408,15 @@ window.__ModuleLoader__.load({
     // Peel it so the sentence shows once; other labels become sub-labels.
     function peelInlineLabels(text, title) {
       const out = []
+      let fence = false
+      let marker = ''
       String(text ?? '')
         .split(/\r?\n/)
         .forEach((line) => {
+          const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line)
+          if (!fence && open) { fence = true; marker = open[1]; out.push(line); return }
+          if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) { fence = false; out.push(line); return }
+          if (fence) { out.push(line); return }
           const trimmed = line.trim()
           const match = /^(背景|目标|范围|验收标准|验收|约束|风险|备注)[:：]\s*(.*)$/.exec(trimmed)
           if (!match) {
@@ -3241,11 +4437,30 @@ window.__ModuleLoader__.load({
       const lines = String(text ?? '').split(/\r?\n/)
       const sections = []
       let current = null
+      let fence = false
+      let marker = ''
       const startSection = (title) => {
         current = { title, body: [] }
         sections.push(current)
       }
       lines.forEach((line) => {
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line)
+        if (!fence && open) {
+          if (!current) startSection('原始诉求')
+          current.body.push(line)
+          fence = true
+          marker = open[1]
+          return
+        }
+        if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) {
+          current.body.push(line)
+          fence = false
+          return
+        }
+        if (fence) {
+          current.body.push(line)
+          return
+        }
         const trimmed = line.trim()
         const heading = /^##\s+(.+)$/.exec(trimmed)
         if (heading) {
@@ -3267,14 +4482,6 @@ window.__ModuleLoader__.load({
       return sections
         .map((section) => ({ title: section.title, text: peelInlineLabels(section.body.join('\n'), section.title) }))
         .filter((section) => section.text || BRIEF_SECTION_TITLES.test(section.title))
-    }
-
-    function isAiSection(section) {
-      return /AI|评审|重构|建议/.test(section.title) || /(^|\n)\s*>?\s*AI (结论|评审|建议)/.test(section.text)
-    }
-
-    function compactBody(text) {
-      return String(text ?? '').replace(/\s+/g, ' ').trim()
     }
 
     function CopyTextButton({ value, label = '复制' }) {
@@ -3337,15 +4544,6 @@ window.__ModuleLoader__.load({
 
     function DetailRow({ label, children }) {
       return h('div', { style: DETAIL_ROW }, h('span', { style: DETAIL_LABEL }, label), h('span', { style: { color: T.text, minWidth: 0, wordBreak: 'break-word' } }, children))
-    }
-
-    function DetailsToggle({ summary, children, defaultOpen = false }) {
-      return h(
-        'details',
-        { style: { borderTop: `1px solid ${T.line}`, marginTop: '8px', paddingTop: '8px' }, open: defaultOpen },
-        h('summary', { style: { cursor: 'pointer', color: T.text2, fontSize: '11.5px', lineHeight: 1.7 } }, summary),
-        h('div', { style: { marginTop: '6px' } }, children),
-      )
     }
 
     // ---- detail v2: single-column requirement detail (contract §6) ----------
@@ -3768,11 +4966,34 @@ window.__ModuleLoader__.load({
           )
         })
       }
+      const exportBodyHtml = () => {
+        try {
+          const html = buildRequirementExportHtml({ item, detail })
+          const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+          const url = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          anchor.href = url
+          anchor.download = `${identity.id ?? item?.id ?? 'requirement'}-正文.html`
+          anchor.style.display = 'none'
+          document.body.appendChild(anchor)
+          anchor.click()
+          anchor.remove()
+          window.setTimeout(() => URL.revokeObjectURL(url), 2000)
+          setNotice('正文 HTML 已导出（图表为内联 SVG）')
+        } catch (error) {
+          setNotice(`导出失败：${error.message}`)
+        }
+      }
+      const printBody = () => {
+        if (typeof window.print === 'function') window.print()
+      }
       const menuItems = [
         { id: 'archive', label: '归档', hide: archived || !onArchive, onClick: () => onArchive && onArchive(item) },
         { id: 'remove', label: '删除', hide: !onRemove, onClick: () => onRemove && onRemove(item) },
         { id: 'copy-prompt', label: '复制提示词', hide: false, onClick: copyPrompt },
         { id: 'open-source', label: '打开源文件', hide: false, onClick: openSource },
+        { id: 'export-html', label: '导出正文（HTML）', hide: false, onClick: exportBodyHtml },
+        { id: 'print', label: '打印正文', hide: false, onClick: printBody },
         { id: 'cancel-run', label: '取消运行', hide: !run?.exists || !onCancelRun, onClick: () => onCancelRun && onCancelRun(item) },
       ].filter((entry) => !entry.hide)
       const metaRows = [
@@ -4611,7 +5832,9 @@ window.__ModuleLoader__.load({
       const action = detail.primaryAction ?? null
       const context = detail.context ?? {}
       const startLike = Boolean(action && (action.id === 'start' || action.id === 'start-fix'))
-      const secondary = (detail.secondaryActions ?? []).filter((entry) => entry && entry.id !== action?.id).slice(0, 2)
+      // Architecture declaration is folded into "继续推进"/AI 修复, not a
+      // separate control: one click continues and declares what it moved.
+      const secondary = (detail.secondaryActions ?? []).filter((entry) => entry && entry.id !== action?.id && entry.id !== 'declare-allocation').slice(0, 2)
       const enabled = Boolean(action) && action.enabled !== false
       const runEntry = (entry) => {
         if (!entry || entry.enabled === false) return
@@ -4771,6 +5994,11 @@ window.__ModuleLoader__.load({
 
     function HumanLongDescription({ text, paragraph, preview }) {
       const [expanded, setExpanded] = useState(false)
+      // A diagram is content, not an optional detail: keep it in the reading
+      // position instead of hiding it behind the "expand" disclosure.
+      if (/^\s*(```|~~~)\s*mermaid\s*$/im.test(String(text ?? ''))) {
+        return h('div', { 'data-human-long-mermaid': 'true' }, h('div', { style: paragraph }, renderRich(text)))
+      }
       return h('div', null,
         h('p', { 'data-human-excerpt': 'true', hidden: expanded, style: paragraph }, `${preview(text).slice(0, 180)}…`),
         h('details', { style: { marginTop: '6px' }, onToggle: event => setExpanded(event.currentTarget.open) },
@@ -6131,6 +7359,7 @@ window.__ModuleLoader__.load({
         h('style', null, `[data-detail-page] .dheadwrap{box-sizing:border-box;width:100%;max-width:1280px;padding:18px 24px 0}[data-detail-page] .idline{display:flex;align-items:center;gap:10px;font-size:12px;color:${T.text3};flex-wrap:wrap}[data-detail-page] .idline .pill{border:1px solid ${T.line};border-radius:999px;padding:2px 8px;color:${T.text2};font-size:11.5px}[data-detail-page] .verlink{border:0;background:transparent;color:${T.text2};font-size:12px;padding:0;text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}[data-detail-page] .dtitle{margin:6px 0 4px;font-size:20px;font-weight:600;line-height:1.45;letter-spacing:0}[data-detail-page] .dsubtitle{margin:0;font-size:13px;line-height:1.6;color:${T.text3}}[data-detail-page] .v4-reading{padding-top:20px!important;padding-bottom:72px!important;font-size:14px!important;line-height:1.7!important}[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr) 244px!important;gap:28px!important}[data-detail-page] .description-cards{display:block!important}[data-detail-page] .det-bullets{margin:0;padding:0;list-style:none;display:grid;gap:6px}[data-detail-page] .det-bullets li{position:relative;padding-left:15px;font-size:13.5px;color:${T.text2};line-height:1.75}[data-detail-page] .det-bullets li::before{content:"";position:absolute;left:3px;top:9px;width:5px;height:5px;border-radius:1px;background:${T.line2}}[data-detail-page] .rail-h{margin:0 0 8px;font-size:12px;color:${T.text3};font-weight:500;letter-spacing:.02em}[data-detail-page] .needbox{padding:0 0 11px;font-size:12.5px;line-height:1.7;margin-bottom:11px;border-bottom:1px solid ${T.line}}[data-detail-page] .needbox.yes,[data-detail-page] .needbox.no{background:transparent;border:0;border-bottom:1px solid ${T.line};color:${T.text2}}[data-detail-page] .railbtn{display:flex;align-items:center;width:100%;justify-content:center;min-height:32px;padding:5px 10px;font-size:12.5px;border:1px solid ${T.line2};border-radius:7px;background:transparent;color:${T.text2};cursor:pointer}[data-detail-page] .railbtn:hover{color:${T.text};background:${T.layer2}}[data-detail-page] .detail-sidebar{top:76px;padding:12px 14px}[data-detail-page] .stepper{display:grid;grid-template-columns:repeat(5,1fr);position:relative;margin-top:4px}[data-detail-page] .stepper::before{content:'';position:absolute;left:10%;right:10%;top:6px;height:1px;background:${T.line2}}[data-detail-page] .step{position:relative;display:grid;justify-items:center;gap:7px;text-align:center}[data-detail-page] .step .dot{display:block;width:13px;height:13px;box-sizing:border-box;border-radius:50%!important;background:${T.layer};border:1.5px solid ${T.line2};position:relative;z-index:1}[data-detail-page] .step[data-stage-state="done"] .dot{background:${T.text};border-color:${T.text}}[data-detail-page] .step[data-stage-state="done"] .dot::after{content:'';position:absolute;left:4px;top:3.5px;width:5px;height:3px;border-left:1.5px solid ${T.base};border-bottom:1.5px solid ${T.base};transform:rotate(-45deg)}[data-detail-page] .step[data-stage-state="current"] .dot{background:${T.text};border-color:${T.text};box-shadow:0 0 0 3px color-mix(in srgb, ${T.text} 16%, transparent)}[data-detail-page] .step span{font-size:11.5px;color:${T.text3};white-space:nowrap}[data-detail-page] .step[data-stage-state="done"] span{color:${T.text2}}[data-detail-page] .step[data-stage-state="current"] span{color:${T.text};font-weight:500}@container (max-width:900px){[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr)!important}[data-detail-page] .detail-sidebar{position:static!important}}`),
         // Everything technical lives behind one fold with one name, in both the
         // body and the progress tab: evidence in one, the run in the other.
+        h('style', null, `@media print{[data-detail-page] .detail-sidebar,[data-detail-page] .dtabs,[data-detail-page] [data-detail-secondary],[data-detail-page] .dheadwrap button{display:none!important}[data-detail-page] .v4-reading{max-width:none!important;padding:0!important}[data-detail-page] .detail-columns{display:block!important}[data-mermaid-diagram]{break-inside:avoid;page-break-inside:avoid;border-color:#bbb!important;background:#fff!important}[data-mermaid-diagram] svg{max-width:100%!important;height:auto!important;max-height:26cm!important;color:#1f2328!important}[data-mermaid-diagram] .mermaid-source-toggle{display:none!important}[data-mermaid-error]{break-inside:avoid;page-break-inside:avoid}[data-mermaid-error] pre{white-space:pre-wrap!important;word-break:break-word!important}}`),
         h('style', null, `[data-detail-page] .requirement-body>[data-technical-details]{order:7}[data-detail-page] .fold{margin-top:22px;border-top:1px solid ${T.line};padding-top:10px}[data-detail-page] .fold>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:8px;font-size:13px;color:${T.text2};min-height:30px}[data-detail-page] .fold>summary::-webkit-details-marker{display:none}[data-detail-page] .fold>summary::before{content:"▸";font-size:10px;color:${T.text3};margin-right:1px}[data-detail-page] .fold[open]>summary::before{content:"▾"}[data-detail-page] .fold>summary .sub{color:${T.text3};font-size:12px}[data-detail-page] .foldbody{margin-top:6px;border:1px solid ${T.line};border-radius:8px;background:${T.layer};padding:2px 12px 12px}[data-detail-page] .kv{display:flex;justify-content:space-between;gap:18px;font-size:12.5px;padding:8px 0;color:${T.text3};border-bottom:1px solid ${T.line}}[data-detail-page] .kv:last-of-type{border-bottom:0}[data-detail-page] .kv b{color:${T.text2};font-weight:400;text-align:right;word-break:break-word;min-width:0}[data-detail-page] .foldfoot{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}[data-detail-page] .foldfoot{gap:16px!important}[data-detail-page] .foldfoot button{min-height:24px;padding:0;font-size:12px;border:0;background:transparent;color:${T.text3};cursor:pointer;text-decoration:underline;text-decoration-color:${T.line2};text-underline-offset:3px}[data-detail-page] .foldfoot button:hover{color:${T.text};text-decoration-color:currentColor}[data-detail-page] .bandlink:hover{color:${T.text};background:${T.layer2}}`),
         // One button language for the whole detail page: filled brand for the
         // single action, hairline for anything else, plain text for shortcuts.
@@ -6628,6 +7857,17 @@ window.__ModuleLoader__.load({
             () => props.onResumeRun && props.onResumeRun(item),
           ),
         'run-acceptance': () => props.onAcceptance && props.onAcceptance(item),
+        // One click appends the `allocated_to` relations a refused commit needs.
+        // It changes requirement content, so it is confirmed first and then the
+        // page reloads onto the new revision (old evidence stays history).
+        'settle-failure': () => {
+          const failureId = item?.run?.failureDiagnostic?.id
+          if (!failureId) return undefined
+          if (!window.confirm(`结算失败记录 ${failureId}？\n\n结算只追加结论，不改写原始摘要与证据；结算后它不再显示为本轮失败。`)) return undefined
+          return writeJson('failure', { mode: 'resolve', failureId, status: 'resolved', note: '页面结算：确认不属于当前推进' }, root)
+            .then(() => { props.onRefresh && props.onRefresh() })
+            .catch(error => window.alert('结算失败：' + error.message))
+        },
         'narrow-verification': () =>
           writeJson('narrow-verification', { requirementId: item.id, apply: true }, root)
             .then(result => {
@@ -7097,6 +8337,27 @@ window.__ModuleLoader__.load({
       return postJson(`requirements/${path}`, body, root, options)
     }
 
+    /**
+     * Continuing (or asking AI to fix) a blocked delivery is the human's
+     * authorization to declare the modules that delivery moved. There is no
+     * separate "补架构声明" control: the same click appends the missing
+     * `allocated_to` relations first, then resumes. The host still audits the
+     * write and rebinds the run authorization, so the click stays attributable
+     * and the declaration cannot silently happen without a human.
+     */
+    function declareArchitectureIfBlocked(entry, root) {
+      const gap = (entry?.decision?.gaps ?? []).find((item) => item?.code === 'architecture-undeclared')
+      const modules = Array.isArray(gap?.modules) ? gap.modules : []
+      if (modules.length === 0) return Promise.resolve(null)
+      return writeJson('architecture', {
+        action: 'declare',
+        requirementId: entry.id,
+        root,
+        modules,
+        note: '继续推进时自动补架构声明',
+      }, root)
+    }
+
     let modalSequence = 0
     function ModalShell({ title, lead, onClose, children, footer, width = '720px', feedbackContext = null, testId = null, dataSessionId = null, dataScreen = null }) {
       const dialogRef = useRef(null)
@@ -7269,7 +8530,7 @@ window.__ModuleLoader__.load({
       failed: { label: '失败', tone: '#f87171' },
     }
 
-    function PreflightModal({ item, root, projectMeta, isolate = false, onClose, onStarted }) {
+    function PreflightModal({ item, root, projectMeta, isolate = false, onClose, onStarted, onOpenWorktree }) {
       const [state, setState] = useState({ phase: 'running', record: null, start: null, error: null })
       const [github, setGithub] = useState({ loading: false, plan: null, result: null, error: null })
       useEffect(() => {
@@ -7326,6 +8587,7 @@ window.__ModuleLoader__.load({
 
       const record = state.record
       const start = state.start
+      const scheduledWorktree = start?.execution?.scheduled === true ? start.worktree?.path : null
       const question = record?.question
       const running = state.phase === 'running'
       const footer = [
@@ -7333,6 +8595,9 @@ window.__ModuleLoader__.load({
           ? h('button', { key: 'cancel-question', style: button, onClick: onClose }, question.options?.find((option) => option.id === 'cancel')?.label ?? '先不开始')
           : h('button', { key: 'close', style: button, onClick: onClose }, start || state.phase === 'error' ? '关闭' : state.phase === 'running' ? '关闭（尚未启动）' : '关闭（启动请求已提交）'),
         question && !start && state.phase !== 'starting' ? h('button', { key: 'proceed', style: primary, onClick: proceed }, '确认并启动 AI 推进') : null,
+        scheduledWorktree && onOpenWorktree
+          ? h('button', { key: 'open-worktree', type: 'button', style: primary, onClick: () => onOpenWorktree(scheduledWorktree) }, '查看隔离工作区')
+          : null,
       ]
       return h(
         ModalShell,
@@ -7346,7 +8611,7 @@ window.__ModuleLoader__.load({
         running ? h('p', { style: muted }, '正在自动检查并处理证据…') : null,
         state.phase === 'starting' ? h('p', { style: muted }, '证据已处理完，正在登记变更并交给 AI 推进…') : null,
         state.error ? h('p', { style: { color: T.err, fontSize: '13px' } }, state.error) : null,
-        start?.execution?.runId ? h('section', { 'data-start-live-progress': 'true', 'aria-live': 'polite', style: { padding: '18px 0', borderBottom: '1px solid ' + T.line } },
+        start?.execution?.scheduled && start.execution.runId && !scheduledWorktree ? h('section', { 'data-start-live-progress': 'true', 'aria-live': 'polite', style: { padding: '18px 0', borderBottom: '1px solid ' + T.line } },
           h('h3', { style: { margin: '0 0 8px', fontSize: '20px', color: T.text } }, item.detailView?.currentMatter?.headline ?? item.run?.label ?? 'AI 已接手，正在同步进展'),
           h('p', { style: { color: T.text2, lineHeight: 1.7, margin: 0 } }, item.detailView?.currentMatter?.explanation ?? '开发状态将自动更新。关闭此窗口不会停止 AI。'),
           h('p', { style: { ...muted, margin: '8px 0 0' } }, item.development ? '实际开发分支：' + (item.development.branch ?? '未知') + (item.development.dedicated ? ' · 独立功能分支' : ' · 当前工作区，尚未建立独立功能 PR') : '正在读取实际开发分支…'),
@@ -7416,7 +8681,9 @@ window.__ModuleLoader__.load({
                         ...(start.worktree ? [['隔离 worktree', start.worktree.path], ['分支', start.worktree.branch]] : []),
                       ],
                     })),
-                    h('p', { style: { margin: '8px 0 0', ...muted } }, '可以在右侧需求详情里继续查看变更、任务卡与 GitHub 归属。'),
+                    h('p', { style: { margin: '8px 0 0', ...muted } }, scheduledWorktree
+                      ? '在隔离工作区查看本轮的推进、任务卡和验收。'
+                      : '可以在右侧需求详情里继续查看变更、任务卡与 GitHub 归属。'),
                     !start.execution
                       ? h('p', { style: { margin: '8px 0 0', fontSize: '12px', color: T.warn } }, '预览模式：未调度 AI 推进。')
                       : start.execution.scheduled
@@ -8726,10 +9993,22 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // Mermaid arrows (`->`, `->>`) are syntax, not prose arrows: never rewrite
+    // inside a fenced diagram, or the diagram stops parsing.
     function draftText(value) {
-      return (typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value))
-        .replace(/\$\\(?:right)?arrow\$/g, '→')
-        .replace(/\s*->\s*/g, ' → ')
+      const source = typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value)
+      let fence = false
+      let marker = ''
+      return source
+        .split(/\r?\n/)
+        .map((line) => {
+          const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line)
+          if (!fence && open) { fence = true; marker = open[1]; return line }
+          if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) { fence = false; return line }
+          if (fence) return line
+          return line.replace(/\$\\(?:right)?arrow\$/g, '→').replace(/\s*->\s*/g, ' → ')
+        })
+        .join('\n')
     }
 
     function draftList(value) {
@@ -9061,6 +10340,17 @@ window.__ModuleLoader__.load({
                               { style: { fontSize: '13px', lineHeight: 1.7, color: T.text2, marginTop: '4px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' } },
                               draftText(entry?.text) || '（尚未填写验收条款）',
                             ),
+                        !editing
+                          ? [['precondition', '输入 / 前置'], ['action', '操作'], ['expected', '预期']].map(([field, label]) =>
+                              draftText(entry?.[field])
+                                ? h('div', { key: field, 'data-draft-plan': field, style: { fontSize: '12px', lineHeight: 1.7, color: T.text2, marginTop: '3px', display: 'flex', gap: '8px' } },
+                                    h('span', { style: { flex: 'none', width: '76px', color: T.text3 } }, label),
+                                    h('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } }, draftText(entry[field])))
+                                : null)
+                          : null,
+                        !editing && (!draftText(entry?.action) || !draftText(entry?.expected))
+                          ? h('div', { 'data-draft-plan-missing': id, style: { fontSize: '12px', lineHeight: 1.7, color: T.warn, marginTop: '3px' } }, '缺少可执行的验收步骤（操作 / 预期）：产品经理无法据此逐步验收。')
+                          : null,
                         entry?.judgement ? h('div', { style: { fontSize: '12px', lineHeight: 1.7, color: T.text3, marginTop: '3px' } }, `判定：${draftText(entry.judgement)}`) : null,
                       )
                     })
@@ -17644,10 +18934,12 @@ window.__ModuleLoader__.load({
               onStart: async (entry, options) => {
                 try {
                   const targetRoot = entry.root ?? data?.root ?? root
+                  await declareArchitectureIfBlocked(entry, targetRoot)
                   const decision = await writeJson('run', { mode: 'decision', requirementId: entry.id }, targetRoot)
                   if (decision?.decision) { setAnswerItem(entry); return }
                   if (decision?.exists) {
                     const result = await writeJson('run', { mode: 'continue', requirementId: entry.id }, targetRoot)
+                    if (result?.reason === 'human-decision-required') { setAnswerItem(entry); return }
                     if (result?.resumed !== true) throw new Error(result?.message ?? '运行未继续')
                     if (result?.autoAdvanceResumed === false) window.alert(`已继续本轮，但自动推进未恢复（${result.autoAdvanceReason}）。需在原生界面检查版本与执行预算；未新增授权。`)
                     await reload()
@@ -17672,8 +18964,11 @@ window.__ModuleLoader__.load({
               },
               onAnswer: (entry) => setAnswerItem(entry),
               onContinueRun: (entry) => {
-                writeJson('run', { mode: 'continue', requirementId: entry.id }, entry.root ?? data?.root ?? root)
+                const targetRoot = entry.root ?? data?.root ?? root
+                return declareArchitectureIfBlocked(entry, targetRoot)
+                  .then(() => writeJson('run', { mode: 'continue', requirementId: entry.id }, targetRoot))
                   .then((result) => {
+                    if (result?.reason === 'human-decision-required') { setAnswerItem(entry); return }
                     if (result?.resumed !== true) throw new Error(result?.message ?? '运行尚未继续，请刷新后检查当前状态')
                     if (result?.autoAdvanceResumed === false) window.alert(`已继续本轮，但自动推进未恢复（${result.autoAdvanceReason}）。需在原生界面检查版本与执行预算；未新增授权。`)
                     return reload()
@@ -17688,7 +18983,12 @@ window.__ModuleLoader__.load({
                 if (!window.confirm(`恢复 ${entry.id} 的本轮推进？会新建一次运行并从上次检查点继续。`)) return { ok: false, cancelled: true }
                 const targetRoot = entry.root ?? data?.root ?? root
                 try {
+                  await declareArchitectureIfBlocked(entry, targetRoot)
                   const payload = await writeJson('run', { mode: 'restart', requirementId: entry.id }, targetRoot)
+                  if (payload?.reason === 'human-decision-required') {
+                    setAnswerItem(entry)
+                    return { ok: true, payload }
+                  }
                   const refreshed = await reload()
                   // `run-active` is not a failure: the round is alive, the panel
                   // just needs to show the run instead of a resume button.
@@ -17806,6 +19106,12 @@ window.__ModuleLoader__.load({
               isolate: startItem.isolate,
               onClose: () => setStartItem(null),
               onStarted: () => reload(),
+              onOpenWorktree: (worktreeRoot) => {
+                setStartItem(null)
+                setPendingOpenId(startItem.item.id)
+                applyRoot(worktreeRoot, projectId !== ALL_PROJECTS)
+                setRootInput(worktreeRoot)
+              },
             })
           : null,
         aiReviewItem

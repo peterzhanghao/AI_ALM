@@ -438,12 +438,23 @@ function validateCompleteAnalysis(analysis) {
   return shape
 }
 
+/** One append-only sighting of the same failure (same dedupe key). */
+function failureOccurrence({ at = null, attempt = 1, run = null } = {}) {
+  return {
+    at: at ?? null,
+    attempt: Number.isInteger(Number(attempt)) && Number(attempt) > 0 ? Number(attempt) : 1,
+    run: run ?? null,
+  }
+}
+
 /**
  * Record one failed step. Default is to write (`apply: true`); pass
  * `apply: false` in a dry-run/preview path.
  *
  * Dedupe: the same `dedupeKey` (run|stage|step|fingerprint) inside a 24h window
- * updates only `updatedAt`/`attempt` and returns `{ deduped: true }`.
+ * updates only `updatedAt`/`attempt`, appends an occurrence and returns
+ * `{ deduped: true }`. The first event keeps its summary/evidence untouched;
+ * `occurrences.length` is the number of times the exact failure was seen.
  */
 export function recordFailure({
   root,
@@ -507,12 +518,20 @@ export function recordFailure({
   if (previous) {
     const age = Date.parse(at) - Date.parse(previous.updatedAt ?? previous.createdAt ?? '')
     if (Number.isFinite(age) && age >= 0 && age <= DEDUPE_WINDOW_MS) {
-      // Contract: a deduped failure only refreshes `updatedAt`/`attempt`; the
-      // original event keeps its summary and evidence untouched.
+      // Contract: a deduped failure only refreshes `updatedAt`/`attempt` and
+      // appends the occurrence; the original event keeps its summary and
+      // evidence untouched. Older events that predate `occurrences` are
+      // backfilled from their own first-seen fields so the count stays honest.
+      const prior = Array.isArray(previous.occurrences) && previous.occurrences.length > 0
+        ? previous.occurrences
+        : [failureOccurrence({ at: previous.at ?? previous.createdAt ?? null, attempt: previous.attempt, run: previous.run })]
+      const occurrences = [...prior, failureOccurrence({ at, attempt, run })]
       const merged = {
         ...previous,
         updatedAt: at,
         attempt: Math.max(Number(previous.attempt ?? 1), Number(attempt ?? 1)),
+        occurrences,
+        occurrenceCount: occurrences.length,
       }
       if (apply === true) writeJson(failurePath(repo, merged.id), merged)
       return {
@@ -526,6 +545,7 @@ export function recordFailure({
     }
   }
 
+  const occurrence = failureOccurrence({ at, attempt, run })
   const failure = {
     schema: FAILURE_SCHEMA,
     id: nextFailureId(repo, requirement),
@@ -542,6 +562,8 @@ export function recordFailure({
     summary,
     evidence: normalizedEvidence,
     attempt: Number(attempt ?? 1),
+    occurrences: [occurrence],
+    occurrenceCount: 1,
     outcome: 'failed',
     fingerprint,
     defect: null,
@@ -572,13 +594,78 @@ export function readFailure(root, failureId) {
 }
 
 /** List failure events, oldest first. `limit` keeps the newest N. */
-export function listFailures(root, { requirement = null, kind = null, limit = null } = {}) {
+export function listFailures(root, { requirement = null, kind = null, limit = null, includeResolved = true } = {}) {
   const repo = resolveRoot(root)
   let values = listAllFailures(repo)
   if (requirement) values = values.filter((entry) => entry.requirement === requirement)
   if (kind) values = values.filter((entry) => entry.kind === kind)
+  if (includeResolved === false) values = values.filter((entry) => !isFailureResolved(entry))
   if (Number.isInteger(limit) && limit > 0) values = values.slice(-limit)
   return values
+}
+
+/** Resolution states a human may apply to one recorded failure. */
+export const FAILURE_RESOLUTIONS = ['resolved', 'not-applicable']
+
+/**
+ * Has a human settled this failure? A settled event stays readable and keeps its
+ * evidence, but must stop being presented as an active problem — an orphaned
+ * `unauthenticated-subject` record otherwise describes a run forever.
+ */
+export function isFailureResolved(failure) {
+  const status = failure?.resolution?.status
+  return FAILURE_RESOLUTIONS.includes(status)
+}
+
+/**
+ * Settle one failure event with an attributable reason. Resolution is additive:
+ * the original event, its summary and its evidence are never rewritten, so a
+ * later reader can still see what was recorded and who closed it.
+ */
+export function resolveFailure({
+  root,
+  id = null,
+  failureId = null,
+  status = 'resolved',
+  actor = null,
+  note = null,
+  now = null,
+  apply = true,
+} = {}) {
+  const repo = resolveRoot(root)
+  const key = id ?? failureId
+  const failure = readFailure(repo, key)
+  if (!failure) throw monitorError('failure-not-found', `失败记录 ${key ?? ''} 不存在`, 404)
+  const value = String(status ?? '').trim()
+  if (!FAILURE_RESOLUTIONS.includes(value)) {
+    throw monitorError('invalid-resolution', `不支持的结算状态：${value}`, 400)
+  }
+  const actorId = String(actor ?? '').trim()
+  if (actorId === '') throw monitorError('actor-required', '结算失败记录需要操作人', 400)
+  const at = now === null || now === undefined ? nowIso() : nowIso(now)
+  const resolution = {
+    status: value,
+    actor: actorId,
+    at,
+    note: note === null || note === undefined || String(note).trim() === '' ? null : oneLine(String(note)).slice(0, 300),
+  }
+  const idempotent = isFailureResolved(failure) && failure.resolution?.status === value
+  const next = { ...failure, resolution, updatedAt: at }
+  if (apply === true) writeJson(failurePath(repo, next.id), next)
+  return { applied: apply === true, idempotent, failure: next, resolution }
+}
+
+/**
+ * The failures a run view may present as its own: bound to that run (or, for
+ * older records, to its change) and not settled. Anything else belongs to the
+ * failure list, never to this run's diagnosis.
+ */
+export function failuresForRun(root, { runId = null, change = null, includeResolved = false } = {}) {
+  if (!runId && !change) return []
+  return listFailures(root, { includeResolved }).filter((failure) => {
+    if (runId && failure.run === runId) return true
+    return Boolean(change && failure.change === change && !failure.run)
+  })
 }
 
 /**

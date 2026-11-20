@@ -742,3 +742,19 @@ test('recordAnswer 旧单题 API：返回 session，旧会话仍只把状态置�
   assert.equal(next.state, 'editing')
   assert.equal(next.questionGroup, null)
 })
+
+for (const firstTokenMs of [24_733, 0]) test(`per-run timings are summed once and keep the first latency (${firstTokenMs} ms)`, (t) => {
+  const root = makeRepo(t)
+  const { session, context } = makeSession(root)
+  const questions = [question('Q-1', 'DEC-1')]
+  // Two attempts of the same session: each one reports only its own delta.
+  const first = analyzeIntoSession({ root, session, context, questions, timing: { totalMs: 46_586, modelMs: 46_581, firstTokenMs, calls: 1, retries: 0 } })
+  const second = analyzeIntoSession({ root, session: first, context, questions, timing: { totalMs: 11, modelMs: 11, firstTokenMs: 9, calls: 1, retries: 1 } })
+  assert.deepEqual(second.runs.map((run) => run.timing.totalMs), [46_586, 11])
+  assert.equal(second.convergence.timing.totalMs, 46_597, 'the session total is the sum of the attempts, not a double count')
+  assert.equal(second.convergence.timing.modelMs, 46_592)
+  assert.equal(second.convergence.timing.calls, 2)
+  assert.equal(second.convergence.timing.retries, 1)
+  // A latency is a measurement: the first observed value is kept, not added.
+  assert.equal(second.convergence.timing.firstTokenMs, firstTokenMs)
+})

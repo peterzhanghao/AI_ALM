@@ -112,6 +112,13 @@ test('a good brief compiles into a short instruction, not a file dump', () => {
   assert.match(compiled.text, /约束：不改变既有购物车接口/)
   assert.match(compiled.text, /验证：完成后运行 pnpm -s alm verify REQ-SHOP-001 自查/)
   assert.match(compiled.text, /不要跑全量测试/)
+  // The delivery session is confined: a browser/pipe test can only report an
+  // environment block there. Exit 3 is not a failed assertion, and the plugin
+  // runs the complete registered suite after the turn.
+  assert.match(compiled.text, /exit 3 环境阻断/)
+  assert.match(compiled.text, /这不是断言失败/)
+  assert.match(compiled.text, /可执行断言全部通过/)
+  assert.doesNotMatch(compiled.text, /验证命令退出码为 0/)
   assert.equal(compiled.meta.goalSource, 'brief')
   assert.equal(compiled.meta.acceptanceSource, 'brief')
 })

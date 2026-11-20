@@ -6,7 +6,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 路由 | `GET /api/alm/requirements`、`/api/alm/projects`；写接口 `/api/alm/requirements/{preflight,start,accept,create,github,acceptance,ai-review,signoff,diff,intake,remove,candidate,release,run,failure,defect}` |
+| 路由 | `GET /api/alm/requirements`、`/api/alm/projects`；写接口 `/api/alm/requirements/{preflight,start,accept,create,github,acceptance,ai-review,signoff,diff,intake,remove,candidate,release,run,failure,defect,architecture}` |
 | 页面路由 | `GET /alm/requirements` → 只读 HTML（免 token，可直接在浏览器打开） |
 | 工具 | `alm_requirements [root]` |
 | 页面 | 侧边栏「需求」图标 / Settings → Requirements；`main` 面板 key `requirements` |
@@ -15,8 +15,11 @@
 | 交付推进 | 「交给 AI 推进」= preflight（登记验收/保留已有验收结果，不再强制重复评审）+ 登记变更 + 创建宿主执行会话：`.alm/runs/<RUN>.json` 记录 排队/运行/等待输入/暂停/失败/取消，关闭面板后仍继续；执行会话 pin 为 `workspace-write` + `approval:never`（点按钮即本轮授权），遇到业务取舍会写 `.alm/runs/<RUN>-decision.md` 等你回答；面板提供「回答并继续」（`run {mode:'answer'}`，回答追加进 `run.answers` 并继续推进，宿主重启则用新会话降级续跑）与「取消推进」（`run {mode:'cancel'}`，改动与记录保留） |
 | 验收 / 交付候选 | 验收通过后生成 `CAND-*` 交付候选（绑定需求内容哈希 + 未提交工作区文件哈希 + 验收哈希）；人类对具体候选签收才到「已验收」；候选变化会让旧验收与旧发布授权失效 |
 | 验收执行 | `alm verify` 把子进程能力被拒（EPERM/EACCES，典型是沙箱禁止管道 stdio 或浏览器启动）归为「环境阻断」：`status: blocked`、退出码 3，不混入断言失败，并列出受限命令与所需能力；`--profile full` 要求完整进程/浏览器能力，此时环境阻断按失败退出 1。git、node CLI 与测试 fixture 的捕获统一走 `runCaptured`：先试管道，被拒后自动改用临时文件描述符，因此在 workspace-write 会话里仍能跑完纯逻辑与 git fixture，仅浏览器用例留给宿主/CI。环境阻断不等于通过，宿主终裁仍由宿主进程执行。 |
+| 自动推进与验收 | 交付会话固定在 `workspace-write`，无法启动浏览器/管道子进程，因此回合内 `pnpm -s alm verify` 对这类用例只能返回 exit 3 环境阻断；回合说明据此把完成标准写成「可执行断言全部通过（仅浏览器/子进程用例可因环境阻断例外）」，不再要求 exit 0，AI 也不应为此反复重试。回合结束后由插件宿主用完整进程能力运行登记验收并铸证据；只有同一快照的新鲜通过证据才能生成候选。陈旧的 `environment-blocked` 停止不再永久压住验收：宿主仍会重新验收，新鲜证据优先于旧停止，人类点「继续推进」也可重新授权。自动推进授权绑定 `scopeHash`（目标/范围/验收文本），补 `allocated_to`、改负责人等元数据编辑不会撤销；旧授权仍按完整需求哈希更严格地校验，人类恢复推进时一次性重绑到 `scopeHash`。若宿主验收本身只剩 EPERM/EACCES 失败，则记为 `verification-command-unavailable`（环境限制），不会当成代码缺陷去触发修复轮。 |
 | 发布 | 发布是独立对象 `REL-*`：已验收交付集合 → 人类授权 → 执行结果（released/failed）追加记录；`.alm/releases/` 可查 |
-| 失败监控 | 验收失败、执行会话失败、写入失败都会汇总成统一失败事件 `.alm/failures/FAIL-*.json`（阶段/步骤/分类/指纹/脱敏证据/快照/重试），区分业务结果、用户取消、外部依赖、插件缺陷、产品缺陷；监控异常不覆盖原错误 |
+| 失败监控 | 验收失败、执行会话失败、写入失败都会汇总成统一失败事件 `.alm/failures/FAIL-*.json`（阶段/步骤/分类/指纹/脱敏证据/快照/重试），区分业务结果、用户取消、外部依赖、插件缺陷、产品缺陷；监控异常不覆盖原错误。运行卡片只展示**绑定到该 run（或该 change）且未结算**的失败——`run: null` 的孤儿记录不再冒充本轮失败；`POST /api/alm/requirements/failure {mode:'resolve', failureId, status: resolved|not-applicable}` 由宿主认证的人类结算，结算只追加 `resolution`，不改写原始摘要与证据，结算后该事件即从运行诊断消失、仍保留在失败台账里 |
+| 架构声明 | 实现改动了需求未声明的模块时，`dev-branch-sync` 拒绝提交，重跑验收无法解除。决策层把这条阻塞放进 `decision.gaps[].code = architecture-undeclared`（`severity: block`，带 `modules`/`snippet`/`path`，`nextStep.action = declare-allocation`），`POST /api/alm/requirements/architecture {action:'plan'|'declare', requirement, modules, expectedRequirementHash}` 负责补声明：plan 只读，declare 需要宿主认证的主体 + CAS 哈希，写入后**重新解析需求文档**确认关系生效再落盘，并写 `.alm/audit/requirements/*-declare-allocation.json`；声明改变需求内容哈希，因此旧验收证据按设计过期、需重跑；declare 在同一事务内重绑运行授权（保留 dispatch/verification 预算），否则补声明会反过来停住等待它的运行 |
+| 运行时自愈 | 澄清失败先按证据分类（first-token-timeout / output-timeout / output-budget-exhausted / invalid-output / configuration / transport-failure）。可自愈的只改 `.alm/self-heal/policy.json`：时间预算、`maxOutputTokens`（按模型上限 clamp）、`intentReasoningEffort`、`repairReasoningEffort`、`modelChain`；变更记 revision、before/after、actor、reason，可回滚。澄清调用是结构化抽取，不是深度推理：路由本身声明了思考等级时，`intentReasoningEffort`（默认 `low`）会把它压低，避免「模型选择里设了 effort=max」把整个输出池耗在思考上（真实故障就是这样产生 46 秒纯思考、正文 0 字）；路由不接受该等级时会去掉该参数重试一次。输出预算耗尽时再判断是本地预算小还是模型/服务端上限在起作用：实测 token 逼近发送预算就提预算重试一次，明显低于发送预算（例如问 100000 只在 8192 停下）说明提预算无效，改为把 `repairReasoningEffort`（默认 `off`）用于重试；两者都不行再按 `modelChain` 降级，全程不改源码。finish 取值按宿主契约（`stop / tool-calls / max-tokens / aborted / error`），`max-tokens` 才算截断，旧代码只认 `length` 会把每次截断误判成「模型乱答」 |
 | 原需求内修复 | 开发或验收的产品失败只记录事件，不自动新建需求；存在原已授权执行会话时复用原需求与原 run 修复，每 run 最多两次，人工决策、暂停、取消、终态及授权范围仍生效。没有会话时明确等待人工恢复，不偷偷创建新会话。人工显式创建缺陷及已有缺陷闭环保留 |
 | 列表 / 删除 | 列表只展示项目 `requirementRoot` 内的需求（测试 fixture 不再混入）；「归档」保留记录并移出活跃列表，「删除」从仓库移除记录，删除前把原文与基线写入 `.alm/audit/requirements/` |
 | 优化建议 / 版本 | 完成需求澄清并确认后不再强制第二轮评审；`.alm/reviews/<REQ>.ai.json` 仅保存可选的 AI 优化建议。建议默认不勾选，可明确采纳所选项或暂不采纳后继续；`pass/warn/block` 仅是建议元数据，不阻断推进，也不代表人工验收或发布授权。可信人工签收独立存放在 `.alm/signoffs/<REQ>.json`，并绑定当前候选与验收证据；版本快照/字段 diff |

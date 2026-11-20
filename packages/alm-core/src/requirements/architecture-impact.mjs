@@ -222,3 +222,43 @@ export function declaredModulesOf(asset) {
 export function allocationSnippet(moduleIds) {
   return (moduleIds ?? []).map((id) => `[RELATION]\nType: allocated_to\nValue: ${id}`).join('\n\n')
 }
+
+/**
+ * Re-evaluate one stored architecture record against the requirement's *current*
+ * declarations.
+ *
+ * The record inside a candidate is an immutable statement about one delivery, but
+ * a declaration made afterwards must be able to clear its own blocker: otherwise
+ * "补声明" is never satisfied, because the frozen `undeclared` list keeps blocking
+ * the very action that fixes it. Module ids are the granularity the gate needs, so
+ * this needs no filesystem access.
+ */
+export function reconcileArchitectureDeclarations({ architecture = null, declaredModules = [] } = {}) {
+  if (!architecture || typeof architecture !== 'object') return null
+  const declared = [...new Set((declaredModules ?? []).map(text).filter(Boolean))]
+  const changed = (Array.isArray(architecture.moduleIds) && architecture.moduleIds.length > 0
+    ? architecture.moduleIds
+    : Array.isArray(architecture.modules)
+      ? architecture.modules.map((entry) => entry?.id)
+      : []).map(text).filter(Boolean)
+  const frozenUndeclared = (Array.isArray(architecture.undeclared) ? architecture.undeclared : []).map(text).filter(Boolean)
+  // Only the modules this delivery actually moved can be undeclared; a record that
+  // never listed its module ids falls back to its frozen list.
+  const candidates = changed.length > 0 ? changed : frozenUndeclared
+  const undeclared = candidates.filter((id) => !declared.includes(id))
+  const enforced = architecture.enforced !== false
+  return {
+    ...architecture,
+    changed: changed.length > 0,
+    moduleIds: changed,
+    undeclared,
+    declared,
+    declaredNotChanged: declared.filter((id) => !changed.includes(id)),
+    blocking: enforced && undeclared.length > 0,
+    reason: undeclared.length > 0
+      ? `实现改动了未声明模块：${undeclared.join('、')}`
+      : changed.length > 0
+        ? `改动模块均已声明：${changed.join('、')}`
+        : (architecture.reason ?? null),
+  }
+}

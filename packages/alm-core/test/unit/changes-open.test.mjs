@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -23,6 +23,12 @@ function makeRepo() {
   git(root, ['add', '-A'])
   git(root, ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture'])
   return root
+}
+
+function removeWorktree(root, plan) {
+  if (!existsSync(plan.worktreePath)) return
+  git(root, ['worktree', 'remove', '--force', plan.worktreePath])
+  git(root, ['branch', '-D', plan.branch])
 }
 
 test.after(() => {
@@ -94,6 +100,72 @@ test('openChange isolate creates a sibling worktree and leaves the main worktree
   } finally {
     execFileSync('git', ['-C', root, 'worktree', 'remove', '--force', worktree], { stdio: 'ignore' })
     execFileSync('git', ['-C', root, 'branch', '-D', 'alm/chg-pay-001'], { stdio: 'ignore' })
+  }
+})
+
+test('openChange isolate drafts tasks from a requirement created after HEAD', () => {
+  const root = makeRepo()
+  const projectFile = '.alm/project.json'
+  git(root, ['rm', '--cached', '--', projectFile])
+  git(root, ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'Keep project settings local'])
+  const requirementId = 'REQ-PAY-016'
+  const file = 'requirements/req-pay-016.sdoc'
+  const brief = 'requirements/briefs/REQ-PAY-016.md'
+  mkdirSync(join(root, dirname(brief)), { recursive: true })
+  writeFileSync(join(root, file), `[DOCUMENT]\nTITLE: Local requirement\n\n[REQUIREMENT]\nUID: ${requirementId}\nTITLE: Local requirement\nOWNER: team-pay\nBRIEF: ${brief}\n`)
+  writeFileSync(join(root, brief), 'Current scope\r\n')
+  writeFileSync(join(root, 'unrelated.txt'), 'Local-only change')
+  const before = git(root, ['status', '--porcelain=v1'])
+  const plan = planChange({ root, requirementIds: [requirementId], isolate: true })
+
+  try {
+    const result = openChange({ root, requirementIds: [requirementId], apply: true, isolate: true })
+    assert.equal(result.draft.tasks.length, 3)
+    for (const path of [file, brief]) assert.deepEqual(readFileSync(join(result.worktree.path, path)), readFileSync(join(root, path)))
+    assert.deepEqual(JSON.parse(readFileSync(join(result.worktree.path, projectFile), 'utf8')), JSON.parse(readFileSync(join(root, projectFile), 'utf8')))
+    assert.equal(existsSync(join(result.worktree.path, 'unrelated.txt')), false)
+    assert.equal(git(root, ['status', '--porcelain=v1']), before)
+  } finally {
+    removeWorktree(root, plan)
+  }
+})
+
+test('openChange isolate takes the current revision of a moved requirement exactly once', () => {
+  const root = makeRepo()
+  const oldFile = 'requirements/refund-idempotent.sdoc'
+  const file = 'requirements/renamed.sdoc'
+  renameSync(join(root, oldFile), join(root, file))
+  const latest = readFileSync(join(root, file), 'utf8').replace(/(UID: REQ-PAY-004\r?\nTITLE: ).*/, '$1Latest requirement title')
+  writeFileSync(join(root, file), latest)
+  const plan = planChange({ root, requirementIds: ['REQ-PAY-004'], isolate: true })
+
+  try {
+    const result = openChange({ root, requirementIds: ['REQ-PAY-004'], apply: true, isolate: true })
+    assert.equal(existsSync(join(result.worktree.path, oldFile)), false)
+    assert.equal(readFileSync(join(result.worktree.path, file), 'utf8'), latest)
+    assert.match(result.draft.tasks[1].interface, /Latest requirement title/)
+  } finally {
+    removeWorktree(root, plan)
+  }
+})
+
+test('openChange isolate removes its new checkout if a shared file also changes another requirement', () => {
+  const root = makeRepo()
+  const file = 'requirements/refund-idempotent.sdoc'
+  const shared = readFileSync(join(root, file), 'utf8') + '\n[REQUIREMENT]\nUID: REQ-PAY-016\nTITLE: Another requirement\nOWNER: team-pay\n'
+  writeFileSync(join(root, file), shared)
+  const plan = planChange({ root, requirementIds: ['REQ-PAY-004'], isolate: true })
+
+  try {
+    assert.throws(
+      () => openChange({ root, requirementIds: ['REQ-PAY-004'], apply: true, isolate: true }),
+      (error) => error.code === 'requirement-file-conflict' && error.status === 409,
+    )
+    assert.equal(existsSync(plan.worktreePath), false)
+    assert.equal(git(root, ['branch', '--list', plan.branch]), '')
+    assert.equal(readFileSync(join(root, file), 'utf8'), shared)
+  } finally {
+    removeWorktree(root, plan)
   }
 })
 

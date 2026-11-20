@@ -37,6 +37,46 @@ export function requirementContentHash({ root, asset }) {
   return sha256(canonicalRequirement({ root, asset }))
 }
 
+const scopeText = (value) => String(value ?? '').replace(/\r\n?/g, '\n').trim()
+
+/**
+ * Hash of what a delivery is asked to build, not of every editable field.
+ *
+ * The start-time automatic authorization used to be pinned to
+ * `requirementContentHash`, which includes relations and metadata. Declaring an
+ * `allocated_to` module — the very action that unblocks a delivery — therefore
+ * revoked the authorization of the run that was waiting for it. This hash keeps
+ * the goal, scope and acceptance text and deliberately ignores relations,
+ * owner/status/priority and revision bookkeeping.
+ */
+export function requirementScopeHash({ root, asset, doc = null } = {}) {
+  const briefPath = asset?.extra?.brief ? join(resolve(root), asset.extra.brief) : null
+  const brief = briefPath && existsSync(briefPath) ? readFileSync(briefPath, 'utf8') : ''
+  const structured = doc && typeof doc === 'object'
+    ? {
+        goal: scopeText(doc.goal),
+        problem: scopeText(doc.problem),
+        features: (Array.isArray(doc.features) ? doc.features : []).map((entry) => ({
+          id: entry?.id ?? null,
+          title: scopeText(entry?.title),
+          behavior: scopeText(entry?.behavior),
+        })),
+        acceptance: (Array.isArray(doc.acceptance) ? doc.acceptance : []).map((entry) => ({
+          id: entry?.id ?? null,
+          text: scopeText(entry?.text),
+        })),
+        constraints: (Array.isArray(doc.constraints) ? doc.constraints : []).map(scopeText),
+        scope: (Array.isArray(doc.scope) ? doc.scope : []).map(scopeText),
+        outOfScope: (Array.isArray(doc.outOfScope) ? doc.outOfScope : []).map(scopeText),
+        pending: (Array.isArray(doc.pending) ? doc.pending : []).map((entry) => ({
+          id: entry?.id ?? null,
+          text: scopeText(entry?.text),
+        })),
+      }
+    : null
+  return sha256({ id: asset?.id ?? null, brief: scopeText(brief), structured })
+}
+
 /**
  * Hash of the acceptance-test revision referenced by `verified_by`. A test that
  * was edited or replaced changes this hash, so old evidence stops being current.

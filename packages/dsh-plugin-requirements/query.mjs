@@ -10,10 +10,11 @@ import { buildGraph, findCycles, walk } from '../alm-core/src/index/closure.mjs'
 import { buildIndex } from '../alm-core/src/index/index.mjs'
 import { acceptanceSummary } from '../alm-core/src/acceptance/acceptance.mjs'
 import { candidateView, worktreeSnapshot } from '../alm-core/src/requirements/candidate.mjs'
+import { declaredModulesOf, reconcileArchitectureDeclarations } from '../alm-core/src/requirements/architecture-impact.mjs'
 import { runCaptured } from '../alm-core/src/process-capture.mjs'
 import { DELIVERY_LABELS, deliveryStateFor, isClosed, readClosure } from '../alm-core/src/requirements/delivery.mjs'
 import { releaseViewFor } from '../alm-core/src/requirements/release.mjs'
-import { defectView, failureDiagnosis, listFailures } from '../alm-core/src/requirements/failure.mjs'
+import { defectView, failureDiagnosis, failuresForRun, listFailures } from '../alm-core/src/requirements/failure.mjs'
 import { runView, readRun } from '../alm-core/src/requirements/run.mjs'
 import { listSpecConvergences, pendingSpecDeltas, readIterationRetry, requirementSpecContext } from '../alm-core/src/requirements/convergence.mjs'
 import { resolveRunDecision } from '../alm-core/src/requirements/run-decision.mjs'
@@ -25,6 +26,7 @@ import { decideEvidence } from '../alm-core/src/evidence/decision.mjs'
 import { aiReviewSummary } from './ai-review.mjs'
 import { docHashOf, parseDoc } from '../alm-core/src/requirements/doc.mjs'
 import { deriveDetailView } from './detail-view.mjs'
+import { isolatedDecisionWorktrees, pendingIsolatedDecision } from './delivery-decision.mjs'
 import { versionPath } from './version-path.mjs'
 import { rejectionReview } from './reject-candidate.mjs'
 import { gitHead } from '../alm-core/src/approvals/approval.mjs'
@@ -32,6 +34,7 @@ import { checkReport, indexReport, loadRepo } from '../alm-core/src/commands.mjs
 
 const NEXT = {
   'fix-blockers': '修阻塞',
+  'declare-allocation': '补架构声明',
   'fix-anomaly': '修数据异常',
   'rerun-evidence': '重跑证据',
   'run-review': '运行评审',
@@ -285,6 +288,15 @@ export function versionHistory(root, file, limit = 20) {
   }
 }
 
+function* fileHistoryEntries(output) {
+  // Git inserts one newline before each commit's first filename. The leading
+  // NUL in the format and -z delimiters preserve the filenames verbatim.
+  for (const record of output.split('\0\0')) {
+    const [header, firstPath, ...remainingPaths] = record.replace(/^\0/, '').split('\0')
+    if (header && firstPath) yield { header, paths: [firstPath.replace(/^\n/, ''), ...remainingPaths] }
+  }
+}
+
 /**
  * Version history for many requirement files with one log walk. The list view
  * renders every row, so spawning git twice per row (top-level lookup plus log)
@@ -314,7 +326,8 @@ export function versionHistories(root, files, limit = 20, readContext = null) {
       'log',
       '--max-count', String(limit * paths.length),
       '--name-only',
-      '--format=%x1e%H%x1f%h%x1f%aI%x1f%s',
+      '-z',
+      '--format=%x00%H%x1f%h%x1f%aI%x1f%s',
       '--',
       ...paths,
     ])
@@ -323,12 +336,11 @@ export function versionHistories(root, files, limit = 20, readContext = null) {
   }
   // Empty success is known-empty history; only an actual failure uses fallback.
   for (const file of unique) result.set(file, [])
-  for (const chunk of output.split('\u001e')) {
-    const lines = chunk.split('\n').map((line) => line.trim()).filter(Boolean)
-    const header = (lines[0] ?? '').split('\u001f')
-    if (header.length < 4) continue
-    const version = { sha: header[0], short: header[1], date: header[2], subject: header.slice(3).join('\u001f') }
-    for (const path of lines.slice(1)) {
+  for (const { header, paths } of fileHistoryEntries(output)) {
+    const [sha, short, date, ...subject] = header.split('\u001f')
+    if (!sha || !short || !date) continue
+    const version = { sha, short, date, subject: subject.join('\u001f') }
+    for (const path of paths) {
       const file = relToFile.get(path)
       if (!file) continue
       const list = result.get(file) ?? []
@@ -366,15 +378,14 @@ export function creationTimes(root, files, readContext = null) {
   }
   let output
   try {
-    output = git(top, ['log', '--diff-filter=A', '--name-only', '--format=%x1e%aI', '--', ...relToFile.keys()])
+    output = git(top, ['log', '--diff-filter=A', '--name-only', '-z', '--format=%x00%aI', '--', ...relToFile.keys()])
   } catch {
     return result
   }
-  for (const chunk of output.split('\u001e')) {
-    const lines = chunk.split('\n').map((line) => line.trim()).filter(Boolean)
-    const ms = lines[0] ? Date.parse(lines[0]) : Number.NaN
+  for (const { header, paths } of fileHistoryEntries(output)) {
+    const ms = Date.parse(header)
     if (!Number.isFinite(ms)) continue
-    for (const path of lines.slice(1)) {
+    for (const path of paths) {
       const file = relToFile.get(path)
       if (!file) continue
       // `git log` walks newest first, so the last assignment is the first add.
@@ -543,6 +554,13 @@ export function nextActionFor(item, gaps = []) {
     return 'release'
   }
   if (deliveryKey === 'awaiting-acceptance') return 'signoff'
+  // A delivery that moved an undeclared module cannot be committed at all, so
+  // resuming the run would end exactly where the last turn did. The declaration
+  // is the only action that changes the outcome, and it takes precedence over
+  // every run/evidence action below.
+  const architectureBlocked = (Array.isArray(item?.decision?.gaps) ? item.decision.gaps : [])
+    .some((gap) => gap?.code === 'architecture-undeclared')
+  if (architectureBlocked) return 'declare-allocation'
   // A run whose heartbeat stopped is not "in progress" in any honest sense:
   // the panel offers resuming it instead of waiting for a turn that is gone.
   if (deliveryKey === 'in-progress' && item?.run?.exists) {
@@ -760,6 +778,7 @@ export function requirements(root, { requirementId = null } = {}) {
   // Request-local only: no TTL can hide edits between separate queries or writes.
   let snapshot
   let top
+  let decisionWorktrees
   const readContext = {
     worktreeSnapshot: () => (snapshot ??= worktreeSnapshot(root)),
     gitTop: () => (top ??= git(root, ['rev-parse', '--show-toplevel'])),
@@ -890,6 +909,13 @@ export function requirements(root, { requirementId = null } = {}) {
         humanAcceptance: item.humanAcceptance,
         closed: item.closed,
         anomalies,
+        // The candidate's architecture record is frozen at delivery time; a
+        // declaration made afterwards must clear it, or the "补声明" action can
+        // never satisfy its own blocker.
+        architecture: reconcileArchitectureDeclarations({
+          architecture: item.candidate?.architecture ?? null,
+          declaredModules: declaredModulesOf(asset),
+        }),
       })
       let discovered = null
       item.run = runView({ root, requirementId: item.id, decisionFor: (repo, run) => (discovered = resolveRunDecision(repo, run)) })
@@ -931,8 +957,14 @@ export function requirements(root, { requirementId = null } = {}) {
             }
           : null
         try {
-          const failure = listFailures(root, { requirement: item.id, limit: 1 }).at(-1)
-          if (failure) item.run.failureDiagnostic = failureDiagnosis(failure)
+          // Only a failure bound to *this* run may describe it. Taking the
+          // requirement's latest failure made an orphaned
+          // `unauthenticated-subject` record (run: null, no evidence) appear as
+          // this run's failure for days; settled failures are history, not a
+          // live diagnosis.
+          const bound = failuresForRun(root, { runId: item.run.id, change: item.run.change })
+          const failure = bound.at(-1) ?? null
+          item.run.failureDiagnostic = failure ? failureDiagnosis(failure) : null
         } catch {}
         // Identity and presentation use the same safely discovered bytes.
         if (item.run.awaitingAnswer) {
@@ -979,6 +1011,18 @@ export function requirements(root, { requirementId = null } = {}) {
             verificationSource: preview.meta?.verificationSource ?? null,
           }
         } catch { item.executionBrief = null }
+      }
+      if (!item.run.awaitingAnswer && (!item.run.active || item.run.idleHandback)) {
+        const pending = pendingIsolatedDecision(root, item.id, decisionWorktrees ??= isolatedDecisionWorktrees(root))
+        if (pending) {
+          const { root: runRoot, run, decision } = pending
+          item.run = {
+            ...runView({ root: runRoot, requirementId: item.id }),
+            runRoot,
+            decisionIdentity: decision.identity ? { path: decision.path, contentHash: decision.identity.sha256 } : null,
+            decisionPresentation: presentDecisionRequest(decision.text, { sourceFile: decision.path, runId: run.id }),
+          }
+        }
       }
       item.architectureLedger = architectureRecord?.changed
         ? {

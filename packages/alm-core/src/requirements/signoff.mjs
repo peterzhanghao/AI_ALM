@@ -151,6 +151,7 @@ export function signRequirement({ root, asset, actor, subject = null, apply = fa
     anomalies,
     candidate,
     humanAcceptance: current,
+    architecture: candidate?.architecture ?? null,
   })
   const contentHash = requirementContentHash({ root: repo, asset })
   const plan = {

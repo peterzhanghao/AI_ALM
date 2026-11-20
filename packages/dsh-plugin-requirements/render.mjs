@@ -13,7 +13,6 @@ const STYLE = `
   h1 { font-size: 22px; margin: 0 0 4px; }
   h2 { font-size: 16px; margin: 28px 0 8px; }
   .summary { color: #9da7b3; margin: 0 0 20px; }
-  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #1f6feb33; color: #79c0ff; font-size: 12px; }
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
   th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #21262d; vertical-align: top; }
@@ -37,7 +36,6 @@ const STYLE = `
   .timeline { border-left: 1px solid #30363d; margin: 12px 0; padding-left: 20px; }
   .timeline-event { position: relative; margin: 12px 0; }
   .timeline-event::before { content: ""; position: absolute; left: -26px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: #58a6ff; box-shadow: 0 0 0 3px #0f1115; }
-  .timeline-event.delivery::before { background: #3fb950; }
   .timeline-badge { display: inline-block; padding: 1px 7px; border: 1px solid #58a6ff; border-radius: 999px; color: #79c0ff; font-size: 11px; font-weight: 600; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 `
@@ -48,10 +46,6 @@ const ANOMALY_LABELS = {
   'duplicate-id': '需求 ID 重复',
   'duplicate-business-id': '业务 ID 重复',
   'dangling-relation': '悬空关系',
-}
-
-function shortHash(value, size = 12) {
-  return value ? `<code>${escapeHtml(String(value).slice(0, size))}</code>` : '<span class="muted">—</span>'
 }
 
 function listTimestamp(value) {
@@ -170,19 +164,21 @@ export function renderRequirementsPage(payload, options = {}) {
 
   const rows = requirements.length
     ? requirements
-        .map(
-          (item) => `<tr>
+        .map((item) => {
+          const deliveryBadge = gitDeliveryBadge(item)
+          const decision = decisionCell(item)
+          return `<tr>
         <td><code>${escapeHtml(item.id)}</code> · <span class="${Number(item.revision) > 1 ? 'evolved' : 'muted'}" title="${escapeHtml([...item.specConvergences ?? []].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.evolutionNote ?? '需求版本')}">v${escapeHtml(item.revision ?? 1)}${Number(item.revision) > 1 ? ' · 已演进' : ''}</span>${item.pendingPatch ? ' <span class="warn">● 待确认变更</span>' : ''}</td>
-        <td class="requirement-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}<div class="muted">${(item.sources ?? []).includes('defect') ? '⚠ 缺陷' : item.sourceSession || (item.sources ?? []).includes('chat') ? '💬 对话生成' : (item.sources ?? []).includes('feedback') ? '反馈' : '✍️ 手动创建'}${gitDeliveryBadge(item) ? ` · ${gitDeliveryBadge(item)}` : ''}</div></td>
+        <td class="requirement-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}<div class="muted">${(item.sources ?? []).includes('defect') ? '⚠ 缺陷' : item.sourceSession || (item.sources ?? []).includes('chat') ? '💬 对话生成' : (item.sources ?? []).includes('feedback') ? '反馈' : '✍️ 手动创建'}${deliveryBadge ? ` · ${deliveryBadge}` : ''}</div></td>
         <td>${escapeHtml(item.statusLabel ?? item.status)}</td>
         <td>${escapeHtml(item.owner)}</td>
-        <td>${escapeHtml(listTimestamp(item.updatedAt ?? item.createdAt))}${decisionCell(item) ? `<div>${decisionCell(item)}</div>` : ''}</td>
+        <td>${escapeHtml(listTimestamp(item.updatedAt ?? item.createdAt))}${decision ? `<div>${decision}</div>` : ''}</td>
         <td>${nextStepCell(item)}</td>
         <td>${acceptanceCell(item)}</td>
-      </tr>`,
-        )
+      </tr>`
+        })
         .join('')
-    : '<tr><td colspan="7" class="muted">No requirements found.</td></tr>'
+    : '<tr><td colspan="8" class="muted">No requirements found.</td></tr>'
 
   const gapItems = gaps.length
     ? `<ul>${gaps

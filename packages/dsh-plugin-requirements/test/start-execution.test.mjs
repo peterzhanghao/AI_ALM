@@ -58,9 +58,11 @@ function fixtureRepo() {
 async function withServer(root, run, admission = null, { holdIdle = false } = {}) {
   const routes = new Map()
   const followed = []
+  const created = []
   const listeners = new Map()
   const agents = {
-    async create() {
+    async create(options) {
+      created.push(options)
       return {
         agent: {
           followup: (message) => {
@@ -109,33 +111,76 @@ async function withServer(root, run, admission = null, { holdIdle = false } = {}
   })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   try {
-    await run(`http://127.0.0.1:${server.address().port}`, followed, (event, ...args) => listeners.get(event)?.(...args))
+    await run(`http://127.0.0.1:${server.address().port}`, followed, (event, ...args) => listeners.get(event)?.(...args), created)
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }
 }
 
-test('a host TRANSPORT event immediately interrupts the persisted run instead of waiting for whenIdle', async () => {
+for (const error of [
+  { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' },
+  { code: 'PI_AI_ERROR', message: 'Upstream response stream was interrupted' },
+]) test(`a host ${error.code} stream failure immediately interrupts the run and stops automatic advance`, async () => {
   const root = fixtureRepo()
   try {
     await withServer(root, async (base, followed, emit) => {
       const payload = await fetch(`${base}/api/alm/requirements/start`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true }),
+        body: JSON.stringify({ requirementId: 'REQ-PAY-001', apply: true, autoAdvance: true }),
       }).then(response => response.json())
       assert.equal(payload.execution.scheduled, true)
       emit('session/event', { id: payload.execution.sessionId }, {
-        type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } },
+        type: 'turn/end', data: { reason: { kind: 'error', error } },
       })
       const stored = JSON.parse(readFileSync(join(root, '.alm', 'runs', `${payload.execution.runId}.json`), 'utf8'))
       assert.equal(stored.status, 'failed')
       assert.equal(stored.phase, 'interrupted')
       assert.equal(stored.failure.code, 'transport-failed')
-      assert.match(stored.failure.message, /DeepSeek Messages transport failed/)
+      assert.equal(stored.failure.hostCode, error.code)
+      assert.ok(stored.failure.message.includes(error.message))
+      assert.equal(stored.checkpoint.autoAdvance.status, 'stopped')
+      assert.equal(stored.checkpoint.autoAdvance.reason, 'transport-failed')
       assert.deepEqual(stored.interruptedSessions, [payload.execution.sessionId])
       assert.equal(followed.length, 1)
     }, { peer: { principal: { kind: 'human', id: 'human:test' } } }, { holdIdle: true })
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('an isolated start snapshots an uncommitted requirement and runs with verification in the isolated checkout', async () => {
+  const root = fixtureRepo()
+  const worktreeRoot = mkdtempSync(join(tmpdir(), 'alm-start-worktrees-'))
+  const requirementId = 'REQ-PAY-002'
+  const requirementFile = 'requirements/req-pay-002.sdoc'
+  const configFile = `.alm/acceptance/${requirementId}.json`
+  const worktree = join(worktreeRoot, `${root.split(/[\\/]/).at(-1)}-chg-pay-049`)
+  try {
+    writeFileSync(join(root, requirementFile), readFileSync(join(root, 'requirements/req-pay-001.sdoc'), 'utf8').replaceAll('REQ-PAY-001', requirementId))
+    writeFileSync(join(root, 'requirements/briefs', `${requirementId}.md`), readFileSync(join(root, 'requirements/briefs/REQ-PAY-001.md')))
+    const config = JSON.parse(readFileSync(join(root, '.alm/acceptance/REQ-PAY-001.json'), 'utf8'))
+    writeFileSync(join(root, configFile), JSON.stringify({ ...config, requirement: requirementId }))
+    await withServer(root, async (base, followed, _emit, created) => {
+      const response = await fetch(`${base}/api/alm/requirements/start`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requirementId, changeId: 'CHG-PAY-049', apply: true, isolate: true, autoAdvance: true, worktreeRoot }),
+      })
+      const payload = await response.json()
+      assert.equal(response.status, 200, JSON.stringify(payload))
+      assert.equal(payload.execution.scheduled, true, JSON.stringify(payload.execution))
+      assert.equal(payload.worktree.path, worktree)
+      assert.equal(created[0].meta.cwd, worktree)
+      assert.equal(followed.length, 1)
+      assert.equal(existsSync(join(worktree, requirementFile)), true)
+      assert.equal(JSON.parse(readFileSync(join(worktree, configFile), 'utf8')).requirement, requirementId)
+      const stored = JSON.parse(readFileSync(join(worktree, '.alm', 'runs', `${payload.execution.runId}.json`), 'utf8'))
+      assert.equal(stored.requirement, requirementId)
+      assert.ok(stored.checkpoint.autoAdvance.authorization.configHash)
+      assert.equal(existsSync(join(root, '.alm', 'runs', `${payload.execution.runId}.json`)), false)
+    }, { peer: { principal: { kind: 'human', id: 'human:test' } } }, { holdIdle: true })
+  } finally {
+    if (existsSync(worktree)) git(root, 'worktree', 'remove', '--force', worktree)
+    rmSync(root, { recursive: true, force: true })
+    rmSync(worktreeRoot, { recursive: true, force: true })
+  }
 })
 
 test('native answer and continue reject forged human actor without trusted human principal', async () => {

@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
+import { AI_REVIEW_DIR, AI_REVIEW_SCHEMA, aiReviewReportPath as aiReviewPath, readAiReviewReport as readAiReview } from '../alm-core/src/review/executor.mjs'
 
-export const AI_REVIEW_SCHEMA = 'alm.ai-review/v1'
-export const AI_REVIEW_DIR = '.alm/reviews'
+export { AI_REVIEW_DIR, AI_REVIEW_SCHEMA, aiReviewPath, readAiReview }
 
 export class AiReviewError extends Error {
   constructor(message, { code = 'ai-review', status = 400 } = {}) {
@@ -21,21 +21,6 @@ function briefPath(root, asset) {
 export function readRequirementBrief(root, asset) {
   const file = briefPath(root, asset)
   return existsSync(file) ? readFileSync(file, 'utf8') : ''
-}
-
-export function aiReviewPath(root, requirementId) {
-  return join(resolve(root), AI_REVIEW_DIR, `${requirementId}.ai.json`)
-}
-
-export function readAiReview(root, requirementId) {
-  const file = aiReviewPath(root, requirementId)
-  if (!existsSync(file)) return null
-  try {
-    const payload = JSON.parse(readFileSync(file, 'utf8'))
-    return payload.schema === AI_REVIEW_SCHEMA ? { ...payload, file } : null
-  } catch {
-    return null
-  }
 }
 
 export function writeAiReview(root, report) {
@@ -163,7 +148,7 @@ function repairTruncatedJson(candidate) {
   return repaired
 }
 
-function extractJson(text) {
+export function parseAiJson(text) {
   const raw = String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '')
   const start = raw.indexOf('{')
   if (start < 0) throw new AiReviewError('AI 输出中没有 JSON 对象', { code: 'ai-parse-failed' })
@@ -185,10 +170,6 @@ function extractJson(text) {
     }
   }
   throw new AiReviewError(`AI 输出 JSON 无法解析（尾部：${raw.slice(-160)}）`, { code: 'ai-parse-failed' })
-}
-
-export function parseAiJson(text) {
-  return extractJson(text)
 }
 
 function normalizeReview(payload) {
@@ -265,7 +246,7 @@ export async function runAiReview({ stream, provider, model, reasoningEffort, as
     throw error
   }
   let review
-  try { review = normalizeReview(extractJson(text)) } catch (error) { error.usage = usage; throw error }
+  try { review = normalizeReview(parseAiJson(text)) } catch (error) { error.usage = usage; throw error }
   return {
     schema: AI_REVIEW_SCHEMA,
     requirement: asset.id,

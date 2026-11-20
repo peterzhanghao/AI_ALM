@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import RequirementsService from '../index.js'
 import * as runs from '../../alm-core/src/requirements/run.mjs'
-import { nextAutomaticAction, progressFingerprint } from '../auto-advance.mjs'
+import { nextAutomaticAction, progressFingerprint, rebindAutomaticAuthorization } from '../auto-advance.mjs'
 
-const authorization = { actor: 'human:test', source: 'start-v4', requirementHash: 'reqhash', revision: 1 }
-const facts = (fingerprint = 'first') => ({ requirementHash: 'reqhash', revision: 1, snapshot: { complete: true, headSha: 'head' }, fingerprint, candidateEligible: false })
+const authorization = { actor: 'human:test', source: 'start-v4', requirementHash: 'reqhash', scopeHash: 'scope', revision: 1 }
+const facts = (fingerprint = 'first') => ({ requirementHash: 'reqhash', scopeHash: 'scope', revision: 1, snapshot: { complete: true, headSha: 'head' }, fingerprint, candidateEligible: false })
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'alm-auto-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
@@ -60,7 +60,44 @@ test('answering a reframed request restores only existing verified automatic aut
 for (const status of ['paused', 'cancelled', 'done', 'failed']) test(`${status} is never revived`, () => {
   assert.equal(policy({}, { run: { status, checkpoint: { autoAdvance: { authorized: true, authorization } } } }).reason, 'run-not-active')
 })
-for (const [input, reason] of [[{ pendingDecision: true }, 'human-decision-required'], [{ carrier: false }, 'no-authorized-carrier'], [{ facts: null }, 'facts-unavailable'], [{ facts: { ...facts(), requirementHash: 'changed' } }, 'requirement-changed']]) test(reason, () => assert.equal(policy({}, input).reason, reason))
+for (const [input, reason] of [[{ pendingDecision: true }, 'human-decision-required'], [{ carrier: false }, 'no-authorized-carrier'], [{ facts: null }, 'facts-unavailable'], [{ facts: { ...facts(), scopeHash: 'changed' } }, 'requirement-changed']]) test(reason, () => assert.equal(policy({}, input).reason, reason))
+
+test('metadata-only requirement edits keep the scoped authorization', () => {
+  // Declaring allocated modules changes requirementHash and revision but not
+  // what the run was asked to build; it must not stop the run it unblocks.
+  const metadataChanged = { ...facts(), requirementHash: 'newhash', revision: 2 }
+  assert.equal(policy({}, { facts: metadataChanged }).action, 'continue')
+  // A legacy authorization without scopeHash keeps the strict binding.
+  const legacy = { ...authorization }
+  delete legacy.scopeHash
+  assert.equal(nextAutomaticAction({ run: { status: 'waiting-input', checkpoint: { autoAdvance: { authorized: true, authorization: legacy } } }, carrier: true, facts: metadataChanged }).reason, 'requirement-changed')
+})
+
+test('a human-consented declaration rebinds the authorization without touching budgets', () => {
+  const autoAdvance = { authorized: true, authorization: { ...authorization, configHash: 'config' }, dispatches: 1, maxDispatches: 3, status: 'stopped', reason: 'requirement-changed', verification: { attempts: 1, records: [{ status: 'failed', key: 'old' }] } }
+  const rebind = rebindAutomaticAuthorization({
+    autoAdvance,
+    facts: { ...facts(), requirementHash: 'newhash', scopeHash: 'newscope', revision: 2, configHash: 'config' },
+    actor: 'human:test',
+    reason: 'declare-allocation',
+    at: '2026-11-19T00:00:00.000Z',
+  })
+  assert.equal(rebind.changed, true)
+  assert.equal(rebind.autoAdvance.authorization.requirementHash, 'newhash')
+  assert.equal(rebind.autoAdvance.authorization.scopeHash, 'newscope')
+  assert.equal(rebind.autoAdvance.authorization.revision, 2)
+  assert.equal(rebind.autoAdvance.authorization.rebound.reason, 'declare-allocation')
+  assert.equal(rebind.autoAdvance.authorization.rebound.changes.length, 3)
+  assert.equal(rebind.autoAdvance.status, 'authorized')
+  assert.equal(rebind.autoAdvance.reason, null)
+  // Re-authorization refreshes identity only; it never grants extra rounds.
+  assert.equal(rebind.autoAdvance.dispatches, 1)
+  assert.deepEqual(rebind.autoAdvance.verification, autoAdvance.verification)
+  // No anonymous or model-authored re-authorization.
+  assert.equal(rebindAutomaticAuthorization({ autoAdvance, facts: { ...facts(), scopeHash: 'newscope' }, actor: 'agent:forged' }), null)
+  // Nothing changed: no rewrite.
+  assert.equal(rebindAutomaticAuthorization({ autoAdvance, facts: { ...facts(), configHash: 'config' }, actor: 'human:test' }).changed, false)
+})
 
 test('three persistent dispatches do not consume independent repair budget', () => {
   assert.equal(policy({ dispatches: 3 }).reason, 'auto-budget-exhausted')
@@ -85,7 +122,31 @@ test('authorization requires trusted explicit subject and complete bound facts',
   const state = f.instance.prepareAutomaticAuthorization(f.root, 'REQ-A', { kind: 'human', id: 'human:test' })
   assert.equal(state.dispatches, 0); assert.equal(state.maxDispatches, 3)
   assert.equal(state.authorization.requirementHash, 'reqhash')
+  assert.equal(state.authorization.scopeHash, 'scope')
 })
+test('a declaration rebind updates the run checkpoint and preserves its budgets', (t) => {
+  const f = fixture(t)
+  let run = runs.readRun(f.root, f.runId)
+  runs.updateRun({ root: f.root, runId: f.runId, status: 'waiting-input',
+    checkpoint: { ...run.checkpoint, autoAdvance: { ...run.checkpoint.autoAdvance, status: 'stopped', reason: 'requirement-changed',
+      authorization: { ...authorization, configHash: 'config' }, dispatches: 1, verification: { attempts: 1 } } }, apply: true })
+  f.instance.automaticFacts = () => ({ requirementHash: 'newhash', scopeHash: 'newscope', revision: 2, configHash: 'config',
+    snapshot: { complete: true, headSha: 'head' }, fingerprint: 'f' })
+  f.instance.activeRuns.delete(f.instance.executionKey(f.root, 'REQ-A'))
+  const rebound = f.instance.rebindRequirementAuthorization(f.root, 'REQ-A', 'human:test', 'declare-allocation')
+  assert.equal(rebound?.rebound, true)
+  run = runs.readRun(f.root, f.runId)
+  assert.equal(run.checkpoint.autoAdvance.status, 'authorized')
+  assert.equal(run.checkpoint.autoAdvance.reason, null)
+  assert.equal(run.checkpoint.autoAdvance.dispatches, 1)
+  assert.equal(run.checkpoint.autoAdvance.verification.attempts, 1)
+  assert.equal(run.checkpoint.autoAdvance.authorization.requirementHash, 'newhash')
+  assert.equal(run.checkpoint.autoAdvance.authorization.scopeHash, 'newscope')
+  assert.equal(run.checkpoint.autoAdvance.authorization.rebound.reason, 'declare-allocation')
+  // A model or an anonymous caller cannot mint an authorization.
+  assert.equal(f.instance.rebindRequirementAuthorization(f.root, 'REQ-A', 'agent:forged', 'declare-allocation'), null)
+})
+
 test('idle dispatches once then stops without fake answers or new sessions', async (t) => {
   const f = fixture(t); let dispatches = 0
   f.instance.activeRuns.get(f.instance.executionKey(f.root, 'REQ-A')).agent.followup = async (message) => { dispatches++; assert.match(message.id, /^[0-9a-f-]{36}$/i); assert.equal(message.source.kind, 'user'); assert.match(message.content[0].text, /系统自动衔接/) }
@@ -147,6 +208,12 @@ test('accepted delivery and unrecoverable environment are explicit stops', () =>
   assert.equal(policy({}, { facts: { ...facts(), accepted: true } }).reason, 'delivery-already-accepted')
   assert.equal(policy({}, { facts: { ...facts(), environmentBlocked: true } }).reason, 'environment-blocked')
 })
+test('fresh host evidence outranks a stale environment-blocked stop', () => {
+  const stopped = { status: 'stopped', reason: 'environment-blocked' }
+  assert.deepEqual(policy(stopped, { facts: { ...facts(), candidateEligible: true } }), { action: 'candidate', reason: 'evidence-ready' })
+  assert.equal(policy(stopped).reason, 'environment-blocked')
+  assert.equal(policy({ status: 'stopped', reason: 'no-progress' }, { facts: { ...facts(), candidateEligible: true } }).action, 'candidate')
+})
 test('lost carrier persists stop without creating replacement', async (t) => {
   const f = fixture(t)
   f.instance.activeRuns.clear()
@@ -190,7 +257,7 @@ test('a human resume re-authorizes a changed requirement instead of stopping for
   // The round was granted for one revision, then the requirement text changed.
   // Every later resume used to be denied with auto-facts-changed, so the host
   // verification never ran again and the panel offered 继续推进 indefinitely.
-  f.instance.automaticFacts = () => ({ ...facts(), requirementHash: 'newhash', revision: 2, configHash: 'config' })
+  f.instance.automaticFacts = () => ({ ...facts(), requirementHash: 'newhash', scopeHash: 'newscope', revision: 2, configHash: 'config' })
   const granted = { ...authorization, configHash: 'config' }
   const stopped = { requirement: 'REQ-A', status: 'waiting-input', checkpoint: { autoAdvance: { authorized: true, authorization: granted, dispatches: 1, maxDispatches: 3, status: 'stopped', reason: 'requirement-changed' } } }
   const resumed = f.instance.resumeAutomaticCheckpoint(f.root, stopped, 'human:test')
@@ -201,11 +268,31 @@ test('a human resume re-authorizes a changed requirement instead of stopping for
   assert.equal(resumed.checkpoint.autoAdvance.dispatches, 1)
   const auth = resumed.checkpoint.autoAdvance.authorization
   assert.equal(auth.requirementHash, 'newhash')
+  assert.equal(auth.scopeHash, 'newscope')
   assert.equal(auth.revision, 2)
   assert.equal(auth.rebound.actor, 'human:test')
-  assert.equal(auth.rebound.changes.length, 2)
+  assert.equal(auth.rebound.changes.length, 3)
   // The same mismatch stays denied when the stop had another cause or the
   // caller is not a human: only the click that sees this exact stop re-grants.
   assert.notEqual(f.instance.resumeAutomaticCheckpoint(f.root, { ...stopped, checkpoint: { autoAdvance: { ...stopped.checkpoint.autoAdvance, reason: 'no-progress' } } }, 'human:test').receipt.autoAdvanceResumed, true)
   assert.equal(f.instance.resumeAutomaticCheckpoint(f.root, stopped, 'agent:forged').receipt.autoAdvanceResumed, false)
+})
+
+test('explicitly resuming a changed scope admits fresh verification after the old scope exhausted its budget', (t) => {
+  const f = fixture(t)
+  const records = [{ key: 'old-proof', status: 'passed' }]
+  const autoAdvance = {
+    authorized: true, authorization: { ...authorization, configHash: 'config' },
+    dispatches: 1, maxDispatches: 3, status: 'stopped', reason: 'requirement-changed',
+    verification: { attempts: 4, records },
+  }
+  const stopped = { requirement: 'REQ-A', status: 'waiting-input', checkpoint: { autoAdvance } }
+  f.instance.automaticFacts = () => ({ ...facts(), configHash: 'config' })
+  assert.equal(f.instance.resumeAutomaticCheckpoint(f.root, stopped, 'human:test').receipt.autoAdvanceReason, 'auto-budget-exhausted')
+  f.instance.automaticFacts = () => ({ ...facts(), requirementHash: 'newhash', scopeHash: 'newscope', configHash: 'config' })
+  const resumed = f.instance.resumeAutomaticCheckpoint(f.root, stopped, 'human:test')
+  assert.equal(resumed.receipt.autoAdvanceResumed, true)
+  assert.equal(resumed.checkpoint.autoAdvance.dispatches, 1)
+  assert.deepEqual(resumed.checkpoint.autoAdvance.verification, { attempts: 0, records })
+  assert.equal(resumed.checkpoint.autoAdvance.authorization.rebound.previousVerificationAttempts, 4)
 })

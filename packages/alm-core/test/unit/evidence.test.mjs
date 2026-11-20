@@ -453,3 +453,51 @@ test('normalizeAsset validates BUSINESS_ID and keeps it in extra', () => {
     /invalid businessId/,
   )
 })
+
+test('an undeclared module blocks delivery ahead of stale evidence', () => {
+  const stale = decideEvidence({
+    asset: requirementAsset(),
+    review: reviewOf(),
+    acceptance: acceptanceOf({ latest: latestEvidence({ current: false, staleReason: 'worktree' }) }),
+    candidate: { exists: true, current: false, id: 'CAND-1', reasons: [] },
+    architecture: { blocking: true, undeclared: ['MOD-ALM-REQUIREMENTS'], reason: '实现改动了未声明模块：MOD-ALM-REQUIREMENTS' },
+  })
+  assert.equal(stale.state, 'blocked')
+  assert.equal(stale.topGap.code, 'architecture-undeclared')
+  assert.equal(stale.topGap.severity, 'block')
+  assert.equal(stale.topGap.action, 'declare-allocation')
+  assert.deepEqual(stale.topGap.modules, ['MOD-ALM-REQUIREMENTS'])
+  assert.match(stale.topGap.snippet, /Type: allocated_to\nValue: MOD-ALM-REQUIREMENTS/)
+  assert.match(stale.topGap.fix, /补/)
+  assert.equal(stale.nextStep.action, 'declare-allocation')
+  assert.equal(stale.signoff.allowed, false)
+  assert.equal(stale.architecture.blocking, true)
+  // Re-running acceptance cannot clear it, so it is the primary gap.
+  assert.equal(stale.gaps.some((gap) => gap.code === 'evidence-stale'), false)
+})
+
+test('a non-blocking architecture record never changes the decision', () => {
+  const decision = decideEvidence({
+    asset: requirementAsset(),
+    review: reviewOf(),
+    acceptance: acceptanceOf({ latest: latestEvidence() }),
+    architecture: { blocking: false, changed: true, undeclared: [] },
+  })
+  assert.equal(decision.gaps.some((gap) => gap.code === 'architecture-undeclared'), false)
+  assert.equal(decision.state, 'unchecked')
+  assert.notEqual(decision.nextStep.action, 'declare-allocation', 'no declaration is offered when nothing is blocking')
+  assert.equal(decision.architecture.blocking, false)
+})
+
+test('the architecture gate stays visible when another blocker outranks it', () => {
+  const decision = decideEvidence({
+    asset: requirementAsset(),
+    review: reviewOf({ blockers: 1 }),
+    acceptance: acceptanceOf({ latest: latestEvidence() }),
+    architecture: { blocking: true, undeclared: ['MOD-A'] },
+  })
+  assert.equal(decision.state, 'blocked')
+  assert.equal(decision.topGap.code, 'blockers')
+  assert.ok(decision.gaps.some((gap) => gap.code === 'architecture-undeclared'), 'the gate is not lost behind another blocker')
+  assert.match(decision.gaps.find((gap) => gap.code === 'architecture-undeclared').snippet, /allocated_to/)
+})

@@ -25,8 +25,10 @@ import {
   failureDiagnosis,
   defectView,
   failureFingerprint,
+  failuresForRun,
   findDefectByFingerprint,
   ignoreDefect,
+  isFailureResolved,
   linkDefect,
   listDefects,
   listFailures,
@@ -36,6 +38,7 @@ import {
   readDefect,
   readFailure,
   readMonitoring,
+  resolveFailure,
   updateDefectStatus,
   updateFailureAnalysis,
   writeMonitoring,
@@ -97,6 +100,57 @@ function recordProductFailure(root, overrides = {}) {
     ...overrides,
   })
 }
+
+/* ------------------------------------------------------------------ */
+/* settlement and run binding                                          */
+/* ------------------------------------------------------------------ */
+
+test('a settled failure keeps its evidence but stops being an active problem', () => {
+  const root = makeRepo()
+  const { failure } = recordProductFailure(root, { requirement: 'REQ-PAY-001', run: null })
+  assert.equal(isFailureResolved(failure), false)
+
+  const settled = resolveFailure({ root, id: failure.id, status: 'resolved', actor: 'human:local', note: '与推进无关，属其它会话的调用' })
+  assert.equal(settled.applied, true)
+  assert.equal(settled.failure.id, failure.id)
+  assert.equal(settled.failure.summary, failure.summary, 'settling never rewrites the recorded summary')
+  assert.equal(settled.failure.evidence.snapshot, failure.evidence.snapshot)
+  assert.equal(settled.resolution.status, 'resolved')
+  assert.equal(settled.resolution.actor, 'human:local')
+
+  const stored = readFailure(root, failure.id)
+  assert.equal(isFailureResolved(stored), true)
+  assert.equal(listFailures(root, { requirement: 'REQ-PAY-001', includeResolved: false }).length, 0)
+  assert.equal(listFailures(root, { requirement: 'REQ-PAY-001' }).length, 1)
+
+  // Repeating the same settlement is idempotent rather than a second write.
+  const again = resolveFailure({ root, id: failure.id, status: 'resolved', actor: 'human:local' })
+  assert.equal(again.idempotent, true)
+})
+
+test('settlement requires a known record, a supported state and an actor', () => {
+  const root = makeRepo()
+  const { failure } = recordProductFailure(root)
+  assert.throws(() => resolveFailure({ root, id: failure.id, actor: 'human:local', status: 'ignored' }), error => error.code === 'invalid-resolution')
+  assert.throws(() => resolveFailure({ root, id: failure.id, actor: '  ' }), error => error.code === 'actor-required')
+  assert.throws(() => resolveFailure({ root, id: 'FAIL-NOPE', actor: 'human:local' }), error => error.code === 'failure-not-found')
+})
+
+test('failuresForRun binds only this run and hides settled events', () => {
+  const root = makeRepo()
+  const bound = recordProductFailure(root, { run: 'RUN-1', error: new Error('turn failed') }).failure
+  const otherRun = recordProductFailure(root, { run: 'RUN-2', error: new Error('other turn failed') }).failure
+  const orphan = recordProductFailure(root, { run: null, stage: 'develop', step: 'manual', error: new Error('orphan 401') }).failure
+
+  const boundIds = failuresForRun(root, { runId: 'RUN-1' }).map((entry) => entry.id)
+  assert.deepEqual(boundIds, [bound.id], 'another run and an unbound orphan never describe RUN-1')
+  assert.equal(boundIds.includes(otherRun.id), false)
+  assert.equal(boundIds.includes(orphan.id), false)
+
+  resolveFailure({ root, id: bound.id, actor: 'human:local' })
+  assert.deepEqual(failuresForRun(root, { runId: 'RUN-1' }), [], 'a settled failure is history, not a live diagnosis')
+  assert.deepEqual(failuresForRun(root, {}), [], 'without a run there is nothing to bind to')
+})
 
 /* ------------------------------------------------------------------ */
 /* contracts                                                           */

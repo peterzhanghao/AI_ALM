@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -65,6 +65,21 @@ test('listWorkspaces reports missing workspace paths and unreadable stores', () 
   const empty = listWorkspaces({ file: join(tmpdir(), 'alm-no-workspace-store.json') })
   assert.equal(empty.workspaces.length, 0)
   assert.equal(empty.errors.length, 0)
+})
+
+test('listWorkspaces reports malformed store data and skips blank paths', () => {
+  const file = makeStore({ 'blank-ws': { path: '  ', title: 'Blank' } })
+  const blank = listWorkspaces({ file })
+  assert.deepEqual(blank.workspaces, [])
+  assert.equal(blank.errors[0].workspaceId, 'blank-ws')
+
+  for (const payload of [null, [], { tables: { workspaces: 'invalid' } }]) {
+    writeFileSync(file, JSON.stringify(payload))
+    const malformed = listWorkspaces({ file })
+    assert.deepEqual(malformed.workspaces, [])
+    assert.equal(malformed.errors.length, 1)
+    assert.match(malformed.errors[0].message, /unreadable workspace store/)
+  }
 })
 
 test('workspacesFile honours DSH_WORKSPACES_FILE', () => {

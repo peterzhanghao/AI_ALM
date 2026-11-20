@@ -39,7 +39,8 @@ export function isResumableHostFailure(failure) {
   // `TRANSPORT` was persisted by older host adapters before transport errors
   // received their durable, user-facing identifier. Keep those interrupted
   // runs resumable rather than marooning an already failed host turn.
-  return RESUMABLE_HOST_FAILURE_CODES.includes(code) || code === 'transport'
+  return RESUMABLE_HOST_FAILURE_CODES.includes(code) || code === 'transport' ||
+    (code === 'pi_ai_error' && /^upstream response stream was interrupted\b/i.test(failure?.message ?? ''))
 }
 
 /** Remove storage metadata from text handed to an execution agent. */

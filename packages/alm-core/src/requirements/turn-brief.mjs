@@ -263,7 +263,14 @@ function doneCriteria({ phase, commands, anchors = [] }) {
   // Only say "stay inside the anchors" when the turn actually lists them.
   const scope = anchors.length ? '改动只落在锚点内' : '不改与目标无关的文件'
   if (!commands.length) return `完成标志：${scope}，说明验证情况后停止。`
-  return `完成标志：验证命令退出码为 0 且${scope}，然后报告改动文件与结果并停止。`
+  // A confined delivery session cannot spawn a browser or piped child process.
+  // Demanding exit 0 there made every round look failed even when all runnable
+  // assertions passed; the plugin runs the complete registered suite itself.
+  return `完成标志：可执行断言全部通过（仅浏览器/子进程用例可因运行环境阻断例外）且${scope}，然后报告改动文件与结果并停止。`
+}
+
+function verificationInstruction(requirementId) {
+  return `验证：完成后运行 pnpm -s alm verify ${requirementId} 自查（受限执行会话中，浏览器/子进程用例会以 exit 3 环境阻断返回，这不是断言失败，如实报告即可；完整验收由插件自动执行）；不要展开文件清单，也不要跑全量测试。`
 }
 
 /**
@@ -328,7 +335,7 @@ export function compileTurnBrief({
   // in the receipt and in `meta.commands` (where the white-box view reads
   // them); the turn itself carries one stable alias, so the brief length is
   // independent of how many test files a module happens to own.
-  sections.push(`验证：完成后运行 pnpm -s alm verify ${requirementId} 自查；不要展开文件清单，也不要跑全量测试。`)
+  sections.push(verificationInstruction(requirementId))
   const plan = phaseInstruction(phase)
   if (plan) sections.push(...plan)
   if (runId) sections.push(`只有全新的业务分歧才写 .alm/runs/${runId}-decision.md，其余自行决定。`)
@@ -410,7 +417,7 @@ function degradedBrief({ requirementId, title, intent, missing, phase, commands,
   if (anchors.length) lines.push(`先读这些文件：${anchors.join('、')}`)
   // Same single line as the full contract: a degraded brief differs in what it
   // admits about intent, never in how verification is invoked.
-  lines.push(`验证：完成后运行 pnpm -s alm verify ${requirementId} 自查；不要展开文件清单，也不要跑全量测试。`)
+  lines.push(verificationInstruction(requirementId))
   lines.push(doneCriteria({ phase, commands, anchors }))
   const body = lines.join('\n')
   return { schema: BRIEF_SCHEMA, text: body, meta: { degraded: true, missing, chars: body.length, phase, anchors }, fingerprint: fingerprintOf(body) }

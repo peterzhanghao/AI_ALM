@@ -5,7 +5,7 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { nextActionFor, requirements, versionHistories } from '../query.mjs'
+import { creationTimes, nextActionFor, requirements, versionHistories } from '../query.mjs'
 import { checkReport, indexReport, loadRepo } from '../../alm-core/src/commands.mjs'
 import { createCandidate, candidateStatus } from '../../alm-core/src/requirements/candidate.mjs'
 import { applyAcceptanceConfig, runAcceptance, acceptanceSummary } from '../../alm-core/src/acceptance/acceptance.mjs'
@@ -31,9 +31,9 @@ function fixture(t) {
 }
 
 function countGit(t) {
-  const original = cp.execFileSync
+  const original = cp.spawnSync
   const calls = []
-  const mock = t.mock.method(cp, 'execFileSync', function (...args) {
+  const mock = t.mock.method(cp, 'spawnSync', function (...args) {
     if (args[0] === 'git') calls.push(args[1])
     return original.apply(this, args)
   })
@@ -56,6 +56,20 @@ test('successful empty batch histories are known-empty for every uncommitted pat
   assert.ok(payload.requirements.length > 0)
   assert.equal(calls.filter((args) => args.includes('--follow')).length, 0)
   assert.equal(calls.filter((args) => args.includes('--show-toplevel')).length, 1)
+})
+
+test('batch Git histories and creation times use unquoted requirement paths', (t) => {
+  const root = fixture(t)
+  const file = 'requirements/中文 需求.sdoc'
+  const subject = 'add requirement with non-ASCII filename'
+  const creationTime = '2026-01-02T03:04:05Z'
+  writeFileSync(join(root, file), 'requirement draft')
+  cp.execFileSync('git', ['-C', root, 'add', '--', file])
+  cp.execFileSync('git', ['-C', root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', subject], {
+    env: { ...process.env, GIT_AUTHOR_DATE: creationTime, GIT_COMMITTER_DATE: creationTime },
+  })
+  assert.equal(versionHistories(root, [file]).get(file)[0]?.subject, subject)
+  assert.deepEqual(creationTimes(root, [file]).get(file), { ms: Date.parse(creationTime), source: 'git' })
 })
 
 test('one query shares one live snapshot but the next query detects dirty content changes', (t) => {

@@ -77,6 +77,14 @@ test('dirty source, remote mismatch and wrong branch cannot create a release or 
   }
 })
 
+test('release recognizes the linked repository over an SSH clone URL', async t => {
+  const f = fixture(t)
+  f.git('remote', 'set-url', 'origin', 'ssh://git@github.com/test/repo.git')
+  const plan = await inspectGithubRelease(f)
+  assert.deepEqual(plan.blockers, [])
+  assert.equal(plan.ok, true)
+})
+
 test('missing protection, review, CI, conflict or changed head blocks merge without pretending success', async t => {
   for (const gate of ['protection', 'review', 'checks', 'conflict', 'head']) {
     const f = fixture(t)

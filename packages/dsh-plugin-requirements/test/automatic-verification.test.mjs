@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { runCaptured } from '../../alm-core/src/process-capture.mjs'
 import RequirementsService from '../index.js'
 import * as runs from '../../alm-core/src/requirements/run.mjs'
 import * as acceptance from '../../alm-core/src/acceptance/acceptance.mjs'
@@ -16,7 +16,14 @@ function fixture(t, command = ['node', 'tests/check.cjs'], timeoutMs = 10000) {
   writeFileSync(join(root, 'tests/t.sdoc'), '[DOCUMENT]\nTITLE: Tests\n\n[REQUIREMENT]\nUID: TEST-REAL-001\nTITLE: Check 42\nOWNER: test\nSTATUS: proposed\n')
   writeFileSync(join(root, 'src/value.cjs'), 'module.exports=0\n')
   writeFileSync(join(root, 'tests/check.cjs'), "console.log('HOST_REAL_PROCESS pid='+process.pid);require('node:assert/strict').equal(require('../src/value.cjs'),42)\n")
-  const git = (...args) => execFileSync('git', ['-c','user.name=fixture','-c','user.email=fixture@example.invalid', ...args], { cwd: root, stdio: 'pipe' })
+  // runCaptured retries through file descriptors after a pipe EPERM, so this
+  // fixture also works inside the confined delivery session.
+  const git = (...args) => {
+    const result = runCaptured('git', ['-c','user.name=fixture','-c','user.email=fixture@example.invalid', ...args], { cwd: root, encoding: 'utf8' })
+    if (result.error) throw result.error
+    if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr}`)
+    return result.stdout
+  }
   git('init'); git('add','.'); git('commit','-qm','fixture')
   acceptance.applyAcceptanceConfig({ root, requirementId: id, commands: [{ id: 'check', command, timeoutMs }] })
   const service = Object.create(RequirementsService.prototype)
@@ -40,6 +47,23 @@ test('editing the acceptance command rebinds the active run authorization', t =>
   const auth=stored(f).checkpoint.autoAdvance.authorization
   assert.equal(auth.configHash,rebound.to)
   assert.equal(auth.rebound.actor,'human:test')
+})
+test('declaring modules rebinds the waiting run to the edited requirement', t => {
+  const f=fixture(t)
+  runs.updateRun({root:f.root,runId:f.runId,status:'waiting-input',apply:true})
+  const before=stored(f).checkpoint.autoAdvance.authorization
+  // The host would produce these facts after applyAllocation; mocking them keeps
+  // this test about the rebind write, not about git or requirement parsing.
+  f.service.automaticFacts=()=>({requirementHash:'newreq',scopeHash:'newscope',revision:2,configHash:before.configHash,snapshot:{complete:true,headSha:'head'},fingerprint:'f'})
+  f.service.activeRuns.delete(f.service.executionKey(f.root,id))
+  const rebound=f.service.rebindRequirementAuthorization(f.root,id,'human:test','declare-allocation')
+  assert.equal(rebound?.rebound,true)
+  const after=stored(f).checkpoint.autoAdvance
+  assert.equal(after.status,'authorized')
+  assert.equal(after.authorization.requirementHash,'newreq')
+  assert.equal(after.authorization.scopeHash,'newscope')
+  assert.equal(after.authorization.rebound.reason,'declare-allocation')
+  assert.equal(after.dispatches,0)
 })
 test('carrier only changes source: host runs real registered subprocess and creates candidate, ignoring fake receipt', async t => {
   const f=fixture(t)
@@ -158,13 +182,27 @@ test('timeout is an explicit verification timeout and never dispatches repair', 
   assert.equal(stored(f).checkpoint.inPlaceRepair,undefined)
 })
 test('a human may resume automatic verification after a bounded timeout', t => {
-  const f=fixture(t)
+  const f = fixture(t)
   const run=stored(f)
   runs.updateRun({root:f.root,runId:f.runId,status:'waiting-input',checkpoint:{...run.checkpoint,autoAdvance:{...run.checkpoint.autoAdvance,status:'stopped',reason:'verification-timeout'}},apply:true})
   const resumed=f.service.resumeAutomaticCheckpoint(f.root,stored(f),'human:test')
   assert.equal(resumed.receipt.autoAdvanceResumed,true)
   assert.equal(resumed.checkpoint.autoAdvance.status,'authorized')
   assert.equal(resumed.checkpoint.autoAdvance.reason,null)
+})
+test('an environment-blocked stop is resumable and cannot suppress fresh host evidence', async t => {
+  const f=fixture(t)
+  writeFileSync(join(f.root,'src/value.cjs'),'module.exports=42\n')
+  const run=stored(f)
+  runs.updateRun({root:f.root,runId:f.runId,status:'waiting-input',checkpoint:{...run.checkpoint,autoAdvance:{...run.checkpoint.autoAdvance,status:'stopped',reason:'environment-blocked'}},apply:true})
+  const resumed=f.service.resumeAutomaticCheckpoint(f.root,stored(f),'human:test')
+  assert.equal(resumed.receipt.autoAdvanceResumed,true)
+  assert.equal(resumed.checkpoint.autoAdvance.status,'authorized')
+  runs.updateRun({root:f.root,runId:f.runId,status:'waiting-input',checkpoint:{...resumed.checkpoint,autoAdvance:{...resumed.checkpoint.autoAdvance,status:'stopped',reason:'environment-blocked'}},apply:true})
+  f.service.scheduleAutomaticAdvance(f.root,f.runId); await drain(f)
+  const after=stored(f)
+  assert.equal(after.checkpoint.autoAdvance.status,'candidate-ready', JSON.stringify(after.checkpoint.autoAdvance))
+  assert.equal(after.checkpoint.autoAdvance.reason,'evidence-ready')
 })
 test('registered assertion failure schedules exactly one repair; repaired idle is verified by host', async t => {
   const f=fixture(t); let turns=0

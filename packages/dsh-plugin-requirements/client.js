@@ -154,7 +154,6 @@ window.__ModuleLoader__.load({
       err: { color: T.err, bg: "rgba(255,139,139,.14)" },
       neutral: { color: T.text3, bg: "rgba(107,116,128,.12)" }
     };
-    const FEEDBACK_PRIORITIES = ["P0", "P1", "P2"];
     const FEEDBACK_ATTACHMENT_TYPES = ["image/png", "image/jpeg", "image/webp", "text/plain", "text/markdown", "application/json"];
     const FEEDBACK_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
     const FEEDBACK_MAX_STATEMENT = 4e3;
@@ -595,9 +594,6 @@ window.__ModuleLoader__.load({
         whiteSpace: "nowrap"
       };
     }
-    function stateIsGreen(decision) {
-      return decision?.state === "ready-for-human" || decision?.state === "verified";
-    }
     function gapSeverityMeta(severity) {
       if (severity === "block") return { label: "\u963B\u585E", color: T.err, bg: "rgba(255,139,139,.14)" };
       if (severity === "warn") return { label: "\u5EFA\u8BAE", color: T.warn, bg: "rgba(231,176,75,.14)" };
@@ -691,26 +687,6 @@ window.__ModuleLoader__.load({
     const row = { display: "flex", alignItems: "center", gap: "10px", padding: "7px 0", fontSize: "12.5px", color: T.text2, borderBottom: `1px solid ${T.line}` };
     function statusMeta(status) {
       return STATUS[status] ?? { label: status, color: T.text2, bg: "rgba(154,163,174,.14)" };
-    }
-    function Pill({ status, label }) {
-      const meta = statusMeta(status);
-      return h(
-        "span",
-        {
-          style: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            fontSize: "11.5px",
-            padding: "2px 9px",
-            borderRadius: "999px",
-            color: meta.color,
-            background: meta.bg
-          }
-        },
-        h("span", { style: { width: "5px", height: "5px", borderRadius: "50%", background: "currentColor" } }),
-        label ?? meta.label
-      );
     }
     function DeliveryPill({ item }) {
       const delivery = deliveryOf(item);
@@ -861,119 +837,6 @@ window.__ModuleLoader__.load({
       }
       return { label: "\u4EA4\u7ED9 AI \u63A8\u8FDB", icon: "play", variant: "primary", onClick: () => actions.onStart?.(item) };
     }
-    function DecisionBar({ decision, item, actions }) {
-      if (!decision) return null;
-      const gap = decision.topGap;
-      const tone = decisionTone(decision);
-      const risk = riskText(decision);
-      const coverage = coverageText(decision, item);
-      const action = primaryActionFor(item, decision, actions);
-      const extra = Math.max(0, (decision.gaps?.length ?? 0) - (gap ? 1 : 0));
-      return h(
-        "section",
-        {
-          "data-decision-state": decision.state,
-          "aria-label": `\u8BC1\u636E\u7ED3\u8BBA\uFF1A${decision.label}`,
-          style: {
-            background: T.layer2,
-            border: `1px solid ${T.line2}`,
-            borderLeft: `3px solid ${tone.color}`,
-            borderRadius: "10px",
-            padding: "11px 14px",
-            marginBottom: "12px"
-          }
-        },
-        h(
-          "div",
-          { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" } },
-          h(DecisionPill, { decision }),
-          risk ? h("span", { style: { fontSize: "11.5px", color: T.text3 } }, risk) : null,
-          coverage ? h("span", { style: { fontSize: "11.5px", color: T.text3 } }, coverage) : null,
-          action ? h("div", { style: { marginLeft: "auto" } }, h(ActionButton, { label: action.label, icon: action.icon, variant: action.variant, onClick: action.onClick })) : null
-        ),
-        gap ? h(
-          "p",
-          { style: { margin: "8px 0 0", fontSize: "12.5px", lineHeight: 1.7, color: T.text2 } },
-          h("span", { style: { color: tone.color, fontWeight: 600 } }, gap.severity === "block" ? "\u963B\u585E " : "\u7F3A\u53E3 "),
-          h(
-            "code",
-            { style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: "11.5px", color: T.text2, marginRight: "2px" } },
-            gap.code
-          ),
-          " \xB7 ",
-          gap.message,
-          gap.fix ? h("span", { style: { color: T.text3 } }, `\u3000\u4FEE\u590D\uFF1A${gap.fix}`) : null,
-          extra ? h("span", { style: { color: T.text3 } }, `\u3000\u53E6\u6709 ${extra} \u9879\u89C1\u4E0B\u65B9`) : null
-        ) : h("p", { style: { margin: "8px 0 0", fontSize: "12.5px", color: T.ok } }, "\u5FC5\u9700\u8BC1\u636E\u5DF2\u6EE1\u8DB3\uFF0C\u53EF\u4EE5\u8FDB\u5165\u4E0B\u4E00\u6B65\u3002")
-      );
-    }
-    function CurrentStateStrip({ item, actions }) {
-      const delivery = deliveryOf(item);
-      const decision = item?.decision ?? null;
-      const candidate = item?.candidate ?? null;
-      const next = item?.nextActionLabel ?? null;
-      const human = needsHuman(item);
-      const run = item?.run ?? null;
-      const lastActivity = run?.lastActivityAt ? formatLocalStamp(run.lastActivityAt) : null;
-      const runBusy = run?.active === true;
-      const runWaiting = run?.awaitingAnswer === true || run?.awaitingAnswer === void 0 && run?.status === "waiting-input" && Boolean(run?.decision);
-      const runIdleHandback = run?.idleHandback === true || run?.awaitingAnswer === void 0 && run?.status === "waiting-input" && !run?.decision;
-      const runStale = run?.stale === true;
-      const runLabel = run?.exists ? runStale ? `\u5DF2\u4E2D\u65AD${lastActivity ? `\uFF08\u6700\u540E\u6D3B\u52A8 ${lastActivity}\uFF09` : ""}` : runWaiting ? `\u7B49\u5F85\u56DE\u7B54${lastActivity ? `\uFF08${lastActivity}\uFF09` : ""}` : `${run.label}${run.phase ? ` \xB7 ${run.phase}` : ""}${lastActivity ? `\uFF08${lastActivity}\uFF09` : ""}${run.failure?.message ? ` \xB7 ${run.failure.message}` : ""}` : null;
-      const decideNow = runStale ? "\u672C\u8F6E\u63A8\u8FDB\u5DF2\u4E2D\u65AD\uFF1A\u6062\u590D\u63A8\u8FDB\u6216\u53D6\u6D88" : human ? next ?? "\u9A8C\u6536" : runWaiting ? "\u56DE\u7B54\u51B3\u7B56\u8BF7\u6C42" : runIdleHandback ? "\u67E5\u770B\u672C\u8F6E\u7ED3\u679C\u5E76\u51B3\u5B9A\u4E0B\u4E00\u6B65" : runBusy ? "\u65E0\uFF08AI \u63A8\u8FDB\u4E2D\uFF09" : delivery.key === "accepted" ? "\u53D1\u5E03\u51B3\u5B9A" : "\u65E0";
-      const rows = [
-        ["\u4EA4\u4ED8\u72B6\u6001", delivery.label],
-        ["AI \u5F53\u524D\u52A8\u4F5C", runLabel ? `${runLabel}\uFF08${decision?.label ?? "\u672A\u68C0\u67E5"}\uFF09` : decision?.label ?? "\u672A\u68C0\u67E5"],
-        [
-          "\u4EA4\u4ED8\u5019\u9009",
-          candidate?.exists ? candidate.current ? `\u5F53\u524D \xB7 ${shortHash(candidate.treeHash, 8)}` : `\u5DF2\u8FC7\u671F \xB7 ${(candidate.reasons ?? []).join("\u3001") || "\u9700\u91CD\u65B0\u751F\u6210"}` : "\u5C1A\u672A\u751F\u6210"
-        ],
-        ["\u5F85\u4F60\u51B3\u5B9A", decideNow]
-      ];
-      if (delivery.reason) rows.push(["\u4E2D\u65AD\u539F\u56E0", delivery.reason]);
-      const runActions = run?.exists && (runBusy || runWaiting || runStale) ? h(
-        "div",
-        { key: "run-actions", style: { display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "2px" } },
-        runStale && actions?.onResumeRun ? h(
-          "button",
-          {
-            key: "resume-run",
-            title: "\u4E0A\u4E00\u8F6E\u63A8\u8FDB\u5DF2\u4E2D\u65AD\uFF08\u5FC3\u8DF3\u505C\u6B62\uFF09\uFF1A\u4ECE\u4E2D\u65AD\u5904\u7EE7\u7EED\uFF0C\u4E0D\u4F1A\u91CD\u505A\u5DF2\u5B8C\u6210\u5DE5\u4F5C",
-            style: { ...button, fontSize: "11.5px", padding: "2px 8px", borderColor: "transparent", background: T.ok, color: T.base },
-            onClick: () => actions.onResumeRun(item, run)
-          },
-          "\u6062\u590D\u63A8\u8FDB"
-        ) : null,
-        runWaiting && actions?.onAnswer ? h(
-          "button",
-          {
-            key: "answer-run",
-            title: "AI \u6B63\u5728\u7B49\u4F60\u56DE\u7B54\u51B3\u7B56\u8BF7\u6C42\uFF1A\u56DE\u7B54\u540E\u4F1A\u987A\u7740\u539F\u4F1A\u8BDD\u7EE7\u7EED\u63A8\u8FDB",
-            style: { ...button, fontSize: "11.5px", padding: "2px 8px", borderColor: "transparent", background: T.warn, color: T.base },
-            onClick: () => actions.onAnswer(item, run)
-          },
-          "\u56DE\u7B54\u5E76\u7EE7\u7EED"
-        ) : null,
-        (runBusy || runWaiting) && actions?.onCancelRun ? h("button", { key: "cancel-run", style: { ...button, marginTop: "0px", fontSize: "11.5px", padding: "2px 8px" }, onClick: () => actions.onCancelRun(item, run) }, "\u53D6\u6D88\u63A8\u8FDB") : null
-      ) : null;
-      return h(
-        "section",
-        {
-          "aria-label": "\u5F53\u524D\u72B6\u6001\u4E0E\u5F85\u4F60\u51B3\u5B9A",
-          "data-delivery": delivery.key,
-          style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer, padding: "10px 12px", marginBottom: "12px" }
-        },
-        rows.map(
-          ([label, value], index) => h(
-            "div",
-            { key: label, style: { minWidth: 0, display: "flex", flexDirection: "column", gap: "2px" } },
-            h("span", { style: { fontSize: "10.5px", color: T.text3, letterSpacing: ".02em" } }, label),
-            h("span", { style: { fontSize: "12.5px", color: index === 3 && human ? T.warn : runStale && index === 1 ? T.err : T.text, fontWeight: index === 3 && human ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis" } }, value),
-            index === 1 ? runActions : null
-          )
-        )
-      );
-    }
     function GapDetail({ gap, index }) {
       const severity = gapSeverityMeta(gap.severity ?? (gap.rule ? "block" : "info"));
       const rule = gap.rule ?? gap.code ?? "GAP";
@@ -1001,18 +864,6 @@ window.__ModuleLoader__.load({
           h("div", null, h("span", { style: { color: T.text3 } }, "\u6765\u6E90\uFF1A"), gap.rule ? "\u95E8\u7981 check" : "\u8BC1\u636E\u5224\u5B9A"),
           gap.project ? h("div", null, h("span", { style: { color: T.text3 } }, "\u9879\u76EE\uFF1A"), gap.project) : null
         )
-      );
-    }
-    function GapsList({ decision }) {
-      const gaps = decision?.gaps ?? [];
-      if (!decision) {
-        return h("p", { style: { margin: 0, ...muted } }, "\u51B3\u7B56\u6570\u636E\u5C1A\u672A\u8FD4\u56DE\uFF1B\u6682\u6309\u539F\u59CB\u8BC4\u5BA1\u4E0E\u9A8C\u6536\u6570\u636E\u5C55\u793A\u3002");
-      }
-      if (gaps.length === 0) return h("p", { style: { margin: 0, ...muted } }, "\u6CA1\u6709\u672A\u89E3\u51B3\u7684\u8BC1\u636E\u7F3A\u53E3\u3002");
-      return h(
-        "div",
-        { style: { border: `1px solid ${T.line}`, borderRadius: "10px", padding: "2px 12px" } },
-        gaps.map((gap, index) => h(GapDetail, { key: `${gap.code ?? "gap"}-${index}`, gap, index }))
       );
     }
     function AcceptanceProvenance({ latest }) {
@@ -1043,78 +894,6 @@ window.__ModuleLoader__.load({
               { key: label, style: { ...row, fontSize: "12px", borderBottom: index === rows.length - 1 ? "none" : `1px solid ${T.line}` } },
               h("span", { style: rowLabel }, label),
               h("span", { style: { color: T.text, fontSize: "12px", wordBreak: "break-all", minWidth: 0 } }, value)
-            )
-          )
-        )
-      );
-    }
-    function AnomalyBlock({ anomalies, summary, onOpen }) {
-      const list = anomalies ?? [];
-      if (list.length === 0) return null;
-      const counts = summary ?? {};
-      const summaryLabel = [
-        counts.duplicateId ? `ID \u91CD\u590D ${counts.duplicateId}` : null,
-        counts.duplicateBusinessId ? `\u4E1A\u52A1 ID \u91CD\u590D ${counts.duplicateBusinessId}` : null,
-        counts.dangling ? `\u60AC\u7A7A\u5173\u7CFB ${counts.dangling}` : null
-      ].filter(Boolean).join(" \xB7 ");
-      return h(
-        "section",
-        { style: { marginTop: "28px", border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.err}`, borderRadius: "12px", background: T.layer, padding: "14px 16px" } },
-        h(
-          "div",
-          { style: { display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" } },
-          h("h3", { style: { margin: 0, fontSize: "13.5px", fontWeight: 600, color: T.text } }, `\u6570\u636E\u5F02\u5E38\uFF08${list.length}\uFF09`),
-          summaryLabel ? h("span", { style: muted }, summaryLabel) : null
-        ),
-        h(
-          "p",
-          { style: { margin: "6px 0 10px", fontSize: "12.5px", color: T.text2, lineHeight: 1.8 } },
-          "\u8FD9\u4E9B\u8BB0\u5F55\u4E0D\u4F1A\u81EA\u52A8\u4FEE\u590D\uFF1A\u4FDD\u7559\u4E24\u6761\u8BB0\u5F55\u3001\u4E0D\u81EA\u52A8\u5408\u5E76\uFF1B\u70B9\u51FB\u6761\u76EE\u6253\u5F00\u5BF9\u5E94\u9700\u6C42\u540E\u4EBA\u5DE5\u6838\u5BF9\u3002"
-        ),
-        h(
-          "div",
-          { style: { display: "flex", flexDirection: "column", gap: "8px" } },
-          list.map(
-            (anomaly, index) => h(
-              "div",
-              { key: `${anomaly.kind}-${index}`, style: { border: `1px solid ${T.line}`, borderRadius: "10px", padding: "9px 11px" } },
-              h(
-                "div",
-                { style: { display: "flex", gap: "8px", alignItems: "baseline", flexWrap: "wrap", fontSize: "12.5px", color: T.text2 } },
-                h("span", { style: { color: T.err, fontSize: "11px", border: `1px solid ${T.line2}`, borderRadius: "5px", padding: "0 6px" } }, ANOMALY_LABELS[anomaly.kind] ?? anomaly.kind),
-                anomaly.message
-              ),
-              anomaly.occurrences?.length ? h(
-                "div",
-                { style: { display: "flex", flexDirection: "column", gap: "3px", marginTop: "6px" } },
-                anomaly.occurrences.map(
-                  (occurrence, occurrenceIndex) => h(
-                    "button",
-                    {
-                      type: "button",
-                      key: `${occurrence.occurrenceKey ?? occurrenceIndex}-${occurrenceIndex}`,
-                      title: "\u6253\u5F00\u5BF9\u5E94\u9700\u6C42",
-                      onClick: () => onOpen?.(occurrence),
-                      style: { display: "flex", gap: "8px", alignItems: "baseline", flexWrap: "wrap", textAlign: "left", border: 0, background: "transparent", color: T.text2, padding: "2px 0", fontSize: "12px", cursor: "pointer" }
-                    },
-                    h("code", { style: { color: T.brand } }, occurrence.assetId ?? occurrence.id ?? occurrence.occurrenceKey ?? "\u2014"),
-                    occurrence.title ? h("span", null, occurrence.title) : null,
-                    h(
-                      "span",
-                      { style: { color: T.text3 } },
-                      `${occurrence.file ?? anomaly.file ?? "\u2014"}${occurrence.line ?? anomaly.line ? `:${occurrence.line ?? anomaly.line}` : ""}`
-                    )
-                  )
-                )
-              ) : h(
-                "button",
-                {
-                  type: "button",
-                  onClick: () => onOpen?.({ assetId: anomaly.requirementIds?.[0], file: anomaly.file, line: anomaly.line }),
-                  style: { marginTop: "4px", border: 0, background: "transparent", color: T.brand, padding: 0, fontSize: "12px", cursor: "pointer" }
-                },
-                `${anomaly.ref ?? anomaly.file ?? "\u2014"}${anomaly.line ? `:${anomaly.line}` : ""} \xB7 \u6253\u5F00\u9700\u6C42`
-              )
             )
           )
         )
@@ -1212,7 +991,7 @@ window.__ModuleLoader__.load({
         writeJson("run", { mode: "decision", requirementId: item.id }, root).then((result) => {
           if (!alive) return;
           setSelections({});
-          setState({ loading: false, decision: result.decision ?? null, decisionIdentity: result.decisionIdentity ?? null, text: result.text ?? null, presentation: result.presentation ?? null, error: null, saving: false, result: null });
+          setState({ loading: false, decision: result.decision ?? null, decisionIdentity: result.decisionIdentity ?? null, runRoot: result.runRoot ?? root, runId: result.runId ?? null, text: result.text ?? null, presentation: result.presentation ?? null, error: null, saving: false, result: null });
         }).catch((error) => {
           if (!alive) return;
           setState({ loading: false, decision: null, text: null, error: error.message, saving: false, result: null });
@@ -1243,7 +1022,8 @@ window.__ModuleLoader__.load({
         }
         submitting.current = true;
         setState((prev) => ({ ...prev, saving: true, error: null }));
-        writeJson("run", { mode: "answer", requirementId: item.id, decisionResponse: { action, selections: action === "choose" ? selections : {}, note: answer.trim() }, expectedDecision: state.decisionIdentity }, root).then((result) => {
+        const expectedDecision = { ...state.decisionIdentity, ...state.runId ? { runId: state.runId } : {} };
+        writeJson("run", { mode: "answer", requirementId: item.id, decisionResponse: { action, selections: action === "choose" ? selections : {}, note: answer.trim() }, expectedDecision }, state.runRoot ?? root).then((result) => {
           if (result?.resumed === false) throw new Error(result.message ?? "\u8FD0\u884C\u5C1A\u672A\u6062\u590D\uFF0C\u8BF7\u5237\u65B0\u540E\u68C0\u67E5\u5F53\u524D\u72B6\u6001");
           if (result?.autoAdvanceResumed === false) window.alert(`\u5DF2\u7EE7\u7EED\u672C\u8F6E\uFF0C\u4F46\u81EA\u52A8\u63A8\u8FDB\u672A\u6062\u590D\uFF08${result.autoAdvanceReason}\uFF09\u3002\u9700\u5728\u539F\u751F\u754C\u9762\u68C0\u67E5\u7248\u672C\u4E0E\u6267\u884C\u9884\u7B97\uFF1B\u672A\u65B0\u589E\u6388\u6743\u3002`);
           setState((prev) => ({ ...prev, saving: false, result, submittedAction: action }));
@@ -1374,13 +1154,119 @@ window.__ModuleLoader__.load({
     function acceptanceChecklistFor(item) {
       const explicit = item.detailView?.content?.doc?.acceptance;
       const criteria = explicit?.length ? explicit : item.detailView?.verificationSummary?.criteria ?? [];
-      if (criteria.length) return criteria.map((entry, index) => ({ id: entry.id ?? "AC-" + (index + 1), text: entry.text || entry.title || entry.id }));
-      return (item.verifiedBy ?? []).map((id) => ({ id, text: item.trace?.nodes?.find((node) => node.id === id)?.title ?? id }));
+      if (criteria.length) {
+        return criteria.map((entry, index) => ({
+          id: entry.id ?? "AC-" + (index + 1),
+          text: entry.text || entry.title || entry.id || "",
+          precondition: typeof entry.precondition === "string" ? entry.precondition : "",
+          action: typeof entry.action === "string" ? entry.action : "",
+          expected: typeof entry.expected === "string" ? entry.expected : "",
+          judgement: typeof entry.judgement === "string" ? entry.judgement : ""
+        }));
+      }
+      return (item.verifiedBy ?? []).map((id) => ({
+        id,
+        text: item.trace?.nodes?.find((node) => node.id === id)?.title ?? id,
+        precondition: "",
+        action: "",
+        expected: "",
+        judgement: ""
+      }));
+    }
+    function acceptancePlanRows(entry) {
+      return [
+        ["input", "\u8F93\u5165 / \u524D\u7F6E", entry?.precondition],
+        ["action", "\u64CD\u4F5C", entry?.action],
+        ["expected", "\u9884\u671F", entry?.expected],
+        ["judgement", "\u5224\u5B9A", entry?.judgement]
+      ].filter(([, , text]) => typeof text === "string" && text.trim() !== "").map(([key, label, text]) => ({ key, label, text: text.trim() }));
+    }
+    function acceptanceMissingSteps(entry) {
+      return !String(entry?.action ?? "").trim() || !String(entry?.expected ?? "").trim();
+    }
+    function acceptanceProgress(criteria, checks) {
+      const total = criteria.length;
+      const passed = criteria.filter((entry) => checks[entry.id] === true).length;
+      return { total, passed, complete: total > 0 && passed === total };
+    }
+    function AcceptanceAllControl({ total, passed, disabled, onChange }) {
+      const checked = total > 0 && passed === total;
+      return h(
+        "label",
+        { "data-acceptance-all-row": "true", style: { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: T.text2, cursor: disabled || total === 0 ? "default" : "pointer" } },
+        h("input", { type: "checkbox", name: "acceptance-all", "data-acceptance-all": "true", checked, disabled: disabled || total === 0, onChange: (event) => onChange(event.target.checked) }),
+        h("span", null, `\u5168\u9009\uFF08\u5DF2\u901A\u8FC7 ${passed} / ${total} \u9879\uFF09`)
+      );
+    }
+    function AcceptancePlanCard({ entry, checked, onToggle, disabled }) {
+      const rows = acceptancePlanRows(entry);
+      const missing = acceptanceMissingSteps(entry);
+      return h(
+        "div",
+        { "data-acceptance-ac": entry.id, style: { padding: "12px 0", borderBottom: "1px solid " + T.line } },
+        h(
+          "label",
+          { style: { display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" } },
+          h("input", { type: "checkbox", name: `acceptance-${entry.id}`, "aria-label": `\u9A8C\u6536\u8981\u6C42\uFF1A${entry.text}`, checked, disabled, onChange: (event) => onToggle(entry.id, event.target.checked), style: { marginTop: "6px", flexShrink: 0 } }),
+          h("span", null, h("span", { style: { color: T.text3, fontSize: "12px", marginRight: "8px" } }, entry.id), entry.text)
+        ),
+        rows.length ? h(
+          "div",
+          { "data-acceptance-plan-rows": entry.id, style: { margin: "6px 0 0 28px", fontSize: "12.5px", lineHeight: 1.75, color: T.text2 } },
+          rows.map((row2) => h(
+            "div",
+            { key: row2.key, "data-acceptance-plan": row2.key, style: { display: "flex", gap: "8px" } },
+            h("span", { style: { flex: "none", width: "76px", color: T.text3 } }, row2.label),
+            h("span", { style: { minWidth: 0, overflowWrap: "anywhere" } }, row2.text)
+          ))
+        ) : null,
+        missing ? h("p", { "data-acceptance-missing": entry.id, style: { margin: "6px 0 0 28px", fontSize: "12px", color: T.warn } }, "\u672A\u767B\u8BB0\u53EF\u6267\u884C\u7684\u9A8C\u6536\u6B65\u9AA4\uFF08\u64CD\u4F5C / \u9884\u671F\uFF09\uFF1B\u53EA\u80FD\u6309\u9700\u6C42\u6587\u5B57\u81EA\u884C\u6838\u5BF9\u3002") : null
+      );
+    }
+    function AcceptanceStepPanel({ entry, index, total, checked, onToggle, onPrev, onNext, disabled }) {
+      const rows = acceptancePlanRows(entry);
+      const missing = acceptanceMissingSteps(entry);
+      return h(
+        "div",
+        { "data-acceptance-step": entry.id, style: { border: "1px solid " + T.line2, borderRadius: "10px", padding: "14px 16px", marginTop: "10px" } },
+        h(
+          "div",
+          { style: { display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" } },
+          h("span", { style: { fontSize: "12px", color: T.text3, fontVariantNumeric: "tabular-nums" } }, `\u7B2C ${index + 1} / ${total} \u6B65`),
+          h("span", { style: { fontSize: "12px", color: T.text3 } }, entry.id)
+        ),
+        h("div", { style: { marginTop: "6px", fontSize: "14px", lineHeight: 1.8, color: T.text } }, entry.text),
+        rows.length ? h(
+          "div",
+          { "data-acceptance-plan-rows": entry.id, style: { marginTop: "8px", padding: "10px 12px", background: "rgba(255,255,255,.03)", borderRadius: "8px", fontSize: "13px", lineHeight: 1.8 } },
+          rows.map((row2) => h(
+            "div",
+            { key: row2.key, "data-acceptance-plan": row2.key, style: { display: "flex", gap: "10px" } },
+            h("span", { style: { flex: "none", width: "76px", color: T.text3 } }, row2.label),
+            h("span", { style: { minWidth: 0, overflowWrap: "anywhere", color: T.text2 } }, row2.text)
+          ))
+        ) : null,
+        missing ? h("p", { "data-acceptance-missing": entry.id, role: "status", style: { margin: "8px 0 0", fontSize: "12.5px", color: T.warn } }, "\u8BE5\u9879\u672A\u767B\u8BB0\u300C\u64CD\u4F5C / \u9884\u671F\u300D\uFF0C\u65E0\u6CD5\u7ED9\u51FA\u53EF\u6267\u884C\u6B65\u9AA4\uFF1B\u8BF7\u6309\u9700\u6C42\u6587\u5B57\u81EA\u884C\u6838\u5BF9\u3002") : null,
+        h(
+          "label",
+          { style: { display: "flex", alignItems: "center", gap: "8px", marginTop: "12px", fontSize: "13px", cursor: "pointer" } },
+          h("input", { type: "checkbox", name: `acceptance-step-${entry.id}`, "data-acceptance-step-pass": entry.id, checked, disabled, onChange: (event) => onToggle(entry.id, event.target.checked) }),
+          "\u6211\u5DF2\u5728\u4EA4\u4ED8\u7248\u672C\u4E2D\u6267\u884C\u5E76\u786E\u8BA4\u672C\u6B65\u901A\u8FC7"
+        ),
+        h(
+          "div",
+          { style: { display: "flex", gap: "8px", marginTop: "12px" } },
+          h("button", { key: "prev", type: "button", "data-acceptance-prev": "true", style: { ...HUMAN_CONTROL, padding: "6px 12px", minHeight: "34px" }, disabled: disabled || index === 0, onClick: onPrev }, "\u4E0A\u4E00\u6B65"),
+          h("button", { key: "next", type: "button", "data-acceptance-next": "true", style: { ...HUMAN_CONTROL, padding: "6px 12px", minHeight: "34px" }, disabled: disabled || index >= total - 1, onClick: onNext }, "\u4E0B\u4E00\u6B65")
+        )
+      );
     }
     function SignoffModal({ item, root, onClose, onDone }) {
       const criteria = acceptanceChecklistFor(item);
       const [checks, setChecks] = useState({});
       const [confirmed, setConfirmed] = useState(false);
+      const [stepIndex, setStepIndex] = useState(0);
+      const [view, setView] = useState("steps");
       const [state, setState] = useState({ loading: false, result: null, error: null });
       const submitting = useRef(false);
       const candidate = item.candidate;
@@ -1388,9 +1274,18 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         setChecks({});
         setConfirmed(false);
+        setStepIndex(0);
       }, [identity]);
-      const complete = confirmed && criteria.length > 0 && criteria.every((entry) => checks[entry.id]);
+      const progress = acceptanceProgress(criteria, checks);
+      const missing = criteria.filter(acceptanceMissingSteps);
+      const safeStep = Math.max(0, Math.min(stepIndex, criteria.length - 1));
+      const current = criteria[safeStep] || null;
+      const complete = confirmed && progress.complete;
       const allowed = item.decision?.signoff?.allowed === true && candidate?.current === true;
+      const setCheck = (id, value) => setChecks((items) => ({ ...items, [id]: value === true }));
+      const setAll = (value) => setChecks(Object.fromEntries(criteria.map((entry) => [entry.id, value === true])));
+      const move = (delta) => setStepIndex((value) => Math.max(0, Math.min(criteria.length - 1, value + delta)));
+      const switchStyle = (active) => ({ ...active ? HUMAN_PRIMARY : HUMAN_CONTROL, padding: "5px 10px", minHeight: "30px", fontSize: "12.5px" });
       const submit = async () => {
         if (submitting.current || !complete || !allowed) return;
         submitting.current = true;
@@ -1409,7 +1304,7 @@ window.__ModuleLoader__.load({
         ModalShell,
         {
           title: "\u9A8C\u6536\u4EA4\u4ED8 \xB7 " + item.id,
-          lead: "\u5148\u5728\u5B9E\u9645\u4EA4\u4ED8\u7248\u672C\u4E2D\u64CD\u4F5C\u9A8C\u8BC1\uFF0C\u518D\u9010\u9879\u786E\u8BA4\u3002\u81EA\u52A8\u68C0\u67E5\u901A\u8FC7\u53EA\u662F\u53C2\u8003\uFF1B\u672C\u6B21\u786E\u8BA4\u4F1A\u8BB0\u5F55\u4E3A\u4F60\u7684\u4EBA\u5DE5\u9A8C\u6536\u3002",
+          lead: "\u5148\u5728\u5B9E\u9645\u4EA4\u4ED8\u7248\u672C\u4E2D\u6309\u6BCF\u9879\u7684\u300C\u8F93\u5165 / \u64CD\u4F5C / \u9884\u671F\u300D\u6267\u884C\uFF0C\u518D\u9010\u9879\u786E\u8BA4\u3002\u81EA\u52A8\u68C0\u67E5\u901A\u8FC7\u53EA\u662F\u53C2\u8003\uFF1B\u672C\u6B21\u786E\u8BA4\u4F1A\u8BB0\u5F55\u4E3A\u4F60\u7684\u4EBA\u5DE5\u9A8C\u6536\u3002",
           onClose,
           feedbackContext: feedbackContextFor(item),
           width: "720px",
@@ -1421,15 +1316,24 @@ window.__ModuleLoader__.load({
         h(
           "section",
           { "data-human-acceptance-guide": "true", style: { lineHeight: 1.8, fontSize: "14px", padding: "16px 0" } },
-          h("h3", { style: { margin: "0 0 8px", fontSize: "18px" } }, state.result ? "\u4EBA\u5DE5\u9A8C\u6536\u5DF2\u8BB0\u5F55\uFF0C\u53EF\u4EE5\u53D1\u5E03\u5F52\u6863" : "\u5728\u4EA4\u4ED8\u7248\u672C\u4E2D\u9010\u9879\u9A8C\u8BC1"),
-          h("p", { style: { margin: "0 0 12px", color: T.text2 } }, "\u6253\u5F00\u672C\u9700\u6C42\u6D89\u53CA\u7684\u529F\u80FD\u9875\u9762\uFF0C\u6309\u7167\u4E0B\u9762\u6BCF\u9879\u8981\u6C42\u5B9E\u9645\u64CD\u4F5C\uFF0C\u6BD4\u8F83\u7ED3\u679C\u3002\u53D1\u73B0\u95EE\u9898\u65F6\u6682\u4E0D\u786E\u8BA4\uFF0C\u8FD4\u56DE\u9700\u6C42\u9009\u62E9\u201C\u9000\u56DE AI \u4FEE\u590D\u201D\u3002"),
-          criteria.map((entry) => h(
-            "label",
-            { key: entry.id, style: { display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 0", borderBottom: "1px solid " + T.line, cursor: "pointer" } },
-            h("input", { type: "checkbox", name: `acceptance-${entry.id}`, "aria-label": `\u9A8C\u6536\u8981\u6C42\uFF1A${entry.text}`, checked: checks[entry.id] === true, disabled: state.loading || Boolean(state.result), onChange: (event) => setChecks((current) => ({ ...current, [entry.id]: event.target.checked })), style: { marginTop: "6px", flexShrink: 0 } }),
-            h("span", null, h("span", { style: { color: T.text3, fontSize: "12px", marginRight: "8px" } }, entry.id), entry.text)
-          )),
+          h("h3", { style: { margin: "0 0 8px", fontSize: "18px" } }, state.result ? "\u4EBA\u5DE5\u9A8C\u6536\u5DF2\u8BB0\u5F55\uFF0C\u53EF\u4EE5\u53D1\u5E03\u5F52\u6863" : "\u5728\u4EA4\u4ED8\u7248\u672C\u4E2D\u9010\u6B65\u9A8C\u8BC1"),
+          h("p", { style: { margin: "0 0 12px", color: T.text2 } }, "\u6253\u5F00\u672C\u9700\u6C42\u6D89\u53CA\u7684\u529F\u80FD\u9875\u9762\uFF0C\u6309\u4E0B\u9762\u7684\u8F93\u5165\u3001\u64CD\u4F5C\u4E0E\u9884\u671F\u5B9E\u9645\u64CD\u4F5C\uFF0C\u6BD4\u8F83\u7ED3\u679C\u3002\u53D1\u73B0\u95EE\u9898\u65F6\u6682\u4E0D\u786E\u8BA4\uFF0C\u8FD4\u56DE\u9700\u6C42\u9009\u62E9\u201C\u9000\u56DE AI \u4FEE\u590D\u201D\u3002"),
+          missing.length && !state.result ? h("p", { role: "status", "data-acceptance-missing-banner": "true", style: { margin: "0 0 10px", color: T.warn } }, `${missing.length} \u9879\u6CA1\u6709\u767B\u8BB0\u300C\u64CD\u4F5C / \u9884\u671F\u300D\uFF0C\u65E0\u6CD5\u636E\u6B64\u9010\u6B65\u6267\u884C\uFF1B\u8BF7\u6309\u9700\u6C42\u6587\u5B57\u81EA\u884C\u6838\u5BF9\uFF0C\u6216\u5148\u5728\u9700\u6C42\u91CC\u8865\u5145\u9A8C\u6536\u6B65\u9AA4\u3002`) : null,
+          !state.result ? h(
+            "div",
+            { style: { display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", padding: "10px 0", borderTop: "1px solid " + T.line, borderBottom: "1px solid " + T.line } },
+            h(AcceptanceAllControl, { total: progress.total, passed: progress.passed, disabled: state.loading, onChange: (value) => setAll(value) }),
+            h("span", { style: { color: T.text3, fontSize: "12px" } }, `\u5DF2\u901A\u8FC7 ${progress.passed} / ${progress.total} \u9879`),
+            h(
+              "div",
+              { key: "views", style: { marginLeft: "auto", display: "flex", gap: "6px" } },
+              h("button", { key: "steps", type: "button", "data-acceptance-mode": "steps", style: switchStyle(view === "steps"), onClick: () => setView("steps") }, "\u9010\u6B65\u9A8C\u6536"),
+              h("button", { key: "list", type: "button", "data-acceptance-mode": "list", style: switchStyle(view === "list"), onClick: () => setView("list") }, "\u5168\u90E8\u6761\u76EE")
+            )
+          ) : null,
           !criteria.length ? h("p", { role: "alert", style: { color: T.warn } }, "\u7F3A\u5C11\u660E\u786E\u7684\u4E1A\u52A1\u9A8C\u6536\u6E05\u5355\uFF0C\u8BF7\u5148\u8865\u5145\u9A8C\u6536\u8981\u6C42\u3002") : null,
+          criteria.length && view === "steps" && current ? h(AcceptanceStepPanel, { entry: current, index: safeStep, total: criteria.length, checked: checks[current.id] === true, disabled: state.loading || Boolean(state.result), onToggle: setCheck, onPrev: () => move(-1), onNext: () => move(1) }) : null,
+          criteria.length && view === "list" ? h("div", { key: "checklist" }, criteria.map((entry) => h(AcceptancePlanCard, { key: entry.id, entry, checked: checks[entry.id] === true, disabled: state.loading || Boolean(state.result), onToggle: setCheck }))) : null,
           h("label", { style: { display: "flex", gap: "10px", padding: "16px 0", cursor: "pointer" } }, h("input", { type: "checkbox", name: "acceptance-confirmed", "aria-label": "\u786E\u8BA4\u6211\u5DF2\u5728\u5F53\u524D\u4EA4\u4ED8\u7248\u672C\u5B9E\u9645\u9A8C\u8BC1\u4EE5\u4E0A\u8981\u6C42", checked: confirmed, disabled: state.loading || Boolean(state.result), onChange: (event) => setConfirmed(event.target.checked) }), "\u6211\u5DF2\u5728\u5F53\u524D\u4EA4\u4ED8\u7248\u672C\u5B9E\u9645\u9A8C\u8BC1\u4EE5\u4E0A\u8981\u6C42\uFF0C\u540C\u610F\u672C\u6B21\u4EA4\u4ED8\u3002"),
           !allowed && !state.result ? h("p", { role: "status", style: { color: T.warn } }, item.decision?.topGap?.message ?? "\u5F53\u524D\u4EA4\u4ED8\u8BC1\u636E\u4E0D\u518D\u6EE1\u8DB3\u9A8C\u6536\u6761\u4EF6\uFF0C\u8BF7\u91CD\u65B0\u6838\u9A8C\u3002") : null,
           state.error ? h("p", { role: "alert", style: { color: T.err } }, state.error) : null,
@@ -1481,118 +1385,6 @@ window.__ModuleLoader__.load({
           !state.done ? h("p", { style: { color: T.text2, fontSize: "13px", margin: "14px 0 0" } }, "\u5F52\u6863\u4F1A\u518D\u6B21\u6821\u9A8C\u4EA4\u4ED8\u5019\u9009\u3001\u4EBA\u5DE5\u7B7E\u6536\u548C\u5DE5\u4F5C\u533A\u5FEB\u7167\u3002\u4EFB\u4E00\u53D7\u4FDD\u62A4\u5185\u5BB9\u5728\u7B7E\u6536\u540E\u53D1\u751F\u53D8\u5316\u90FD\u4F1A\u88AB\u62D2\u7EDD\u3002") : null,
           state.error ? h("p", { role: "alert", style: { color: T.err, fontSize: "13px" } }, state.error) : null
         )
-      );
-    }
-    function VersionList({ item, onSnapshot, onDiff, compact }) {
-      const [storedHistory, setHistory] = useState(null);
-      const history = storedHistory?.root === item.root && storedHistory?.id === item.id ? storedHistory : { versions: null, head: null, next: 0, loading: false, error: false };
-      const loadHistory = useRef(null);
-      useEffect(() => {
-        const lifetime = new AbortController();
-        let head = null, offset = 0, busy = false;
-        const seen = /* @__PURE__ */ new Set();
-        setHistory({ root: item.root, id: item.id, versions: null, head: null, next: 0, loading: false, error: false });
-        loadHistory.current = async () => {
-          if (busy || lifetime.signal.aborted || offset === null) return;
-          busy = true;
-          const controller = new AbortController();
-          const cancel = () => controller.abort();
-          lifetime.signal.addEventListener("abort", cancel, { once: true });
-          let timeout;
-          setHistory((previous) => ({ ...previous, loading: true, error: false }));
-          try {
-            const params = new URLSearchParams({ root: item.root ?? "", asset: item.id, mode: "history", offset: String(offset) });
-            if (head) params.set("head", head);
-            const { response, data } = await Promise.race([
-              fetch(`/api/alm/requirements/version?${params}`, { headers: { accept: "application/json" }, signal: controller.signal }).then(async (response2) => ({ response: response2, data: await response2.json() })),
-              new Promise((_, reject) => {
-                timeout = setTimeout(() => {
-                  cancel();
-                  reject(new Error("version timeout"));
-                }, 1e4);
-              })
-            ]);
-            if (!response.ok) throw new Error("unavailable");
-            if (data.schema !== "alm.version.history/v1" || data.asset !== item.id || !/^[0-9a-f]{40,64}$/.test(data.head ?? "") || head && data.head !== head || !Array.isArray(data.versions) || data.versions.length > 20 || data.versions.some((version) => !version || !/^[0-9a-f]{40,64}$/.test(version.sha ?? "") || typeof version.subject !== "string" || seen.has(version.sha)) || new Set(data.versions.map((version) => version.sha)).size !== data.versions.length || data.next !== null && (data.next !== offset + 20 || data.versions.length !== 20)) throw new Error("invalid");
-            if (controller.signal.aborted) throw new Error("cancelled");
-            for (const version of data.versions) seen.add(version.sha);
-            head = data.head;
-            offset = data.next;
-            setHistory((previous) => ({ root: item.root, id: item.id, versions: previous.versions === null ? data.versions : [...previous.versions, ...data.versions], head, next: offset, loading: false, error: false }));
-          } catch {
-            if (!lifetime.signal.aborted) setHistory((previous) => ({ ...previous, loading: false, error: true }));
-          } finally {
-            clearTimeout(timeout);
-            lifetime.signal.removeEventListener("abort", cancel);
-            busy = false;
-          }
-        };
-        return () => {
-          lifetime.abort();
-          loadHistory.current = null;
-        };
-      }, [item.root, item.id]);
-      const versions = history.versions ?? item.versions ?? [];
-      return h(
-        "div",
-        null,
-        h(
-          "div",
-          { style: { ...row, paddingTop: 0 } },
-          h("span", { style: rowLabel }, "\u5F53\u524D\u4FEE\u8BA2"),
-          h("span", { style: { color: T.text } }, item.revision == null || item.revision === "" ? "\u672A\u767B\u8BB0" : `v${item.revision}`)
-        ),
-        versions.length === 0 ? h("p", { style: { margin: "6px 0 0", ...muted } }, "\u672A\u8BFB\u53D6\u5230\u7248\u672C\u8BB0\u5F55\uFF1B\u53EF\u80FD\u5C1A\u672A\u63D0\u4EA4\u6216\u5386\u53F2\u6682\u4E0D\u53EF\u7528\u3002") : h(
-          "div",
-          { style: { display: "flex", flexDirection: "column", gap: "2px" } },
-          versions.map(
-            (version) => h(
-              "div",
-              {
-                key: version.sha,
-                style: { display: "flex", alignItems: "baseline", gap: "8px", borderTop: `1px solid ${T.line}`, padding: "4px 0" }
-              },
-              h(
-                "button",
-                {
-                  "data-version-sha": version.sha,
-                  onClick: () => onSnapshot(item, version),
-                  style: {
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: "8px",
-                    flex: 1,
-                    minWidth: 0,
-                    textAlign: "left",
-                    border: 0,
-                    background: "transparent",
-                    color: T.text2,
-                    padding: "1px 0",
-                    fontSize: "12px",
-                    cursor: "pointer",
-                    lineHeight: 1.6
-                  }
-                },
-                h("span", { style: { color: T.text3, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: "11px", flex: "none" } }, version.short),
-                h("span", { style: { color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, version.subject)
-              ),
-              h("span", { style: { color: T.text3, fontSize: "11px", flex: "none" } }, version.date?.slice(0, 10)),
-              onDiff ? h(
-                "button",
-                {
-                  "data-diff-sha": version.sha,
-                  onClick: () => onDiff(item, version),
-                  style: { border: 0, background: "transparent", color: T.brand, padding: 0, fontSize: "11px", cursor: "pointer", flex: "none" }
-                },
-                "\u5BF9\u6BD4\u5F53\u524D"
-              ) : null
-            )
-          )
-        ),
-        history.loading ? h("p", { role: "status", style: muted }, "\u6B63\u5728\u8BFB\u53D6\u7248\u672C\u5386\u53F2\u2026") : null,
-        history.error ? h("p", { role: "alert", style: muted }, "\u7248\u672C\u5386\u53F2\u6682\u4E0D\u53EF\u7528\u3002 ", h("button", { type: "button", style: DETAIL_LINK, onClick: () => loadHistory.current?.() }, "\u91CD\u8BD5")) : null,
-        history.next !== null && !history.error ? h("button", { type: "button", style: DETAIL_LINK, disabled: history.loading, onClick: () => loadHistory.current?.() }, history.versions === null ? "\u8BFB\u53D6\u7248\u672C\u5386\u53F2" : "\u52A0\u8F7D\u66F4\u591A\u7248\u672C") : null,
-        compact ? null : h("p", { style: { margin: "8px 0 0", ...muted } }, history.versions === null ? "\u8FD9\u91CC\u53EA\u663E\u793A\u5DF2\u8BFB\u53D6\u7684\u7248\u672C\uFF0C\u8F83\u65E9\u8BB0\u5F55\u53EF\u80FD\u672A\u5305\u542B\u3002\u5FEB\u7167\u548C\u5BF9\u6BD4\u4E0D\u4F1A\u6539\u52A8\u5DE5\u4F5C\u533A\u3002" : "\u7248\u672C\u6309\u9996\u6B21\u8BFB\u53D6\u65F6\u7684\u63D0\u4EA4\u56FA\u5B9A\uFF1B\u5FEB\u7167\u548C\u5BF9\u6BD4\u4E0D\u4F1A\u6539\u52A8\u5DE5\u4F5C\u533A\u3002")
       );
     }
     function DiffModal({ state, onClose }) {
@@ -1653,39 +1445,6 @@ window.__ModuleLoader__.load({
         return `\u8BF7\u4E3A ${item.id} \u53D1\u8D77\u53D8\u66F4\uFF1A\u5148\u8BFB docs/planning/skill-plan.md \u4E0E alm-change-workflow \u6280\u80FD\uFF0C\u7528 alm workspace create --baseline <sha> --change CHG-<DOMAIN>-<NNN> \u5EFA\u5DE5\u4F5C\u533A\uFF0C\u518D\u6539\u8D44\u4EA7\u5E76\u8DD1 alm check${at}\u3002`;
       }
       return `\u8BF7\u8BC4\u4F30 ${item.id} \u7684\u5F71\u54CD\u9762\uFF1A\u8FD0\u884C node packages/alm-core/bin/alm.mjs impact --asset ${item.id}${at}\uFF0C\u5E76\u68C0\u67E5\u662F\u5426\u9700\u8981\u66F4\u65B0\u57FA\u7EBF\u3002`;
-    }
-    function CopyPrompt({ text }) {
-      const [state, setState] = useState("idle");
-      const copy = useCallback(async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setState("copied");
-        } catch {
-          setState("failed");
-        }
-        setTimeout(() => setState("idle"), 1800);
-      }, [text]);
-      return h(
-        "div",
-        { style: { marginTop: "10px" } },
-        h("button", { style: button, onClick: copy }, state === "copied" ? "\u5DF2\u590D\u5236" : state === "failed" ? "\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u9009\u62E9" : "\u590D\u5236\u63D0\u793A\u8BCD"),
-        h(
-          "pre",
-          {
-            style: {
-              margin: "8px 0 0",
-              padding: "10px",
-              fontSize: "12px",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              background: T.base,
-              border: `1px solid ${T.line}`,
-              borderRadius: "8px"
-            }
-          },
-          text
-        )
-      );
     }
     function requirementViewCounts(data, rows) {
       const loaded = Array.isArray(data?.requirements);
@@ -1783,13 +1542,6 @@ window.__ModuleLoader__.load({
     const LIST_COLUMNS = "minmax(0, 1fr) 108px 88px 76px 156px 124px";
     const LIST_COLUMNS_NARROW = "minmax(0, 1fr) 104px 148px 124px";
     const LIST_COLUMNS_MOBILE = "minmax(0, 1fr) 108px";
-    function listColumns(narrow, mobile) {
-      if (mobile) return LIST_COLUMNS_MOBILE;
-      return narrow ? LIST_COLUMNS_NARROW : LIST_COLUMNS;
-    }
-    function listCell(extra) {
-      return { minWidth: 0, display: "flex", alignItems: "center", ...extra };
-    }
     function acceptanceLabel(item) {
       const count = item.detailView?.content?.doc?.acceptance?.length ?? item.docView?.doc?.acceptance?.length ?? item.detailView?.content?.acceptanceCriteria?.length ?? 0;
       if (count > 0) return `${count} \u9879\u9A8C\u6536 \xB7 ${acceptanceState(item)}`;
@@ -1882,6 +1634,7 @@ window.__ModuleLoader__.load({
       const occurrences = Number(defect?.occurrenceCount ?? 0);
       const action = rowAction(item, actionHandlers);
       const executing = isExecutingRequirement(item);
+      const diagramBlocks = /(?:^|\n)\s*(?:```|~~~)\s*mermaid\s*$/im.test(String(item.briefText ?? "")) ? extractMermaidBlocks(item.briefText) : [];
       const idleDays = isArchivedRequirement(item) ? null : idleDaysOf(item);
       const githubLinks = item.detailView?.githubLinks ?? null;
       const [hover, setHover] = useState(false);
@@ -2121,7 +1874,13 @@ window.__ModuleLoader__.load({
             { style: { display: "flex", alignItems: "center", gap: "7px", minWidth: 0, marginTop: "4px", flexWrap: "wrap", overflowWrap: "anywhere" } },
             ...meta.reduce((acc, node, index) => index === 0 ? [node] : acc.concat(h("span", { key: `sep-${index}`, "aria-hidden": "true", style: { color: T.line2, fontSize: "11px" } }, "\xB7"), node), [])
           ),
-          anomaly ? h("div", { style: { marginTop: "3px", color: T.err, fontSize: "11.5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, anomaly) : null
+          anomaly ? h("div", { style: { marginTop: "3px", color: T.err, fontSize: "11.5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, anomaly) : null,
+          diagramBlocks.length ? h(
+            "details",
+            { "data-list-preview": "true", onClick: (event) => event.stopPropagation(), style: { marginTop: "5px", minWidth: 0 } },
+            h("summary", { style: { color: T.text3, fontSize: "11px", cursor: "pointer" } }, `\u9884\u89C8\u6B63\u6587\u56FE\u8868\uFF08${diagramBlocks.length}\uFF09`),
+            h("div", { style: { marginTop: "6px" } }, diagramBlocks.map((block, index) => h(MermaidDiagram, { key: index, source: block.source, closed: block.closed })))
+          ) : null
         ),
         // State and action share one cluster on the right: the pill says where
         // the record stands, the button says what the reader can do about it.
@@ -2478,78 +2237,6 @@ window.__ModuleLoader__.load({
       flush();
       return h("div", null, blocks);
     }
-    function Section({ title, action, children, style }) {
-      return h(
-        "div",
-        { style },
-        h("div", { style: sectionTitle }, title, action ?? null),
-        children
-      );
-    }
-    function GithubBlock({ item, projectMeta }) {
-      const projectName = projectMeta?.name ?? item.projectName ?? item.project ?? "\u672A\u5F52\u5C5E\u9879\u76EE";
-      const repo = item.github?.repo ?? projectMeta?.repo ?? "\u2014";
-      if (!item.github) {
-        return h(
-          "div",
-          {
-            style: {
-              border: `1px dashed ${T.line2}`,
-              borderRadius: "10px",
-              padding: "12px 14px",
-              fontSize: "12.5px",
-              color: T.text2,
-              lineHeight: 1.8
-            }
-          },
-          h("div", null, "\u5C1A\u672A\u5EFA\u7ACB GitHub \u5F52\u5C5E\uFF1A\u9700\u6C42 Issue\u3001\u4EFB\u52A1\u5B50\u8BAE\u9898\u4E0E\u770B\u677F\u6761\u76EE\u4F1A\u5728\u300C\u4EA4\u7ED9 AI \u63A8\u8FDB\u300D\u65F6\u6309\u9879\u76EE\u914D\u7F6E\u521B\u5EFA\u3002"),
-          h("div", { style: { ...muted, marginTop: "6px" } }, `${projectName} \xB7 ${repo}${projectMeta?.board ? ` \xB7 ProjectV2 #${projectMeta.board}` : ""}`)
-        );
-      }
-      const labels = item.github.labels ?? [];
-      const board = item.github.board;
-      return h(
-        "div",
-        { style: { border: `1px solid ${T.line}`, borderRadius: "10px", overflow: "hidden" } },
-        [
-          ["\u4ED3\u5E93", h("span", { style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: "11.5px" } }, repo)],
-          [
-            "\u9700\u6C42 Issue",
-            h(
-              "span",
-              null,
-              item.github.url ? h("a", { href: item.github.url, target: "_blank", rel: "noreferrer", style: { color: T.brand } }, `#${item.github.issue}`) : `#${item.github.issue}`,
-              ` \xB7 [${item.id}] ${item.title}`
-            )
-          ],
-          ["\u6807\u7B7E", h("span", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } }, labels.map((label) => h(Chip, { key: label }, label)))],
-          [
-            "\u770B\u677F",
-            h(
-              "span",
-              null,
-              board ? `ProjectV2 #${board.number}` : "\u672A\u914D\u7F6E\u770B\u677F",
-              board?.status ? h("span", { style: { marginLeft: "8px", color: T.ok } }, `\xB7 ${board.status}`) : null
-            )
-          ],
-          [
-            "\u4EFB\u52A1\u5B50\u8BAE\u9898",
-            h(
-              "span",
-              null,
-              (item.github.tasks ?? []).length ? item.github.tasks.map((task) => `#${task.number}`).join(" \xB7 ") : "\u5C1A\u672A\u521B\u5EFA\uFF08\u4EA4\u7ED9 AI \u63A8\u8FDB\u65F6\u751F\u6210\uFF09",
-              item.github.tasks?.length ? h("span", { style: { ...muted, marginLeft: "6px" } }, `\uFF08parent #${item.github.issue}\uFF09`) : null
-            )
-          ],
-          [
-            "PR / \u4EA4\u4ED8",
-            h("span", { style: muted }, "\u5C1A\u672A\u5173\u8054 PR\uFF1BPR \u6A21\u677F\u8981\u6C42\u586B\u5199\u9879\u76EE / \u9700\u6C42 Issue / \u53D8\u66F4 / \u770B\u677F\u72B6\u6001")
-          ]
-        ].map(
-          ([label, value], index) => h("div", { key: label, style: { ...row, borderBottom: index === 5 ? "none" : `1px solid ${T.line}` } }, h("span", { style: rowLabel }, label), h("span", { style: { color: T.text, minWidth: 0 } }, value))
-        )
-      );
-    }
     function relationsOf(item, allItems) {
       const groups = [
         ["\u4E0A\u7EA7", []],
@@ -2608,28 +2295,6 @@ window.__ModuleLoader__.load({
         "button",
         { style: { border: 0, background: "transparent", color: T.text2, padding: 0, fontSize: "11.5px", cursor: "pointer" }, onClick },
         "\u67E5\u770B\u8FFD\u6EAF\u56FE \u203A"
-      );
-    }
-    function GroupCard({ title, hint, accent, children }) {
-      return h(
-        "section",
-        {
-          style: {
-            marginTop: "14px",
-            border: `1px solid ${T.line}`,
-            borderLeft: `2px solid ${accent}`,
-            borderRadius: "12px",
-            background: T.layer,
-            padding: "13px 16px 15px"
-          }
-        },
-        h(
-          "div",
-          { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "10px", marginBottom: "10px" } },
-          h("div", { style: { fontSize: "12.5px", fontWeight: 600, color: T.text2, letterSpacing: ".01em" } }, title),
-          hint ?? null
-        ),
-        children
       );
     }
     function SubBlock({ title, action, children, first = false }) {
@@ -2724,6 +2389,1511 @@ window.__ModuleLoader__.load({
         label
       );
     }
+    const MERMAID_TYPE_LABELS = {
+      er: "ER \u56FE",
+      flow: "\u6D41\u7A0B\u56FE",
+      sequence: "\u65F6\u5E8F\u56FE",
+      class: "\u7C7B\u56FE",
+      state: "\u72B6\u6001\u56FE",
+      pie: "\u997C\u56FE",
+      gantt: "\u7518\u7279\u56FE",
+      journey: "\u7528\u6237\u65C5\u7A0B",
+      timeline: "\u65F6\u95F4\u7EBF",
+      mindmap: "\u601D\u7EF4\u5BFC\u56FE",
+      git: "Git \u56FE",
+      requirement: "\u9700\u6C42\u56FE",
+      quadrant: "\u8C61\u9650\u56FE",
+      xychart: "XY \u56FE\u8868",
+      sankey: "\u6851\u57FA\u56FE",
+      packet: "\u6570\u636E\u5305\u56FE",
+      block: "\u5757\u56FE",
+      architecture: "\u67B6\u6784\u56FE",
+      kanban: "\u770B\u677F",
+      radar: "\u96F7\u8FBE\u56FE",
+      treemap: "\u77E9\u5F62\u6811\u56FE",
+      c4: "C4 \u67B6\u6784\u56FE",
+      zenuml: "\u65F6\u5E8F\u56FE"
+    };
+    const MERMAID_TYPE_KEYWORDS = [
+      [/^erdiagram\b/i, "er"],
+      [/^(flowchart|graph)(\s|$)/i, "flow"],
+      [/^usecase(diagram)?\b/i, "flow"],
+      [/^sequencediagram\b/i, "sequence"],
+      [/^classdiagram\b/i, "class"],
+      [/^statediagram(-v2)?\b/i, "state"],
+      [/^pie\b/i, "pie"],
+      [/^gantt\b/i, "gantt"],
+      [/^journey\b/i, "journey"],
+      [/^timeline\b/i, "timeline"],
+      [/^mindmap\b/i, "mindmap"],
+      [/^gitgraph\b/i, "git"],
+      [/^requirementdiagram\b/i, "requirement"],
+      [/^quadrantchart\b/i, "quadrant"],
+      [/^xychart(-beta)?\b/i, "xychart"],
+      [/^sankey(-beta)?\b/i, "sankey"],
+      [/^packet(-beta)?\b/i, "packet"],
+      [/^block(-beta)?\b/i, "block"],
+      [/^architecture(-beta)?\b/i, "architecture"],
+      [/^kanban\b/i, "kanban"],
+      [/^radar(-beta)?\b/i, "radar"],
+      [/^treemap(-beta)?\b/i, "treemap"],
+      [/^c4(context|container|component|dynamic|deployment)\b/i, "c4"],
+      [/^zenuml\b/i, "zenuml"]
+    ];
+    const MERMAID_INK = "currentColor";
+    const MERMAID_NODE_FILL = "rgba(127,137,153,.10)";
+    const MERMAID_NODE_STROKE = "rgba(127,137,153,.55)";
+    const MERMAID_ACCENT = "#4d6bfe";
+    const MERMAID_ACCENT_FILL = "rgba(77,107,254,.14)";
+    const MERMAID_SOFT = "rgba(127,137,153,.16)";
+    const MERMAID_PIE_COLORS = ["#4d6bfe", "#35c47a", "#e7b04b", "#ff8b8b", "#8b7cf6", "#2bb3c0", "#d97757", "#7c8aa0"];
+    class MERMAID_MermaidError extends Error {
+    }
+    const mx_fail = (message) => {
+      throw new MERMAID_MermaidError(message);
+    };
+    const isCjk = (char) => /[\u2e80-\u9fff\uff00-\uffef]/.test(char);
+    function mx_textWidth(value, size = 12) {
+      let width = 0;
+      for (const char of String(value ?? "")) width += isCjk(char) ? size : size * 0.56;
+      return width;
+    }
+    function mx_wrap(value, maxChars = 16) {
+      const source = String(value ?? "").trim();
+      if (!source) return [""];
+      const lines = [];
+      let current = "";
+      for (const char of source) {
+        current += char;
+        if (Array.from(current).length >= maxChars) {
+          lines.push(current);
+          current = "";
+        }
+      }
+      if (current) lines.push(current);
+      return lines.slice(0, 6);
+    }
+    function mx_cleanLabel(value) {
+      return String(value ?? "").replace(/^["'`]+|["'`]+$/g, "").replace(/<br\s*\/?>/gi, " ").replace(/<[^>]*>/g, "").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+    }
+    function mx_nodeSize(label, options = {}) {
+      const lines = options.lines ?? mx_wrap(label, options.maxChars ?? 16);
+      const width = options.width ?? Math.min(260, Math.max(options.minWidth ?? 96, Math.max(0, ...lines.map((line) => mx_textWidth(line))) + 28));
+      const height = options.height ?? Math.max(36, lines.length * (options.lineHeight ?? 15) + 16);
+      return { lines, width, height };
+    }
+    const mx_round = (value) => Math.round(Number(value) * 10) / 10;
+    function mx_text(x, y, value, options = {}) {
+      return { tag: "text", attrs: { x, y, fill: options.fill ?? MERMAID_INK, "font-size": options.size ?? 12, "font-weight": options.weight ?? 400, "text-anchor": options.anchor ?? "middle", "dominant-baseline": options.baseline ?? "middle", "fill-opacity": options.opacity ?? 1, "font-family": options.mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : void 0 }, text: String(value ?? "") };
+    }
+    function mx_rect(x, y, width, height, options = {}) {
+      return { tag: "rect", attrs: { x, y, width, height, rx: options.rx ?? 6, fill: options.fill ?? MERMAID_NODE_FILL, stroke: options.stroke ?? MERMAID_NODE_STROKE, "stroke-width": options.strokeWidth ?? 1, "stroke-dasharray": options.dashed ? "5 4" : void 0, "fill-opacity": options.fillOpacity } };
+    }
+    function mx_line(x1, y1, x2, y2, options = {}) {
+      return { tag: "line", attrs: { x1, y1, x2, y2, stroke: options.stroke ?? MERMAID_NODE_STROKE, "stroke-width": options.strokeWidth ?? 1.2, "stroke-dasharray": options.dashed ? "5 4" : void 0, "marker-end": options.arrow === false ? void 0 : "url(#alm-mermaid-arrow)" } };
+    }
+    function mx_circle(cx, cy, r, options = {}) {
+      return { tag: "circle", attrs: { cx, cy, r, fill: options.fill ?? MERMAID_NODE_FILL, stroke: options.stroke ?? MERMAID_NODE_STROKE, "stroke-width": options.strokeWidth ?? 1.2 } };
+    }
+    function mx_path(d, options = {}) {
+      return { tag: "path", attrs: { d, fill: options.fill ?? "none", stroke: options.stroke ?? MERMAID_NODE_STROKE, "stroke-width": options.strokeWidth ?? 1.2, "stroke-dasharray": options.dashed ? "5 4" : void 0, opacity: options.opacity } };
+    }
+    function mx_polygon(points, options = {}) {
+      return { tag: "polygon", attrs: { points: points.map(([x, y]) => `${mx_round(x)},${mx_round(y)}`).join(" "), fill: options.fill ?? MERMAID_NODE_FILL, stroke: options.stroke ?? MERMAID_NODE_STROKE, "stroke-width": options.strokeWidth ?? 1.2, "fill-opacity": options.fillOpacity } };
+    }
+    function mx_textBlock(cx, cy, lines, options = {}) {
+      const lineHeight = options.lineHeight ?? 15;
+      const start = cy - (lines.length - 1) * lineHeight / 2;
+      return lines.map((entry, index) => mx_text(cx, start + index * lineHeight, entry, { size: options.size, weight: options.weight, fill: options.fill, opacity: options.opacity, mono: options.mono }));
+    }
+    function mx_header(title, aside) {
+      return [mx_text(16, 18, title, { size: 12, weight: 600, anchor: "start" }), mx_text(16 + mx_textWidth(title, 12) + 10, 18, aside ?? "", { size: 11, anchor: "start", opacity: 0.6 })];
+    }
+    function mx_finish(type, shapes, width, height, label) {
+      return { ok: true, type, label: label ?? MERMAID_TYPE_LABELS[type] ?? "Mermaid \u56FE", width: Math.max(220, Math.ceil(width)), height: Math.max(88, Math.ceil(height)), shapes: [{ tag: "g", attrs: {}, children: shapes }] };
+    }
+    function mx_nodeShape(node, x, y, size, options = {}) {
+      const shapes = [];
+      const kind = node.kind ?? "rect";
+      if (kind === "diamond") shapes.push(mx_polygon([[x + size.width / 2, y], [x + size.width, y + size.height / 2], [x + size.width / 2, y + size.height], [x, y + size.height / 2]], { fill: options.fill }));
+      else if (kind === "circle") shapes.push(mx_circle(x + size.width / 2, y + size.height / 2, Math.min(size.width, size.height) / 2, { fill: options.fill }));
+      else if (kind === "hex") {
+        const cut = Math.min(18, size.width / 4);
+        shapes.push(mx_polygon([[x + cut, y], [x + size.width - cut, y], [x + size.width, y + size.height / 2], [x + size.width - cut, y + size.height], [x + cut, y + size.height], [x, y + size.height / 2]], { fill: options.fill }));
+      } else if (kind === "cylinder") shapes.push(mx_path(`M ${x} ${y + 7} A ${size.width / 2} 7 0 0 1 ${x + size.width} ${y + 7} L ${x + size.width} ${y + size.height - 7} A ${size.width / 2} 7 0 0 1 ${x} ${y + size.height - 7} Z`, { fill: options.fill }));
+      else shapes.push(mx_rect(x, y, size.width, size.height, { rx: kind === "stadium" ? size.height / 2 : 6, fill: options.fill }));
+      shapes.push(...mx_textBlock(x + size.width / 2, y + size.height / 2, size.lines, { weight: options.weight }));
+      return shapes;
+    }
+    function parseNodeToken(source) {
+      const match = /^([A-Za-z_][\w.-]*)\s*(\(\[[^\]]*\]\)|\[\[[^\]]*\]\]|\[\([^)]*\)\]|\(\([^)]*\)\)|\{\{[^}]*\}\}|\[[^\]]*\]|\{[^}]*\}|\([^)]*\)|>[^\]]*\])?$/.exec(String(source ?? "").trim());
+      if (!match) return null;
+      const id = match[1];
+      const token = match[2] ?? "";
+      let kind = "rect";
+      if (token.startsWith("([")) kind = "stadium";
+      else if (token.startsWith("[(")) kind = "cylinder";
+      else if (token.startsWith("((")) kind = "circle";
+      else if (token.startsWith("{{")) kind = "hex";
+      else if (token.startsWith("{")) kind = "diamond";
+      else if (token.startsWith("(")) kind = "stadium";
+      const label = mx_cleanLabel(token.replace(/^\(\[|\]\)$/g, "").replace(/^\[\[|\]\]$/g, "").replace(/^\[\(|\)\]$/g, "").replace(/^\(\(|\)\)$/g, "").replace(/^\{\{|\}\}$/g, "").replace(/^\[|\]$/g, "").replace(/^\{|\}$/g, "").replace(/^\(|\)$/g, "").replace(/^>|\]$/g, ""));
+      return { id, label: label || id, kind };
+    }
+    function mx_parseFlow(lines) {
+      const nodes = /* @__PURE__ */ new Map();
+      const edges = [];
+      let direction = "TB";
+      const declare = (token) => {
+        const node = parseNodeToken(token);
+        if (!node) return null;
+        const existing = nodes.get(node.id);
+        if (!existing || node.label !== node.id && existing.label === existing.id) nodes.set(node.id, node);
+        return node;
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        if (/^(subgraph|end|classDef|class|style|linkStyle|click|accTitle|accDescr)\b/.test(source)) return;
+        const dir = /^direction\s+(TB|TD|BT|LR|RL)$/i.exec(source);
+        if (dir) {
+          direction = dir[1].toUpperCase() === "TD" ? "TB" : dir[1].toUpperCase();
+          return;
+        }
+        const stripped = source.replace(/([A-Za-z_][\w.-]*)\s*(\(\[[^\]]*\]\)|\[\[[^\]]*\]\]|\[\([^)]*\)\]|\(\([^)]*\)\)|\{\{[^}]*\}\}|\[[^\]]*\]|\{[^}]*\}|\([^)]*\)|>[^\]]*\])/g, (match2, id, shape) => {
+          declare(`${id}${shape}`);
+          return id;
+        });
+        let match = /^([A-Za-z_][\w.-]*)\s*(<-->|<?-\.-+>|<?={2,}>|<?-{2,}[ox]|<?-{2,}>|<?-{3,}>?)\s*(?:\|([^|]*)\|)?\s*([A-Za-z_][\w.-]*)$/.exec(stripped);
+        if (match) {
+          declare(match[1]);
+          declare(match[4]);
+          edges.push({ from: match[1], to: match[4], label: mx_cleanLabel(match[3] ?? ""), dashed: /\./.test(match[2]), arrow: /[->]$/.test(match[2]) });
+          return;
+        }
+        match = /^([A-Za-z_][\w.-]*)\s*--\s*(.+?)\s*-->\s*([A-Za-z_][\w.-]*)$/.exec(stripped);
+        if (match) {
+          declare(match[1]);
+          declare(match[3]);
+          edges.push({ from: match[1], to: match[3], label: mx_cleanLabel(match[2]) });
+          return;
+        }
+        if (/^[A-Za-z_][\w.-]*$/.test(stripped)) declare(stripped);
+      });
+      return { nodes: [...nodes.values()], edges, direction };
+    }
+    function mx_assignDepth(nodes, edges) {
+      const depth = new Map(nodes.map((node) => [node.id, null]));
+      const outgoing = new Map(nodes.map((node) => [node.id, []]));
+      const incoming = new Map(nodes.map((node) => [node.id, []]));
+      edges.forEach((edge) => {
+        if (!outgoing.has(edge.from) || !incoming.has(edge.to)) return;
+        outgoing.get(edge.from).push(edge.to);
+        incoming.get(edge.to).push(edge.from);
+      });
+      const queue = nodes.filter((node) => incoming.get(node.id).length === 0).map((node) => node.id);
+      if (!queue.length && nodes.length) queue.push(nodes[0].id);
+      queue.forEach((id) => depth.set(id, 0));
+      let guard = 0;
+      while (queue.length && guard++ < nodes.length * 4) {
+        const id = queue.shift();
+        const level = depth.get(id) ?? 0;
+        for (const target of outgoing.get(id) ?? []) if (depth.get(target) === null) {
+          depth.set(target, level + 1);
+          queue.push(target);
+        }
+      }
+      nodes.forEach((node) => {
+        if (depth.get(node.id) === null) depth.set(node.id, 0);
+      });
+      return depth;
+    }
+    function mx_borderPoint(box, towardX, towardY) {
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      const dx = towardX - cx;
+      const dy = towardY - cy;
+      if (dx === 0 && dy === 0) return [cx, cy];
+      const scale = Math.min(dx === 0 ? Infinity : box.width / 2 / Math.abs(dx), dy === 0 ? Infinity : box.height / 2 / Math.abs(dy));
+      return [cx + dx * scale, cy + dy * scale];
+    }
+    function mx_layoutGraph(nodes, edges, options = {}) {
+      const horizontal = (options.direction ?? "TB") === "LR";
+      const items = nodes.map((node) => ({ ...node, size: mx_nodeSize(node.label, { maxChars: options.maxChars ?? 16, minWidth: node.kind === "start" || node.kind === "circle" ? 20 : options.minWidth }) }));
+      if (options.padded) items.forEach((node) => {
+        node.size.height += options.padded(node);
+      });
+      const depth = mx_assignDepth(items, edges);
+      const layers = [];
+      items.forEach((node) => {
+        const level = depth.get(node.id) ?? 0;
+        (layers[level] ??= []).push(node);
+      });
+      const mainGap = options.gapMain ?? 48;
+      const crossGap = options.gapCross ?? 22;
+      const padding = options.padding ?? 18;
+      const positions = /* @__PURE__ */ new Map();
+      if (horizontal) {
+        let x = padding;
+        layers.forEach((layer) => {
+          const width2 = Math.max(0, ...layer.map((node) => node.size.width));
+          const total = layer.reduce((sum, node) => sum + node.size.height, 0) + crossGap * Math.max(0, layer.length - 1);
+          let y = padding;
+          layer.forEach((node) => {
+            positions.set(node.id, { x: x + (width2 - node.size.width) / 2, y, width: node.size.width, height: node.size.height });
+            y += node.size.height + crossGap;
+          });
+          void total;
+          x += width2 + mainGap;
+        });
+      } else {
+        let y = padding;
+        layers.forEach((layer) => {
+          const height2 = Math.max(0, ...layer.map((node) => node.size.height));
+          let x = padding;
+          layer.forEach((node) => {
+            positions.set(node.id, { x, y: y + (height2 - node.size.height) / 2, width: node.size.width, height: node.size.height });
+            x += node.size.width + crossGap;
+          });
+          y += height2 + mainGap;
+        });
+      }
+      const width = Math.max(0, ...[...positions.values()].map((box) => box.x + box.width)) + padding;
+      const height = Math.max(0, ...[...positions.values()].map((box) => box.y + box.height)) + padding;
+      return { positions, width, height };
+    }
+    function mx_renderGraph(nodes, edges, options = {}) {
+      const layout = mx_layoutGraph(nodes, edges, options);
+      const shapes = [];
+      const byId = new Map(nodes.map((node) => [node.id, node]));
+      edges.forEach((edge) => {
+        const from = layout.positions.get(edge.from);
+        const to = layout.positions.get(edge.to);
+        if (!from || !to) return;
+        if (edge.from === edge.to) {
+          const x = from.x + from.width;
+          const y = from.y + from.height / 2;
+          shapes.push(mx_path(`M ${x} ${y - 8} C ${x + 34} ${y - 26}, ${x + 34} ${y + 26}, ${x} ${y + 8}`, { dashed: edge.dashed }));
+          if (edge.label) shapes.push(mx_text(x + 38, y, edge.label, { size: 10.5, anchor: "start", opacity: 0.75 }));
+          return;
+        }
+        const [x1, y1] = mx_borderPoint(from, to.x + to.width / 2, to.y + to.height / 2);
+        const [x2, y2] = mx_borderPoint(to, from.x + from.width / 2, from.y + from.height / 2);
+        shapes.push(mx_line(x1, y1, x2, y2, { dashed: edge.dashed, arrow: edge.arrow !== false, stroke: edge.accent ? MERMAID_ACCENT : MERMAID_NODE_STROKE }));
+        if (edge.label) shapes.push(mx_text((x1 + x2) / 2, (y1 + y2) / 2 - 7, edge.label, { size: 10.5, opacity: 0.8 }));
+      });
+      nodes.forEach((node) => {
+        const box = layout.positions.get(node.id);
+        if (!box) return;
+        const kind = byId.get(node.id)?.kind;
+        if (kind === "start" || kind === "end") {
+          shapes.push(mx_circle(box.x + box.width / 2, box.y + box.height / 2, 8, { fill: kind === "start" ? MERMAID_ACCENT : MERMAID_INK, stroke: kind === "start" ? MERMAID_ACCENT : MERMAID_INK }));
+          return;
+        }
+        shapes.push(...mx_nodeShape(node, box.x, box.y, box.size ?? { width: box.width, height: box.height, lines: mx_wrap(node.label, options.maxChars ?? 16) }, { fill: node.accent ? MERMAID_ACCENT_FILL : MERMAID_NODE_FILL }));
+      });
+      return mx_finish(options.type ?? "flow", shapes, layout.width, layout.height, options.label);
+    }
+    function parseEr(lines) {
+      const entities = /* @__PURE__ */ new Map();
+      const relations = [];
+      let current = null;
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        if (current) {
+          if (source === "}") {
+            current = null;
+            return;
+          }
+          const attribute = /^([A-Za-z_][\w-]*)\s+([A-Za-z_][\w-]*)(?:\s+(PK|FK|UK))?(?:\s+"([^"]*)")?/.exec(source);
+          if (attribute) current.attributes.push({ name: attribute[1], type: attribute[2], key: attribute[3] ?? "", comment: attribute[4] ?? "" });
+          return;
+        }
+        const block = /^("[^"]+"|[A-Za-z_][\w-]*)\s*\{$/.exec(source);
+        if (block) {
+          const id = mx_cleanLabel(block[1]);
+          current = { id, attributes: [] };
+          entities.set(id, current);
+          return;
+        }
+        const relation = /^("[^"]+"|[A-Za-z_][\w-]*)\s+([|}{o?*+]+--[|}{o?*+]+)\s+("[^"]+"|[A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(source);
+        if (relation) {
+          const left = mx_cleanLabel(relation[1]);
+          const right = mx_cleanLabel(relation[3]);
+          if (!entities.has(left)) entities.set(left, { id: left, attributes: [] });
+          if (!entities.has(right)) entities.set(right, { id: right, attributes: [] });
+          relations.push({ from: left, to: right, cardinality: relation[2], label: mx_cleanLabel(relation[4]) });
+        }
+      });
+      return { entities: [...entities.values()], relations };
+    }
+    function renderEr(data) {
+      const cards = [];
+      data.entities.forEach((entity) => {
+        const card2 = mx_nodeSize(entity.id, { maxChars: 20, minWidth: 150 });
+        card2.id = entity.id;
+        card2.attributes = entity.attributes;
+        card2.height += 8 + Math.max(1, entity.attributes.length) * 17;
+        cards.push(card2);
+      });
+      const columns = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(cards.length))));
+      const gapX = 34;
+      const gapY = 34;
+      let x = 18;
+      let y = 18;
+      let rowHeight = 0;
+      cards.forEach((card2, index) => {
+        if (index > 0 && index % columns === 0) {
+          x = 18;
+          y += rowHeight + gapY;
+          rowHeight = 0;
+        }
+        card2.x = x;
+        card2.y = y;
+        x += card2.width + gapX;
+        rowHeight = Math.max(rowHeight, card2.height);
+      });
+      const shapes = [];
+      data.relations.forEach((relation) => {
+        const from = cards.find((card2) => card2.id === relation.from);
+        const to = cards.find((card2) => card2.id === relation.to);
+        if (!from || !to) return;
+        const [x1, y1] = mx_borderPoint(from, to.x + to.width / 2, to.y + to.height / 2);
+        const [x2, y2] = mx_borderPoint(to, from.x + from.width / 2, from.y + from.height / 2);
+        shapes.push(mx_line(x1, y1, x2, y2, { stroke: MERMAID_ACCENT }));
+        shapes.push(mx_text(x1 + (x2 - x1) * 0.1, y1 + (y2 - y1) * 0.1 - 7, relation.cardinality, { size: 9.5, opacity: 0.8 }));
+        if (relation.label) shapes.push(mx_text((x1 + x2) / 2, (y1 + y2) / 2 - 8, relation.label, { size: 10.5 }));
+      });
+      cards.forEach((card2) => {
+        shapes.push(mx_rect(card2.x, card2.y, card2.width, card2.height, { fill: "rgba(127,137,153,.05)" }));
+        shapes.push(mx_rect(card2.x, card2.y, card2.width, 26, { fill: MERMAID_SOFT, rx: 6 }));
+        shapes.push(mx_text(card2.x + card2.width / 2, card2.y + 14, card2.id, { weight: 600 }));
+        if (!card2.attributes.length) shapes.push(mx_text(card2.x + card2.width / 2, card2.y + 42, "\uFF08\u65E0\u5C5E\u6027\uFF09", { size: 10.5, opacity: 0.55 }));
+        card2.attributes.forEach((attribute, index) => {
+          const rowY = card2.y + 26 + 14 + index * 17;
+          shapes.push(mx_text(card2.x + 12, rowY, attribute.name, { size: 10.5, anchor: "start" }));
+          shapes.push(mx_text(card2.x + card2.width - 12, rowY, [attribute.type, attribute.key].filter(Boolean).join(" "), { size: 10.5, anchor: "end", opacity: 0.65 }));
+        });
+      });
+      return mx_finish("er", shapes, Math.max(...cards.map((card2) => card2.x + card2.width)) + 18, Math.max(...cards.map((card2) => card2.y + card2.height)) + 18, "ER \u56FE");
+    }
+    function renderPie(lines) {
+      let title = "";
+      const entries = [];
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const head = /^title\s+(.*)$/i.exec(source);
+        if (head) {
+          title = mx_cleanLabel(head[1]);
+          return;
+        }
+        if (/^showData\b/i.test(source)) return;
+        const entry = /^"([^"]*)"\s*:\s*([-+]?\d+(?:\.\d+)?)$/.exec(source) ?? /^'([^']*)'\s*:\s*([-+]?\d+(?:\.\d+)?)$/.exec(source) ?? /^([^:\s]+)\s*:\s*([-+]?\d+(?:\.\d+)?)$/.exec(source);
+        if (entry) entries.push({ label: mx_cleanLabel(entry[1]), value: Math.max(0, Number(entry[2])) });
+      });
+      if (!entries.length) mx_fail('\u997C\u56FE\u7F3A\u5C11\u6570\u636E\u9879\uFF08\u5F62\u5982 "\u6807\u7B7E" : \u6570\u503C\uFF09');
+      const total = entries.reduce((sum, entry) => sum + entry.value, 0) || 1;
+      const radius = 86;
+      const cx = 128;
+      const cy = 150;
+      const shapes = mx_header(title || "\u997C\u56FE", `\u5408\u8BA1 ${total}`);
+      let angle = -Math.PI / 2;
+      entries.forEach((entry, index) => {
+        const sweep = entry.value / total * Math.PI * 2;
+        const end = angle + sweep;
+        const sx = cx + radius * Math.cos(angle);
+        const sy = cy + radius * Math.sin(angle);
+        const ex = cx + radius * Math.cos(end);
+        const ey = cy + radius * Math.sin(end);
+        const color = MERMAID_PIE_COLORS[index % MERMAID_PIE_COLORS.length];
+        shapes.push(mx_path(`M ${cx} ${cy} L ${sx} ${sy} A ${radius} ${radius} 0 ${sweep > Math.PI ? 1 : 0} 1 ${ex} ${ey} Z`, { fill: color, stroke: "var(--alm-diagram-bg, #ffffff)", strokeWidth: 1.5 }));
+        if (sweep > 0.22) {
+          const mid = angle + sweep / 2;
+          shapes.push(mx_text(cx + radius * 0.62 * Math.cos(mid), cy + radius * 0.62 * Math.sin(mid), `${Math.round(entry.value / total * 100)}%`, { size: 11, fill: "#ffffff", weight: 600 }));
+        }
+        angle = end;
+      });
+      entries.forEach((entry, index) => {
+        const legendY = 44 + index * 20;
+        shapes.push(mx_rect(cx + radius + 34, legendY - 5, 10, 10, { fill: MERMAID_PIE_COLORS[index % MERMAID_PIE_COLORS.length], stroke: "none", rx: 2 }));
+        shapes.push(mx_text(cx + radius + 50, legendY, `${entry.label}  ${entry.value}`, { size: 11, anchor: "start" }));
+      });
+      return mx_finish("pie", shapes, cx + radius + 280, cy + radius + 26, title || "\u997C\u56FE");
+    }
+    function parseSequence(lines, type = "sequence") {
+      const participants = /* @__PURE__ */ new Map();
+      const messages = [];
+      const notes = [];
+      let title = "";
+      const add = (id, label, kind = "participant") => {
+        const key = mx_cleanLabel(id);
+        if (!participants.has(key)) participants.set(key, { id: key, label: mx_cleanLabel(label) || key, kind });
+        return key;
+      };
+      const message = (source) => {
+        const match = /^([^\s:]+)\s*(-->>|->>|-->|->|--x|-x|-\)|\.\.>>|\.\.>)\s*([^:]+):\s*(.*)$/.exec(source);
+        if (!match) return false;
+        messages.push({ from: add(match[1], match[1]), to: add(match[3].trim(), match[3].trim()), label: mx_cleanLabel(match[4]), dashed: /--|\.\./.test(match[2]), async: />>/.test(match[2]) });
+        return true;
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const titleMatch = /^title\s+(.*)$/i.exec(source);
+        if (titleMatch) {
+          title = mx_cleanLabel(titleMatch[1]);
+          return;
+        }
+        if (/^(autonumber|activate|deactivate|destroy|box|end box)\b/i.test(source)) return;
+        if (/^(loop|alt|opt|par|critical|break|rect)\b/i.test(source)) {
+          const label = mx_cleanLabel(source.replace(/^(loop|alt|opt|par|critical|break|rect)\s*/i, ""));
+          if (label) messages.push({ kind: "block", label });
+          return;
+        }
+        if (/^end$/i.test(source)) return;
+        if (/^(participant|actor)\s+/i.test(source)) {
+          const match = /^(participant|actor)\s+([^\s]+)(?:\s+as\s+(.*))?$/i.exec(source);
+          if (match) add(match[2], match[3] ?? match[2], match[1].toLowerCase());
+          return;
+        }
+        const note = /^note\s+(over|left of|right of)\s+([^:]+):\s*(.*)$/i.exec(source);
+        if (note) {
+          notes.push({ ids: note[2].split(",").map((id) => add(id.trim(), id.trim())), label: mx_cleanLabel(note[3]), position: note[1].toLowerCase() });
+          return;
+        }
+        if (message(source)) return;
+        const method = /^([^\s.:]+)\.([\w$]+)\(\)$/.exec(source);
+        if (method) {
+          add(method[1], method[1]);
+          messages.push({ kind: "block", label: method[2] });
+          return;
+        }
+        if (/^return\b/i.test(source)) {
+          messages.push({ kind: "block", label: mx_cleanLabel(source) });
+          return;
+        }
+        if (/^[^\s:]+$/.test(source)) add(source, source);
+      });
+      return { participants: [...participants.values()], messages, notes, title, type };
+    }
+    function renderSequence(data) {
+      const participants = data.participants.length ? data.participants : [{ id: "A", label: "A" }, { id: "B", label: "B" }];
+      const spacing = Math.max(150, Math.max(0, ...participants.map((entry) => mx_textWidth(entry.label) + 46)));
+      const indexOf = new Map(participants.map((entry, index) => [entry.id, index]));
+      const left = 26;
+      const top = 58;
+      const rowGap = 34;
+      const xOf = (id) => left + (indexOf.get(id) ?? 0) * spacing + spacing / 2;
+      const width = left * 2 + (participants.length - 1) * spacing + 30;
+      const rows = data.messages.filter((entry) => entry.kind !== "block");
+      const bottom = top + 12 + rows.length * rowGap + data.notes.length * rowGap + 40;
+      const shapes = mx_header(data.title || "\u65F6\u5E8F\u56FE", `${participants.length} \u4E2A\u53C2\u4E0E\u8005`);
+      participants.forEach((entry) => {
+        const cx = xOf(entry.id);
+        const boxWidth = Math.max(74, mx_textWidth(entry.label) + 30);
+        shapes.push(mx_rect(cx - boxWidth / 2, 30, boxWidth, entry.kind === "actor" ? 30 : 26, { rx: entry.kind === "actor" ? 15 : 6, fill: MERMAID_SOFT }));
+        shapes.push(...mx_textBlock(cx, 43, mx_wrap(entry.label, 14), { weight: 600, size: 11.5 }));
+        shapes.push(mx_line(cx, 60, cx, bottom, { dashed: true, arrow: false, stroke: "rgba(127,137,153,.45)" }));
+      });
+      let y = top + 6;
+      data.messages.forEach((entry) => {
+        if (entry.kind === "block") {
+          shapes.push(mx_rect(left - 6, y - 10, width - left, 22, { fill: MERMAID_SOFT, stroke: "none", rx: 4 }));
+          shapes.push(mx_text(left + 8, y, entry.label, { size: 10.5, anchor: "start", weight: 600 }));
+          y += rowGap;
+          return;
+        }
+        const x1 = xOf(entry.from);
+        const x2 = xOf(entry.to);
+        if (entry.from === entry.to) {
+          shapes.push(mx_path(`M ${x1} ${y - 7} C ${x1 + 34} ${y - 24}, ${x1 + 34} ${y + 16}, ${x1} ${y + 7}`, { dashed: entry.dashed }));
+          shapes.push(mx_text(x1 + 42, y, entry.label, { size: 10.5, anchor: "start" }));
+        } else {
+          shapes.push(mx_line(x1, y, x2, y, { dashed: entry.dashed, stroke: entry.async ? MERMAID_ACCENT : MERMAID_NODE_STROKE }));
+          shapes.push(mx_text((x1 + x2) / 2, y - 8, entry.label, { size: 10.5 }));
+        }
+        y += rowGap;
+      });
+      data.notes.forEach((note) => {
+        const xs = note.ids.map((id) => xOf(id));
+        const noteWidth = Math.max(100, mx_textWidth(note.label) + 20);
+        const leftX = Math.min(...xs);
+        const rightX = Math.max(...xs);
+        const x = note.position === "left of" ? leftX - noteWidth - 6 : note.position === "right of" ? rightX + 6 : (leftX + rightX) / 2 - noteWidth / 2;
+        shapes.push(mx_rect(x, y - 12, noteWidth, 24, { fill: "rgba(231,176,75,.14)", stroke: "rgba(231,176,75,.5)", rx: 4 }));
+        shapes.push(mx_text(x + noteWidth / 2, y, note.label, { size: 10.5 }));
+        y += rowGap;
+      });
+      return mx_finish(data.type ?? "sequence", shapes, width, Math.max(bottom, y + 18), data.title || (data.type === "zenuml" ? "Zenuml \u65F6\u5E8F" : "\u65F6\u5E8F\u56FE"));
+    }
+    function parseClass(lines) {
+      const classes = /* @__PURE__ */ new Map();
+      const relations = [];
+      let current = null;
+      const ensure = (id) => {
+        const key = mx_cleanLabel(id);
+        if (!classes.has(key)) classes.set(key, { id: key, members: [] });
+        return classes.get(key);
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        if (current) {
+          if (source === "}") {
+            current = null;
+            return;
+          }
+          if (!/^(class|note|end)\b/.test(source)) current.members.push(mx_cleanLabel(source));
+          return;
+        }
+        const block = /^class\s+([A-Za-z_][\w-]*)\s*\{$/.exec(source);
+        if (block) {
+          current = ensure(block[1]);
+          return;
+        }
+        const declaration = /^class\s+([A-Za-z_][\w-]*)$/.exec(source);
+        if (declaration) {
+          ensure(declaration[1]);
+          return;
+        }
+        const member = /^([A-Za-z_][\w-]*)\s*:\s*(.+)$/.exec(source);
+        if (member) {
+          ensure(member[1]).members.push(mx_cleanLabel(member[2]));
+          return;
+        }
+        const relation = /^([A-Za-z_][\w-]*|"[^"]+")\s*(<\|--|--\|>|\*--|--\*|o--|--o|\.\.\|>|\.\.>|-->|<--|\.\.)\s*([A-Za-z_][\w-]*|"[^"]+")(?:\s*:\s*(.*))?$/.exec(source);
+        if (relation) relations.push({ from: ensure(relation[1]).id, to: ensure(relation[3]).id, arrow: relation[2], label: mx_cleanLabel(relation[4] ?? "") });
+      });
+      return { classes: [...classes.values()], relations };
+    }
+    function renderClass(data) {
+      const cards = /* @__PURE__ */ new Map();
+      data.classes.forEach((entry) => {
+        const card2 = mx_nodeSize(entry.id, { maxChars: 22, minWidth: 140 });
+        card2.id = entry.id;
+        card2.members = entry.members;
+        card2.height = 30 + Math.max(1, entry.members.length) * 17;
+        cards.set(entry.id, card2);
+      });
+      const columns = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(data.classes.length))));
+      let x = 18;
+      let y = 18;
+      let rowHeight = 0;
+      data.classes.forEach((entry, index) => {
+        const card2 = cards.get(entry.id);
+        if (index > 0 && index % columns === 0) {
+          x = 18;
+          y += rowHeight + 36;
+          rowHeight = 0;
+        }
+        card2.x = x;
+        card2.y = y;
+        x += card2.width + 40;
+        rowHeight = Math.max(rowHeight, card2.height);
+      });
+      const shapes = [];
+      data.relations.forEach((relation) => {
+        const from = cards.get(relation.from);
+        const to = cards.get(relation.to);
+        const [x1, y1] = mx_borderPoint(from, to.x + to.width / 2, to.y + to.height / 2);
+        const [x2, y2] = mx_borderPoint(to, from.x + from.width / 2, from.y + from.height / 2);
+        shapes.push(mx_line(x1, y1, x2, y2, { dashed: /\.\./.test(relation.arrow), stroke: MERMAID_ACCENT }));
+        if (relation.label) shapes.push(mx_text((x1 + x2) / 2, (y1 + y2) / 2 - 7, relation.label, { size: 10.5 }));
+      });
+      data.classes.forEach((entry) => {
+        const card2 = cards.get(entry.id);
+        shapes.push(mx_rect(card2.x, card2.y, card2.width, card2.height, { fill: "rgba(127,137,153,.05)" }));
+        shapes.push(mx_rect(card2.x, card2.y, card2.width, 24, { fill: MERMAID_SOFT, rx: 6 }));
+        shapes.push(mx_text(card2.x + card2.width / 2, card2.y + 13, entry.id, { weight: 600, size: 12 }));
+        entry.members.forEach((memberText, index) => shapes.push(mx_text(card2.x + 10, card2.y + 38 + index * 17, memberText, { size: 10.5, anchor: "start", mono: true })));
+      });
+      return mx_finish("class", shapes, Math.max(...[...cards.values()].map((card2) => card2.x + card2.width)) + 18, Math.max(...[...cards.values()].map((card2) => card2.y + card2.height)) + 18, "\u7C7B\u56FE");
+    }
+    function parseState(lines) {
+      const states = /* @__PURE__ */ new Map();
+      const transitions = [];
+      const ensure = (id) => {
+        const key = mx_cleanLabel(id);
+        if (key === "[*]") return key;
+        if (!states.has(key)) states.set(key, { id: key, label: key });
+        return key;
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%") || /^(direction|classDef|class|style|note)\b/.test(source)) return;
+        const declaration = /^state\s+"([^"]*)"\s+as\s+([A-Za-z_][\w-]*)$/.exec(source);
+        if (declaration) {
+          const key = ensure(declaration[2]);
+          states.get(key).label = mx_cleanLabel(declaration[1]);
+          return;
+        }
+        const simple = /^state\s+([A-Za-z_][\w-]*)\s*\{?$/.exec(source);
+        if (simple) {
+          ensure(simple[1]);
+          return;
+        }
+        if (source === "}") return;
+        const transition = /^(\[\*\]|[A-Za-z_][\w-]*)\s*-->\s*(\[\*\]|[A-Za-z_][\w-]*)(?:\s*:\s*(.*))?$/.exec(source);
+        if (transition) transitions.push({ from: ensure(transition[1]), to: ensure(transition[2]), label: mx_cleanLabel(transition[3] ?? "") });
+      });
+      const nodes = [...states.values()];
+      let start = 0;
+      let end = 0;
+      transitions.forEach((transition) => {
+        if (transition.from === "[*]") {
+          const id = `start_${start++}`;
+          nodes.push({ id, label: "", kind: "start" });
+          transition.from = id;
+        }
+        if (transition.to === "[*]") {
+          const id = `end_${end++}`;
+          nodes.push({ id, label: "", kind: "end" });
+          transition.to = id;
+        }
+      });
+      return { nodes, edges: transitions };
+    }
+    function parseRequirement(lines) {
+      const requirements = /* @__PURE__ */ new Map();
+      const relations = [];
+      let current = null;
+      const ensure = (id) => {
+        const key = mx_cleanLabel(id);
+        if (!requirements.has(key)) requirements.set(key, { id: key, fields: [] });
+        return requirements.get(key);
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        if (current) {
+          if (source === "}") {
+            current = null;
+            return;
+          }
+          const field = /^([A-Za-z_][\w-]*)\s*:\s*(.+)$/.exec(source);
+          if (field) current.fields.push({ key: field[1], value: mx_cleanLabel(field[2]) });
+          return;
+        }
+        const block = /^(requirement|element|functionalRequirement|performanceRequirement|interfaceRequirement|physicalRequirement|designConstraint)\s+([A-Za-z_][\w-]*)\s*\{$/.exec(source);
+        if (block) {
+          current = ensure(block[2]);
+          return;
+        }
+        const relation = /^([A-Za-z_][\w-]*)\s*-\s*(contains|copies|derives|satisfies|verifies|refines|traces|dependsOn)\s*->\s*([A-Za-z_][\w-]*)$/.exec(source);
+        if (relation) {
+          ensure(relation[1]);
+          ensure(relation[3]);
+          relations.push({ from: relation[1], to: relation[3], label: relation[2] });
+        }
+      });
+      return { requirements: [...requirements.values()], relations };
+    }
+    function renderRequirement(data) {
+      const nodes = data.requirements.map((entry) => ({ id: entry.id, label: entry.id, kind: "rect", fields: entry.fields }));
+      const rows = new Map(nodes.map((node) => [node.id, Math.max(1, node.fields.length)]));
+      const layout = mx_layoutGraph(nodes, data.relations, { direction: "TB", maxChars: 20, minWidth: 150, padded: (node) => rows.get(node.id) * 16 + 8 });
+      const shapes = [];
+      data.relations.forEach((relation) => {
+        const from = layout.positions.get(relation.from);
+        const to = layout.positions.get(relation.to);
+        if (!from || !to) return;
+        const [x1, y1] = mx_borderPoint(from, to.x + to.width / 2, to.y + to.height / 2);
+        const [x2, y2] = mx_borderPoint(to, from.x + from.width / 2, from.y + from.height / 2);
+        shapes.push(mx_line(x1, y1, x2, y2, { stroke: MERMAID_ACCENT }));
+        shapes.push(mx_text((x1 + x2) / 2, (y1 + y2) / 2 - 7, relation.label, { size: 10.5 }));
+      });
+      nodes.forEach((node) => {
+        const box = layout.positions.get(node.id);
+        if (!box) return;
+        shapes.push(mx_rect(box.x, box.y, box.width, box.height, { fill: "rgba(127,137,153,.05)" }));
+        shapes.push(mx_rect(box.x, box.y, box.width, 26, { fill: MERMAID_SOFT, rx: 6 }));
+        shapes.push(mx_text(box.x + box.width / 2, box.y + 14, node.id, { weight: 600, size: 11.5 }));
+        node.fields.forEach((field, index) => shapes.push(mx_text(box.x + 10, box.y + 40 + index * 16, `${field.key}: ${field.value}`, { size: 10, anchor: "start" })));
+      });
+      return mx_finish("requirement", shapes, layout.width, layout.height, "\u9700\u6C42\u56FE");
+    }
+    function parseC4(lines) {
+      const nodes = /* @__PURE__ */ new Map();
+      const edges = [];
+      const ensure = (alias, label) => {
+        const key = mx_cleanLabel(alias);
+        if (!nodes.has(key)) nodes.set(key, { id: key, label: mx_cleanLabel(label) || key });
+        return key;
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%") || /^(title|UpdateLayoutConfig|UpdateRelStyle|UpdateElementStyle|Boundary|Enterprise_Boundary|System_Boundary|Container_Boundary)\b/.test(source)) return;
+        const element = /^(Person|System|System_Ext|SystemDb|SystemDb_Ext|Container|Container_Ext|ContainerDb|ContainerDb_Ext|Component|Component_Ext|Node|Node_Ext)\s*\(\s*([^,]+?)\s*,\s*"([^"]*)"(?:,\s*"([^"]*)")?/.exec(source);
+        if (element) {
+          ensure(element[2], element[3]);
+          return;
+        }
+        const relation = /^Rel(?:_[A-Za-z]+)?\s*\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*"([^"]*)"/.exec(source);
+        if (relation) edges.push({ from: ensure(relation[1], relation[1]), to: ensure(relation[2], relation[2]), label: mx_cleanLabel(relation[3]) });
+      });
+      return { nodes: [...nodes.values()], edges };
+    }
+    function parseMindmap(lines) {
+      const raw = [];
+      lines.slice(1).forEach((entry) => {
+        if (!String(entry ?? "").trim() || String(entry).trim().startsWith("%%")) return;
+        const indent = String(entry).replace(/\t/g, "  ").match(/^ */)[0].length;
+        const label = mx_cleanLabel(String(entry).trim().replace(/^[+*.-]\s*/, "").replace(/^\(\[|\]\)$/g, "").replace(/^\(\(|\)\)$/g, "").replace(/^\[\[|\]\]$/g, "").replace(/^\[|\]$/g, "").replace(/^\(|\)$/g, "").replace(/^\{\{|\}\}$/g, ""));
+        if (label) raw.push({ indent, label });
+      });
+      const levels = [...new Set(raw.map((entry) => entry.indent))].sort((a, b) => a - b);
+      return raw.map((entry, index) => ({ id: `n${index}`, label: entry.label, depth: levels.indexOf(entry.indent) }));
+    }
+    function renderMindmap(nodes) {
+      const shapes = [];
+      const startX = 40;
+      let y = 18;
+      nodes.forEach((node, index) => {
+        const x = startX + node.depth * 34;
+        const size = mx_nodeSize(node.label, { maxChars: 18, minWidth: 90 });
+        shapes.push(mx_rect(x, y, size.width, size.height, { rx: 6, fill: node.depth === 0 ? MERMAID_ACCENT_FILL : MERMAID_NODE_FILL }));
+        shapes.push(...mx_textBlock(x + size.width / 2, y + size.height / 2, size.lines, { weight: node.depth === 0 ? 600 : 400 }));
+        if (index > 0) {
+          const parent = [...nodes.slice(0, index)].reverse().find((candidate) => candidate.depth === node.depth - 1);
+          if (parent && parent.rowY !== void 0) {
+            const parentSize = mx_nodeSize(parent.label, { maxChars: 18, minWidth: 90 });
+            const px = startX + parent.depth * 34 + parentSize.width;
+            shapes.push(mx_path(`M ${px} ${parent.rowY + parentSize.height / 2} C ${px + 18} ${parent.rowY + parentSize.height / 2}, ${x - 18} ${y + size.height / 2}, ${x} ${y + size.height / 2}`, { stroke: MERMAID_NODE_STROKE }));
+          }
+        }
+        node.rowY = y;
+        y += Math.max(38, size.height + 10);
+      });
+      const width = Math.max(240, ...nodes.map((node) => startX + node.depth * 34 + mx_nodeSize(node.label, { minWidth: 90 }).width + 20));
+      return mx_finish("mindmap", shapes, width, y + 10, "\u601D\u7EF4\u5BFC\u56FE");
+    }
+    function parseTimeline(lines) {
+      const rows = [];
+      let title = "";
+      let section = "";
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const titleMatch = /^title\s+(.*)$/i.exec(source);
+        if (titleMatch) {
+          title = mx_cleanLabel(titleMatch[1]);
+          return;
+        }
+        const sectionMatch = /^section\s+(.*)$/i.exec(source);
+        if (sectionMatch) {
+          section = mx_cleanLabel(sectionMatch[1]);
+          return;
+        }
+        const parts = source.split(/\s*:\s*/).filter(Boolean);
+        if (parts.length >= 2) rows.push({ time: mx_cleanLabel(parts[0]), events: parts.slice(1).map(mx_cleanLabel), section });
+      });
+      return { rows, title };
+    }
+    function renderTimeline(data) {
+      const rows = data.rows.length ? data.rows : [{ time: "\u2014", events: [] }];
+      const shapes = mx_header(data.title || "\u65F6\u95F4\u7EBF", `${rows.length} \u4E2A\u8282\u70B9`);
+      const startY = 44;
+      shapes.push(mx_line(30, startY + 8, 60 + rows.length * 150, startY + 8, { arrow: false, stroke: "rgba(127,137,153,.45)" }));
+      rows.forEach((row2, index) => {
+        const x = 60 + index * 150;
+        shapes.push(mx_circle(x, startY + 8, 6, { fill: MERMAID_ACCENT, stroke: MERMAID_ACCENT }));
+        shapes.push(mx_text(x, startY - 2, row2.time, { size: 11, weight: 600 }));
+        row2.events.forEach((event, eventIndex) => {
+          const boxY = startY + 22 + eventIndex * 22;
+          shapes.push(mx_rect(x - 66, boxY, 132, 18, { rx: 4 }));
+          shapes.push(mx_text(x, boxY + 9, event, { size: 10.5 }));
+        });
+      });
+      return mx_finish("timeline", shapes, 80 + rows.length * 150, startY + 26 + Math.max(1, ...rows.map((row2) => row2.events.length)) * 22 + 10, data.title || "\u65F6\u95F4\u7EBF");
+    }
+    function parseGantt(lines) {
+      const tasks = [];
+      let title = "";
+      let section = "";
+      const base = Date.UTC(2024, 0, 1);
+      const dateOf = (value) => {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+        return match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const titleMatch = /^title\s+(.*)$/i.exec(source);
+        if (titleMatch) {
+          title = mx_cleanLabel(titleMatch[1]);
+          return;
+        }
+        const sectionMatch = /^section\s+(.*)$/i.exec(source);
+        if (sectionMatch) {
+          section = mx_cleanLabel(sectionMatch[1]);
+          return;
+        }
+        if (/^(dateFormat|axisFormat|excludes|todayMarker|tickInterval|weekday)\b/.test(source)) return;
+        const parts = source.split(/\s*:\s*/);
+        if (parts.length < 2) return;
+        const name = mx_cleanLabel(parts[0]);
+        const spec = parts.slice(1).join(":").split(",").map((entry) => entry.trim()).filter(Boolean);
+        if (!name || !spec.length) return;
+        const startEntry = spec.map(dateOf).find((value) => value !== null);
+        const durationText = spec.find((entry) => /^\d+(\.\d+)?[dhmw]$/i.test(entry));
+        const duration = durationText ? Number.parseFloat(durationText) * (/d$/i.test(durationText) ? 1 : /w$/i.test(durationText) ? 7 : 1 / 24) : 1;
+        tasks.push({ name, section, start: startEntry ?? base + tasks.length * 864e5, duration: Math.max(0.4, duration), milestone: spec.some((entry) => /^milestone$/i.test(entry)) });
+      });
+      return { tasks, title };
+    }
+    function renderGantt(data) {
+      const tasks = data.tasks.length ? data.tasks : [{ name: "\uFF08\u65E0\u4EFB\u52A1\uFF09", start: 0, duration: 1, section: "" }];
+      const min = Math.min(...tasks.map((task) => task.start));
+      const max = Math.max(...tasks.map((task) => task.start + task.duration * 864e5));
+      const span = Math.max(864e5, max - min);
+      const labelWidth = 150;
+      const chartWidth = 420;
+      const rowHeight = 30;
+      const top = 44;
+      const shapes = mx_header(data.title || "\u7518\u7279\u56FE", `${tasks.length} \u9879`);
+      let row2 = 0;
+      let lastSection = null;
+      tasks.forEach((task) => {
+        if (task.section && task.section !== lastSection) {
+          shapes.push(mx_text(16, top + row2 * rowHeight - 9, task.section, { size: 10.5, anchor: "start", weight: 600, opacity: 0.7 }));
+          lastSection = task.section;
+          row2 += 0.5;
+        }
+        const y = top + row2 * rowHeight;
+        shapes.push(mx_text(16, y + 15, task.name, { size: 11, anchor: "start" }));
+        const x = labelWidth + (task.start - min) / span * chartWidth;
+        const width = Math.max(task.milestone ? 10 : 6, task.duration * 864e5 / span * chartWidth);
+        if (task.milestone) shapes.push(mx_polygon([[x, y + 8], [x + 9, y + 15], [x, y + 22], [x - 9, y + 15]], { fill: MERMAID_ACCENT, stroke: MERMAID_ACCENT }));
+        else shapes.push(mx_rect(x, y + 6, width, 18, { rx: 4, fill: "rgba(77,107,254,.28)", stroke: MERMAID_ACCENT }));
+        row2 += 1;
+      });
+      return mx_finish("gantt", shapes, labelWidth + chartWidth + 30, top + row2 * rowHeight + 16, data.title || "\u7518\u7279\u56FE");
+    }
+    function parseJourney(lines) {
+      const rows = [];
+      let title = "";
+      let section = "";
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const titleMatch = /^title\s+(.*)$/i.exec(source);
+        if (titleMatch) {
+          title = mx_cleanLabel(titleMatch[1]);
+          return;
+        }
+        const sectionMatch = /^section\s+(.*)$/i.exec(source);
+        if (sectionMatch) {
+          section = mx_cleanLabel(sectionMatch[1]);
+          return;
+        }
+        const match = /^(.+?)\s*:\s*(\d+)\s*:\s*(.*)$/.exec(source);
+        if (match) rows.push({ name: mx_cleanLabel(match[1]), score: Math.max(0, Math.min(5, Number(match[2]))), actors: match[3].split(",").map(mx_cleanLabel).filter(Boolean), section });
+      });
+      return { rows, title };
+    }
+    function renderJourney(data) {
+      const shapes = mx_header(data.title || "\u7528\u6237\u65C5\u7A0B", `${data.rows.length} \u6B65`);
+      let y = 44;
+      let lastSection = null;
+      data.rows.forEach((row2) => {
+        if (row2.section && row2.section !== lastSection) {
+          shapes.push(mx_text(16, y, row2.section, { size: 10.5, anchor: "start", weight: 600, opacity: 0.7 }));
+          y += 20;
+          lastSection = row2.section;
+        }
+        shapes.push(mx_text(16, y + 9, row2.name, { size: 11, anchor: "start" }));
+        for (let index = 0; index < 5; index += 1) shapes.push(mx_rect(170 + index * 22, y + 1, 17, 16, { rx: 3, fill: index < row2.score ? "rgba(231,176,75,.55)" : MERMAID_SOFT, stroke: index < row2.score ? "rgba(231,176,75,.8)" : MERMAID_NODE_STROKE }));
+        shapes.push(mx_text(286, y + 9, row2.actors.join("\u3001"), { size: 10.5, anchor: "start", opacity: 0.75 }));
+        y += 28;
+      });
+      return mx_finish("journey", shapes, 560, Math.max(178, y + 20), data.title || "\u7528\u6237\u65C5\u7A0B");
+    }
+    function parseGit(lines) {
+      const commits = [];
+      const branches = /* @__PURE__ */ new Map([["main", 0]]);
+      let current = "main";
+      let lane = 1;
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const branch = /^branch\s+([A-Za-z0-9_./-]+)/.exec(source);
+        if (branch) {
+          if (!branches.has(branch[1])) branches.set(branch[1], lane++);
+          current = branch[1];
+          return;
+        }
+        const checkout = /^(checkout|switch)\s+([A-Za-z0-9_./-]+)/.exec(source);
+        if (checkout) {
+          if (!branches.has(checkout[2])) branches.set(checkout[2], lane++);
+          current = checkout[2];
+          return;
+        }
+        if (/^commit\b/.test(source)) {
+          const id = /id:\s*"([^"]+)"/.exec(source)?.[1] ?? /id:\s*([^\s,]+)/.exec(source)?.[1] ?? `c${commits.length + 1}`;
+          const tag = /tag:\s*"([^"]+)"/.exec(source)?.[1] ?? "";
+          commits.push({ id: mx_cleanLabel(id), branch: current, tag: mx_cleanLabel(tag), type: "commit" });
+          return;
+        }
+        const merge = /^merge\s+([A-Za-z0-9_./-]+)/.exec(source);
+        if (merge) commits.push({ id: `merge ${merge[1]}`, branch: current, merge: true });
+      });
+      return { commits, branches: [...branches.entries()] };
+    }
+    function renderGit(data) {
+      const commits = data.commits.length ? data.commits : [{ id: "commit", branch: "main" }];
+      const laneOf = new Map(data.branches);
+      const top = 50;
+      const laneGap = 34;
+      const xGap = Math.min(110, Math.max(60, 520 / Math.max(1, commits.length)));
+      const shapes = mx_header("Git \u56FE", `${data.branches.length} \u6761\u5206\u652F`);
+      data.branches.forEach(([name, lane]) => {
+        const y = top + lane * laneGap;
+        shapes.push(mx_text(16, y, name, { size: 10.5, anchor: "start", opacity: 0.7 }));
+        shapes.push(mx_line(64, y, 80 + commits.length * xGap, y, { arrow: false, stroke: "rgba(127,137,153,.35)" }));
+      });
+      commits.forEach((commit, index) => {
+        const lane = laneOf.get(commit.branch) ?? 0;
+        const x = 80 + index * xGap;
+        const y = top + lane * laneGap;
+        shapes.push(mx_circle(x, y, 5.5, { fill: commit.merge ? "rgba(231,176,75,.9)" : MERMAID_ACCENT, stroke: commit.merge ? "rgba(231,176,75,.9)" : MERMAID_ACCENT }));
+        if (index > 0) {
+          const prev = commits[index - 1];
+          const prevLane = laneOf.get(prev.branch) ?? 0;
+          const prevX = 80 + (index - 1) * xGap;
+          if (prevLane !== lane) shapes.push(mx_path(`M ${prevX} ${top + prevLane * laneGap} C ${prevX + xGap / 2} ${top + prevLane * laneGap}, ${x - xGap / 2} ${y}, ${x} ${y}`, { stroke: MERMAID_NODE_STROKE }));
+          else shapes.push(mx_line(prevX + 5.5, y, x - 5.5, y, { arrow: false, stroke: MERMAID_NODE_STROKE }));
+        }
+        shapes.push(mx_text(x, y + 20, commit.id, { size: 10 }));
+        if (commit.tag) shapes.push(mx_text(x, y - 15, `tag: ${commit.tag}`, { size: 10, opacity: 0.75 }));
+      });
+      return mx_finish("git", shapes, 100 + commits.length * xGap, top + data.branches.length * laneGap + 34, "Git \u56FE");
+    }
+    function parseQuadrant(lines) {
+      const points = [];
+      const result = { points, title: "", xLeft: "\u4F4E", xRight: "\u9AD8", yLow: "\u4F4E", yHigh: "\u9AD8" };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const titleMatch = /^title\s+(.*)$/i.exec(source);
+        if (titleMatch) {
+          result.title = mx_cleanLabel(titleMatch[1]);
+          return;
+        }
+        const xAxis = /^x-axis\s+(.*)$/i.exec(source);
+        if (xAxis) {
+          const labels = xAxis[1].split(/\s*-->\s*/);
+          result.xLeft = mx_cleanLabel(labels[0] ?? "\u4F4E");
+          result.xRight = mx_cleanLabel(labels[1] ?? "\u9AD8");
+          return;
+        }
+        const yAxis = /^y-axis\s+(.*)$/i.exec(source);
+        if (yAxis) {
+          const labels = yAxis[1].split(/\s*-->\s*/);
+          result.yLow = mx_cleanLabel(labels[0] ?? "\u4F4E");
+          result.yHigh = mx_cleanLabel(labels[1] ?? "\u9AD8");
+          return;
+        }
+        if (/^quadrant-\d/.test(source)) return;
+        const point = /^(.+?)\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]$/.exec(source);
+        if (point) points.push({ label: mx_cleanLabel(point[1]), x: Math.max(0, Math.min(1, Number(point[2]))), y: Math.max(0, Math.min(1, Number(point[3]))) });
+      });
+      return result;
+    }
+    function renderQuadrant(data) {
+      const size = 240;
+      const left = 54;
+      const top = 40;
+      const shapes = mx_header(data.title || "\u8C61\u9650\u56FE", `${data.points.length} \u4E2A\u70B9`);
+      shapes.push(mx_rect(left, top, size, size, { fill: "rgba(127,137,153,.04)" }));
+      shapes.push(mx_line(left + size / 2, top, left + size / 2, top + size, { arrow: false, stroke: "rgba(127,137,153,.35)" }));
+      shapes.push(mx_line(left, top + size / 2, left + size, top + size / 2, { arrow: false, stroke: "rgba(127,137,153,.35)" }));
+      shapes.push(mx_text(left, top + size + 16, data.xLeft, { size: 10.5, anchor: "start", opacity: 0.7 }));
+      shapes.push(mx_text(left + size, top + size + 16, data.xRight, { size: 10.5, anchor: "end", opacity: 0.7 }));
+      shapes.push(mx_text(left - 8, top, data.yHigh, { size: 10.5, anchor: "end", opacity: 0.7 }));
+      shapes.push(mx_text(left - 8, top + size, data.yLow, { size: 10.5, anchor: "end", opacity: 0.7 }));
+      data.points.forEach((point) => {
+        const x = left + point.x * size;
+        const y = top + (1 - point.y) * size;
+        shapes.push(mx_circle(x, y, 4.5, { fill: MERMAID_ACCENT, stroke: MERMAID_ACCENT }));
+        shapes.push(mx_text(x + 7, y - 8, point.label, { size: 10, anchor: "start" }));
+      });
+      return mx_finish("quadrant", shapes, left + size + 120, top + size + 42, data.title || "\u8C61\u9650\u56FE");
+    }
+    function parseXychart(lines) {
+      const data = { title: "", xLabels: [], yTitle: "", min: 0, max: 100, bars: null, line: null };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const titleMatch = /^title\s+(.*)$/i.exec(source);
+        if (titleMatch) {
+          data.title = mx_cleanLabel(titleMatch[1]);
+          return;
+        }
+        const xAxis = /^x-axis\s+(.*)$/i.exec(source);
+        if (xAxis) {
+          const bracket = /\[(.*)\]/.exec(xAxis[1]);
+          data.xLabels = (bracket ? bracket[1] : xAxis[1]).split(",").map(mx_cleanLabel).filter(Boolean);
+          return;
+        }
+        const yAxis = /^y-axis\s+(.*)$/i.exec(source);
+        if (yAxis) {
+          const quoted = /"([^"]*)"/.exec(yAxis[1]);
+          if (quoted) data.yTitle = quoted[1];
+          const range = /([\d.]+)\s*-->\s*([\d.]+)/.exec(yAxis[1]);
+          if (range) {
+            data.min = Number(range[1]);
+            data.max = Number(range[2]);
+          }
+          return;
+        }
+        const bars = /^bar\s+\[(.*)\]$/.exec(source);
+        if (bars) {
+          data.bars = bars[1].split(",").map((value) => Number(value.trim())).filter(Number.isFinite);
+          return;
+        }
+        const lineData = /^line\s+\[(.*)\]$/.exec(source);
+        if (lineData) data.line = lineData[1].split(",").map((value) => Number(value.trim())).filter(Number.isFinite);
+      });
+      return data;
+    }
+    function renderXychart(data) {
+      const series = data.bars ?? data.line ?? [];
+      const values = [...data.bars ?? [], ...data.line ?? []];
+      const min = Math.min(data.min, 0);
+      const max = Math.max(data.max, ...values, 1);
+      const left = 54;
+      const top = 46;
+      const width = 360;
+      const height = 190;
+      const shapes = mx_header(data.title || "XY \u56FE\u8868", data.yTitle);
+      shapes.push(mx_line(left, top, left, top + height, { arrow: false, stroke: MERMAID_NODE_STROKE }));
+      shapes.push(mx_line(left, top + height, left + width, top + height, { arrow: false, stroke: MERMAID_NODE_STROKE }));
+      const scaleY = (value) => top + height - (value - min) / (max - min || 1) * height;
+      const slot = width / Math.max(1, series.length);
+      (data.bars ?? []).forEach((value, index) => {
+        const x = left + index * slot + slot * 0.2;
+        const barWidth = slot * 0.6;
+        shapes.push(mx_rect(x, scaleY(value), barWidth, top + height - scaleY(value), { fill: "rgba(77,107,254,.35)", stroke: MERMAID_ACCENT, rx: 2 }));
+        shapes.push(mx_text(x + barWidth / 2, scaleY(value) - 6, String(value), { size: 9.5 }));
+      });
+      if (data.line) {
+        const points = data.line.map((value, index) => [left + index * slot + slot / 2, scaleY(value)]);
+        shapes.push({ tag: "polyline", attrs: { points: points.map(([x, y]) => `${mx_round(x)},${mx_round(y)}`).join(" "), fill: "none", stroke: "#e7b04b", "stroke-width": 1.6 } });
+        points.forEach(([x, y]) => shapes.push(mx_circle(x, y, 3, { fill: "#e7b04b", stroke: "#e7b04b" })));
+      }
+      data.xLabels.forEach((label, index) => shapes.push(mx_text(left + index * slot + slot / 2, top + height + 16, label, { size: 9.5, opacity: 0.75 })));
+      shapes.push(mx_text(left - 8, top, String(max), { size: 9.5, anchor: "end", opacity: 0.65 }));
+      shapes.push(mx_text(left - 8, top + height, String(min), { size: 9.5, anchor: "end", opacity: 0.65 }));
+      return mx_finish("xychart", shapes, left + width + 24, top + height + 42, data.title || "XY \u56FE\u8868");
+    }
+    function parseSankey(lines) {
+      const links = [];
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const match = /^"?([^",]+)"?\s*,\s*"?([^",]+)"?\s*,\s*([\d.]+)$/.exec(source);
+        if (match) links.push({ from: mx_cleanLabel(match[1]), to: mx_cleanLabel(match[2]), value: Number(match[3]) });
+      });
+      return links;
+    }
+    function renderSankey(links) {
+      const total = links.reduce((sum, link) => sum + link.value, 0) || 1;
+      const sources = [...new Set(links.map((link) => link.from))];
+      const targets = [...new Set(links.map((link) => link.to))];
+      const leftX = 90;
+      const rightX = 500;
+      const top = 50;
+      const height = Math.max(170, Math.max(sources.length, targets.length) * 46 + 60);
+      const shapes = mx_header("\u6851\u57FA\u56FE", `${links.length} \u6761\u6D41\u91CF`);
+      const place = (items, side) => {
+        const usable = height - top - 20;
+        let cursor = top;
+        return new Map(items.map((id) => {
+          const value = links.filter((link) => (side === "left" ? link.from : link.to) === id).reduce((sum, link) => sum + link.value, 0);
+          const boxHeight = Math.max(12, value / total * usable);
+          const box = { id, x: side === "left" ? leftX : rightX, y: cursor, height: boxHeight };
+          cursor += boxHeight + 8;
+          return [id, box];
+        }));
+      };
+      const sourceBoxes = place(sources, "left");
+      const targetBoxes = place(targets, "right");
+      links.forEach((link, index) => {
+        const from = sourceBoxes.get(link.from);
+        const to = targetBoxes.get(link.to);
+        if (!from || !to) return;
+        const thickness = Math.max(3, link.value / total * (height - top - 20));
+        const color = MERMAID_PIE_COLORS[index % MERMAID_PIE_COLORS.length];
+        shapes.push(mx_path(`M ${from.x + 12} ${from.y} C ${from.x + 140} ${from.y}, ${to.x - 140} ${to.y}, ${to.x} ${to.y} L ${to.x} ${to.y + thickness} C ${to.x - 140} ${to.y + thickness}, ${from.x + 140} ${from.y + thickness}, ${from.x + 12} ${from.y + thickness} Z`, { fill: color, stroke: "none", opacity: 0.35 }));
+      });
+      [[sourceBoxes, true], [targetBoxes, false]].forEach(([boxes, isLeft]) => boxes.forEach((box) => {
+        shapes.push(mx_rect(box.x, box.y, 12, box.height, { fill: "rgba(127,137,153,.45)", stroke: MERMAID_NODE_STROKE, rx: 3 }));
+        shapes.push(mx_text(isLeft ? box.x - 6 : box.x + 18, box.y + box.height / 2, box.id, { size: 10.5, anchor: isLeft ? "end" : "start" }));
+      }));
+      return mx_finish("sankey", shapes, 620, height, "\u6851\u57FA\u56FE");
+    }
+    function parsePacket(lines) {
+      const fields = [];
+      let title = "";
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const titleMatch = /^title\s+(.*)$/i.exec(source);
+        if (titleMatch) {
+          title = mx_cleanLabel(titleMatch[1]);
+          return;
+        }
+        const field = /^([\d]+)\s*-\s*([\d]+)\s*:\s*(.+)$/.exec(source);
+        if (field) fields.push({ start: Number(field[1]), end: Number(field[2]), label: mx_cleanLabel(field[3]) });
+      });
+      return { fields, title };
+    }
+    function renderPacket(data) {
+      const fields = data.fields.length ? data.fields : [{ start: 0, end: 31, label: "\uFF08\u65E0\u5B57\u6BB5\uFF09" }];
+      const total = Math.max(...fields.map((field) => field.end)) + 1 || 32;
+      const width = 540;
+      const left = 22;
+      const shapes = mx_header(data.title || "\u6570\u636E\u5305\u56FE", `${total} \u4F4D`);
+      let x = left;
+      fields.forEach((field, index) => {
+        const fieldWidth = Math.max(24, (field.end - field.start + 1) / total * width);
+        shapes.push(mx_rect(x, 42, fieldWidth, 54, { rx: 0, fill: index % 2 ? "rgba(127,137,153,.10)" : "rgba(77,107,254,.10)" }));
+        shapes.push(mx_text(x + fieldWidth / 2, 58, `${field.start}\u2013${field.end}`, { size: 9.5, opacity: 0.7 }));
+        shapes.push(...mx_textBlock(x + fieldWidth / 2, 80, mx_wrap(field.label, Math.max(5, Math.floor(fieldWidth / 7))), { size: 10.5 }));
+        x += fieldWidth;
+      });
+      shapes.push(mx_text(left, 112, "0", { size: 9.5, anchor: "start", opacity: 0.65 }));
+      shapes.push(mx_text(left + width, 112, String(total - 1), { size: 9.5, anchor: "end", opacity: 0.65 }));
+      return mx_finish("packet", shapes, width + 44, 132, data.title || "\u6570\u636E\u5305\u56FE");
+    }
+    function parseKanban(lines) {
+      const columns = [];
+      let current = null;
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const column = /^column\s+([A-Za-z_][\w-]*)(?:\["([^"]*)"\]|\[([^\]]*)\])?$/.exec(source);
+        if (column) {
+          current = { label: mx_cleanLabel(column[2] ?? column[3] ?? column[1]), cards: [] };
+          columns.push(current);
+          return;
+        }
+        if (!current) {
+          current = { label: "\u672A\u5206\u7EC4", cards: [] };
+          columns.push(current);
+        }
+        const card2 = /^[A-Za-z_][\w-]*\s*\["([^"]*)"\]$/.exec(source)?.[1] ?? /^[A-Za-z_][\w-]*\s*\[([^\]]*)\]$/.exec(source)?.[1] ?? mx_cleanLabel(source);
+        if (card2) current.cards.push(mx_cleanLabel(card2));
+      });
+      return columns;
+    }
+    function renderKanban(columns) {
+      const data = columns.length ? columns : [{ label: "\u5F85\u529E", cards: [] }];
+      const columnWidth = 160;
+      const gap = 16;
+      const shapes = mx_header("\u770B\u677F", `${data.length} \u5217`);
+      let maxHeight = 150;
+      data.forEach((column, index) => {
+        const x = 18 + index * (columnWidth + gap);
+        const height = 40 + column.cards.length * 30;
+        maxHeight = Math.max(maxHeight, height + 58);
+        shapes.push(mx_rect(x, 38, columnWidth, height, { fill: "rgba(127,137,153,.05)", rx: 8 }));
+        shapes.push(mx_text(x + 12, 54, column.label, { size: 11, anchor: "start", weight: 600 }));
+        column.cards.forEach((card2, cardIndex) => {
+          shapes.push(mx_rect(x + 8, 66 + cardIndex * 30, columnWidth - 16, 24, { rx: 5 }));
+          shapes.push(mx_text(x + 16, 78 + cardIndex * 30, card2, { size: 10.5, anchor: "start" }));
+        });
+      });
+      return mx_finish("kanban", shapes, 36 + data.length * (columnWidth + gap), maxHeight, "\u770B\u677F");
+    }
+    function parseRadar(lines) {
+      const axes = [];
+      const curves = [];
+      const result = { axes, curves, title: "", max: 5 };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const titleMatch = /^title\s+(.*)$/i.exec(source);
+        if (titleMatch) {
+          result.title = mx_cleanLabel(titleMatch[1]);
+          return;
+        }
+        const maxMatch = /^max\s+([\d.]+)$/i.exec(source);
+        if (maxMatch) {
+          result.max = Number(maxMatch[1]);
+          return;
+        }
+        const axis = /^axis\s+([^\s[]+)\s*\["([^"]*)"\]$/.exec(source);
+        if (axis) {
+          axes.push(mx_cleanLabel(axis[2]));
+          return;
+        }
+        const curve = /^curve\s+([^\s[]+)\s*(?:\["([^"]*)"\])?\s*\{([^}]*)\}$/.exec(source);
+        if (curve) curves.push({ label: mx_cleanLabel(curve[2] ?? curve[1]), values: curve[3].split(",").map((value) => Number(value.trim())).filter(Number.isFinite) });
+      });
+      return result;
+    }
+    function renderRadar(data) {
+      const axes = data.axes.length ? data.axes : ["A", "B", "C"];
+      const curves = data.curves.length ? data.curves : [{ label: "\u7CFB\u5217", values: axes.map(() => 1) }];
+      const cx = 190;
+      const cy = 152;
+      const radius = 96;
+      const shapes = mx_header(data.title || "\u96F7\u8FBE\u56FE", `${curves.length} \u4E2A\u7CFB\u5217`);
+      const angleAt = (index) => -Math.PI / 2 + index / axes.length * Math.PI * 2;
+      axes.forEach((label, index) => {
+        const angle = angleAt(index);
+        shapes.push(mx_line(cx, cy, cx + radius * Math.cos(angle), cy + radius * Math.sin(angle), { arrow: false, stroke: "rgba(127,137,153,.35)" }));
+        shapes.push(mx_text(cx + (radius + 16) * Math.cos(angle), cy + (radius + 16) * Math.sin(angle), label, { size: 10.5 }));
+      });
+      curves.forEach((curve, curveIndex) => {
+        const points = axes.map((_, index) => {
+          const value = Math.max(0, Math.min(1, (curve.values[index] ?? 0) / (data.max || 1)));
+          const angle = angleAt(index);
+          return [cx + radius * value * Math.cos(angle), cy + radius * value * Math.sin(angle)];
+        });
+        shapes.push(mx_polygon(points, { fill: MERMAID_PIE_COLORS[curveIndex % MERMAID_PIE_COLORS.length], stroke: MERMAID_PIE_COLORS[curveIndex % MERMAID_PIE_COLORS.length], strokeWidth: 1.5, fillOpacity: 0.18 }));
+        shapes.push(mx_rect(18, 38 + curveIndex * 18, 10, 10, { fill: MERMAID_PIE_COLORS[curveIndex % MERMAID_PIE_COLORS.length], stroke: "none", rx: 2 }));
+        shapes.push(mx_text(34, 43 + curveIndex * 18, curve.label, { size: 10.5, anchor: "start" }));
+      });
+      return mx_finish("radar", shapes, 370, 300, data.title || "\u96F7\u8FBE\u56FE");
+    }
+    function parseTreemap(lines) {
+      const items = [];
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const match = /^"?([^":]+)"?\s*:\s*([\d.]+)$/.exec(source);
+        if (match) items.push({ label: mx_cleanLabel(match[1]), value: Number(match[2]) });
+      });
+      return items;
+    }
+    function renderTreemap(items) {
+      const data = items.length ? items : [{ label: "\uFF08\u65E0\u6570\u636E\uFF09", value: 1 }];
+      const total = data.reduce((sum, item) => sum + item.value, 0) || 1;
+      const width = 460;
+      const height = 230;
+      const shapes = mx_header("\u77E9\u5F62\u6811\u56FE", `${data.length} \u9879`);
+      let y = 36;
+      data.forEach((item, index) => {
+        const itemHeight = Math.max(22, item.value / total * height);
+        shapes.push(mx_rect(18, y, width - 18, itemHeight - 4, { rx: 4, fill: MERMAID_PIE_COLORS[index % MERMAID_PIE_COLORS.length], stroke: "none", fillOpacity: 0.35 }));
+        shapes.push(mx_text(26, y + (itemHeight - 4) / 2, `${item.label}  ${item.value}`, { size: 10.5, anchor: "start" }));
+        y += itemHeight;
+      });
+      return mx_finish("treemap", shapes, width + 18, y + 12, "\u77E9\u5F62\u6811\u56FE");
+    }
+    function parseBlock(lines) {
+      const nodes = /* @__PURE__ */ new Map();
+      const edges = [];
+      let columns = 0;
+      const ensure = (id, label) => {
+        if (!nodes.has(id)) nodes.set(id, { id, label: label ?? id });
+        return nodes.get(id);
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%")) return;
+        const cols = /^columns\s+(\d+)$/.exec(source);
+        if (cols) {
+          columns = Number(cols[1]);
+          return;
+        }
+        if (/^(block|end|space|style|classDef|class)\b/.test(source)) return;
+        const node = /^([A-Za-z_][\w-]*)\s*(?:\["([^"]*)"\]|\[([^\]]*)\]|\(([^)]*)\))?$/.exec(source);
+        if (node) {
+          ensure(node[1], mx_cleanLabel(node[2] ?? node[3] ?? node[4] ?? node[1]));
+          return;
+        }
+        const edge = /^([A-Za-z_][\w-]*)\s*-->\s*([A-Za-z_][\w-]*)(?:\s*:\s*(.*))?$/.exec(source);
+        if (edge) {
+          ensure(edge[1]);
+          ensure(edge[2]);
+          edges.push({ from: edge[1], to: edge[2], label: mx_cleanLabel(edge[3] ?? "") });
+        }
+      });
+      return { nodes: [...nodes.values()], edges, columns };
+    }
+    function renderBlock(data) {
+      const nodes = data.nodes.length ? data.nodes : [{ id: "block", label: "\uFF08\u65E0\u5757\uFF09" }];
+      const columns = Math.max(1, data.columns || Math.min(3, Math.ceil(Math.sqrt(nodes.length))));
+      const cellWidth = 120;
+      const cellHeight = 54;
+      const gap = 14;
+      const layout = nodes.map((node, index) => ({ node, x: 18 + index % columns * (cellWidth + gap), y: 38 + Math.floor(index / columns) * (cellHeight + gap) }));
+      const shapes = [];
+      data.edges.forEach((edge) => {
+        const from = layout.find((entry) => entry.node.id === edge.from);
+        const to = layout.find((entry) => entry.node.id === edge.to);
+        if (from && to) shapes.push(mx_line(from.x + cellWidth / 2, from.y + cellHeight / 2, to.x + cellWidth / 2, to.y + cellHeight / 2, { stroke: MERMAID_ACCENT }));
+      });
+      layout.forEach((entry) => {
+        shapes.push(mx_rect(entry.x, entry.y, cellWidth, cellHeight, { rx: 6 }));
+        shapes.push(...mx_textBlock(entry.x + cellWidth / 2, entry.y + cellHeight / 2, mx_wrap(entry.node.label, 14)));
+      });
+      return mx_finish("block", shapes, 36 + columns * (cellWidth + gap), 56 + Math.ceil(nodes.length / columns) * (cellHeight + gap), "\u5757\u56FE");
+    }
+    function parseArchitecture(lines) {
+      const nodes = /* @__PURE__ */ new Map();
+      const edges = [];
+      const ensure = (id, label) => {
+        if (!nodes.has(id)) nodes.set(id, { id, label: label ?? id });
+        return id;
+      };
+      lines.slice(1).forEach((raw) => {
+        const source = String(raw ?? "").trim();
+        if (!source || source.startsWith("%%") || /^(title|accTitle|accDescr|group|end)\b/.test(source)) return;
+        const edge = /^([A-Za-z_][\w-]*)(?::[A-Za-z])?\s*-->\s*[A-Za-z]?:?([A-Za-z_][\w-]*)$/.exec(source);
+        if (edge) {
+          ensure(edge[1]);
+          ensure(edge[2]);
+          edges.push({ from: edge[1], to: edge[2] });
+          return;
+        }
+        const node = /^[A-Za-z_-]+\s+([A-Za-z_][\w-]*)(?:\([^)]*\))?(?:\[([^\]]*)\])?$/.exec(source);
+        if (node) ensure(node[1], mx_cleanLabel(node[2] ?? node[1]));
+      });
+      return { nodes: [...nodes.values()], edges };
+    }
+    function renderArchitecture(data) {
+      const nodes = data.nodes.length ? data.nodes : [{ id: "service", label: "\uFF08\u65E0\u670D\u52A1\uFF09" }];
+      const layout = new Map(nodes.map((node, index) => [node.id, { x: 18 + index * 150, y: 44, width: 130, height: 48 }]));
+      const shapes = [];
+      data.edges.forEach((edge) => {
+        const from = layout.get(edge.from);
+        const to = layout.get(edge.to);
+        if (from && to) shapes.push(mx_line(from.x + from.width, from.y + from.height / 2, to.x, to.y + to.height / 2, { stroke: MERMAID_ACCENT }));
+      });
+      nodes.forEach((node) => {
+        const box = layout.get(node.id);
+        shapes.push(mx_rect(box.x, box.y, box.width, box.height, { rx: 6 }));
+        shapes.push(...mx_textBlock(box.x + box.width / 2, box.y + box.height / 2, mx_wrap(node.label, 14)));
+      });
+      return mx_finish("architecture", shapes, 36 + nodes.length * 150, 110, "\u67B6\u6784\u56FE");
+    }
+    function mx_detectType(lines) {
+      const filtered = lines.filter((entry) => String(entry).trim() !== "" && !String(entry).trim().startsWith("%%"));
+      if (!filtered.length) mx_fail("\u56FE\u4E2D\u6CA1\u6709\u53EF\u6E32\u67D3\u7684\u5185\u5BB9");
+      for (const [pattern, type] of MERMAID_TYPE_KEYWORDS) if (pattern.test(String(filtered[0]).trim())) return type;
+      mx_fail(`\u6682\u4E0D\u652F\u6301\u8BE5 Mermaid \u56FE\u7C7B\u578B\uFF1A${String(filtered[0]).trim().split(/\s+/)[0]}`);
+    }
+    function buildMermaidDiagram(source) {
+      const text = String(source ?? "").replace(/\r\n?/g, "\n");
+      if (!text.trim()) return { ok: false, type: "invalid", error: "\u56FE\u4E2D\u6CA1\u6709\u53EF\u6E32\u67D3\u7684\u5185\u5BB9", source: text };
+      let lines = text.split("\n");
+      if (lines[0].trim() === "---") {
+        const end = lines.findIndex((entry, index) => index > 0 && entry.trim() === "---");
+        if (end > 0) lines = lines.slice(end + 1);
+      }
+      while (lines.length && (!lines[0].trim() || lines[0].trim().startsWith("%%"))) lines.shift();
+      try {
+        const type = mx_detectType(lines);
+        if (type === "er") {
+          const data = parseEr(lines);
+          if (!data.entities.length) mx_fail("ER \u56FE\u7F3A\u5C11\u5B9E\u4F53\u5B9A\u4E49");
+          return renderEr(data);
+        }
+        if (type === "flow") {
+          const data = mx_parseFlow(lines);
+          if (!data.nodes.length) mx_fail("\u6D41\u7A0B\u56FE\u7F3A\u5C11\u8282\u70B9\u5B9A\u4E49");
+          return mx_renderGraph(data.nodes, data.edges, { type: "flow", direction: data.direction, label: "\u6D41\u7A0B\u56FE" });
+        }
+        if (type === "sequence") return renderSequence(parseSequence(lines));
+        if (type === "zenuml") return renderSequence(parseSequence(lines, "zenuml"));
+        if (type === "class") {
+          const data = parseClass(lines);
+          if (!data.classes.length) mx_fail("\u7C7B\u56FE\u7F3A\u5C11\u7C7B\u5B9A\u4E49");
+          return renderClass(data);
+        }
+        if (type === "state") {
+          const data = parseState(lines);
+          if (!data.nodes.length) mx_fail("\u72B6\u6001\u56FE\u7F3A\u5C11\u72B6\u6001\u5B9A\u4E49");
+          return mx_renderGraph(data.nodes, data.edges, { type: "state", label: "\u72B6\u6001\u56FE", direction: "TB", maxChars: 14 });
+        }
+        if (type === "pie") return renderPie(lines);
+        if (type === "gantt") return renderGantt(parseGantt(lines));
+        if (type === "journey") return renderJourney(parseJourney(lines));
+        if (type === "timeline") return renderTimeline(parseTimeline(lines));
+        if (type === "mindmap") {
+          const nodes = parseMindmap(lines);
+          if (!nodes.length) mx_fail("\u601D\u7EF4\u5BFC\u56FE\u7F3A\u5C11\u8282\u70B9");
+          return renderMindmap(nodes);
+        }
+        if (type === "git") return renderGit(parseGit(lines));
+        if (type === "requirement") {
+          const data = parseRequirement(lines);
+          if (!data.requirements.length) mx_fail("\u9700\u6C42\u56FE\u7F3A\u5C11\u9700\u6C42\u5B9A\u4E49");
+          return renderRequirement(data);
+        }
+        if (type === "c4") {
+          const data = parseC4(lines);
+          if (!data.nodes.length) mx_fail("C4 \u67B6\u6784\u56FE\u7F3A\u5C11\u5143\u7D20\u5B9A\u4E49");
+          return mx_renderGraph(data.nodes, data.edges, { type: "c4", direction: "TB", label: MERMAID_TYPE_LABELS.c4, maxChars: 18, minWidth: 130 });
+        }
+        if (type === "quadrant") return renderQuadrant(parseQuadrant(lines));
+        if (type === "xychart") {
+          const data = parseXychart(lines);
+          if (!data.bars && !data.line) mx_fail("XY \u56FE\u8868\u7F3A\u5C11 bar / line \u6570\u636E");
+          return renderXychart(data);
+        }
+        if (type === "sankey") {
+          const links = parseSankey(lines);
+          if (!links.length) mx_fail("\u6851\u57FA\u56FE\u7F3A\u5C11\u6D41\u91CF\u6570\u636E");
+          return renderSankey(links);
+        }
+        if (type === "packet") return renderPacket(parsePacket(lines));
+        if (type === "block") return renderBlock(parseBlock(lines));
+        if (type === "architecture") return renderArchitecture(parseArchitecture(lines));
+        if (type === "kanban") return renderKanban(parseKanban(lines));
+        if (type === "radar") return renderRadar(parseRadar(lines));
+        if (type === "treemap") return renderTreemap(parseTreemap(lines));
+        mx_fail(`\u6682\u4E0D\u652F\u6301\u8BE5 Mermaid \u56FE\u7C7B\u578B\uFF1A${type}`);
+      } catch (error) {
+        if (error instanceof MERMAID_MermaidError) return { ok: false, type: "invalid", error: error.message, source: text };
+        return { ok: false, type: "invalid", error: `\u56FE\u8BED\u6CD5\u65E0\u6CD5\u89E3\u6790\uFF1A${error.message}`, source: text };
+      }
+    }
+    function extractMermaidBlocks(text) {
+      const lines = String(text ?? "").split(/\r?\n/);
+      const blocks = [];
+      let current = null;
+      lines.forEach((entry, index) => {
+        if (current) {
+          if (new RegExp(`^\\s*${current.marker}\\s*$`).test(entry)) {
+            blocks.push({ source: current.lines.join("\n"), closed: true, line: current.start });
+            current = null;
+            return;
+          }
+          current.lines.push(entry);
+          return;
+        }
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(entry);
+        if (open) current = { start: index + 1, marker: open[1], lines: [] };
+      });
+      if (current) blocks.push({ source: current.lines.join("\n"), closed: false, line: current.start });
+      return blocks;
+    }
+    const MERMAID_VOID_TAGS = /* @__PURE__ */ new Set(["rect", "circle", "line", "path", "polygon", "ellipse", "polyline"]);
+    function mx_escapeXml(value) {
+      return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function mx_attrsMarkup(attrs) {
+      return Object.entries(attrs ?? {}).filter(([, value]) => value !== void 0 && value !== null).map(([key, value]) => `${key}="${mx_escapeXml(value)}"`).join(" ");
+    }
+    function mx_shapeMarkup(shape) {
+      if (shape.tag === "g") return `<g>${(shape.children ?? []).map(mx_shapeMarkup).join("")}</g>`;
+      const attrs = mx_attrsMarkup(shape.attrs);
+      if (MERMAID_VOID_TAGS.has(shape.tag)) return `<${shape.tag}${attrs ? ` ${attrs}` : ""}/>`;
+      return `<${shape.tag}${attrs ? ` ${attrs}` : ""}>${mx_escapeXml(shape.text)}</${shape.tag}>`;
+    }
+    function diagramSvgMarkup(model) {
+      if (!model?.ok) return "";
+      const body = model.shapes.map(mx_shapeMarkup).join("");
+      const label = mx_escapeXml(model.label);
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${model.width} ${model.height}" width="${model.width}" height="${model.height}" role="img" aria-label="${label}"><title>${label}</title><defs><marker id="alm-mermaid-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs>${body}</svg>`;
+    }
     function renderInline(text, prefix) {
       const source = String(text ?? "");
       const nodes = [];
@@ -2770,6 +3940,7 @@ window.__ModuleLoader__.load({
       const blocks = [];
       let list = null;
       let ordered = false;
+      let fence = null;
       const flush = () => {
         if (!list) return;
         blocks.push(
@@ -2781,7 +3952,26 @@ window.__ModuleLoader__.load({
         );
         list = null;
       };
+      const pushDiagram = (block) => {
+        flush();
+        blocks.push(h(MermaidDiagram, { key: `mermaid-${block.start}`, source: block.source, closed: block.closed }));
+      };
       lines.forEach((line, index) => {
+        if (fence) {
+          if (new RegExp(`^\\s*${fence.marker}\\s*$`).test(line)) {
+            pushDiagram({ ...fence, source: fence.lines.join("\n"), closed: true });
+            fence = null;
+            return;
+          }
+          fence.lines.push(line);
+          return;
+        }
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line);
+        if (open) {
+          flush();
+          fence = { start: index, marker: open[1], lines: [] };
+          return;
+        }
         const trimmed = line.trim();
         if (!trimmed) {
           flush();
@@ -2824,8 +4014,238 @@ window.__ModuleLoader__.load({
         }
         blocks.push(h("p", { key: `p-${index}`, style: { margin: "0 0 6px", color: T.text2, fontSize: "12.5px", lineHeight: 1.75 } }, renderInline(trimmed, `p-${index}`)));
       });
+      if (fence) pushDiagram({ ...fence, source: fence.lines.join("\n"), closed: false });
       flush();
       return blocks;
+    }
+    const MERMAID_REACT_ATTR = {
+      "stroke-width": "strokeWidth",
+      "stroke-dasharray": "strokeDasharray",
+      "font-size": "fontSize",
+      "font-weight": "fontWeight",
+      "font-family": "fontFamily",
+      "text-anchor": "textAnchor",
+      "dominant-baseline": "dominantBaseline",
+      "fill-opacity": "fillOpacity",
+      "stroke-opacity": "strokeOpacity",
+      "marker-end": "markerEnd",
+      "marker-start": "markerStart"
+    };
+    function mermaidReactProps(attrs) {
+      const props = {};
+      for (const [key, value] of Object.entries(attrs ?? {})) props[MERMAID_REACT_ATTR[key] ?? key] = value;
+      return props;
+    }
+    function MermaidShape({ shape }) {
+      if (!shape) return null;
+      if (shape.tag === "g") {
+        return h("g", null, (shape.children ?? []).map((child, index) => h(MermaidShape, { key: index, shape: child })));
+      }
+      return h(shape.tag, mermaidReactProps(shape.attrs), shape.text ?? null);
+    }
+    function MermaidSvg({ model }) {
+      return h(
+        "svg",
+        {
+          viewBox: `0 0 ${model.width} ${model.height}`,
+          width: model.width,
+          height: model.height,
+          role: "img",
+          "aria-label": model.label,
+          "data-mermaid-svg": "true",
+          style: { display: "block", maxWidth: "100%", height: "auto", color: T.text2 }
+        },
+        h("title", null, model.label),
+        h(
+          "defs",
+          null,
+          h(
+            "marker",
+            { id: "alm-mermaid-arrow", viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" },
+            h("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" })
+          )
+        ),
+        (model.shapes ?? []).map((shape, index) => h(MermaidShape, { key: index, shape }))
+      );
+    }
+    function MermaidDiagram({ source, closed = true }) {
+      const raw = String(source ?? "").replace(/\s+$/, "");
+      const [showSource, setShowSource] = useState(false);
+      const model = buildMermaidDiagram(raw);
+      const error = closed ? model.ok ? null : model.error : "Mermaid \u4EE3\u7801\u56F4\u680F\u672A\u95ED\u5408";
+      if (error) {
+        return h(
+          "div",
+          {
+            "data-mermaid-error": "true",
+            role: "alert",
+            style: { margin: "10px 0 12px", border: `1px solid ${T.line}`, borderLeft: `3px solid ${T.err}`, borderRadius: "8px", background: "rgba(255,139,139,.06)", padding: "9px 12px", minWidth: 0, breakInside: "avoid" }
+          },
+          h("div", { style: { color: T.err, fontSize: "12.5px", fontWeight: 600, lineHeight: 1.7 } }, `\u65E0\u6CD5\u6E32\u67D3 Mermaid \u56FE\uFF1A${error}`),
+          h(
+            "pre",
+            { "data-mermaid-source": "true", style: { margin: "7px 0 0", padding: "8px 10px", overflowX: "auto", borderRadius: "6px", background: T.layer2, color: T.text2, fontSize: "11.5px", lineHeight: 1.6 } },
+            h("code", null, raw || "\uFF08\u7A7A\u56FE\uFF09")
+          ),
+          h("div", { style: { margin: "5px 0 0", color: T.text3, fontSize: "11.5px", lineHeight: 1.7 } }, "\u5DF2\u4FDD\u7559\u539F\u59CB\u8BED\u6CD5\uFF1B\u6B63\u6587\u5176\u4F59\u5185\u5BB9\u7167\u5E38\u663E\u793A\u3002")
+        );
+      }
+      return h(
+        "figure",
+        {
+          "data-mermaid-diagram": "true",
+          "data-mermaid-type": model.type,
+          "aria-label": model.label,
+          style: { margin: "10px 0 12px", padding: "10px 12px", border: `1px solid ${T.line}`, borderRadius: "10px", background: T.layer, minWidth: 0, breakInside: "avoid", pageBreakInside: "avoid" }
+        },
+        h(
+          "figcaption",
+          { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "6px" } },
+          h("span", { style: { color: T.text, fontSize: "12px", fontWeight: 600 } }, `\u{1F4CA} ${model.label}`),
+          h("span", { style: { color: T.text3, fontSize: "11px" } }, `${model.width}\xD7${model.height}`),
+          h(
+            "details",
+            { className: "mermaid-source-toggle", style: { marginLeft: "auto" }, onToggle: (event) => setShowSource(event.currentTarget.open) },
+            h("summary", { style: { color: T.text3, fontSize: "11px", cursor: "pointer" } }, "\u67E5\u770B\u56FE\u8868\u6E90\u7801"),
+            showSource ? h(
+              "pre",
+              { "data-mermaid-source": "true", style: { margin: "6px 0 0", padding: "8px 10px", overflowX: "auto", borderRadius: "6px", background: T.layer2, color: T.text2, fontSize: "11.5px", lineHeight: 1.6 } },
+              h("code", null, raw)
+            ) : null
+          )
+        ),
+        h("div", { style: { overflowX: "auto", minWidth: 0 } }, h(MermaidSvg, { model }))
+      );
+    }
+    function escapeHtmlText(value) {
+      return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function inlineRichHtml(value) {
+      return escapeHtmlText(value).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+    }
+    function requirementBodyHtml(text) {
+      const lines = String(text ?? "").replace(/<!--\s*alm:meta\b[\s\S]*?-->/g, "").split(/\r?\n/);
+      const out = [];
+      let list = null;
+      let listTag = "ul";
+      let fence = null;
+      const flush = () => {
+        if (!list) return;
+        out.push(`<${listTag}>${list.join("")}</${listTag}>`);
+        list = null;
+      };
+      const pushDiagram = (block) => {
+        flush();
+        const model = buildMermaidDiagram(block.source);
+        if (block.closed && model.ok) {
+          out.push(`<figure data-mermaid-diagram="true" data-mermaid-type="${escapeHtmlText(model.type)}"><figcaption>${escapeHtmlText(model.label)}</figcaption>${diagramSvgMarkup(model)}<details><summary>\u67E5\u770B\u56FE\u8868\u6E90\u7801</summary><pre>${escapeHtmlText(block.source)}</pre></details></figure>`);
+          return;
+        }
+        const error = block.closed ? model.error : "Mermaid \u4EE3\u7801\u56F4\u680F\u672A\u95ED\u5408";
+        out.push(`<div data-mermaid-error="true"><p class="mermaid-error">\u65E0\u6CD5\u6E32\u67D3 Mermaid \u56FE\uFF1A${escapeHtmlText(error)}</p><pre>${escapeHtmlText(block.source)}</pre><p class="mermaid-hint">\u5DF2\u4FDD\u7559\u539F\u59CB\u8BED\u6CD5\uFF1B\u6B63\u6587\u5176\u4F59\u5185\u5BB9\u7167\u5E38\u663E\u793A\u3002</p></div>`);
+      };
+      lines.forEach((line, index) => {
+        if (fence) {
+          if (new RegExp(`^\\s*${fence.marker}\\s*$`).test(line)) {
+            pushDiagram({ start: fence.start, source: fence.lines.join("\n"), closed: true });
+            fence = null;
+            return;
+          }
+          fence.lines.push(line);
+          return;
+        }
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line);
+        if (open) {
+          flush();
+          fence = { start: index, marker: open[1], lines: [] };
+          return;
+        }
+        const trimmed = line.trim();
+        if (!trimmed) {
+          flush();
+          return;
+        }
+        const heading = /^(#{2,6})\s+(.*)$/.exec(trimmed);
+        if (heading) {
+          flush();
+          out.push(`<h4>${inlineRichHtml(heading[2])}</h4>`);
+          return;
+        }
+        const ordered = /^(\d+)\.\s+(.*)$/.exec(trimmed);
+        if (ordered) {
+          if (!list || listTag !== "ol") {
+            flush();
+            listTag = "ol";
+            list = [];
+          }
+          list.push(`<li>${inlineRichHtml(ordered[2])}</li>`);
+          return;
+        }
+        if (/^[-*]\s+/.test(trimmed)) {
+          if (!list || listTag !== "ul") {
+            flush();
+            listTag = "ul";
+            list = [];
+          }
+          list.push(`<li>${inlineRichHtml(trimmed.replace(/^[-*]\s+/, ""))}</li>`);
+          return;
+        }
+        if (trimmed.startsWith(">")) {
+          flush();
+          out.push(`<blockquote>${inlineRichHtml(trimmed.replace(/^>\s?/, ""))}</blockquote>`);
+          return;
+        }
+        out.push(`<p>${inlineRichHtml(trimmed)}</p>`);
+      });
+      if (fence) pushDiagram({ start: fence.start, source: fence.lines.join("\n"), closed: false });
+      flush();
+      return out.join("\n");
+    }
+    function buildRequirementExportHtml({ item, detail }) {
+      const title = String(item?.title ?? detail?.identity?.title ?? "\u9700\u6C42\u6B63\u6587");
+      const id = String(item?.id ?? detail?.identity?.id ?? "");
+      const sections = detail?.content?.sections ?? [];
+      const body = String(item?.briefText ?? "").trim() || sections.map((section) => `### ${section.title || "\u6B63\u6587"}
+${section.text ?? ""}`).join("\n\n");
+      return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtmlText(title)}</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;padding:32px 24px;background:#fff;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.8}
+main{max-width:880px;margin:0 auto}
+header{border-bottom:1px solid #d0d7de;padding-bottom:14px;margin-bottom:22px}
+h1{margin:0 0 6px;font-size:22px;line-height:1.4}
+.meta{margin:0;color:#59636e;font-size:12px}
+h4{margin:18px 0 6px;font-size:14px}
+p{margin:0 0 8px}
+ul,ol{margin:0 0 8px;padding-left:20px}
+blockquote{margin:6px 0 10px;padding:2px 0 2px 12px;border-left:2px solid #d0d7de;color:#59636e}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;background:#f3f4f6;border-radius:4px;padding:0 3px}
+figure[data-mermaid-diagram]{margin:12px 0;padding:10px 12px;border:1px solid #d0d7de;border-radius:10px;break-inside:avoid;page-break-inside:avoid}
+figure[data-mermaid-diagram] figcaption{font-size:12px;font-weight:600;margin-bottom:6px;color:#1f2328}
+figure[data-mermaid-diagram] svg{display:block;max-width:100%;height:auto;color:#3d444d}
+figure[data-mermaid-diagram] details{margin-top:6px;color:#59636e;font-size:11px}
+pre{white-space:pre-wrap;word-break:break-word;background:#f6f8fa;border-radius:6px;padding:8px 10px;font-size:11.5px;line-height:1.6;overflow-wrap:anywhere}
+[data-mermaid-error]{margin:12px 0;padding:9px 12px;border:1px solid #d0d7de;border-left:3px solid #cf222e;border-radius:8px;background:#ffebe9;break-inside:avoid;page-break-inside:avoid}
+[data-mermaid-error] .mermaid-error{margin:0 0 6px;color:#cf222e;font-weight:600;font-size:12.5px}
+[data-mermaid-error] .mermaid-hint{margin:5px 0 0;color:#59636e;font-size:11.5px}
+@media print{body{padding:0}figure[data-mermaid-diagram]{border-color:#bbb}figure[data-mermaid-diagram] details{display:none}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>${escapeHtmlText(title)}</h1>
+<p class="meta">${escapeHtmlText(id)}${id ? " \xB7 " : ""}\u9700\u6C42\u6B63\u6587 \xB7 \u56FE\u8868\u4EE5\u5185\u8054 SVG \u5448\u73B0\uFF0C\u4E0D\u52A0\u8F7D\u811A\u672C\u6216\u5916\u90E8\u8D44\u6E90</p>
+</header>
+${requirementBodyHtml(body)}
+</main>
+</body>
+</html>`;
     }
     function renderBrief(text) {
       return h("div", null, renderRich(text));
@@ -2834,7 +4254,25 @@ window.__ModuleLoader__.load({
     const BRIEF_INLINE_TITLES = /^(背景|目标|范围|验收标准|验收|约束|风险|备注|原始诉求|用户诉求)$/;
     function peelInlineLabels(text, title) {
       const out = [];
+      let fence = false;
+      let marker = "";
       String(text ?? "").split(/\r?\n/).forEach((line) => {
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line);
+        if (!fence && open) {
+          fence = true;
+          marker = open[1];
+          out.push(line);
+          return;
+        }
+        if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) {
+          fence = false;
+          out.push(line);
+          return;
+        }
+        if (fence) {
+          out.push(line);
+          return;
+        }
         const trimmed = line.trim();
         const match = /^(背景|目标|范围|验收标准|验收|约束|风险|备注)[:：]\s*(.*)$/.exec(trimmed);
         if (!match) {
@@ -2854,11 +4292,30 @@ window.__ModuleLoader__.load({
       const lines = String(text ?? "").split(/\r?\n/);
       const sections = [];
       let current = null;
+      let fence = false;
+      let marker = "";
       const startSection = (title) => {
         current = { title, body: [] };
         sections.push(current);
       };
       lines.forEach((line) => {
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line);
+        if (!fence && open) {
+          if (!current) startSection("\u539F\u59CB\u8BC9\u6C42");
+          current.body.push(line);
+          fence = true;
+          marker = open[1];
+          return;
+        }
+        if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) {
+          current.body.push(line);
+          fence = false;
+          return;
+        }
+        if (fence) {
+          current.body.push(line);
+          return;
+        }
         const trimmed = line.trim();
         const heading = /^##\s+(.+)$/.exec(trimmed);
         if (heading) {
@@ -2877,12 +4334,6 @@ window.__ModuleLoader__.load({
         current.body.push(line);
       });
       return sections.map((section) => ({ title: section.title, text: peelInlineLabels(section.body.join("\n"), section.title) })).filter((section) => section.text || BRIEF_SECTION_TITLES.test(section.title));
-    }
-    function isAiSection(section) {
-      return /AI|评审|重构|建议/.test(section.title) || /(^|\n)\s*>?\s*AI (结论|评审|建议)/.test(section.text);
-    }
-    function compactBody(text) {
-      return String(text ?? "").replace(/\s+/g, " ").trim();
     }
     function CopyTextButton({ value, label = "\u590D\u5236" }) {
       const [copied, setCopied] = useState(false);
@@ -2950,14 +4401,6 @@ window.__ModuleLoader__.load({
     const DETAIL_LABEL = { flex: "none", width: "68px", color: T.text3, fontSize: "11.5px" };
     function DetailRow({ label, children }) {
       return h("div", { style: DETAIL_ROW }, h("span", { style: DETAIL_LABEL }, label), h("span", { style: { color: T.text, minWidth: 0, wordBreak: "break-word" } }, children));
-    }
-    function DetailsToggle({ summary, children, defaultOpen = false }) {
-      return h(
-        "details",
-        { style: { borderTop: `1px solid ${T.line}`, marginTop: "8px", paddingTop: "8px" }, open: defaultOpen },
-        h("summary", { style: { cursor: "pointer", color: T.text2, fontSize: "11.5px", lineHeight: 1.7 } }, summary),
-        h("div", { style: { marginTop: "6px" } }, children)
-      );
     }
     let warnedFallbackDetailView = false;
     function detailTitleId(item) {
@@ -3336,11 +4779,34 @@ window.__ModuleLoader__.load({
           );
         });
       };
+      const exportBodyHtml = () => {
+        try {
+          const html = buildRequirementExportHtml({ item, detail });
+          const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = `${identity.id ?? item?.id ?? "requirement"}-\u6B63\u6587.html`;
+          anchor.style.display = "none";
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          window.setTimeout(() => URL.revokeObjectURL(url), 2e3);
+          setNotice("\u6B63\u6587 HTML \u5DF2\u5BFC\u51FA\uFF08\u56FE\u8868\u4E3A\u5185\u8054 SVG\uFF09");
+        } catch (error) {
+          setNotice(`\u5BFC\u51FA\u5931\u8D25\uFF1A${error.message}`);
+        }
+      };
+      const printBody = () => {
+        if (typeof window.print === "function") window.print();
+      };
       const menuItems = [
         { id: "archive", label: "\u5F52\u6863", hide: archived || !onArchive, onClick: () => onArchive && onArchive(item) },
         { id: "remove", label: "\u5220\u9664", hide: !onRemove, onClick: () => onRemove && onRemove(item) },
         { id: "copy-prompt", label: "\u590D\u5236\u63D0\u793A\u8BCD", hide: false, onClick: copyPrompt },
         { id: "open-source", label: "\u6253\u5F00\u6E90\u6587\u4EF6", hide: false, onClick: openSource },
+        { id: "export-html", label: "\u5BFC\u51FA\u6B63\u6587\uFF08HTML\uFF09", hide: false, onClick: exportBodyHtml },
+        { id: "print", label: "\u6253\u5370\u6B63\u6587", hide: false, onClick: printBody },
         { id: "cancel-run", label: "\u53D6\u6D88\u8FD0\u884C", hide: !run?.exists || !onCancelRun, onClick: () => onCancelRun && onCancelRun(item) }
       ].filter((entry) => !entry.hide);
       const metaRows = [
@@ -4140,7 +5606,7 @@ window.__ModuleLoader__.load({
       const action = detail.primaryAction ?? null;
       const context = detail.context ?? {};
       const startLike = Boolean(action && (action.id === "start" || action.id === "start-fix"));
-      const secondary = (detail.secondaryActions ?? []).filter((entry) => entry && entry.id !== action?.id).slice(0, 2);
+      const secondary = (detail.secondaryActions ?? []).filter((entry) => entry && entry.id !== action?.id && entry.id !== "declare-allocation").slice(0, 2);
       const enabled = Boolean(action) && action.enabled !== false;
       const runEntry = (entry) => {
         if (!entry || entry.enabled === false) return;
@@ -4297,6 +5763,9 @@ window.__ModuleLoader__.load({
     }
     function HumanLongDescription({ text, paragraph, preview }) {
       const [expanded, setExpanded] = useState(false);
+      if (/^\s*(```|~~~)\s*mermaid\s*$/im.test(String(text ?? ""))) {
+        return h("div", { "data-human-long-mermaid": "true" }, h("div", { style: paragraph }, renderRich(text)));
+      }
       return h(
         "div",
         null,
@@ -5756,6 +7225,7 @@ ${text}`)) continue;
         h("style", null, `[data-detail-page] .dheadwrap{box-sizing:border-box;width:100%;max-width:1280px;padding:18px 24px 0}[data-detail-page] .idline{display:flex;align-items:center;gap:10px;font-size:12px;color:${T.text3};flex-wrap:wrap}[data-detail-page] .idline .pill{border:1px solid ${T.line};border-radius:999px;padding:2px 8px;color:${T.text2};font-size:11.5px}[data-detail-page] .verlink{border:0;background:transparent;color:${T.text2};font-size:12px;padding:0;text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}[data-detail-page] .dtitle{margin:6px 0 4px;font-size:20px;font-weight:600;line-height:1.45;letter-spacing:0}[data-detail-page] .dsubtitle{margin:0;font-size:13px;line-height:1.6;color:${T.text3}}[data-detail-page] .v4-reading{padding-top:20px!important;padding-bottom:72px!important;font-size:14px!important;line-height:1.7!important}[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr) 244px!important;gap:28px!important}[data-detail-page] .description-cards{display:block!important}[data-detail-page] .det-bullets{margin:0;padding:0;list-style:none;display:grid;gap:6px}[data-detail-page] .det-bullets li{position:relative;padding-left:15px;font-size:13.5px;color:${T.text2};line-height:1.75}[data-detail-page] .det-bullets li::before{content:"";position:absolute;left:3px;top:9px;width:5px;height:5px;border-radius:1px;background:${T.line2}}[data-detail-page] .rail-h{margin:0 0 8px;font-size:12px;color:${T.text3};font-weight:500;letter-spacing:.02em}[data-detail-page] .needbox{padding:0 0 11px;font-size:12.5px;line-height:1.7;margin-bottom:11px;border-bottom:1px solid ${T.line}}[data-detail-page] .needbox.yes,[data-detail-page] .needbox.no{background:transparent;border:0;border-bottom:1px solid ${T.line};color:${T.text2}}[data-detail-page] .railbtn{display:flex;align-items:center;width:100%;justify-content:center;min-height:32px;padding:5px 10px;font-size:12.5px;border:1px solid ${T.line2};border-radius:7px;background:transparent;color:${T.text2};cursor:pointer}[data-detail-page] .railbtn:hover{color:${T.text};background:${T.layer2}}[data-detail-page] .detail-sidebar{top:76px;padding:12px 14px}[data-detail-page] .stepper{display:grid;grid-template-columns:repeat(5,1fr);position:relative;margin-top:4px}[data-detail-page] .stepper::before{content:'';position:absolute;left:10%;right:10%;top:6px;height:1px;background:${T.line2}}[data-detail-page] .step{position:relative;display:grid;justify-items:center;gap:7px;text-align:center}[data-detail-page] .step .dot{display:block;width:13px;height:13px;box-sizing:border-box;border-radius:50%!important;background:${T.layer};border:1.5px solid ${T.line2};position:relative;z-index:1}[data-detail-page] .step[data-stage-state="done"] .dot{background:${T.text};border-color:${T.text}}[data-detail-page] .step[data-stage-state="done"] .dot::after{content:'';position:absolute;left:4px;top:3.5px;width:5px;height:3px;border-left:1.5px solid ${T.base};border-bottom:1.5px solid ${T.base};transform:rotate(-45deg)}[data-detail-page] .step[data-stage-state="current"] .dot{background:${T.text};border-color:${T.text};box-shadow:0 0 0 3px color-mix(in srgb, ${T.text} 16%, transparent)}[data-detail-page] .step span{font-size:11.5px;color:${T.text3};white-space:nowrap}[data-detail-page] .step[data-stage-state="done"] span{color:${T.text2}}[data-detail-page] .step[data-stage-state="current"] span{color:${T.text};font-weight:500}@container (max-width:900px){[data-detail-page] .detail-columns{grid-template-columns:minmax(0,1fr)!important}[data-detail-page] .detail-sidebar{position:static!important}}`),
         // Everything technical lives behind one fold with one name, in both the
         // body and the progress tab: evidence in one, the run in the other.
+        h("style", null, `@media print{[data-detail-page] .detail-sidebar,[data-detail-page] .dtabs,[data-detail-page] [data-detail-secondary],[data-detail-page] .dheadwrap button{display:none!important}[data-detail-page] .v4-reading{max-width:none!important;padding:0!important}[data-detail-page] .detail-columns{display:block!important}[data-mermaid-diagram]{break-inside:avoid;page-break-inside:avoid;border-color:#bbb!important;background:#fff!important}[data-mermaid-diagram] svg{max-width:100%!important;height:auto!important;max-height:26cm!important;color:#1f2328!important}[data-mermaid-diagram] .mermaid-source-toggle{display:none!important}[data-mermaid-error]{break-inside:avoid;page-break-inside:avoid}[data-mermaid-error] pre{white-space:pre-wrap!important;word-break:break-word!important}}`),
         h("style", null, `[data-detail-page] .requirement-body>[data-technical-details]{order:7}[data-detail-page] .fold{margin-top:22px;border-top:1px solid ${T.line};padding-top:10px}[data-detail-page] .fold>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:8px;font-size:13px;color:${T.text2};min-height:30px}[data-detail-page] .fold>summary::-webkit-details-marker{display:none}[data-detail-page] .fold>summary::before{content:"\u25B8";font-size:10px;color:${T.text3};margin-right:1px}[data-detail-page] .fold[open]>summary::before{content:"\u25BE"}[data-detail-page] .fold>summary .sub{color:${T.text3};font-size:12px}[data-detail-page] .foldbody{margin-top:6px;border:1px solid ${T.line};border-radius:8px;background:${T.layer};padding:2px 12px 12px}[data-detail-page] .kv{display:flex;justify-content:space-between;gap:18px;font-size:12.5px;padding:8px 0;color:${T.text3};border-bottom:1px solid ${T.line}}[data-detail-page] .kv:last-of-type{border-bottom:0}[data-detail-page] .kv b{color:${T.text2};font-weight:400;text-align:right;word-break:break-word;min-width:0}[data-detail-page] .foldfoot{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}[data-detail-page] .foldfoot{gap:16px!important}[data-detail-page] .foldfoot button{min-height:24px;padding:0;font-size:12px;border:0;background:transparent;color:${T.text3};cursor:pointer;text-decoration:underline;text-decoration-color:${T.line2};text-underline-offset:3px}[data-detail-page] .foldfoot button:hover{color:${T.text};text-decoration-color:currentColor}[data-detail-page] .bandlink:hover{color:${T.text};background:${T.layer2}}`),
         // One button language for the whole detail page: filled brand for the
         // single action, hairline for anything else, plain text for shortcuts.
@@ -6282,6 +7752,19 @@ ${text}`)) continue;
           () => props.onResumeRun && props.onResumeRun(item)
         ),
         "run-acceptance": () => props.onAcceptance && props.onAcceptance(item),
+        // One click appends the `allocated_to` relations a refused commit needs.
+        // It changes requirement content, so it is confirmed first and then the
+        // page reloads onto the new revision (old evidence stays history).
+        "settle-failure": () => {
+          const failureId = item?.run?.failureDiagnostic?.id;
+          if (!failureId) return void 0;
+          if (!window.confirm(`\u7ED3\u7B97\u5931\u8D25\u8BB0\u5F55 ${failureId}\uFF1F
+
+\u7ED3\u7B97\u53EA\u8FFD\u52A0\u7ED3\u8BBA\uFF0C\u4E0D\u6539\u5199\u539F\u59CB\u6458\u8981\u4E0E\u8BC1\u636E\uFF1B\u7ED3\u7B97\u540E\u5B83\u4E0D\u518D\u663E\u793A\u4E3A\u672C\u8F6E\u5931\u8D25\u3002`)) return void 0;
+          return writeJson("failure", { mode: "resolve", failureId, status: "resolved", note: "\u9875\u9762\u7ED3\u7B97\uFF1A\u786E\u8BA4\u4E0D\u5C5E\u4E8E\u5F53\u524D\u63A8\u8FDB" }, root).then(() => {
+            props.onRefresh && props.onRefresh();
+          }).catch((error) => window.alert("\u7ED3\u7B97\u5931\u8D25\uFF1A" + error.message));
+        },
         "narrow-verification": () => writeJson("narrow-verification", { requirementId: item.id, apply: true }, root).then((result) => {
           props.onRefresh && props.onRefresh();
           if (result?.verification?.result !== "pass") window.alert("\u9A8C\u6536\u547D\u4EE4\u5DF2\u6536\u7A84\uFF0C\u4F46\u672C\u6B21\u9A8C\u8BC1\u4ECD\u672A\u901A\u8FC7\uFF1B\u8BF7\u67E5\u770B\u9A8C\u8BC1\u8BE6\u60C5\u3002");
@@ -6722,6 +8205,18 @@ ${text}`)) continue;
     function writeJson(path, body, root, options) {
       return postJson(`requirements/${path}`, body, root, options);
     }
+    function declareArchitectureIfBlocked(entry, root) {
+      const gap = (entry?.decision?.gaps ?? []).find((item) => item?.code === "architecture-undeclared");
+      const modules = Array.isArray(gap?.modules) ? gap.modules : [];
+      if (modules.length === 0) return Promise.resolve(null);
+      return writeJson("architecture", {
+        action: "declare",
+        requirementId: entry.id,
+        root,
+        modules,
+        note: "\u7EE7\u7EED\u63A8\u8FDB\u65F6\u81EA\u52A8\u8865\u67B6\u6784\u58F0\u660E"
+      }, root);
+    }
     let modalSequence = 0;
     function ModalShell({ title, lead, onClose, children, footer, width = "720px", feedbackContext = null, testId = null, dataSessionId = null, dataScreen = null }) {
       const dialogRef = useRef(null);
@@ -6883,7 +8378,7 @@ ${text}`)) continue;
       skipped: { label: "\u8DF3\u8FC7", tone: T.text3 },
       failed: { label: "\u5931\u8D25", tone: "#f87171" }
     };
-    function PreflightModal({ item, root, projectMeta, isolate = false, onClose, onStarted }) {
+    function PreflightModal({ item, root, projectMeta, isolate = false, onClose, onStarted, onOpenWorktree }) {
       const [state, setState] = useState({ phase: "running", record: null, start: null, error: null });
       const [github, setGithub] = useState({ loading: false, plan: null, result: null, error: null });
       useEffect(() => {
@@ -6929,11 +8424,13 @@ ${text}`)) continue;
       };
       const record = state.record;
       const start = state.start;
+      const scheduledWorktree = start?.execution?.scheduled === true ? start.worktree?.path : null;
       const question = record?.question;
       const running = state.phase === "running";
       const footer = [
         question ? h("button", { key: "cancel-question", style: button, onClick: onClose }, question.options?.find((option) => option.id === "cancel")?.label ?? "\u5148\u4E0D\u5F00\u59CB") : h("button", { key: "close", style: button, onClick: onClose }, start || state.phase === "error" ? "\u5173\u95ED" : state.phase === "running" ? "\u5173\u95ED\uFF08\u5C1A\u672A\u542F\u52A8\uFF09" : "\u5173\u95ED\uFF08\u542F\u52A8\u8BF7\u6C42\u5DF2\u63D0\u4EA4\uFF09"),
-        question && !start && state.phase !== "starting" ? h("button", { key: "proceed", style: primary, onClick: proceed }, "\u786E\u8BA4\u5E76\u542F\u52A8 AI \u63A8\u8FDB") : null
+        question && !start && state.phase !== "starting" ? h("button", { key: "proceed", style: primary, onClick: proceed }, "\u786E\u8BA4\u5E76\u542F\u52A8 AI \u63A8\u8FDB") : null,
+        scheduledWorktree && onOpenWorktree ? h("button", { key: "open-worktree", type: "button", style: primary, onClick: () => onOpenWorktree(scheduledWorktree) }, "\u67E5\u770B\u9694\u79BB\u5DE5\u4F5C\u533A") : null
       ];
       return h(
         ModalShell,
@@ -6947,7 +8444,7 @@ ${text}`)) continue;
         running ? h("p", { style: muted }, "\u6B63\u5728\u81EA\u52A8\u68C0\u67E5\u5E76\u5904\u7406\u8BC1\u636E\u2026") : null,
         state.phase === "starting" ? h("p", { style: muted }, "\u8BC1\u636E\u5DF2\u5904\u7406\u5B8C\uFF0C\u6B63\u5728\u767B\u8BB0\u53D8\u66F4\u5E76\u4EA4\u7ED9 AI \u63A8\u8FDB\u2026") : null,
         state.error ? h("p", { style: { color: T.err, fontSize: "13px" } }, state.error) : null,
-        start?.execution?.runId ? h(
+        start?.execution?.scheduled && start.execution.runId && !scheduledWorktree ? h(
           "section",
           { "data-start-live-progress": "true", "aria-live": "polite", style: { padding: "18px 0", borderBottom: "1px solid " + T.line } },
           h("h3", { style: { margin: "0 0 8px", fontSize: "20px", color: T.text } }, item.detailView?.currentMatter?.headline ?? item.run?.label ?? "AI \u5DF2\u63A5\u624B\uFF0C\u6B63\u5728\u540C\u6B65\u8FDB\u5C55"),
@@ -7015,7 +8512,7 @@ ${text}`)) continue;
                 ]
               })
             ),
-            h("p", { style: { margin: "8px 0 0", ...muted } }, "\u53EF\u4EE5\u5728\u53F3\u4FA7\u9700\u6C42\u8BE6\u60C5\u91CC\u7EE7\u7EED\u67E5\u770B\u53D8\u66F4\u3001\u4EFB\u52A1\u5361\u4E0E GitHub \u5F52\u5C5E\u3002"),
+            h("p", { style: { margin: "8px 0 0", ...muted } }, scheduledWorktree ? "\u5728\u9694\u79BB\u5DE5\u4F5C\u533A\u67E5\u770B\u672C\u8F6E\u7684\u63A8\u8FDB\u3001\u4EFB\u52A1\u5361\u548C\u9A8C\u6536\u3002" : "\u53EF\u4EE5\u5728\u53F3\u4FA7\u9700\u6C42\u8BE6\u60C5\u91CC\u7EE7\u7EED\u67E5\u770B\u53D8\u66F4\u3001\u4EFB\u52A1\u5361\u4E0E GitHub \u5F52\u5C5E\u3002"),
             !start.execution ? h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: T.warn } }, "\u9884\u89C8\u6A21\u5F0F\uFF1A\u672A\u8C03\u5EA6 AI \u63A8\u8FDB\u3002") : start.execution.scheduled ? h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: T.ok } }, `AI \u5DF2\u63A5\u624B\u672C\u8F6E\u4EA4\u4ED8\uFF08\u8FD0\u884C ${start.execution.runId ?? "\u2014"} \xB7 \u4F1A\u8BDD ${start.execution.sessionId ?? "\u2014"}\uFF09\uFF1B\u5173\u95ED\u9762\u677F\u540E\u4ECD\u4F1A\u7EE7\u7EED\u3002`) : h("p", { style: { margin: "8px 0 0", fontSize: "12px", color: T.warn } }, `\u5DF2\u767B\u8BB0\u53D8\u66F4\uFF0C\u4F46\u672A\u542F\u52A8 AI \u63A8\u8FDB\uFF1A${start.execution.message ?? start.execution.reason ?? "\u8F7D\u4F53\u4E0D\u53EF\u7528"}`)
           ) : null,
           start && projectMeta?.repo ? h(
@@ -8178,7 +9675,23 @@ ${c.acceptance.map((row2) => `- \u5F53 ${row2.precondition || "\u2014"}\uFF0C${r
       );
     }
     function draftText(value) {
-      return (typeof value === "string" ? value : value === null || value === void 0 ? "" : String(value)).replace(/\$\\(?:right)?arrow\$/g, "\u2192").replace(/\s*->\s*/g, " \u2192 ");
+      const source = typeof value === "string" ? value : value === null || value === void 0 ? "" : String(value);
+      let fence = false;
+      let marker = "";
+      return source.split(/\r?\n/).map((line) => {
+        const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line);
+        if (!fence && open) {
+          fence = true;
+          marker = open[1];
+          return line;
+        }
+        if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) {
+          fence = false;
+          return line;
+        }
+        if (fence) return line;
+        return line.replace(/\$\\(?:right)?arrow\$/g, "\u2192").replace(/\s*->\s*/g, " \u2192 ");
+      }).join("\n");
     }
     function draftList(value) {
       if (!Array.isArray(value)) return [];
@@ -8486,6 +9999,13 @@ ${c.acceptance.map((row2) => `- \u5F53 ${row2.precondition || "\u2014"}\uFF0C${r
                   { style: { fontSize: "13px", lineHeight: 1.7, color: T.text2, marginTop: "4px", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere" } },
                   draftText(entry?.text) || "\uFF08\u5C1A\u672A\u586B\u5199\u9A8C\u6536\u6761\u6B3E\uFF09"
                 ),
+                !editing ? [["precondition", "\u8F93\u5165 / \u524D\u7F6E"], ["action", "\u64CD\u4F5C"], ["expected", "\u9884\u671F"]].map(([field, label]) => draftText(entry?.[field]) ? h(
+                  "div",
+                  { key: field, "data-draft-plan": field, style: { fontSize: "12px", lineHeight: 1.7, color: T.text2, marginTop: "3px", display: "flex", gap: "8px" } },
+                  h("span", { style: { flex: "none", width: "76px", color: T.text3 } }, label),
+                  h("span", { style: { minWidth: 0, overflowWrap: "anywhere" } }, draftText(entry[field]))
+                ) : null) : null,
+                !editing && (!draftText(entry?.action) || !draftText(entry?.expected)) ? h("div", { "data-draft-plan-missing": id, style: { fontSize: "12px", lineHeight: 1.7, color: T.warn, marginTop: "3px" } }, "\u7F3A\u5C11\u53EF\u6267\u884C\u7684\u9A8C\u6536\u6B65\u9AA4\uFF08\u64CD\u4F5C / \u9884\u671F\uFF09\uFF1A\u4EA7\u54C1\u7ECF\u7406\u65E0\u6CD5\u636E\u6B64\u9010\u6B65\u9A8C\u6536\u3002") : null,
                 entry?.judgement ? h("div", { style: { fontSize: "12px", lineHeight: 1.7, color: T.text3, marginTop: "3px" } }, `\u5224\u5B9A\uFF1A${draftText(entry.judgement)}`) : null
               );
             }) : h("div", { style: { fontSize: "12.5px", color: T.text3, marginTop: "4px" } }, "\uFF08\u5C1A\u672A\u63D0\u70BC\u9A8C\u6536\u6761\u76EE\uFF09")
@@ -12063,9 +13583,19 @@ ${text}`);
         }
         return [...declared, ...machine];
       };
+      const strongRelatedOf = (related) => {
+        const clauseStrong = (entry) => {
+          const read = (session?.context?.readSet ?? []).find((row2) => row2.uid === entry?.uid);
+          return (read?.clauseMatches ?? []).some((match) => ["covered", "conflict"].includes(match.verdict));
+        };
+        const isStrong = (entry) => ["covered", "conflict"].includes(entry?.match) || entry?.match === "related" && clauseStrong(entry);
+        const rank = { conflict: 0, covered: 1, related: 2 };
+        const matched = related.filter(isStrong).sort((a, b) => (rank[a?.match] ?? 3) - (rank[b?.match] ?? 3));
+        return { strong: matched.slice(0, 3), weakCount: related.length - matched.length };
+      };
       const renderRelated = (item) => {
-        const related = relatedOf(item);
         const contextFailed = session?.context?.queryStatus === "error";
+        const { strong, weakCount } = strongRelatedOf(relatedOf(item));
         const clauseHintOf = (entry) => {
           const read = (session?.context?.readSet ?? []).find((row2) => row2.uid === entry?.uid);
           const matches = (read?.clauseMatches ?? []).filter((match) => match.verdict !== "unrelated");
@@ -12078,13 +13608,14 @@ ${text}`);
             "div",
             { style: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" } },
             h("span", { style: fieldLabelStyle }, "\u76F8\u5173\u627F\u8BFA"),
-            contextFailed ? tonePill("warn", "\u76F8\u5173\u9700\u6C42\u5C1A\u672A\u6838\u5BF9") : tonePill("neutral", `${related.length} \u6761\u5019\u9009`)
+            contextFailed ? tonePill("warn", "\u76F8\u5173\u9700\u6C42\u5C1A\u672A\u6838\u5BF9") : tonePill("neutral", `${strong.length} \u6761\u5F3A\u5173\u8054`)
           ),
           contextFailed ? h("p", { style: { margin: "4px 0 0", color: T.warn, fontSize: "12px", lineHeight: 1.7 } }, "\u68C0\u7D22\u5931\u8D25\uFF1A\u76F8\u5173\u9700\u6C42\u5C1A\u672A\u6838\u5BF9\uFF0C\u4E0D\u80FD\u636E\u6B64\u8BA4\u4E3A\u201C\u5168\u65B0\u201D\u6216\u201C\u6CA1\u6709\u91CD\u590D\u201D\u3002") : null,
-          related.length === 0 ? h("p", { style: { margin: "4px 0 0", ...muted } }, "\u6CA1\u6709\u5339\u914D\u5230\u76F8\u5173\u627F\u8BFA\uFF1B\u8FD9\u4E0D\u7B49\u4E8E\u6CA1\u6709\u5F71\u54CD\u3002") : h(
+          weakCount > 0 ? h("p", { style: { margin: "4px 0 0", ...muted } }, `\u53E6\u6709 ${weakCount} \u6761\u5F31\u76F8\u5173\u672A\u5C55\u793A\uFF1A\u5224\u5B9A\u4EC5\u4E3A\u5B57\u9762\u76F8\u5173\uFF0C\u4E0D\u6784\u6210\u91CD\u590D\u7ED3\u8BBA\u3002`) : null,
+          strong.length === 0 ? h("p", { style: { margin: "4px 0 0", ...muted } }, "\u6CA1\u6709\u5F3A\u5173\u8054\u9700\u6C42\uFF1B\u8FD9\u4E0D\u7B49\u4E8E\u6CA1\u6709\u5F71\u54CD\u3002") : h(
             "div",
             { style: { display: "flex", flexDirection: "column", gap: "6px", marginTop: "6px" } },
-            related.map(
+            strong.map(
               (entry, index) => h(
                 "button",
                 {
@@ -12913,7 +14444,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           session?.ai === "none" ? h(
             "div",
             { "data-intent-unclarified": "true", role: "status", style: { marginTop: "10px", border: `1px solid ${T.line2}`, borderLeft: `3px solid ${T.warn}`, borderRadius: "10px", padding: "10px 12px", background: T.layer } },
-            h("div", { style: { fontSize: "12.5px", fontWeight: 500, color: T.warn } }, "\u8FD9\u6B21\u6F84\u6E05\u6CA1\u6709\u6A21\u578B\u53C2\u4E0E\uFF1A\u4E0B\u9762\u7684\u5185\u5BB9\u4E0D\u662F\u5206\u6790\u7ED3\u679C"),
+            h("div", { style: { fontSize: "12.5px", fontWeight: 500, color: T.warn } }, session.aiTried ? "\u6A21\u578B\u53C2\u4E0E\u4E86\u8FD9\u6B21\u6F84\u6E05\uFF0C\u4F46\u6CA1\u6709\u8FD4\u56DE\u53EF\u7528\u7ED3\u679C\uFF1A\u4E0B\u9762\u7684\u5185\u5BB9\u4E0D\u662F\u5206\u6790\u7ED3\u679C" : "\u8FD9\u6B21\u6F84\u6E05\u6CA1\u6709\u6A21\u578B\u53C2\u4E0E\uFF1A\u4E0B\u9762\u7684\u5185\u5BB9\u4E0D\u662F\u5206\u6790\u7ED3\u679C"),
             h(
               "p",
               { style: { margin: "4px 0 0", fontSize: "12px", color: T.text2, lineHeight: 1.8, wordWrap: "break-word" } },
@@ -15625,7 +17156,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
       );
     }
     const NATIVE_SOURCE_BUILD_ID = false ? null : null;
-    const NATIVE_CLIENT_BUILD_ID = true ? "73a5d9755b5a6d478750fce223f227b75e9be282162d4ea8017cb9f341260c3f" : null;
+    const NATIVE_CLIENT_BUILD_ID = true ? "05be35b9696c5f40ef9a5b5f4a856ad4d00125112db332acff3f596d0b7c7f50" : null;
     function NativeDeliveryControl({ root, requirementId }) {
       const [job, setJob] = useState(null);
       const [error, setError] = useState(null);
@@ -16619,6 +18150,7 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           onStart: async (entry, options) => {
             try {
               const targetRoot = entry.root ?? data?.root ?? root;
+              await declareArchitectureIfBlocked(entry, targetRoot);
               const decision = await writeJson("run", { mode: "decision", requirementId: entry.id }, targetRoot);
               if (decision?.decision) {
                 setAnswerItem(entry);
@@ -16626,6 +18158,10 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
               }
               if (decision?.exists) {
                 const result = await writeJson("run", { mode: "continue", requirementId: entry.id }, targetRoot);
+                if (result?.reason === "human-decision-required") {
+                  setAnswerItem(entry);
+                  return;
+                }
                 if (result?.resumed !== true) throw new Error(result?.message ?? "\u8FD0\u884C\u672A\u7EE7\u7EED");
                 if (result?.autoAdvanceResumed === false) window.alert(`\u5DF2\u7EE7\u7EED\u672C\u8F6E\uFF0C\u4F46\u81EA\u52A8\u63A8\u8FDB\u672A\u6062\u590D\uFF08${result.autoAdvanceReason}\uFF09\u3002\u9700\u5728\u539F\u751F\u754C\u9762\u68C0\u67E5\u7248\u672C\u4E0E\u6267\u884C\u9884\u7B97\uFF1B\u672A\u65B0\u589E\u6388\u6743\u3002`);
                 await reload();
@@ -16650,7 +18186,12 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           },
           onAnswer: (entry) => setAnswerItem(entry),
           onContinueRun: (entry) => {
-            writeJson("run", { mode: "continue", requirementId: entry.id }, entry.root ?? data?.root ?? root).then((result) => {
+            const targetRoot = entry.root ?? data?.root ?? root;
+            return declareArchitectureIfBlocked(entry, targetRoot).then(() => writeJson("run", { mode: "continue", requirementId: entry.id }, targetRoot)).then((result) => {
+              if (result?.reason === "human-decision-required") {
+                setAnswerItem(entry);
+                return;
+              }
               if (result?.resumed !== true) throw new Error(result?.message ?? "\u8FD0\u884C\u5C1A\u672A\u7EE7\u7EED\uFF0C\u8BF7\u5237\u65B0\u540E\u68C0\u67E5\u5F53\u524D\u72B6\u6001");
               if (result?.autoAdvanceResumed === false) window.alert(`\u5DF2\u7EE7\u7EED\u672C\u8F6E\uFF0C\u4F46\u81EA\u52A8\u63A8\u8FDB\u672A\u6062\u590D\uFF08${result.autoAdvanceReason}\uFF09\u3002\u9700\u5728\u539F\u751F\u754C\u9762\u68C0\u67E5\u7248\u672C\u4E0E\u6267\u884C\u9884\u7B97\uFF1B\u672A\u65B0\u589E\u6388\u6743\u3002`);
               return reload();
@@ -16660,7 +18201,12 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
             if (!window.confirm(`\u6062\u590D ${entry.id} \u7684\u672C\u8F6E\u63A8\u8FDB\uFF1F\u4F1A\u65B0\u5EFA\u4E00\u6B21\u8FD0\u884C\u5E76\u4ECE\u4E0A\u6B21\u68C0\u67E5\u70B9\u7EE7\u7EED\u3002`)) return { ok: false, cancelled: true };
             const targetRoot = entry.root ?? data?.root ?? root;
             try {
+              await declareArchitectureIfBlocked(entry, targetRoot);
               const payload = await writeJson("run", { mode: "restart", requirementId: entry.id }, targetRoot);
+              if (payload?.reason === "human-decision-required") {
+                setAnswerItem(entry);
+                return { ok: true, payload };
+              }
               const refreshed = await reload();
               if (payload?.restarted !== true && payload?.active !== true) {
                 window.alert(payload?.message ?? "\u672A\u80FD\u6062\u590D\u63A8\u8FDB");
@@ -16757,7 +18303,13 @@ ${session?.input?.text ?? simpleDraft?.goal ?? ""}`;
           projectMeta: projectMetaFor(startItem.item),
           isolate: startItem.isolate,
           onClose: () => setStartItem(null),
-          onStarted: () => reload()
+          onStarted: () => reload(),
+          onOpenWorktree: (worktreeRoot) => {
+            setStartItem(null);
+            setPendingOpenId(startItem.item.id);
+            applyRoot(worktreeRoot, projectId !== ALL_PROJECTS);
+            setRootInput(worktreeRoot);
+          }
         }) : null,
         aiReviewItem ? h(AiReviewModal, {
           item: aiReviewItem,

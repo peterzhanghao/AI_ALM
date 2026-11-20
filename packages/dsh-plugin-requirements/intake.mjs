@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseChatMarkdown } from '../alm-core/src/intake/chat.mjs'
-import { runOcr, runOcrAsync, OcrError } from '../alm-core/src/intake/ocr.mjs'
+import { runOcrAsync, OcrError } from '../alm-core/src/intake/ocr.mjs'
 
 export class IntakeError extends Error {
   constructor(message, { code = 'intake', status = 400 } = {}) {
@@ -65,40 +65,6 @@ export function crystallizeChatDraft({ summary, messages, draft } = {}) {
 }
 
 /** Screenshot → local PP-OCRv5 text with per-line confidence and `image#L<n>` refs. */
-export function extractOcr({ imageBase64, filename = 'screenshot.png', run, runtime } = {}) {
-  if (!imageBase64) throw new IntakeError('imageBase64 is required', { code: 'image-required' })
-  const bytes = Buffer.from(String(imageBase64), 'base64')
-  if (bytes.length === 0) throw new IntakeError('image is empty', { code: 'image-empty' })
-  if (bytes.length > MAX_IMAGE_BYTES) throw new IntakeError('image is too large (max 8MB)', { code: 'image-too-large', status: 413 })
-
-  const dir = mkdtempSync(join(tmpdir(), 'alm-ocr-'))
-  try {
-    const extension = /\.(png|jpe?g|webp)$/i.exec(String(filename))?.[0]?.toLowerCase() ?? '.png'
-    const image = join(dir, `image${extension}`)
-    writeFileSync(image, bytes)
-    const result = runOcr(image, { run, runtime })
-    const name = String(filename)
-    return {
-      ...result,
-      mode: 'ocr',
-      sourceImage: name,
-      text: result.lines.map((line) => line.text).join('\n'),
-      lines: result.lines.map((line, index) => ({ ...line, index: index + 1, ref: `${name}#L${index + 1}` })),
-      citations: result.lines.map((line, index) => ({
-        ref: `${name}#L${index + 1}`,
-        text: line.text,
-        confidence: line.confidence,
-      })),
-      lowConfidence: result.lines.filter((line) => line.lowConfidence).length,
-    }
-  } catch (error) {
-    if (error instanceof OcrError) throw new IntakeError(error.message, { code: 'ocr-failed', status: 400 })
-    throw error
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
-
 export async function extractOcrAsync({ imageBase64, filename = 'screenshot.png', runtime, signal } = {}) {
   if (!imageBase64) throw new IntakeError('imageBase64 is required', { code: 'image-required' })
   const bytes = Buffer.from(String(imageBase64), 'base64')
@@ -122,11 +88,4 @@ export async function extractOcrAsync({ imageBase64, filename = 'screenshot.png'
     if (error instanceof OcrError) throw new IntakeError(error.message, { code: 'ocr-failed', status: 400 })
     throw error
   } finally { rmSync(dir, { recursive: true, force: true }) }
-}
-
-/** Read one attachment back from a workspace (used by tests/tools). */
-export function readAttachment(root, requirementId, name) {
-  const file = join(root, 'requirements', 'attachments', requirementId, name)
-  if (!existsSync(file)) return null
-  return readFileSync(file, 'utf8')
 }

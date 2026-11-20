@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createCandidate } from '../../src/requirements/candidate.mjs'
 import { collectDeliveryScope } from '../../src/requirements/delivery-scope.mjs'
+import { syncDevelopmentBranch } from '../../src/requirements/dev-branch-sync.mjs'
 
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
 
@@ -171,4 +172,49 @@ test('real src diff, directory authorization and architecture archive share one 
   assert.doesNotMatch(committed, /ARCHITECTURE-LEDGER\.md/)
   // A test file that never changed is never claimed as impact.
   assert.doesNotMatch(git(root, ['log', '-1', '--format=%B']), /never-changed/)
+})
+
+test('another requirement and change cards never veto this delivery commit', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'alm-dev-sync-foreign-'))
+  const remote = `${root}-origin.git`
+  t.after(() => { rmSync(root, { recursive: true, force: true }); rmSync(remote, { recursive: true, force: true }) })
+  execFileSync('git', ['init', '--bare', '-q', remote])
+  git(root, ['init', '-q'])
+  git(root, ['checkout', '-qb', 'develop'])
+  git(root, ['config', 'user.name', 'ALM Test'])
+  git(root, ['config', 'user.email', 'alm-test@example.test'])
+  git(root, ['remote', 'add', 'origin', remote])
+  writeFileSync(join(root, 'implementation.mjs'), 'export const value = 1\n')
+  git(root, ['add', '.']); git(root, ['commit', '-qm', 'base']); git(root, ['push', '-u', 'origin', 'develop'])
+
+  writeFileSync(join(root, 'implementation.mjs'), 'export const value = 2\n')
+  mkdirSync(join(root, 'requirements'), { recursive: true })
+  writeFileSync(join(root, 'requirements/req-other-REQ-ALM-014.sdoc'), 'UID: REQ-ALM-014\n')
+  mkdirSync(join(root, 'changes/CHG-ALM-008'), { recursive: true })
+  writeFileSync(join(root, 'changes/CHG-ALM-008/tasks.json'), '[]\n')
+  mkdirSync(join(root, 'docs/design'), { recursive: true })
+  writeFileSync(join(root, 'docs/design/preview.html'), '<p>preview</p>\n')
+
+  const scope = collectDeliveryScope({
+    root,
+    allowedPaths: ['implementation.mjs', 'requirements/'],
+    requirementId: 'REQ-DEV-005',
+  })
+  assert.ok(scope.foreign.includes('requirements/req-other-REQ-ALM-014.sdoc'), JSON.stringify(scope.foreign))
+  const result = syncDevelopmentBranch({
+    root, requirementId: 'REQ-DEV-005', revision: 1, candidateId: 'CAND-REQ-DEV-005-001',
+    title: '并行需求交付', paths: ['implementation.mjs'], scope, push: false,
+  })
+  assert.equal(result.committed, true, JSON.stringify(result))
+  assert.deepEqual(result.stagedPaths, ['implementation.mjs'])
+  // The foreign requirement's file and the change cards stay in the worktree,
+  // outside this delivery commit.
+  const committed = git(root, ['show', '--pretty=', '--name-only', 'HEAD'])
+  assert.match(committed, /implementation\.mjs/)
+  assert.doesNotMatch(committed, /REQ-ALM-014/)
+  assert.doesNotMatch(committed, /changes\//)
+  const status = git(root, ['status', '--short'])
+  assert.match(status, /requirements\//)
+  assert.match(status, /changes\//)
+  assert.match(status, /docs\//)
 })

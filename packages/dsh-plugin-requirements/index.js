@@ -24,8 +24,8 @@ import { applyRemove, planRemove } from '../alm-core/src/requirements/remove.mjs
 // added after the host started would fail to load until the host restarts.
 import * as candidateCore from '../alm-core/src/requirements/candidate.mjs'
 import * as deliveryScopeCore from '../alm-core/src/requirements/delivery-scope.mjs'
-import { requirementContentHash } from '../alm-core/src/model/content-hash.mjs'
-import { MAX_AUTO_DISPATCHES, nextAutomaticAction, progressFingerprint } from './auto-advance.mjs'
+import * as contentHashCore from '../alm-core/src/model/content-hash.mjs'
+import * as autoAdvanceCore from './auto-advance.mjs'
 import { observeRun, observeUsage, recordLiveFrame, settleLiveFrame } from './run-observation.mjs'
 import { collectedTimelinePage } from './detail-view.mjs'
 import * as releaseCore from '../alm-core/src/requirements/release.mjs'
@@ -44,10 +44,14 @@ import * as updateCore from '../alm-core/src/requirements/update.mjs'
 import { DECISION_REQUEST_GUIDE } from '../alm-core/src/requirements/decision.mjs'
 import { presentDecisionRequest, buildProductDecisionAnswer, DECISION_AUTONOMY_POLICY } from '../alm-core/src/requirements/decision-presentation.mjs'
 import { resolveRunDecision } from '../alm-core/src/requirements/run-decision.mjs'
+import { pendingIsolatedDecision } from './delivery-decision.mjs'
 import { rejectionReview, assertRejectionReview, rearmRejectedCheckpoint } from './reject-candidate.mjs'
 // Namespace import for the failure monitor: it ships after an older host has
 // loaded the plugin, so a named import would freeze the stale module cache.
 import * as failureCore from '../alm-core/src/requirements/failure.mjs'
+// Namespace import for the same reason: declaring modules is a requirement write
+// an older host may not have this module for.
+import * as allocationCore from '../alm-core/src/requirements/allocation.mjs'
 import { readClosure } from '../alm-core/src/requirements/delivery.mjs'
 import { applyGithub, previewGithub } from './github-sync.mjs'
 import { inspectGithubRelease, publishGithubRelease } from './github-release.mjs'
@@ -132,6 +136,20 @@ function acceptanceCommandFailed(entry) {
 function acceptanceCommandLabel(entry) {
   const command = Array.isArray(entry?.command) ? entry.command.join(' ') : String(entry?.command ?? '')
   return command || String(entry?.id ?? '验收命令')
+}
+
+/**
+ * A red receipt whose only failures are denied child processes is an
+ * environment limit, not a code defect. Mirrors the acceptance runner's own
+ * classification so the automatic bridge never files a sandbox denial as a
+ * product failure (and never schedules a repair for it).
+ */
+function acceptanceBlockedOnly(payload) {
+  const commands = Array.isArray(payload?.evidence?.commands) ? payload.evidence.commands : []
+  const text = commands.map((entry) => `${entry?.stdout ?? ''}\n${entry?.stderr ?? ''}`).join('\n')
+  const failed = (text.match(/(?:^|\n)\s*not ok(?:\s+\d+)?\s+-\s+/g) ?? []).length
+  const blocked = (text.match(/(?:^|\n)\s*not ok(?:\s+\d+)?\s+-\s+[^\n]*\b(?:EPERM|EACCES)\b/g) ?? []).length
+  return payload?.result === 'fail' && blocked > 0 && blocked >= failed
 }
 
 function promptCommandLine(command) {
@@ -708,6 +726,15 @@ export default class RequirementsService {
       kind: 'exact',
       path: '/api/alm/requirements/defect',
       handler: (req, res) => this.handleDefect(req, res),
+    })
+
+    // Architecture allocation: `plan` is read-only, `declare` appends the
+    // allocated_to relations a blocked delivery needs. Registered before the
+    // legacy write loop so the path cannot collide with an action route.
+    webServer.register({
+      kind: 'exact',
+      path: '/api/alm/requirements/architecture',
+      handler: (req, res) => this.handleArchitecture(req, res),
     })
 
     // Manual feedback loop (feedback v1 contract §3): GET inbox/record/settings,
@@ -1435,12 +1462,14 @@ export default class RequirementsService {
   hostTurnFailure(error) {
     const rawCode = typeof error?.code === 'string' && /^[A-Z0-9_-]{1,80}$/.test(error.code) ? error.code : null
     const rawMessage = typeof error?.message === 'string' ? error.message : ''
-    const transport = rawCode === 'TRANSPORT' || /(?:deepseek\s+messages\s+)?transport\s+failed|\btransport\b/iu.test(rawMessage)
+    const interruptedStream = rawCode === 'PI_AI_ERROR' && /\bupstream response stream was interrupted\b/iu.test(rawMessage)
+    const transport = rawCode === 'TRANSPORT' || interruptedStream || /\btransport\b/iu.test(rawMessage)
     if (transport) {
+      const detail = interruptedStream ? 'Upstream response stream was interrupted' : 'DeepSeek Messages transport failed'
       return {
         code: 'transport-failed',
         hostCode: rawCode ?? 'TRANSPORT',
-        message: 'AI 推进因模型连接中断暂停（DeepSeek Messages transport failed），已保留当前工作区改动，可从断点恢复或先验证已有改动。',
+        message: `AI 推进因模型连接中断暂停（${detail}），已保留当前工作区改动，可从断点恢复或先验证已有改动。`,
       }
     }
     if (rawCode === 'MISSING_CREDENTIAL') return { code: rawCode, message: '模型凭据不可用，请检查 DSH 模型配置' }
@@ -1453,6 +1482,7 @@ export default class RequirementsService {
     try {
       const stored = runCore.readRun(handle.root, handle.runId)
       if (!stored || stored.sessionId !== sessionId || !['queued', 'running'].includes(stored.status)) return false
+      const autoAdvance = stored.checkpoint?.autoAdvance
       runCore.updateRun({
         root: handle.root,
         runId: handle.runId,
@@ -1460,6 +1490,9 @@ export default class RequirementsService {
         status: 'failed',
         phase: 'interrupted',
         failure,
+        ...(autoAdvance?.authorized === true ? {
+          checkpoint: { ...stored.checkpoint, autoAdvance: { ...autoAdvance, status: 'stopped', reason: failure.code } },
+        } : {}),
         note: failure.code === 'transport-failed' ? 'host transport failed' : 'host turn failed',
         apply: true,
       })
@@ -1533,6 +1566,11 @@ export default class RequirementsService {
    */
   async restartDeliveryRun({ root, requirementId, authorizationSubject = null }) {
     this.reconcileRuns(root)
+    const decision = this.runDecision({ root, requirementId })
+    if (decision.decision) return {
+      restarted: false, reason: 'human-decision-required', runId: decision.runId,
+      runRoot: decision.runRoot, message: '请先回答当前人工决策',
+    }
     let active = typeof runCore.activeRunFor === 'function' ? runCore.activeRunFor(root, requirementId) : null
     if (active && typeof runCore.isRunStale === 'function' && runCore.isRunStale(active)) {
       try { runCore.sweepStaleRuns({ root, apply: true }) } catch {}
@@ -1631,7 +1669,7 @@ export default class RequirementsService {
       [...(this.startingRuns?.values() ?? []), ...(this.resumingRuns?.values() ?? []), ...(this.verificationLocks?.values() ?? [])].some((entry) => entry.root === rootKey) ||
       (runCore.listRuns(root) ?? []).some((entry) => ['queued', 'running'].includes(entry.status))
     const authorized = run?.checkpoint?.autoAdvance?.authorized === true && authorization?.source === 'start-v4' &&
-      authorization.requirementHash === facts.requirementHash && authorization.revision === facts.revision &&
+      autoAdvanceCore.authorizationScopeMatchesFacts(authorization, facts) &&
       Object.hasOwn(authorization, 'configHash') && authorization.configHash === facts.configHash
     const eligible = authorized && !facts.accepted && facts.registered && facts.snapshot?.complete && facts.snapshot.headSha && candidate
     return { candidateId: candidate?.id ?? null, treeHash: facts.snapshot?.treeHash ?? null, requirementHash: facts.requirementHash,
@@ -1866,7 +1904,7 @@ export default class RequirementsService {
     if (automaticAuthorization) {
       let current = null
       try { current = this.automaticFacts(root, requirementId) } catch {}
-      if (!current || current.requirementHash !== automaticAuthorization.authorization.requirementHash || current.revision !== automaticAuthorization.authorization.revision || current.configHash !== automaticAuthorization.authorization.configHash || !current.snapshot?.complete) {
+      if (!current || !autoAdvanceCore.authorizationScopeMatchesFacts(automaticAuthorization.authorization, current) || current.configHash !== automaticAuthorization.authorization.configHash || !current.snapshot?.complete) {
         try { handle?.dispose?.() } catch {}
         throw Object.assign(new Error('启动准备期间需求或证据版本变化，请重新读取后授权'), { status: 409, code: 'auto-authorization-stale' })
       }
@@ -2010,44 +2048,55 @@ export default class RequirementsService {
 
   resumeAutomaticCheckpoint(root, run, actor) {
     const previous = run.checkpoint?.autoAdvance
-    const resumableReasons = ['registered-acceptance-failed', 'decision-options-requested', 'verification-timeout', 'verification-command-unavailable', 'verification-config-changed', 'auto-facts-changed', 'requirement-changed']
+    const resumableReasons = ['environment-blocked', 'registered-acceptance-failed', 'decision-options-requested', 'verification-timeout', 'verification-command-unavailable', 'verification-config-changed', 'auto-facts-changed', 'requirement-changed']
     if (previous?.status !== 'stopped' || !resumableReasons.includes(previous.reason)) return { checkpoint: run.checkpoint, receipt: {} }
     const denied = reason => ({ checkpoint: run.checkpoint, receipt: { autoAdvanceResumed: false, autoAdvanceReason: reason } })
     if (!String(actor).startsWith('human:') || previous.authorized !== true || previous.authorization?.source !== 'start-v4') return denied('auto-authorization-required')
     const attempts = previous.verification?.attempts ?? 0
-    if (!Number.isInteger(previous.dispatches) || !Number.isInteger(previous.maxDispatches) || previous.dispatches < 0 || previous.maxDispatches > MAX_AUTO_DISPATCHES || previous.dispatches >= previous.maxDispatches || !Number.isInteger(attempts) || attempts < 0 || attempts >= 4) return denied('auto-budget-exhausted')
+    if (!Number.isInteger(previous.dispatches) || !Number.isInteger(previous.maxDispatches) || previous.dispatches < 0 || previous.maxDispatches <= 0 || previous.maxDispatches > autoAdvanceCore.MAX_AUTO_DISPATCHES || previous.dispatches > previous.maxDispatches || !Number.isInteger(attempts) || attempts < 0) return denied('auto-budget-exhausted')
     let facts
     try { facts = this.automaticFacts(root, run.requirement) } catch { return denied('auto-facts-unavailable') }
     const authorization = previous.authorization
     if (!facts?.snapshot?.complete || !facts.snapshot.headSha || facts.accepted || !facts.requirementHash || !Object.hasOwn(authorization, 'configHash')) return denied('auto-facts-changed')
-    // A changed requirement text is the one stale fact a human can re-authorize
-    // by clicking 继续推进: the click is the consent, and the receipt records the
-    // exact revision that replaced the one this round was granted for. Without
-    // this the stop is permanent — the run is still resumable, but its
-    // authorization can never match again, so verification and candidate
-    // creation stay switched off forever.
-    const identityChanged = facts.requirementHash !== authorization.requirementHash || facts.revision !== authorization.revision
-    if (identityChanged && previous.reason !== 'requirement-changed') return denied('auto-facts-changed')
+    // A changed scope is the one stale fact a human can re-authorize by clicking
+    // 继续推进: the click is the consent, and the receipt records exactly what
+    // replaced what this round was granted for. A legacy authorization (no
+    // scopeHash) keeps the stricter requirementHash binding until this rebind.
+    const scopeChanged = !autoAdvanceCore.authorizationScopeMatchesFacts(authorization, facts)
+    if (scopeChanged && previous.reason !== 'requirement-changed') return denied('auto-facts-changed')
+    const newScope = scopeChanged && autoAdvanceCore.authorizationScope(authorization) !== null && autoAdvanceCore.factsScope(facts) !== null
+    if (!newScope && (previous.dispatches >= previous.maxDispatches || attempts >= autoAdvanceCore.MAX_AUTO_VERIFICATIONS)) return denied('auto-budget-exhausted')
+    // A human reauthorizing new scope can verify it without gaining extra model turns.
+    const renewVerification = newScope && attempts > 0
     // A human narrowing the acceptance command is itself an authorization act.
-    // Rebind the hash here rather than leaving the round permanently stopped.
+    // Rebind the identity here rather than leaving the round permanently stopped.
     const changes = []
     const next = { ...authorization }
-    if (identityChanged) {
-      changes.push({ field: 'requirementHash', from: authorization.requirementHash, to: facts.requirementHash })
-      changes.push({ field: 'revision', from: authorization.revision, to: facts.revision })
+    if (facts.scopeHash && next.scopeHash !== facts.scopeHash) {
+      changes.push({ field: 'scopeHash', from: authorization.scopeHash ?? null, to: facts.scopeHash })
+      next.scopeHash = facts.scopeHash
+    }
+    if (next.requirementHash !== facts.requirementHash) {
+      changes.push({ field: 'requirementHash', from: authorization.requirementHash ?? null, to: facts.requirementHash })
       next.requirementHash = facts.requirementHash
+    }
+    if (facts.revision !== undefined && next.revision !== facts.revision) {
+      changes.push({ field: 'revision', from: authorization.revision ?? null, to: facts.revision })
       next.revision = facts.revision
     }
     if (facts.configHash !== authorization.configHash) {
       changes.push({ field: 'configHash', from: authorization.configHash, to: facts.configHash })
       next.configHash = facts.configHash
     }
+    const identityChanged = scopeChanged || changes.some((change) => change.field !== 'configHash')
     const didRebound = changes.length > 0
     const rebound = didRebound
       ? { ...next, rebound: { at: new Date().toISOString(), actor: String(actor), from: changes[0].from, to: changes[0].to, changes,
+          ...(renewVerification ? { previousVerificationAttempts: attempts } : {}),
           reason: identityChanged ? 'resume-requirement-rebound' : 'resume-verification-config-rebound' } }
       : authorization
-    return { checkpoint: { ...run.checkpoint, autoAdvance: { ...previous, authorization: rebound, status: 'authorized', reason: null } },
+    return { checkpoint: { ...run.checkpoint, autoAdvance: { ...previous, authorization: rebound, status: 'authorized', reason: null,
+      ...(renewVerification ? { verification: { ...previous.verification, attempts: 0 } } : {}) } },
       receipt: { autoAdvanceResumed: true, autoAdvanceRebound: didRebound, ...(didRebound ? { autoAdvanceReboundReason: rebound.rebound.reason } : {}) } }
   }
 
@@ -2072,8 +2121,8 @@ export default class RequirementsService {
       const summary = problems.slice(0, 5).join('；') || '无法获取完整工作区快照'
       throw Object.assign(new Error(`无法启动 AI 推进：${summary}${problems.length > 5 ? `；另有 ${problems.length - 5} 项` : ''}。修复后可重新推进。`), { status: 409, code: 'auto-facts-unavailable' })
     }
-    return { authorized: true, authorization: { actor: subject.id, source: 'start-v4', at: new Date().toISOString(), requirementHash: facts.requirementHash, revision: facts.revision, configHash: facts.configHash ?? null },
-      dispatches: 0, maxDispatches: MAX_AUTO_DISPATCHES, status: 'authorized', reason: null, baselineFingerprint: facts.fingerprint, lastProgress: { fingerprint: facts.fingerprint } }
+    return { authorized: true, authorization: { actor: subject.id, source: 'start-v4', at: new Date().toISOString(), requirementHash: facts.requirementHash, ...(facts.scopeHash ? { scopeHash: facts.scopeHash } : {}), revision: facts.revision, configHash: facts.configHash ?? null },
+      dispatches: 0, maxDispatches: autoAdvanceCore.MAX_AUTO_DISPATCHES, status: 'authorized', reason: null, baselineFingerprint: facts.fingerprint, lastProgress: { fingerprint: facts.fingerprint } }
   }
 
   /**
@@ -2100,6 +2149,45 @@ export default class RequirementsService {
     } catch { return null }
   }
 
+  /**
+   * Rebind the start-time authorization after a human-consented requirement
+   * edit that belongs to the run. Declaring the modules a delivery moved is the
+   * common case: the click is the approval, but the requirement hash changes,
+   * so without this write the scheduler reads it as an unapproved scope change
+   * and stops the very run the declaration was meant to unblock.
+   *
+   * Dispatch and verification budgets are preserved; only the bound identity is
+   * refreshed. A live carrier continues immediately, a lost one still needs the
+   * explicit resume click — which now sees a current authorization.
+   */
+  rebindRequirementAuthorization(root, requirementId, actor, reason = 'requirement-edit-rebound') {
+    if (!String(actor ?? '').startsWith('human:')) return null
+    const run = (typeof runCore.resumableRunFor === 'function' ? runCore.resumableRunFor(root, requirementId) : null) ??
+      (typeof runCore.activeRunFor === 'function' ? runCore.activeRunFor(root, requirementId) : null)
+    const auto = run?.checkpoint?.autoAdvance
+    if (!run || !auto?.authorization || auto.authorized !== true || auto.authorization.source !== 'start-v4') return null
+    if (run.status !== 'waiting-input') return null
+    let facts
+    try { facts = this.automaticFacts(root, requirementId) } catch { return null }
+    const rebound = autoAdvanceCore.rebindAutomaticAuthorization({ autoAdvance: auto, facts, actor, reason })
+    if (!rebound) return null
+    if (!rebound.changed) return { runId: run.id, requirementId, rebound: false, authorization: auto.authorization }
+    try {
+      runCore.updateRun({
+        root, runId: run.id, expectedRun: run, status: 'waiting-input', phase: 'review-result',
+        checkpoint: { ...run.checkpoint, autoAdvance: rebound.autoAdvance },
+        note: `重新授权：${reason}`, apply: true,
+      })
+    } catch (error) {
+      return error?.code === 'run-changed'
+        ? { runId: run.id, requirementId, rebound: false, reason: 'run-changed' }
+        : null
+    }
+    const handle = this.activeRuns?.get(this.executionKey(root, requirementId))
+    if (handle?.agent?.followup) this.scheduleAutomaticAdvance(root, run.id)
+    return { runId: run.id, requirementId, rebound: true, authorization: rebound.autoAdvance.authorization }
+  }
+
   automaticFacts(root, requirementId) {
     const context = this.reviewContext(root, requirementId)
     const snapshot = candidateCore.worktreeSnapshot(root)
@@ -2113,13 +2201,17 @@ export default class RequirementsService {
       const scoped = absolute ? relative(resolve(root), absolute).replaceAll('\\', '/') : null
       if (scoped?.startsWith('.alm/') && !scoped.split('/').includes('..')) evidence = JSON.parse(readFileSync(absolute, 'utf8'))
     } catch {}
+    // The scope hash covers goal/scope/acceptance text only: declaring an
+    // `allocated_to` relation changes requirementHash but must not revoke the
+    // authorization of the run that is waiting for that declaration.
     const item = query.requirements(root).requirements?.find((entry) => entry.id === requirementId)
+    const scopeHash = contentHashCore.requirementScopeHash({ root, asset: context.asset, doc: item?.docView?.doc ?? null })
     const plan = acceptance.registered ? acceptanceCore.runAcceptance({ root, requirementId, context: this.acceptanceContext(root, requirementId) }) : null
     const verificationKey = plan ? createHash('sha256').update(JSON.stringify({ snapshot: { head: snapshot.headSha, files: snapshot.files }, requirementHash: plan.provenance?.requirementHash, testRevision: plan.provenance?.testRevision, commands: plan.commands })).digest('hex') : null
-    return { verificationKey, configHash: plan ? createHash('sha256').update(JSON.stringify(plan.commands)).digest('hex') : null, registered: acceptance.registered === true, requirementHash: requirementContentHash({ root, asset: context.asset }), revision: context.asset.extra?.revision ?? 1,
+    return { verificationKey, configHash: plan ? createHash('sha256').update(JSON.stringify(plan.commands)).digest('hex') : null, registered: acceptance.registered === true, requirementHash: contentHashCore.requirementContentHash({ root, asset: context.asset }), scopeHash, revision: context.asset.extra?.revision ?? 1,
       accepted: ['accepted', 'closed'].includes(item?.delivery?.key ?? item?.delivery?.state) || ['published', 'released'].includes(item?.release?.status ?? item?.release?.state) || Boolean(readClosure(root, requirementId)),
       environmentBlocked: false, // Only a host verification for this exact snapshot may block on environment.
-      snapshot, evidence, fingerprint: progressFingerprint({ snapshot, evidence }),
+      snapshot, evidence, fingerprint: autoAdvanceCore.progressFingerprint({ snapshot, evidence }),
       candidateEligible: acceptance.registered === true && acceptance.latest?.current === true && acceptance.latest?.complete === true && acceptance.latest?.result === 'pass' && evidence?.result === 'pass' }
   }
 
@@ -2129,9 +2221,16 @@ export default class RequirementsService {
     const allowed = (run, current) => !this.disposed && run?.status === 'waiting-input' &&
       this.activeRuns.get(this.executionKey(root, run.requirement)) === handle && handle.runId === run.id && Boolean(handle.agent?.followup) && this.deliveryRootKey(handle.root) === this.deliveryRootKey(root) &&
       run.checkpoint?.autoAdvance?.authorized === true && run.checkpoint.autoAdvance.authorization?.source === 'start-v4' &&
-      !['stopped', 'candidate-ready'].includes(run.checkpoint.autoAdvance.status) && !run.checkpoint?.decisionReframe && !this.hasPendingDecision(root, run) &&
+      // A stale `environment-blocked` stop is a statement about the previous
+      // executor's environment, not about this snapshot. The host's own
+      // verification must still run: otherwise the blocked round can never be
+      // re-judged even after the capability exists.
+      (run.checkpoint.autoAdvance.status === 'stopped'
+        ? run.checkpoint.autoAdvance.reason === 'environment-blocked'
+        : !['stopped', 'candidate-ready'].includes(run.checkpoint.autoAdvance.status)) &&
+      !run.checkpoint?.decisionReframe && !this.hasPendingDecision(root, run) &&
       current?.snapshot?.complete && current.snapshot.headSha && !current.accepted &&
-      current.requirementHash === run.checkpoint.autoAdvance.authorization.requirementHash && current.revision === run.checkpoint.autoAdvance.authorization.revision
+      autoAdvanceCore.authorizationScopeMatchesFacts(run.checkpoint.autoAdvance.authorization, current)
     let run = read()
     if (!allowed(run, facts)) return { facts }
     if (!Object.hasOwn(run.checkpoint.autoAdvance.authorization, 'configHash')) return { facts: { ...facts, candidateEligible: false } }
@@ -2159,7 +2258,7 @@ export default class RequirementsService {
       try { unchanged = previous.evidenceHash === createHash('sha256').update(readFileSync(previous.evidencePath)).digest('hex') } catch {}
       return { facts: { ...facts, candidateEligible: previous.status === 'passed' && unchanged && facts.candidateEligible }, stop: previous.status === 'passed' ? (unchanged ? null : 'verification-evidence-changed') : previous.status === 'running' ? 'verification-interrupted' : previous.reason ?? 'verification-already-failed' }
     }
-    if (Number(prior.attempts ?? 0) >= 4) return { facts, stop: 'verification-budget-exhausted' }
+    if (Number(prior.attempts ?? 0) >= autoAdvanceCore.MAX_AUTO_VERIFICATIONS) return { facts, stop: 'verification-budget-exhausted' }
     this.verificationLocks ??= new Map()
     const key = `${this.deliveryRootKey(root)}|${runId}`
     if (this.verificationLocks.has(key)) return { facts, stop: 'verification-busy' }
@@ -2182,14 +2281,19 @@ export default class RequirementsService {
       const commands = payload.evidence?.commands ?? []
       const timedOut = commands.some((entry) => entry.timedOut || entry?.error?.code === 'ETIMEDOUT')
       const unavailable = commands.some((entry) => !entry?.timedOut && (entry.spawnFailed || entry.error))
+      // Only denied child processes and no real assertion failure: report an
+      // environment limit the human can route elsewhere, not a code defect that
+      // schedules another repair round.
+      const environmentOnly = acceptanceBlockedOnly(payload)
       const valid = allowed(read(), after) && after.verificationKey === facts.verificationKey && payload.evidence?.schema === acceptanceCore.ACCEPTANCE_SCHEMA && payload.evidence?.worktree?.stable === true
       const reason = !valid ? 'verification-context-changed'
-        : timedOut ? 'verification-timeout'
-          : unavailable ? 'verification-command-unavailable'
-            : payload.result === 'pass' ? null : 'registered-acceptance-failed'
+        : environmentOnly ? 'verification-command-unavailable'
+          : timedOut ? 'verification-timeout'
+            : unavailable ? 'verification-command-unavailable'
+              : payload.result === 'pass' ? null : 'registered-acceptance-failed'
       persist({ ...record, status: reason ? 'failed' : 'passed', reason, evidencePath: payload.evidencePath ?? null,
         evidenceHash: payload.evidencePath ? createHash('sha256').update(readFileSync(payload.evidencePath)).digest('hex') : null })
-      return { facts: after, stop: reason, failure: valid && !timedOut && !unavailable && payload.result === 'fail' ? payload : null }
+      return { facts: after, stop: reason, failure: valid && !environmentOnly && !timedOut && !unavailable && payload.result === 'fail' ? payload : null }
     } catch (error) {
       if (error?.code === 'run-changed') return { facts: null, conflict: true }
       persist({ ...record, status: 'failed', reason: 'verification-unavailable', message: error.message })
@@ -2232,7 +2336,7 @@ export default class RequirementsService {
       // Verification appends durable checkpoint data; never overwrite it with the pre-process record.
       run.checkpoint = current.checkpoint
       run.updatedAt = current.updatedAt
-      const outcome = nextAutomaticAction({ run, pendingDecision: this.hasPendingDecision(root, run), carrier,
+      const outcome = autoAdvanceCore.nextAutomaticAction({ run, pendingDecision: this.hasPendingDecision(root, run), carrier,
         repairPending: this.pendingRepairs?.has(repairKey) || this.repairJobs?.has(repairKey) || run.checkpoint?.inPlaceRepair?.status === 'running', facts })
       if (outcome.action === 'repair') return
       const previous = run.checkpoint.autoAdvance
@@ -2370,13 +2474,19 @@ export default class RequirementsService {
 
   runDecision({ root, requirementId }) {
     const active = typeof runCore.resumableRunFor === 'function' ? runCore.resumableRunFor(root, requirementId) : null
-    const discovered = this.deliveryDecision(root, active)
+    let run = active
+    let runRoot = root
+    let discovered = this.deliveryDecision(root, active)
+    if (!discovered.pending && (!active || ['waiting-input', 'failed'].includes(active.status))) {
+      const isolated = pendingIsolatedDecision(root, requirementId)
+      if (isolated) ({ root: runRoot, run, decision: discovered } = isolated)
+    }
     const decision = discovered.pending ? discovered.path : null
     const text = discovered.identity && decision ? discovered.text : null
     return {
-      schema: 'alm.run.decision/v1', runId: active?.id ?? null, exists: Boolean(active), decision, text,
+      schema: 'alm.run.decision/v1', runId: run?.id ?? null, runRoot, exists: Boolean(run), decision, text,
       decisionIdentity: decision ? { path: decision, contentHash: discovered.identity?.sha256 ?? null } : null,
-      presentation: presentDecisionRequest(text, { sourceFile: decision, runId: active?.id ?? null }),
+      presentation: presentDecisionRequest(text, { sourceFile: decision, runId: run?.id ?? null }),
     }
   }
 
@@ -2419,7 +2529,7 @@ export default class RequirementsService {
     }
     const active = runCore.resumableRunFor(root, requirementId)
     if (!active) return { resumed: false, reason: 'no-active-run', message: '当前没有等待人类回答的运行；请先交给 AI 推进' }
-    if (active.status !== 'waiting-input' && !(active.status === 'failed' && active.failure?.code === 'host-restart')) return { resumed: false, reason: 'run-not-resumable', message: '本轮不是等待继续状态，未绕过暂停或其他门禁' }
+    if (active.status !== 'waiting-input' && !(active.status === 'failed' && runCore.isResumableHostFailure(active.failure))) return { resumed: false, reason: 'run-not-resumable', message: '本轮不是等待继续状态，未绕过暂停或其他门禁' }
     // Older runs recorded a verified range approval but did not preserve the
     // decision's proposed paths. Recover only exact, hash-bound approvals.
     applyResolvedScopeApprovals(root, active)
@@ -2429,7 +2539,7 @@ export default class RequirementsService {
     const decision = discovered.pending ? discovered.path : null
     const identity = discovered.pending ? discovered.identity : null
     if (!continuing && decision && !active.checkpoint?.decision && !expectedDecision) throw Object.assign(new Error('回答需要当前决策路径与内容标识，请重新读取后回答'), { status: 409, code: 'decision-identity-required' })
-    if (expectedDecision && (expectedDecision.path !== decision || expectedDecision.contentHash !== identity?.sha256)) throw Object.assign(new Error('决策内容已变化，请重新读取后回答'), { status: 409, code: 'decision-changed' })
+    if (expectedDecision && ((expectedDecision.runId && expectedDecision.runId !== active.id) || expectedDecision.path !== decision || expectedDecision.contentHash !== identity?.sha256)) throw Object.assign(new Error('决策内容已变化，请重新读取后回答'), { status: 409, code: 'decision-changed' })
     if (decision && !identity) return { resumed: false, reason: 'decision-unreadable', message: '决策文件不可读，未消费决策或记录回答' }
     if (decisionResponse) {
       if (continuing || rejectCandidate || !decision || !expectedDecision) throw Object.assign(new Error('请重新读取当前决策后选择'), { status: 409, code: 'decision-identity-required' })
@@ -2437,7 +2547,7 @@ export default class RequirementsService {
       // A blueprint scope card has one explicit business choice. Approval is
       // bound to the exact decision bytes; no stale or replayed answer can
       // widen the run after the card changed.
-      if (active.checkpoint?.blueprint && decision === `.alm/runs/${active.id}-decision.md` && decisionResponse.action === 'choose') {
+      if (active.checkpoint?.blueprint && active.checkpoint?.decision === decision && Array.isArray(active.checkpoint.scopeDecisionFiles) && decisionResponse.action === 'choose') {
         const choice = decisionResponse.selections?.D1
         if (choice === 'A') {
           const blueprint = blueprintCore.readBlueprint(root, active.id)
@@ -2902,7 +3012,7 @@ export default class RequirementsService {
     if (docCore.parseDoc(before).doc.acceptance.length === 0) {
       return this.proposeLegacyFeedbackDraft({ root, requirementId, feedback, contextId, triage, asset, beforeBrief: before })
     }
-    const hash = requirementContentHash({ root, asset })
+    const hash = contentHashCore.requirementContentHash({ root, asset })
     const selection = await this.resolveAiSelection({})
     const timeoutMs = Number.isSafeInteger(this.convergenceDraftTimeoutMs) && this.convergenceDraftTimeoutMs > 0
       ? this.convergenceDraftTimeoutMs
@@ -2941,7 +3051,7 @@ export default class RequirementsService {
     const afterBrief = parseAiJson(output)?.afterBrief
     if (typeof afterBrief !== 'string' || !afterBrief.trim()) throw Object.assign(new Error('生成的需求草案无效，请稍后重试。'), { code: 'ai-output-invalid', status: 502 })
     const current = this.reviewContext(root, requirementId).asset
-    if (requirementContentHash({ root, asset: current }) !== hash) throw Object.assign(new Error('生成期间需求已变化，请重试'), { code: 'stale-baseline', status: 409 })
+    if (contentHashCore.requirementContentHash({ root, asset: current }) !== hash) throw Object.assign(new Error('生成期间需求已变化，请重试'), { code: 'stale-baseline', status: 409 })
     return convergenceCore.proposeSpecDelta({ root, runId: contextId, requirementId, afterBrief, evolutionNote: feedback, kind: triage.kind === 'needs_review' ? 'spec_refinement' : triage.kind })
   }
 
@@ -3624,6 +3734,74 @@ export default class RequirementsService {
     }
   }
 
+  /**
+   * Architecture allocation. `plan` is read-only; `declare` appends the
+   * `allocated_to` relations that unblock delivery. A declaration changes
+   * requirement content, so it requires a host-authenticated human and the exact
+   * requirement hash the plan was computed against — a concurrent requirement
+   * edit must never be overwritten by a stale click.
+   */
+  async handleArchitecture(req, res) {
+    const respond = (status, payload) => {
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(payload))
+    }
+    try {
+      if (req.method !== 'GET' && req.method !== 'POST') {
+        respond(405, { ok: false, error: { code: 'method-not-allowed', message: 'GET or POST required' } })
+        return
+      }
+      if (typeof allocationCore?.planAllocation !== 'function') {
+        respond(503, { ok: false, error: { code: 'module-stale', message: '补声明模块不可用，需重启宿主（module cache）' } })
+        return
+      }
+      const url = new URL(req?.url ?? '/', 'http://127.0.0.1')
+      const body = req.method === 'POST' ? await readJsonBody(req, 64 * 1024) : {}
+      const root = this.monitorRootFor(req, body)
+      const action = readText(body.action ?? url.searchParams.get('action')) || 'plan'
+      const requirementId = readText(body.requirement ?? body.requirementId ?? url.searchParams.get('requirement'))
+      const requested = Array.isArray(body.modules)
+        ? body.modules
+        : readText(body.modules ?? url.searchParams.get('modules')).split(/[,\s]+/).filter(Boolean)
+      const plan = allocationCore.planAllocation({ root, requirementId, modules: requested })
+      if (action === 'plan') {
+        respond(200, { ok: true, ...plan })
+        return
+      }
+      if (action === 'declare') {
+        const subject = this.humanSubjectFor(req)
+        // An empty module list means "declare whatever is still missing", which
+        // is what the one-click action offers once the plan has been shown.
+        const modules = requested.length > 0 ? requested : plan.missing
+        if (modules.length === 0) {
+          respond(200, { ok: true, applied: false, idempotent: true, ...plan })
+          return
+        }
+        const result = allocationCore.applyAllocation({
+          root,
+          requirementId,
+          modules,
+          expectedRequirementHash: readText(body.expectedRequirementHash ?? url.searchParams.get('expectedRequirementHash'))
+            || plan.requirementHash,
+          actor: subject.id,
+          note: readText(body.note) || null,
+        })
+        // The declaration changes requirement content. Rebind the running
+        // authorization in the same click, otherwise the scheduler sees an
+        // unapproved requirement change and stops the delivery it just unblocked.
+        const authorizationRebound = this.rebindRequirementAuthorization(root, requirementId, subject.id, 'declare-allocation')
+        respond(200, { ok: true, ...result, authorizationRebound })
+        return
+      }
+      respond(400, { ok: false, error: { code: 'architecture-action-invalid', message: '未知的架构操作：' + String(action) } })
+    } catch (error) {
+      respond(error?.status ?? 400, {
+        ok: false,
+        error: { code: error?.code ?? 'architecture-request-failed', message: error?.message ?? String(error) },
+      })
+    }
+  }
+
   async handleFailure(req, res) {
     const respond = (status, payload) => {
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -3687,6 +3865,28 @@ export default class RequirementsService {
       if (mode === 'analyse') {
         const failureId = readText(body.failureId ?? body.id ?? url.searchParams.get('failureId') ?? url.searchParams.get('id'))
         respond(200, await this.analyseFailure(root, body, failureId))
+        return
+      }
+      if (mode === 'resolve') {
+        // Settling a failure is a human decision: it stops the event from being
+        // presented as a live problem, so it needs a host-authenticated subject.
+        const subject = this.humanSubjectFor(req)
+        const failureId = readText(body.failureId ?? body.id ?? url.searchParams.get('failureId') ?? url.searchParams.get('id'))
+        const resolved = failureCore.resolveFailure({
+          root,
+          id: failureId,
+          status: readText(body.status ?? url.searchParams.get('status')) || 'resolved',
+          actor: subject.id,
+          note: readText(body.note ?? url.searchParams.get('note')) || null,
+        })
+        respond(200, {
+          schema: 'alm.failure.resolve/v1',
+          ok: true,
+          id: resolved.failure?.id ?? null,
+          idempotent: resolved.idempotent === true,
+          resolution: resolved.resolution,
+          failure: resolved.failure ?? null,
+        })
         return
       }
       respond(400, { ok: false, error: { code: 'failure-mode-invalid', message: '未知的失败操作：' + String(mode) } })
@@ -4230,7 +4430,7 @@ export default class RequirementsService {
             return
           }
         }
-        if (body.apply === true && body.autoAdvance === true) this.prepareAutomaticAuthorization(root, body.requirementId, startSubject)
+        if (body.apply === true && body.autoAdvance === true && body.isolate !== true) this.prepareAutomaticAuthorization(root, body.requirementId, startSubject)
         try {
           payload = openChange({
             root,
@@ -4260,10 +4460,16 @@ export default class RequirementsService {
         if (body.apply === true) {
           // A change record is not a running delivery: ask the host for a real
           // session and report back only what the carrier actually accepted.
+          const executionRoot = payload.worktree?.path ?? root
+          if (payload.worktree) {
+            const config = acceptanceCore.readAcceptanceConfig(root, body.requirementId)
+            if (config) applyAcceptanceConfig({ root: executionRoot, requirementId: body.requirementId, commands: config.commands })
+            startItem = query.requirements(executionRoot).requirements?.find((entry) => entry.id === body.requirementId)
+          }
           payload = {
             ...payload,
             execution: await this.startDeliveryRun({
-              root,
+              root: executionRoot,
               requirementId: body.requirementId,
               changeId: payload?.changeId,
               item: startItem,
@@ -4473,6 +4679,11 @@ export default class RequirementsService {
           payload = this.cancelDeliveryRun({ root, requirementId: body.requirementId, reason: body.reason })
         } else if (body.mode === 'answer' || body.mode === 'continue' || body.mode === 'reject-candidate') {
           const subject = this.humanSubjectFor(req)
+          const decision = body.mode === 'continue' ? this.runDecision({ root, requirementId: body.requirementId }) : null
+          if (decision?.decision) return respond(200, {
+            resumed: false, reason: 'human-decision-required', runId: decision.runId,
+            runRoot: decision.runRoot, message: '请先回答当前人工决策',
+          })
           payload = await this.resumeDeliveryRun({
             root,
             requirementId: body.requirementId,

@@ -3,6 +3,7 @@ import { encodeRequirementsXlsx, decodeRequirementsXlsx } from '../alm-core/src/
 
 const MAX_FILE = 8 * 1024 * 1024
 export const MAX_EXCHANGE_BODY = 12 * 1024 * 1024
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const fail = (message, code = 'invalid-exchange', status = 400) => { throw Object.assign(new Error(message), { code, status }) }
 
@@ -62,8 +63,12 @@ export function exchangeRequest({ root, body }) {
   if (!['json', 'xlsx'].includes(format)) fail('only JSON and .xlsx are supported', 'unsupported-format', 415)
   if (!['preview', 'apply'].includes(action)) fail('unknown exchange action')
   if (typeof body.filename !== 'string' || !body.filename.toLowerCase().endsWith(`.${format}`)) fail('filename does not match format', 'unsupported-format', 415)
-  if (typeof body.content !== 'string' || body.content.length > Math.ceil(MAX_FILE / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.content)) fail('invalid or oversized base64 file', 'invalid-file')
-  const bytes = Buffer.from(body.content, 'base64')
+  const { content } = body
+  // A repeated four-character group can overflow V8's regex stack on large inputs.
+  if (typeof content !== 'string' || content.length > Math.ceil(MAX_FILE / 3) * 4 || content.length % 4 !== 0 || !BASE64.test(content)) {
+    fail('invalid or oversized base64 file', 'invalid-file')
+  }
+  const bytes = Buffer.from(content, 'base64')
   if (!bytes.length || bytes.length > MAX_FILE) fail('file must be between 1 byte and 8 MiB', 'file-too-large', 413)
   let payload
   try { payload = format === 'xlsx' ? decodeRequirementsXlsx(bytes) : JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }

@@ -1,17 +1,32 @@
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { runCaptured } from '../process-capture.mjs'
 import { sha256 } from '../model/content-hash.mjs'
 
 const MAX_FILES = 2000
 const MAX_FILE_BYTES = 4 * 1024 * 1024
 const EXCLUDED_PREFIXES = ['.git/', '.alm/', 'node_modules/', 'dist/', 'tmp/', 'artifacts/', 'validation/', 'requirements/architecture/']
 
+/**
+ * Git through the shared capture helper: a confined session can forbid piped
+ * stdio while still allowing file descriptors. Without this fallback a blocked
+ * `git status` looked like an incomplete worktree, which then marked fresh
+ * evidence stale on every sandboxed verification.
+ */
+function defaultExec(command, args, options = {}) {
+  const result = runCaptured(command, args, { cwd: options.cwd, encoding: 'utf8' })
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw Object.assign(new Error(`git ${args[0]} exited ${result.status}`), { code: 'git-failed', stderr: result.stderr })
+  }
+  return result.stdout
+}
+
 /** Content scope deliberately excludes generated evidence, dependencies and tmp.
  * The architecture ledger is generated documentation bound by its own hash in
  * the candidate; regenerating it must not make a fresh acceptance stale. */
-export function worktreeSnapshot(root, { exec = execFileSync } = {}) {
+export function worktreeSnapshot(root, { exec = defaultExec } = {}) {
   const repo = resolve(root), reasons = [], files = []
   const git = (args) => {
     try { return exec('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) }

@@ -1,13 +1,16 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { indexReport } from '../commands.mjs'
+import { parseAssetFile } from '../parse/load.mjs'
 import { readProject } from '../project/project.mjs'
 import { draftTasks } from '../tasks/draft.mjs'
 
 const CHANGE_ID = /^CHG-[A-Z0-9][A-Z0-9-]{2,}$/
 const CHANGE_DIR = '.alm/changes'
 const DRAFT_DIR = 'changes'
+const PROJECT_FILE = '.alm/project.json'
 
 export class ChangeError extends Error {
   constructor(message, { code = 'change', status = 400 } = {}) {
@@ -64,21 +67,19 @@ export function worktreePathFor({ root, changeId, worktreeRoot }) {
   return join(worktreeRootFor(repo, worktreeRoot), `${basename(repo)}-${changeId.toLowerCase()}`)
 }
 
-/**
- * Plan an open change for one requirement: baseline, branch and where the
- * change record / task draft will land. Planning never writes to the repository.
- */
-export function planChange({ root, requirementIds, changeId, isolate = false, worktreeRoot }) {
+function planOpenChange({ root, requirementIds, changeId, isolate = false, worktreeRoot }) {
   const repo = resolve(root)
   const ids = [...new Set((requirementIds ?? []).map((id) => String(id).trim()).filter(Boolean))]
   if (ids.length === 0) throw new ChangeError('at least one requirement id is required', { code: 'no-requirements' })
 
   const index = indexReport(repo)
   if (index && index.ok === false) throw new ChangeError(index.error, { code: 'index-failed' })
-  for (const id of ids) {
-    const asset = index.assets.find((entry) => entry.id === id && entry.type === 'requirement')
-    if (!asset) throw new ChangeError(`requirement not found: ${id}`, { code: 'unknown-requirement', status: 404 })
-  }
+  const requirements = ids.map((id) => {
+    const matches = index.assets.filter((entry) => entry.id === id && entry.type === 'requirement')
+    if (!matches.length) throw new ChangeError(`requirement not found: ${id}`, { code: 'unknown-requirement', status: 404 })
+    if (isolate && matches.length !== 1) throw new ChangeError(`requirement ID is ambiguous: ${id}`, { code: 'requirement-file-conflict', status: 409 })
+    return matches[0]
+  })
 
   let baselineSha
   try {
@@ -100,7 +101,7 @@ export function planChange({ root, requirementIds, changeId, isolate = false, wo
     throw new ChangeError(`worktree path already exists: ${worktreePath}`, { code: 'worktree-exists', status: 409 })
   }
 
-  return {
+  const plan = {
     schema: 'alm.change.plan/v1',
     changeId: id,
     project: project?.id ?? null,
@@ -119,6 +120,79 @@ export function planChange({ root, requirementIds, changeId, isolate = false, wo
     ],
     taskCount: ids.length * 3,
   }
+  return { plan, project, requirements }
+}
+
+/** Plan the baseline, branch and output paths without writing to the repository. */
+export function planChange(options) {
+  return planOpenChange(options).plan
+}
+
+function requirementFile(root, path, { project = false } = {}) {
+  const parts = path.split('/')
+  const invalidPath = () => new ChangeError(`unsafe requirement file: ${path}`, { code: 'unsafe-requirement-file' })
+  if (!(project && path === PROJECT_FILE) && (/[\\:\x00-\x1f\x7f]/.test(path) || parts.some((part) => !part || /[. ]$/.test(part) || /^\.(?:git|alm)$/i.test(part)))) {
+    throw invalidPath()
+  }
+  let absolute = root
+  for (const [index, part] of parts.entries()) {
+    absolute = join(absolute, part)
+    const entry = lstatSync(absolute, { throwIfNoEntry: false })
+    if (!entry) break
+    if (index === parts.length - 1 ? !entry.isFile() : !entry.isDirectory()) throw invalidPath()
+    if (index === parts.length - 1) return { file: absolute, contents: readFileSync(absolute) }
+  }
+  return { file: join(root, ...parts), contents: null }
+}
+
+function copyProject(targetRoot, project) {
+  if (!project) return
+  const target = requirementFile(targetRoot, PROJECT_FILE, { project: true })
+  if (target.contents) {
+    let existing
+    try { existing = JSON.parse(target.contents.toString('utf8')) } catch { /* replace invalid baseline config */ }
+    if (isDeepStrictEqual(existing, project)) return
+  }
+  mkdirSync(dirname(target.file), { recursive: true })
+  writeFileSync(target.file, `${JSON.stringify(project, null, 2)}\n`, 'utf8')
+}
+
+function unrelatedAssets(path, contents, selected) {
+  if (!contents) return []
+  return parseAssetFile(contents.toString('utf8'), path)
+    .filter((asset) => !selected.has(asset.id))
+    .map(({ source, links, ...asset }) => ({ ...asset, links: links.map(({ type, target }) => ({ type, target })) }))
+}
+
+function copyRequirementFiles(repo, targetRoot, requirements, sources) {
+  const selected = new Map(requirements.map((asset) => [asset.id, asset.source.path]))
+  const fileConflict = (path) => new ChangeError(`cannot isolate requirement changes in ${path}`, { code: 'requirement-file-conflict', status: 409 })
+  const baseline = indexReport(targetRoot).assets
+  const obsolete = new Set()
+  for (const asset of baseline) {
+    const old = asset.source.path
+    const current = selected.get(asset.id)
+    if (!current || old === current || (process.platform === 'win32' && old.toLowerCase() === current.toLowerCase())) continue
+    if (requirementFile(repo, old).contents || baseline.some((peer) => peer.source.path === old && !selected.has(peer.id))) {
+      throw fileConflict(old)
+    }
+    obsolete.add(requirementFile(targetRoot, old).file)
+  }
+  const documentPaths = new Set(selected.values())
+  for (const [path, source] of sources) {
+    const target = requirementFile(targetRoot, path)
+    if (source && target.contents?.equals(source)) continue
+    if (documentPaths.has(path) && !isDeepStrictEqual(unrelatedAssets(path, source, selected), unrelatedAssets(path, target.contents, selected))) {
+      throw fileConflict(path)
+    }
+    if (!source) {
+      if (target.contents) rmSync(target.file)
+      continue
+    }
+    mkdirSync(dirname(target.file), { recursive: true })
+    writeFileSync(target.file, source)
+  }
+  for (const path of obsolete) rmSync(path)
 }
 
 function createWorktree({ repo, path, branch, baselineSha }) {
@@ -158,12 +232,13 @@ function cleanupWorktree(repo, path, branch) {
  */
 export function openChange({ root, requirementIds, changeId, apply = false, isolate = false, worktreeRoot }) {
   const repo = resolve(root)
-  const plan = planChange({ root: repo, requirementIds, changeId, isolate, worktreeRoot })
+  const { plan, project, requirements } = planOpenChange({ root: repo, requirementIds, changeId, isolate, worktreeRoot })
   if (!apply) return { ...plan, applied: false }
 
   const record = {
     schema: 'alm.change/v1',
     changeId: plan.changeId,
+    requirementIds: plan.requirementIds,
     baselineSha: plan.baselineSha,
     branch: plan.isolate ? plan.branch : (git(repo, ['branch', '--show-current']) || null),
     plannedBranch: plan.branch,
@@ -198,8 +273,14 @@ export function openChange({ root, requirementIds, changeId, apply = false, isol
     }
   }
 
+  const paths = new Set(requirements.flatMap((entry) => [entry.source.path, entry.extra.brief].filter(Boolean)))
+  const sources = new Map([...paths].map((path) => [path, requirementFile(repo, path).contents]))
   const worktree = createWorktree({ repo, path: plan.worktreePath, branch: plan.branch, baselineSha: plan.baselineSha })
   try {
+    // The selected requirement can be newer than HEAD. Draft from the same
+    // files the human selected, while keeping the checkout's code at baseline.
+    copyProject(worktree.path, project)
+    copyRequirementFiles(repo, worktree.path, requirements, sources)
     const { changeFile, draft } = writeDraft(worktree.path)
     return {
       ...plan,

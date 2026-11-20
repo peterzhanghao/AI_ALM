@@ -4,6 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, lstatSync, r
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { resolveRunDecision, pendingDecisionFor } from '../../alm-core/src/requirements/run-decision.mjs'
 import * as runs from '../../alm-core/src/requirements/run.mjs'
 import { requirements } from '../query.mjs'
@@ -34,6 +35,37 @@ function snapshot(root) {
   return result
 }
 function project(f) { return requirements(f.root).requirements.find(item => item.id === 'REQ-PAY-001') }
+
+test('the project page and restart expose the decision in the linked delivery worktree', async t => {
+  const f = fixture(t)
+  const git = (...args) => execFileSync('git', ['-C', f.root, ...args], { stdio: 'ignore' })
+  runs.updateRun({ root: f.root, runId: f.run.id, status: 'failed', phase: 'interrupted', failure: { code: 'PI_AI_ERROR', message: 'Upstream response stream was interrupted' }, apply: true })
+  git('init', '-q')
+  git('add', 'requirements')
+  git('-c', 'user.name=Test', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'fixture')
+  const checkout = mkdtempSync(join(tmpdir(), 'alm-delivery-decision-'))
+  t.after(() => rmSync(checkout, { recursive: true, force: true }))
+  git('worktree', 'add', '-b', 'alm/chg-pay-099', checkout)
+  const changeId = 'CHG-PAY-099'
+  mkdirSync(join(checkout, '.alm/changes'), { recursive: true })
+  writeFileSync(join(checkout, '.alm/changes', `${changeId}.json`), JSON.stringify({
+    schema: 'alm.change/v2', changeId, isolated: true, branch: 'alm/chg-pay-099', requirementIds: ['REQ-PAY-001'],
+  }))
+  const run = runs.createRun({ root: checkout, requirementId: 'REQ-PAY-001', changeId, carrier: 'mock' }).run
+  runs.updateRun({ root: checkout, runId: run.id, status: 'waiting-input', phase: 'awaiting-human', apply: true })
+  const path = `.alm/runs/${run.id}-decision.md`
+  writeFileSync(join(checkout, path), '# 决策请求\n\n## 决策 1：图类型\n类型：业务\n- **选 A：两类图**\n- **选 B：全部图**\n')
+  const item = project(f)
+  assert.equal(item.detailView.primaryAction.id, 'answer-run')
+  const decision = f.service.runDecision({ root: f.root, requirementId: 'REQ-PAY-001' })
+  assert.equal(decision.decision, path)
+  assert.equal(decision.runRoot.toLowerCase(), checkout.toLowerCase())
+  assert.deepEqual(item.run.decisionIdentity, decision.decisionIdentity)
+  const restarted = await f.service.restartDeliveryRun({ root: f.root, requirementId: 'REQ-PAY-001' })
+  assert.equal(restarted.reason, 'human-decision-required')
+  assert.equal(restarted.runRoot, decision.runRoot)
+  assert.equal(runs.readRun(f.root, f.run.id).status, 'failed')
+})
 
 test('conventional technical request projects actual native answer action and same-byte identity without writes', t => {
   const f = fixture(t)

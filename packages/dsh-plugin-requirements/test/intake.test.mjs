@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { extractChat, extractOcr, extractOcrAsync } from '../intake.mjs'
+import { extractChat, extractOcrAsync } from '../intake.mjs'
 
 const dirs = []
 
@@ -36,25 +36,22 @@ test('extractChat rejects empty input', () => {
   assert.throws(() => extractChat({ markdown: '   ' }), (error) => error.code === 'chat-empty')
 })
 
-test('extractOcr normalizes engine output and image line references', () => {
+test('asynchronous OCR normalizes engine output and image line references', async () => {
   const dir = tempDir()
-  const script = join(dir, 'fake-ocr.py')
-  writeFileSync(script, 'console.log("{}")')
-  const result = extractOcr({
+  const script = join(dir, 'fake-ocr.cjs')
+  const output = JSON.stringify({
+    engine: 'ppocrv5',
+    lines: [
+      { text: '退款金额不得超过可退余额', confidence: 0.98, font_px: 16 },
+      { text: '同一订单只退一次', confidence: 0.72, font_px: 14, low_confidence: true },
+    ],
+    blocks: [],
+  })
+  writeFileSync(script, `console.log(${JSON.stringify(output)})`)
+  const result = await extractOcrAsync({
     imageBase64: Buffer.from('fake-image').toString('base64'),
     filename: 'shot.png',
-    runtime: { python: 'node', script },
-    run: () => ({
-      status: 0,
-      stdout: `${JSON.stringify({
-        engine: 'ppocrv5',
-        lines: [
-          { text: '退款金额不得超过可退余额', confidence: 0.98, font_px: 16 },
-          { text: '同一订单只退一次', confidence: 0.72, font_px: 14, low_confidence: true },
-        ],
-        blocks: [],
-      })}\n`,
-    }),
+    runtime: { python: process.execPath, script },
   })
   assert.equal(result.schema, 'alm.ocr/v1')
   assert.equal(result.mode, 'ocr')
@@ -65,30 +62,31 @@ test('extractOcr normalizes engine output and image line references', () => {
   assert.match(result.text, /退款金额/)
 })
 
-test('extractOcr rejects missing or oversized images', () => {
-  assert.throws(() => extractOcr({}), (error) => error.code === 'image-required')
+test('asynchronous OCR rejects missing or oversized images', async () => {
+  await assert.rejects(extractOcrAsync({}), { code: 'image-required' })
   const big = Buffer.alloc(9 * 1024 * 1024).toString('base64')
-  assert.throws(() => extractOcr({ imageBase64: big, filename: 'big.png' }), (error) => error.code === 'image-too-large')
+  await assert.rejects(extractOcrAsync({ imageBase64: big, filename: 'big.png' }), { code: 'image-too-large' })
 })
 
-test('extractOcr uses a safe temporary filename and cleans up after engine failure', () => {
+test('asynchronous OCR uses a safe temporary filename and cleans up after engine failure', async () => {
   const dir = tempDir()
-  const script = join(dir, 'fake-ocr.py')
-  writeFileSync(script, '')
-  let imagePath
-  assert.throws(() => extractOcr({
+  const script = join(dir, 'failed-ocr.cjs')
+  const marker = join(dir, 'image-path.txt')
+  writeFileSync(script, `
+const fs = require('node:fs')
+const image = process.argv[2]
+if (fs.existsSync(image)) fs.writeFileSync(${JSON.stringify(marker)}, image)
+process.exitCode = 1
+`)
+  await assert.rejects(extractOcrAsync({
     imageBase64: Buffer.from('fake-image').toString('base64'),
     filename: '..',
-    runtime: { python: 'node', script },
-    run: (_python, args) => {
-      imagePath = args[1]
-      assert.equal(existsSync(imagePath), true)
-      assert.equal(imagePath.endsWith('image.png'), true)
-      return { status: 1, stderr: 'failed' }
-    },
+    runtime: { python: process.execPath, script },
   }), { code: 'ocr-failed' })
+  const imagePath = readFileSync(marker, 'utf8')
+  assert.equal(imagePath.endsWith('image.png'), true)
   assert.equal(existsSync(imagePath), false)
-  assert.equal(existsSync(join(imagePath, '..')), false)
+  assert.equal(existsSync(dirname(imagePath)), false)
 })
 
 test('cancelled asynchronous OCR terminates and removes its temporary image', async () => {

@@ -20,6 +20,9 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
+// The output budget is a policy parameter shared with clarification, not a
+// second hard-coded 8000: both calls stream a JSON answer from the same model.
+import { readHealPolicy, resolveOutputBudget } from './self-heal.mjs'
 
 export const INVESTIGATION_SCHEMA = 'alm.intent-investigation/v1'
 export const INVESTIGATIONS_DIR = '.alm/intents/investigations'
@@ -714,6 +717,12 @@ export async function runInvestigation({ aiStream, provider, model, reasoningEff
   }
   const evidence = collectEvidence({ root, question, focus })
   const { system, user } = buildInvestigationMessages({ question, evidence, session })
+  const policy = readHealPolicy(root)
+  const maxTokens = resolveOutputBudget({ policy, selection: { provider, model } })
+  // An investigation is also a JSON extraction: a profile-wide "max thinking"
+  // default must not be inherited here either, or the answer never starts.
+  const intentEffort = typeof policy.intentReasoningEffort === 'string' ? policy.intentReasoningEffort.trim() : ''
+  const effort = reasoningEffort === undefined ? undefined : (intentEffort || reasoningEffort)
 
   // The same model sometimes wraps JSON in prose. One repair round keeps a
   // transient formatting slip from looking like "the investigation failed".
@@ -728,11 +737,11 @@ export async function runInvestigation({ aiStream, provider, model, reasoningEff
       for await (const chunk of streamText(aiStream, {
         provider,
         model,
-        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
         system,
         messages,
         temperature: 0.2,
-        maxTokens: 8000,
+        maxTokens,
       })) {
         if (chunk?.type === 'text-delta') output += chunk.text ?? ''
         if (chunk?.type === 'finish') finishKind = chunk.reason?.kind ?? null

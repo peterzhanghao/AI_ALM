@@ -1,0 +1,32 @@
+[DOCUMENT]
+TITLE: 需求正文 Mermaid 图渲染
+
+[SECTION]
+TITLE: 背景
+
+[REQUIREMENT]
+UID: REQ-ALM-016
+TITLE: 需求正文 Mermaid 图渲染
+OWNER: team-pay
+PROJECT: ALM
+PRIORITY: P1
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-ALM-016.md
+SOURCE: chat
+
+[RELATION]
+Type: allocated_to
+Value: MOD-ALM-INTENT
+
+[RELATION]
+Type: allocated_to
+Value: MOD-ALM-ASSET-MODEL
+
+[RELATION]
+Type: allocated_to
+Value: MOD-ALM-REQUIREMENTS
+
+[RELATION]
+Type: allocated_to
+Value: MOD-DSH-REQUIREMENTS

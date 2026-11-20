@@ -51,6 +51,51 @@ function harness() {
 
 const body = project => ({ ok: true, project, requirements: [{ id: `REQ-${project}` }] })
 const viewIds = ['todo', 'awaiting', 'archived', 'anomalies']
+
+test('the start result opens a scheduled isolated run in its own root', () => {
+  const modalStart = source.indexOf('    function PreflightModal(')
+  const modalEnd = source.indexOf('\n    function ', modalStart + 5)
+  assert.ok(modalStart >= 0 && modalEnd > modalStart)
+  const worktreeRoot = 'D:/worktrees/isolated-run'
+  const modalContext = vm.createContext({
+    h: (type, props, ...children) => ({ type, props, children }),
+    ModalShell: 'ModalShell',
+    PlanRows: 'PlanRows',
+    feedbackContextFor: () => null,
+    useEffect() {},
+    useState: initial => [initial.phase === 'running' ? modalContext.state : initial, () => {}],
+    button: {}, primary: {}, sectionTitle: {}, muted: {}, PREFLIGHT_STATUS: {}, T: {},
+  })
+  vm.runInContext(source.slice(modalStart, modalEnd), modalContext)
+  const actions = []
+  for (const [scheduled, worktree] of [[false, null], [false, { path: worktreeRoot }], [true, null], [true, { path: worktreeRoot }]]) {
+    modalContext.state = { phase: 'done', record: {}, start: { worktree, execution: { scheduled, runId: 'RUN-1' } } }
+    const view = modalContext.PreflightModal({ item: { id: 'REQ-1' }, root: 'D:/source', onOpenWorktree: path => actions.push(path) })
+    const open = view.props.footer.find(action => action?.props.key === 'open-worktree')
+    assert.equal(Boolean(open), scheduled && Boolean(worktree))
+    open?.props.onClick()
+    assert.equal(view.children.some(child => child?.props?.['data-start-live-progress'] === 'true'), scheduled && !worktree)
+  }
+  assert.deepEqual(actions, [worktreeRoot])
+
+  const actionStart = source.indexOf('              onOpenWorktree: (worktreeRoot) => {')
+  const actionEnd = source.indexOf('\n            })', actionStart)
+  assert.ok(actionStart >= 0 && actionEnd > actionStart)
+  for (const projectId of ['ALL', 'source-project']) {
+    const calls = []
+    const context = vm.createContext({
+      projectId, ALL_PROJECTS: 'ALL', startItem: { item: { id: 'REQ-1' } },
+      setStartItem: item => calls.push(['close', item]),
+      setPendingOpenId: id => calls.push(['open', id]),
+      applyRoot: (path, preserveProject) => calls.push(['root', path, preserveProject]),
+      setRootInput: input => calls.push(['input', input]),
+    })
+    const callbacks = vm.runInContext('({' + source.slice(actionStart, actionEnd) + '})', context)
+    callbacks.onOpenWorktree(worktreeRoot)
+    assert.deepEqual(calls, [['close', null], ['open', 'REQ-1'], ['root', worktreeRoot, projectId !== 'ALL'], ['input', worktreeRoot]])
+  }
+})
+
 function assertTabs(app, view, expected) {
   const counts = app.tabs(view.data)
   assert.deepEqual(Object.keys(counts), viewIds)

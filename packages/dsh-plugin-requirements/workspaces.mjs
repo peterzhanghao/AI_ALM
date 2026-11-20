@@ -3,6 +3,10 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { readProject } from '../alm-core/src/project/project.mjs'
 
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 /** DSH workspace store (`~/.dsh/storages/workspace.json`), overridable for tests. */
 export function workspacesFile() {
   if (process.env.DSH_WORKSPACES_FILE) return resolve(process.env.DSH_WORKSPACES_FILE)
@@ -19,21 +23,24 @@ export function workspacesFile() {
 export function listWorkspaces({ file = workspacesFile() } = {}) {
   const empty = { schema: 'alm.workspaces/v1', source: file, defaultWorkspaceId: null, workspaces: [], errors: [] }
   if (!existsSync(file)) return empty
-  let payload
+  let global, table
   try {
-    payload = JSON.parse(readFileSync(file, 'utf8'))
+    const payload = JSON.parse(readFileSync(file, 'utf8'))
+    if (!isRecord(payload)) throw new Error('expected an object')
+    global = payload.global ?? {}
+    const tables = payload.tables ?? {}
+    table = tables.workspaces ?? {}
+    if (!isRecord(global) || !isRecord(tables) || !isRecord(table)) throw new Error('expected workspace records')
   } catch (error) {
     return { ...empty, errors: [{ message: `unreadable workspace store: ${error.message}` }] }
   }
-  const global = payload.global ?? {}
-  const table = payload.tables?.workspaces ?? {}
   const defaultWorkspaceId = global.defaultWorkspaceId ?? null
   const errors = []
   const workspaces = []
 
   for (const [workspaceId, entry] of Object.entries(table)) {
     if (workspaceId === defaultWorkspaceId) continue
-    if (!entry || typeof entry.path !== 'string') {
+    if (!entry || typeof entry.path !== 'string' || !entry.path.trim()) {
       errors.push({ workspaceId, message: 'workspace entry needs a path' })
       continue
     }

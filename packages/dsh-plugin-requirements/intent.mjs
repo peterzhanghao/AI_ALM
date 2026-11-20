@@ -38,7 +38,7 @@ import {
 // Runtime self-heal: the budget a failed call is judged against is read from a
 // policy file, and a 5xx failure is recorded as a defect instead of being
 // silently replaced by the keyword fallback. See self-heal.mjs header.
-import { applyHeal, captureIntentFailureSafe, readHealPolicy } from './self-heal.mjs'
+import { applyHeal, applyOutputBudgetHeal, captureIntentFailureSafe, nextModelInChain, readHealPolicy, resolveOutputBudget } from './self-heal.mjs'
 
 export const MAX_BODY_BYTES = 64 * 1024
 const MAX_INPUT_TEXT = 20_000
@@ -59,6 +59,22 @@ const EDIT_FIELDS = [
 const UNKNOWN_RESOLUTIONS = ['clarify', 'investigate', 'exclude', 'pending']
 const ADJUDICATION_DUPLICATE = ['new', 'covered', 'conflict', 'pending']
 const EVIDENCE_CLASSES = ['observed', 'stated', 'inferred']
+
+// The finish vocabulary of the host stream is `dsh-llm`'s FinishReasonMap:
+// `stop | tool-calls | max-tokens | aborted | error`. `length` and
+// `content-filter` were never emitted by this host, so the old whitelist
+// mapped every truncated answer (`max-tokens`) to `unknown` — and an empty
+// answer with an unknown kind was then reported as a prompt-contract break
+// (`ai-invalid-output`), which no budget repair can fix. Both OpenAI-style and
+// native names are accepted so an adapter that renames the kind still lands in
+// the truncation branch instead of the "bad JSON" branch.
+const FINISH_TRUNCATED = new Set(['max-tokens', 'length'])
+const FINISH_KNOWN = new Set(['stop', 'tool-calls', 'max-tokens', 'aborted', 'error', 'length', 'content-filter'])
+// The host reports an adapter throw as a terminal `finish(error)` chunk whose
+// `failure` carries the provider code and message. Dropping it is why an 11ms
+// retry failure was filed as an unnamed "external transport" fault; only the
+// code is kept, because provider prose can quote the request.
+const MAX_PROVIDER_CODE = 120
 
 // `grill-me` is a small Matt Pocock wrapper which delegates to `grilling`.
 // The latter contains the actual decision-tree instructions.  DSH exposes
@@ -913,10 +929,14 @@ function suggestedLocalDraft(raw, draft, structured) {
   }
 }
 
-async function localIntentDraft({ root, session, draft, structured, now, grillOutcome = 'not-needed' }) {
+async function localIntentDraft({ root, session, draft, structured, now, grillOutcome = 'not-needed', failure = null, aiTried = false }) {
   const raw = String(session.input?.text ?? '').trim()
   const local = suggestedLocalDraft(raw, draft, structured)
   const hasCandidate = Boolean(local.title || local.goal || local.problem || local.acceptance.length)
+  // The fallback is the only place most users ever learn *why* the model did
+  // not answer. Dropping the reason here is what made a 46-second token
+  // truncation look like "the plugin just didn't try".
+  const reason = typeof failure?.message === 'string' && failure.message.trim() ? failure.message.trim() : null
   const item = {
     ...manualStubItem(session),
     ai: 'none',
@@ -937,9 +957,15 @@ async function localIntentDraft({ root, session, draft, structured, now, grillOu
     items: [item],
     state: structured ? 'ready_for_confirmation' : 'needs_input',
     ai: 'none',
+    // Distinguishes "the model was called and its answer was unusable" from
+    // "no model at all". The UI header must not claim the model never ran
+    // when the ledger holds runs[] with provider/model on them.
+    aiTried: aiTried === true,
     aiNote: structured
       ? '这条草稿来自你提供的结构化内容，没有模型参与；字段仍需你自己核对。'
-      : '模型未参与本次澄清：没有生成问题、标题与验收。请自己补全，或重试分析。',
+      : reason
+        ? `这次澄清没有拿到模型结果：${reason} 下面的内容是你的原话与机器查重结果，不会凭空补全。`
+        : '模型未参与本次澄清：没有生成问题、标题与验收。请自己补全，或重试分析。',
     error: null,
     analysisRetryRequired: false,
     nextQuestion: null,
@@ -995,6 +1021,7 @@ export function projectSession(session, readiness) {
   // Transport-level honesty flag: when no model participated, the client must be
   // able to say “未澄清” rather than present an empty form as a result.
   if (session?.ai) view.ai = session.ai
+  if (session?.aiTried) view.aiTried = true
   if (session?.aiNote) view.aiNote = session.aiNote
   return view
 }
@@ -1091,7 +1118,57 @@ function flattenContent(content) {
  * `onFirstToken` fires exactly once, on the first content chunk, so callers can
  * measure real time-to-first-token without buffering the stream (contract §4.2).
  */
-async function streamOutput({ stream, selection, messages, onFirstToken, signal }) {
+/** Read token usage from either a dedicated usage chunk or the finish chunk. */
+function normalizeModelUsage(chunk) {
+  const raw = isPlainObject(chunk?.usage) ? chunk.usage : chunk
+  if (!isPlainObject(raw)) return null
+  const outputTokens = Number.isFinite(raw.outputTokens) ? raw.outputTokens
+    : Number.isFinite(raw.completionTokens) ? raw.completionTokens : null
+  const reasoningTokens = Number.isFinite(raw.reasoningTokens) ? raw.reasoningTokens
+    : Number.isFinite(raw.reasoning_tokens) ? raw.reasoning_tokens : null
+  if (outputTokens === null && reasoningTokens === null) return null
+  return { outputTokens, reasoningTokens }
+}
+
+/** Attach the signals a failure needs to be classified without guessing. */
+function attachModelSignals(error, { finishKind = null, usage = null, maxTokens = null, providerFailure = null, progress = null } = {}) {
+  if (!error || typeof error !== 'object') return error
+  if (typeof finishKind === 'string') error.finishKind = finishKind
+  if (Number.isFinite(usage?.outputTokens)) error.outputTokens = usage.outputTokens
+  if (Number.isFinite(usage?.reasoningTokens)) error.reasoningTokens = usage.reasoningTokens
+  if (Number.isFinite(maxTokens)) error.budgetTokens = maxTokens
+  if (progress && typeof progress === 'object') {
+    // What actually arrived before the failure is the only evidence that tells a
+    // stalled provider apart from a model that was thinking the whole time.
+    error.streamProgress = {
+      chunks: Array.isArray(progress.chunks) ? progress.chunks.slice(0, 8) : [],
+      contentChars: Number.isFinite(progress.content) ? progress.content : 0,
+      reasoningChars: Number.isFinite(progress.reasoning) ? progress.reasoning : 0,
+    }
+  }
+  if (providerFailure && typeof providerFailure === 'object') {
+    if (typeof providerFailure.code === 'string' && providerFailure.code.trim()) error.providerCode = truncated(providerFailure.code.trim(), MAX_PROVIDER_CODE)
+  }
+  return error
+}
+
+/** The host's terminal failure object, reduced to the part safe to persist. */
+function providerFailureOf(reason) {
+  const failure = isPlainObject(reason?.failure) ? reason.failure : (isPlainObject(reason) && typeof reason.code === 'string' ? reason : null)
+  if (!failure) return null
+  // Only the code travels: provider prose can quote the request (and therefore
+  // user content or credentials), so it stays in the provider's own logs.
+  return { code: typeof failure.code === 'string' && failure.code.trim() ? truncated(failure.code.trim(), MAX_PROVIDER_CODE) : null }
+}
+
+/** One sentence an operator can act on, never the provider's raw dump. */
+function providerFailureMessage(reason) {
+  const failure = providerFailureOf(reason)
+  if (!failure?.code) return 'AI 调用失败，可重试或手动填写候选'
+  return `AI 调用失败（${failure.code}），可重试或手动填写候选`
+}
+
+async function streamOutput({ stream, selection, messages, onFirstToken, signal, maxTokens, progress: sharedProgress = null }) {
   const systemParts = []
   const dialog = []
   for (const message of Array.isArray(messages) ? messages : []) {
@@ -1111,8 +1188,23 @@ async function streamOutput({ stream, selection, messages, onFirstToken, signal 
   }
   let output = ''
   let finishKind = null
-  let firstTokenSeen = false
-  const seen = []
+  let usage = null
+  // The caller may own the progress object so its watchdog can read it; a fresh
+  // one is used when the call is standalone (tests, direct use).
+  const progress = sharedProgress && typeof sharedProgress === 'object'
+    ? Object.assign(sharedProgress, {
+        chunks: Array.isArray(sharedProgress.chunks) ? sharedProgress.chunks : [],
+        content: Number.isFinite(sharedProgress.content) ? sharedProgress.content : 0,
+        reasoning: Number.isFinite(sharedProgress.reasoning) ? sharedProgress.reasoning : 0,
+        contentSeen: sharedProgress.contentSeen === true,
+        firstAt: sharedProgress.firstAt === undefined ? null : sharedProgress.firstAt,
+      })
+    : { chunks: [], content: 0, reasoning: 0, contentSeen: false, firstAt: null }
+  const markProgress = () => {
+    if (progress.firstAt !== null) return
+    progress.firstAt = Date.now()
+    if (typeof onFirstToken === 'function') onFirstToken()
+  }
   try {
     for await (const chunk of stream({
       provider: selection.provider,
@@ -1121,39 +1213,68 @@ async function streamOutput({ stream, selection, messages, onFirstToken, signal 
       system: systemParts.join('\n\n'),
       messages: dialog,
       temperature: 0.2,
-      // deepseek-flash is a reasoning model and reasoning shares the output
-      // budget: three clarify runs on 2026-11-18 died with chunks=
-      // block-start|reasoning-delta|block-end|usage|finish — the thinking
-      // consumed the whole 8000-token allowance, so no content ever streamed
-      // (RUN-mwlh6nmd) or the JSON was cut mid-answer (first token at 43.9s,
-      // dead 3.9s later). The cap is raised to 100000 so thinking and the full
-      // intent-review JSON both fit; a provider that clamps instead of erroring
-      // makes the raise a no-op.
-      maxTokens: 100000,
+      // Reasoning and the JSON answer share one output pool. The budget is
+      // resolved from `.alm/self-heal/policy.json` and clamped by the model's
+      // own ceiling, so a budget-exhausted failure is repaired as a parameter,
+      // not by editing this literal (AC-06).
+      maxTokens,
       signal,
     })) {
-      if (['text-delta', 'reasoning-delta', 'finish', 'usage', 'block-start', 'block-end'].includes(chunk?.type) && seen.length < 8 && !seen.includes(chunk.type)) seen.push(chunk.type)
+      if (['text-delta', 'reasoning-delta', 'finish', 'usage', 'block-start', 'block-end'].includes(chunk?.type) && progress.chunks.length < 8 && !progress.chunks.includes(chunk.type)) progress.chunks.push(chunk.type)
       if (chunk?.type === 'text-delta') {
         output += chunk.text ?? ''
-        if (!firstTokenSeen && typeof chunk.text === 'string' && chunk.text !== '') {
-          firstTokenSeen = true
-          if (typeof onFirstToken === 'function') onFirstToken()
+        if (typeof chunk.text === 'string' && chunk.text !== '') {
+          progress.content += chunk.text.length
+          progress.contentSeen = true
+          markProgress()
         }
       }
-      if (chunk?.type === 'finish') finishKind = ['stop', 'length', 'tool-calls', 'content-filter', 'error'].includes(chunk.reason?.kind) ? chunk.reason.kind : 'unknown'
+      // A reasoning model streams nothing else for tens of seconds: a health
+      // watchdog that only counted the answer text killed healthy calls at the
+      // gate ("AI 调用超时" with 0/63s) while the model was visibly thinking.
+      if (chunk?.type === 'reasoning-delta') {
+        if (typeof chunk.text === 'string' && chunk.text !== '') progress.reasoning += chunk.text.length
+        markProgress()
+      }
+      if (chunk?.type === 'usage') usage = normalizeModelUsage(chunk) ?? usage
+      if (chunk?.type === 'finish') {
+        finishKind = FINISH_KNOWN.has(chunk.reason?.kind) ? chunk.reason.kind : 'unknown'
+        usage = normalizeModelUsage(chunk) ?? usage
+      }
       if (chunk?.type === 'finish' && chunk.reason?.kind === 'error') {
-        throw new IntentHttpError('ai-call-failed', 'AI 调用失败，可重试或手动填写候选', { status: 502 })
+        throw attachModelSignals(
+          new IntentHttpError('ai-call-failed', providerFailureMessage(chunk.reason), {
+            status: 502,
+            details: { providerFailure: providerFailureOf(chunk.reason) },
+          }),
+          { finishKind, usage, maxTokens, providerFailure: providerFailureOf(chunk.reason) },
+        )
       }
     }
   } catch (error) {
-    if (error instanceof IntentHttpError) throw error
-    throw new IntentHttpError('ai-call-failed', 'AI 调用失败，可重试或手动填写候选', { status: 502 })
+    if (error instanceof IntentHttpError) throw attachModelSignals(error, { finishKind, usage, maxTokens, progress })
+    throw attachModelSignals(new IntentHttpError('ai-call-failed', 'AI 调用失败，可重试或手动填写候选', { status: 502 }), { finishKind, usage, maxTokens, progress })
   }
+  const outputTokens = usage?.outputTokens ?? null
+  // Empty output with a full/unknown budget is not a prompt-contract failure:
+  // the model spent the allowance on reasoning. Recording the token signal here
+  // is what lets the classifier choose "raise tokens" instead of "fix prompt".
+  // A truncation is a truncation whatever the token count says: the provider
+  // may stop below the budget we asked for, and then only a different parameter
+  // (less thinking, another model) can help.
+  const budgetExhausted = FINISH_TRUNCATED.has(finishKind) ||
+    (outputTokens !== null && Number.isFinite(maxTokens) && maxTokens > 0 && outputTokens >= Math.round(maxTokens * 0.9))
   if (output.trim() === '') {
-    const detail = `AI 返回为空（finish=${finishKind ?? 'none'}, chunks=${seen.join('|') || 'none'}），可重试或手动填写候选`
-    throw new IntentHttpError('ai-invalid-output', detail, { status: 502 })
+    const code = budgetExhausted ? 'ai-output-budget-exhausted' : 'ai-invalid-output'
+    // "Thought for 60s and wrote nothing" and "returned an empty body" are
+    // different defects; the reasoning character count is what separates them.
+    const thought = progress.reasoning > 0 ? `，思考 ${progress.reasoning} 字` : ''
+    const detail = budgetExhausted
+      ? `AI 只输出了思考过程、没写正文（finish=${finishKind ?? 'none'}，outputTokens=${outputTokens ?? '?'}/${maxTokens}${thought}）：输出预算被思考耗尽，可按预算耗尽自愈`
+      : `AI 返回为空（finish=${finishKind ?? 'none'}, chunks=${progress.chunks.join('|') || 'none'}${thought}），可重试或手动填写候选`
+    throw attachModelSignals(new IntentHttpError(code, detail, { status: 502 }), { finishKind, usage, maxTokens, progress })
   }
-  return output
+  return { output, finishKind, usage, maxTokens, progress }
 }
 
 async function selectModel({ body, resolveAiSelection, aiStreamFor, session }) {
@@ -1305,7 +1426,12 @@ async function normalizeModelOutput({ output, session, context }) {
   }
 }
 
-/** Second attempt prompt: original dialog + bad answer + the validation error. */
+/**
+ * Second attempt prompt: original dialog + bad answer + the validation error.
+ * A blank answer is not replayed as an empty assistant turn: the provider drops
+ * empty text blocks, so the "repair" would silently become the same question
+ * again — one wasted full-length model call (RUN-mwlix7rg died that way).
+ */
 function buildRepairMessages(messages, output, error) {
   const fields = fieldNames(error?.details)
   const code = typeof error?.details?.code === 'string' ? error.details.code : 'invalid-analysis'
@@ -1317,9 +1443,10 @@ function buildRepairMessages(messages, output, error) {
   ]
     .filter(Boolean)
     .join('\n')
+  const replay = truncated(String(output ?? ''), 4_000)
   return [
     ...messages,
-    { role: 'assistant', content: truncated(String(output ?? ''), 4_000) },
+    ...(replay.trim() === '' ? [] : [{ role: 'assistant', content: replay }]),
     { role: 'user', content: diagnosis },
   ]
 }
@@ -1357,11 +1484,14 @@ async function recordFailedAttempt({
   baseSessionRevision,
   errorCode,
   timing,
+  startedAt = null,
+  finishedAt = null,
   now,
 }) {
   try {
     await withIntentSessionLock(root, session.sessionId, async () => {
       const current = await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId, baseSessionRevision })
+      const at = now()
       await core.recordAnalysis({
         root,
         session: current,
@@ -1371,7 +1501,11 @@ async function recordFailedAttempt({
         inputRevision,
         status: 'error',
         errorCode,
-        now: now(),
+        // Real attempt boundaries: every run used to be stamped with the same
+        // instant, so the ledger could not tell a 46s attempt from an 11ms one.
+        startedAt: startedAt ?? null,
+        finishedAt: finishedAt ?? at,
+        now: at,
         ...(baseSessionRevision === undefined ? {} : { baseSessionRevision }),
         ...(timing === undefined ? {} : { timing }),
       })
@@ -1426,7 +1560,39 @@ async function runAnalysis({
     const value = Date.now() - runStartedAt
     return Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined
   }
-  const timingSnapshot = (extra = {}) => cleanTiming({ ...timing, ...extra, totalMs: totalMsSoFar() })
+  // A run record describes *that attempt*, not everything the session has spent
+  // so far. `recorded` holds the part already written to a run, so each snapshot
+  // is a delta and `convergence.timing` can keep summing honestly (it used to add
+  // cumulative values, reporting 93s for a 46s run).
+  const recorded = { totalMs: 0, modelMs: 0, parseMs: 0, calls: 0, retries: 0, contextMsWritten: false }
+  let attemptStartedAt = Date.now()
+  let attemptFirstTokenMs = null
+  const timingDelta = () => {
+    const total = totalMsSoFar() ?? recorded.totalMs
+    const delta = cleanTiming({
+      totalMs: Math.max(0, total - recorded.totalMs),
+      ...(recorded.contextMsWritten || !Number.isFinite(timing.contextMs) ? {} : { contextMs: timing.contextMs }),
+      modelMs: Math.max(0, (timing.modelMs ?? 0) - recorded.modelMs),
+      parseMs: Math.max(0, (timing.parseMs ?? 0) - recorded.parseMs),
+      calls: Math.max(0, timing.calls - recorded.calls),
+      retries: Math.max(0, timing.retries - recorded.retries),
+      // First-token latency belongs to one attempt: it is a measurement, not a
+      // quantity to accumulate across a retry.
+      ...(Number.isFinite(attemptFirstTokenMs) ? { firstTokenMs: attemptFirstTokenMs } : {}),
+    })
+    recorded.totalMs = total
+    if (Number.isFinite(timing.contextMs)) recorded.contextMsWritten = true
+    recorded.modelMs = timing.modelMs ?? recorded.modelMs
+    recorded.parseMs = timing.parseMs ?? recorded.parseMs
+    recorded.calls = timing.calls
+    recorded.retries = timing.retries
+    return delta
+  }
+  /** Wall-clock window of the attempt that this run record covers. */
+  const attemptWindow = () => ({
+    startedAt: new Date(attemptStartedAt).toISOString(),
+    finishedAt: new Date().toISOString(),
+  })
   const addParseMs = (startedAt) => {
     const value = Date.now() - startedAt
     if (Number.isFinite(value) && value >= 0) timing.parseMs = (timing.parseMs ?? 0) + Math.round(value)
@@ -1458,9 +1624,12 @@ async function runAnalysis({
     messages = [...messages, { role: 'user', content: [{ type: 'text', text: buildEvidenceNote(checked) }] }]
   }
 
-  const model = { provider: selection.provider, model: selection.model }
-  // Both budgets come from `.alm/self-heal/policy.json`, so a repaired policy
-  // takes effect on the very next analysis without a code change or restart.
+  let model = { provider: selection.provider, model: selection.model }
+  let activeSelection = selection
+  // Both time budgets come from `.alm/self-heal/policy.json`, so a repaired
+  // policy takes effect on the very next analysis without a code change or
+  // restart. The token budget is resolved the same way and clamped by the
+  // model's own ceiling (`resolveOutputBudget`), not hard-coded here.
   const healPolicy = readHealPolicy(root)
   const outputBudget = grillInstruction ? healPolicy.outputMs : Math.max(20_000, Math.round(healPolicy.outputMs / 2))
   const inputRevision = session.input?.inputRevision
@@ -1470,12 +1639,47 @@ async function runAnalysis({
     activeRuns.set(session.sessionId, runId)
   })
 
+  // The intent call is a structured extraction, not a hard reasoning task. A
+  // global default of "max thinking" (this profile selects
+  // `reasoningEffort: max` for deepseek-flash) otherwise spends the whole
+  // output allowance on thought and streams no answer at all — that is exactly
+  // the 46-second reasoning-only run that produced an empty clarification.
+  // Only a route that already declared a thinking level is clamped; a
+  // non-reasoning route is left untouched, so no new failure mode appears.
+  const intentEffort = (selection) => {
+    const declared = selection?.reasoningEffort
+    if (declared === undefined) return undefined
+    const policyEffort = typeof healPolicy.intentReasoningEffort === 'string' ? healPolicy.intentReasoningEffort.trim() : ''
+    return policyEffort || declared
+  }
+
   // One model call; the first attempt and the repair retry both feed the run's
   // timing. firstTokenMs is the first content chunk of the first stream only.
-  const streamOnce = async (messagesToSend) => {
+  // `attempt.reasoningEffort` overrides the clamp: `null` means "send none",
+  // `undefined` means "use the policy-clamped caller choice".
+  const streamOnce = async (messagesToSend, attempt = {}) => {
+    const baseSelection = attempt.selection ?? activeSelection
+    const { reasoningEffort: inheritedEffort, ...restSelection } = baseSelection
+    const reasoningEffort = attempt.reasoningEffort === undefined
+      ? intentEffort(baseSelection)
+      : (attempt.reasoningEffort ?? undefined)
+    // A `null` override must actually *remove* the caller's level, not fall back
+    // to it: spreading `baseSelection` would resurrect the rejected value.
+    const attemptSelection = reasoningEffort === undefined
+      ? (inheritedEffort === undefined ? baseSelection : restSelection)
+      : { ...restSelection, reasoningEffort }
+    const maxTokens = Number.isFinite(attempt.maxTokens)
+      ? attempt.maxTokens
+      : resolveOutputBudget({ policy: healPolicy, selection: attemptSelection })
     const streamStartedAt = Date.now()
+    attemptStartedAt = streamStartedAt
+    attemptFirstTokenMs = null
     timing.calls += 1
     let firstTokenAt = null
+    let settled = false
+    // Shared with the stream so the watchdog can report what had arrived when it
+    // fires; a stale local snapshot is what made every abort look identical.
+    const liveProgress = { chunks: [], content: 0, reasoning: 0, firstAt: null }
     const controller = new AbortController()
     let timeout
     let failBudget
@@ -1488,38 +1692,153 @@ async function runAnalysis({
     // clarification questions looked worthless. Both values are ceilings, not
     // waits: a streaming answer still lands as soon as it starts. They are read
     // from the heal policy so a recorded timeout can be repaired at runtime.
-    const arm = (ms) => {
+    const arm = (ms, phase) => {
+      // A chunk can still arrive after the race settled (an aborted stream that
+      // ignores its signal, or a slow provider flush). Arming a timer then leaves
+      // it running for the whole output budget and keeps the process alive.
+      if (settled) return
       clearTimeout(timeout)
       timeout = setTimeout(() => {
         controller.abort()
-        failBudget(new IntentHttpError('ai-call-failed', 'AI 调用超时', { status: 502 }))
+        // What arrived before the abort is the difference between "the provider
+        // never answered" and "the model was thinking": name it, or the operator
+        // can only guess (a 63s abort with 0/63s recorded looked like a tight
+        // local gate and the self-heal raised it to 127s for nothing).
+        const snapshot = liveProgress
+        const arrived = snapshot.chunks.length > 0
+          ? `已收到 ${snapshot.chunks.join('/')}（正文 ${snapshot.content} 字，思考 ${snapshot.reasoning} 字）`
+          : '未收到任何分片'
+        failBudget(attachModelSignals(
+          new IntentHttpError('ai-call-failed', `AI 调用超时（${phase}）：${arrived}`, {
+            status: 502,
+            details: { phase, ...snapshot },
+          }),
+          { progress: snapshot },
+        ))
       }, ms)
     }
-    arm(healPolicy.firstTokenMs)
-    const output = await Promise.race([
-      streamOutput({
-        stream, selection, messages: messagesToSend, signal: controller.signal,
-        onFirstToken: () => {
-          if (firstTokenAt !== null) return
-          firstTokenAt = Date.now()
-          arm(outputBudget)
-        },
-      }),
-      budget,
-    ]).finally(() => clearTimeout(timeout))
-    const modelMs = Date.now() - streamStartedAt
-    if (Number.isFinite(modelMs) && modelMs >= 0) timing.modelMs = (timing.modelMs ?? 0) + Math.round(modelMs)
-    if (firstTokenAt !== null && timing.firstTokenMs === undefined) {
-      const first = firstTokenAt - streamStartedAt
-      if (Number.isFinite(first) && first >= 0) timing.firstTokenMs = Math.round(first)
+    arm(healPolicy.firstTokenMs, '等待首个分片')
+    let result
+    try {
+      result = await Promise.race([
+        streamOutput({
+          stream, selection: attemptSelection, messages: messagesToSend, signal: controller.signal, maxTokens, progress: liveProgress,
+          onFirstToken: () => {
+            if (firstTokenAt !== null) return
+            firstTokenAt = Date.now()
+            arm(outputBudget, '输出预算')
+          },
+        }),
+        budget,
+      ])
+    } finally {
+      settled = true
+      clearTimeout(timeout)
+      // Measured even when the race rejects: a timed-out attempt still consumed
+      // real model time, and without it the classifier cannot tell a gate
+      // problem from an upstream stall.
+      const spent = Date.now() - streamStartedAt
+      if (Number.isFinite(spent) && spent >= 0) timing.modelMs = (timing.modelMs ?? 0) + Math.round(spent)
+      attemptFirstTokenMs = firstTokenAt !== null && firstTokenAt >= streamStartedAt
+        ? Math.round(firstTokenAt - streamStartedAt)
+        : null
     }
-    return output
+    return result
+  }
+
+  /** Is this failure "the model ran out of output tokens" rather than "bad JSON"? */
+  const isBudgetFailure = (result, errorCode = null) => {
+    if (errorCode === 'ai-output-budget-exhausted' || errorCode === 'ai-output-truncated') return true
+    if (FINISH_TRUNCATED.has(result?.finishKind)) return true
+    const tokens = result?.usage?.outputTokens
+    return Number.isFinite(tokens) && Number.isFinite(result?.maxTokens) && result.maxTokens > 0 &&
+      tokens >= Math.round(result.maxTokens * 0.9)
+  }
+
+  /**
+   * Did the provider stop below the allowance we sent? Then our own budget is
+   * not the binding constraint — the model's real ceiling is — and raising the
+   * policy value is a no-op that only delays the next failure. The measured
+   * token count is the only honest way to tell the two apart.
+   */
+  const stoppedBelowBudget = (result) => {
+    const tokens = result?.usage?.outputTokens
+    return Number.isFinite(tokens) && Number.isFinite(result?.maxTokens) && result.maxTokens > 0 &&
+      tokens < Math.round(result.maxTokens * 0.9)
+  }
+
+  /**
+   * Did the *body* fail (empty or contract-breaking) rather than the transport?
+   * The stream boundary throws these instead of returning a result, so a caller
+   * that wants to keep reasoning from numbers has to rebuild the shape.
+   */
+  const isDataFailure = (error) => error?.code === 'ai-output-budget-exhausted' || error?.code === 'ai-invalid-output'
+  const resultFromFailure = (error, fallbackTokens) => ({
+    output: '',
+    finishKind: error?.finishKind ?? null,
+    usage: Number.isFinite(error?.outputTokens) || Number.isFinite(error?.reasoningTokens)
+      ? { outputTokens: error.outputTokens ?? null, reasoningTokens: error.reasoningTokens ?? null }
+      : null,
+    maxTokens: error?.budgetTokens ?? fallbackTokens ?? null,
+  })
+
+  const beginRetryRun = async () => {
+    const retryRunId = newRunId()
+    timing.retries += 1
+    await withIntentSessionLock(root, session.sessionId, async () => {
+      await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId, baseSessionRevision })
+      runId = retryRunId
+      activeRuns.set(session.sessionId, retryRunId)
+    })
+    return retryRunId
+  }
+
+  const invalidAfterRetry = (secondError, output, attempts) => {
+    const second = isPlainObject(secondError?.details) ? secondError.details : {}
+    return new IntentHttpError('ai-invalid-output', 'AI 返回内容不符合意图契约（已自动重试一次），可重试或手动填写候选', {
+      status: 502,
+      details: {
+        code: typeof second.code === 'string' ? second.code : 'invalid-analysis',
+        fields: Array.isArray(second.fields) ? second.fields : [],
+        attempts,
+        rawExcerpt: truncated(String(output ?? ''), 4_000),
+      },
+    })
+  }
+
+  const budgetExhaustedAfterRetry = (result, { reducedThinking = false, stoppedShort = false } = {}) => {
+    const tokens = result?.usage?.outputTokens ?? null
+    const budget = result?.maxTokens ?? null
+    const measured = tokens === null ? '实测 token 数未知' : `已用 ${tokens}/${budget ?? '?'} tokens`
+    const why = stoppedShort
+      ? `模型在 ${tokens ?? '自身上限'} tokens 处被截断，说明上限由模型/服务端决定，提高本地预算无效`
+      : measured
+    const tried = reducedThinking ? '已尝试降低思考强度后重试' : '已尝试提高预算后重试'
+    return attachModelSignals(
+      new IntentHttpError(
+        'ai-output-budget-exhausted',
+        `这次分析的思考过程用完了输出预算，正文没有写出来（finish=${result?.finishKind ?? 'none'}，${why}）。${tried}仍未拿到正文：请在模型选择里换用不开启思考（effort=off）或输出上限更大的模型后再分析。`,
+        { status: 502, details: { outputTokens: tokens, budgetTokens: budget, attempts: 2 } },
+      ),
+      { finishKind: result?.finishKind ?? null, usage: result?.usage ?? null, maxTokens: budget },
+    )
   }
 
   try {
-    let firstOutput
+    let first = null
+    // A route whose declared effort ids do not include the policy clamp rejects
+    // the call before any provider I/O. One immediate retry without the
+    // override is cheaper than failing a run over a setting.
+    const firstAttempt = async () => {
+      try {
+        return await streamOnce(messages)
+      } catch (error) {
+        if (error?.providerCode !== 'UNSUPPORTED_REASONING_EFFORT') throw error
+        return streamOnce(messages, { reasoningEffort: null })
+      }
+    }
     try {
-      firstOutput = await streamOnce(messages)
+      first = await firstAttempt()
     } catch (error) {
       // A provider failure is still a run: record the measured timing. No model
       // output exists, so there is nothing to parse.
@@ -1532,28 +1851,39 @@ async function runAnalysis({
         inputRevision,
         baseSessionRevision,
         errorCode: code,
-        timing: timingSnapshot(),
+        timing: timingDelta(),
+        ...attemptWindow(),
         now,
       })
-      // An empty stream — the model reasoning-ed but wrote nothing (chunks=
-      // block-start|reasoning-delta|block-end|usage|finish, RUN-mwlh6nmd) — is
-      // worth exactly one repair chance instead of failing the run outright:
-      // normalize('') fails immediately, so the flow below hands the empty
-      // answer to the repair retry, and reasoning variance usually produces
-      // content on the second call. Timeouts and provider faults still abort.
-      if (error?.code !== 'ai-invalid-output') throw error
-      firstOutput = ''
+      // An empty stream is worth one repair chance instead of failing the run
+      // outright. Two different empty bodies reach this point: a contract slip
+      // (`ai-invalid-output`) and an exhausted output budget
+      // (`ai-output-budget-exhausted`, reasoning ate the allowance). The retry
+      // below escalates tokens in the second case and stays a prompt repair in
+      // the first. Timeouts and provider faults still abort.
+      if (error?.code !== 'ai-invalid-output' && error?.code !== 'ai-output-budget-exhausted') throw error
+      first = {
+        output: '',
+        finishKind: error.finishKind ?? null,
+        usage: Number.isFinite(error.outputTokens) || Number.isFinite(error.reasoningTokens)
+          ? { outputTokens: error.outputTokens ?? null, reasoningTokens: error.reasoningTokens ?? null }
+          : null,
+        maxTokens: error.budgetTokens ?? resolveOutputBudget({ policy: healPolicy, selection: activeSelection }),
+      }
     }
     let fresh = await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId, baseSessionRevision })
     let contextUsed = context ?? fresh.context
 
     let normalized
     try {
-      normalized = await measureParse(() => normalizeModelOutput({ output: firstOutput, session: fresh, context: contextUsed }))
+      normalized = await measureParse(() => normalizeModelOutput({ output: first.output, session: fresh, context: contextUsed }))
     } catch (error) {
-      // Exactly one repair retry: hand the validation error and the truncated
-      // bad answer back to the model. Both attempts land in runs[]; the session
-      // stays editable either way and a newer run still wins (no overwrite).
+      // One repair attempt, but the repair depends on the signal: a contract
+      // slip replays the bad answer; an exhausted output budget raises the
+      // token parameter (policy write with history) and then, if still short,
+      // switches to the next model in `modelChain`. Both attempts land in
+      // runs[]; the session stays editable and a newer run still wins.
+      const budgetFailure = isBudgetFailure(first, error?.code)
       await recordFailedAttempt({
         root,
         session: fresh,
@@ -1561,61 +1891,177 @@ async function runAnalysis({
         runId,
         inputRevision,
         baseSessionRevision,
-        errorCode: 'ai-invalid-output',
-        timing: timingSnapshot(),
+        errorCode: budgetFailure ? 'ai-output-budget-exhausted' : 'ai-invalid-output',
+        timing: timingDelta(),
+        ...attemptWindow(),
         now,
       })
-      const retryRunId = newRunId()
-      timing.retries += 1
-      await withIntentSessionLock(root, session.sessionId, async () => {
-        await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId, baseSessionRevision })
-        runId = retryRunId
-        activeRuns.set(session.sessionId, retryRunId)
-      })
-      const repairMessages = buildRepairMessages(messages, firstOutput, error)
-      let retryOutput
-      try {
-        retryOutput = await streamOnce(repairMessages)
-      } catch (streamError) {
-        await recordFailedAttempt({
-          root,
-          session: fresh,
-          model,
-          runId: retryRunId,
-          inputRevision,
-          baseSessionRevision,
-          errorCode: typeof streamError?.code === 'string' ? streamError.code : 'ai-call-failed',
-          timing: timingSnapshot(),
-          now,
-        })
-        throw streamError
+
+      let policy = healPolicy
+      let retryPlan = null
+      let reducedThinking = false
+      if (budgetFailure) {
+        // Persist before the retry: if it succeeds, the next analysis must not
+        // start below the budget that just worked. History makes it reversible.
+        const healed = applyOutputBudgetHeal({ root, observedTokens: first.usage?.outputTokens ?? null })
+        policy = healed.policy ?? policy
+        if (healed.applied === true) {
+          retryPlan = { maxTokens: resolveOutputBudget({ policy, selection: activeSelection }) }
+        } else {
+          // Raising our own number cannot help when the model stopped below it
+          // (its ceiling, not ours, is binding) or when we are already at the
+          // policy ceiling. The only remaining parameter that changes whether
+          // the answer fits next to the thinking is the thinking budget itself.
+          const wanted = typeof policy.repairReasoningEffort === 'string' ? policy.repairReasoningEffort.trim() : ''
+          const current = intentEffort(activeSelection) ?? null
+          if (wanted && wanted !== current) {
+            retryPlan = { maxTokens: first.maxTokens, reasoningEffort: wanted }
+            reducedThinking = true
+          }
+        }
+      } else {
+        retryPlan = { maxTokens: resolveOutputBudget({ policy, selection: activeSelection }) }
       }
-      fresh = await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId: retryRunId, baseSessionRevision })
-      contextUsed = context ?? fresh.context
-      try {
-        normalized = await measureParse(() => normalizeModelOutput({ output: retryOutput, session: fresh, context: contextUsed }))
-      } catch (secondError) {
-        await recordFailedAttempt({
-          root,
-          session: fresh,
-          model,
-          runId: retryRunId,
-          inputRevision,
-          baseSessionRevision,
-          errorCode: 'ai-invalid-output',
-          timing: timingSnapshot(),
-          now,
-        })
-        const second = isPlainObject(secondError?.details) ? secondError.details : {}
-        throw new IntentHttpError('ai-invalid-output', 'AI 返回内容不符合意图契约（已自动重试一次），可重试或手动填写候选', {
-          status: 502,
-          details: {
-            code: typeof second.code === 'string' ? second.code : 'invalid-analysis',
-            fields: Array.isArray(second.fields) ? second.fields : [],
-            attempts: 2,
-            rawExcerpt: truncated(String(retryOutput ?? ''), 4_000),
-          },
-        })
+      const retryMessages = buildRepairMessages(messages, first.output, error)
+      let retry = null
+      let secondBodyFailure = null
+      let retryRunId = await beginRetryRun()
+
+      if (retryPlan) {
+        try {
+          retry = await streamOnce(retryMessages, { ...retryPlan, selection: activeSelection })
+        } catch (streamError) {
+          await recordFailedAttempt({
+            root, session: fresh, model, runId: retryRunId, inputRevision, baseSessionRevision,
+            errorCode: typeof streamError?.code === 'string' ? streamError.code : 'ai-call-failed',
+            timing: timingDelta(),
+        ...attemptWindow(), now,
+          })
+          // A provider that does not accept the repaired thinking setting is not
+          // a dead end: fall through to the model chain instead of failing here.
+          if (streamError?.providerCode === 'UNSUPPORTED_REASONING_EFFORT') {
+            reducedThinking = false
+            retryPlan = null
+          } else if (isDataFailure(streamError)) {
+            // The second body is unusable too (empty or truncated). Keep its
+            // measured signals so the chain and the final message reason from
+            // numbers instead of "there was no result at all".
+            retry = resultFromFailure(streamError, retryPlan?.maxTokens ?? null)
+            secondBodyFailure = streamError
+          } else if (budgetFailure) {
+            // The retry's own failure must not erase what the first attempt
+            // proved with numbers: that message is the diagnosis, this one is
+            // the failed repair. Both stay in the ledger.
+            const wrapped = budgetExhaustedAfterRetry(first, { reducedThinking, stoppedShort: stoppedBelowBudget(first) })
+            const retryCode = streamError?.providerCode ?? streamError?.code ?? 'unknown'
+            wrapped.message = `${wrapped.message}（自动重试也失败了：${retryCode}）`
+            throw attachModelSignals(wrapped, {
+              finishKind: first.finishKind ?? null,
+              usage: first.usage ?? null,
+              maxTokens: first.maxTokens ?? null,
+              providerFailure: { code: streamError?.providerCode ?? null },
+            })
+          } else {
+            // The repair died on transport, not on the body. The first body's
+            // parse diagnosis (code, fields, raw excerpt) is then the only
+            // evidence of what the model actually wrote — dropping it with the
+            // transport error is what left RUN-mwllclq4 undiagnosable.
+            const diagnosis = isPlainObject(error?.details) ? error.details : {}
+            const excerpt = typeof diagnosis.rawExcerpt === 'string' && diagnosis.rawExcerpt.trim() !== ''
+              ? diagnosis.rawExcerpt
+              : truncated(String(first.output ?? ''), 4_000)
+            throw attachModelSignals(
+              new IntentHttpError(
+                typeof streamError?.code === 'string' ? streamError.code : 'ai-call-failed',
+                streamError?.message ?? 'AI 调用失败，可重试或手动填写候选',
+                {
+                  status: Number.isInteger(streamError?.status) ? streamError.status : 502,
+                  details: {
+                    firstBodyFailure: {
+                      code: typeof diagnosis.code === 'string' ? diagnosis.code : 'invalid-analysis',
+                      fields: Array.isArray(diagnosis.fields) ? diagnosis.fields : [],
+                      rawExcerpt: excerpt,
+                    },
+                  },
+                },
+              ),
+              {
+                finishKind: streamError?.finishKind ?? null,
+                usage: streamError?.usage ?? null,
+                maxTokens: streamError?.maxTokens ?? null,
+                providerFailure: { code: streamError?.providerCode ?? null },
+              },
+            )
+          }
+        }
+        if (retry !== null) {
+          fresh = await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId: retryRunId, baseSessionRevision })
+          contextUsed = context ?? fresh.context
+          try {
+            normalized = await measureParse(() => normalizeModelOutput({ output: retry.output, session: fresh, context: contextUsed }))
+          } catch (secondError) {
+            const secondBudget = isBudgetFailure(retry, secondError?.code)
+            await recordFailedAttempt({
+              root, session: fresh, model, runId: retryRunId, inputRevision, baseSessionRevision,
+              errorCode: secondBudget ? 'ai-output-budget-exhausted' : 'ai-invalid-output',
+              timing: timingDelta(),
+        ...attemptWindow(), now,
+            })
+            if (!secondBudget) throw invalidAfterRetry(secondError, retry.output, 2)
+          }
+        }
+      }
+
+      if (normalized === undefined) {
+        // Budget still exhausted (or no raise was available): walk the
+        // declarative model chain, bounded by `maxChainHops`. Model routing is a
+        // policy parameter, so this still never edits code.
+        const tried = [activeSelection]
+        let lastResult = retry ?? first
+        let lastStreamError = null
+        while (normalized === undefined && tried.length - 1 < policy.maxChainHops) {
+          const alternative = nextModelInChain({ policy, selection: activeSelection, used: tried })
+          if (!alternative) break
+          retryRunId = await beginRetryRun()
+          activeSelection = alternative
+          tried.push(alternative)
+          model = { provider: alternative.provider ?? model.provider, model: alternative.model }
+          const altTokens = resolveOutputBudget({ policy, selection: activeSelection })
+          try {
+            const alt = await streamOnce(retryMessages, { maxTokens: altTokens, selection: activeSelection })
+            lastResult = alt
+            lastStreamError = null
+            fresh = await assertRunCurrent({ root, sessionId: session.sessionId, inputRevision, runId: retryRunId, baseSessionRevision })
+            contextUsed = context ?? fresh.context
+            try {
+              normalized = await measureParse(() => normalizeModelOutput({ output: alt.output, session: fresh, context: contextUsed }))
+            } catch {
+              await recordFailedAttempt({
+                root, session: fresh, model, runId: retryRunId, inputRevision, baseSessionRevision,
+                errorCode: 'ai-output-budget-exhausted',
+                timing: timingDelta(), ...attemptWindow(), now,
+              })
+            }
+          } catch (chainError) {
+            lastStreamError = chainError
+            await recordFailedAttempt({
+              root, session: fresh, model, runId: retryRunId, inputRevision, baseSessionRevision,
+              errorCode: typeof chainError?.code === 'string' ? chainError.code : 'ai-call-failed',
+              timing: timingDelta(), ...attemptWindow(), now,
+            })
+          }
+        }
+        if (normalized === undefined) {
+          // A body that failed the contract is not a budget problem: report the
+          // contract failure rather than inventing a token story for it.
+          if (secondBodyFailure && !isBudgetFailure(retry, secondBodyFailure.code)) {
+            throw invalidAfterRetry(secondBodyFailure, retry?.output ?? '', 2)
+          }
+          throw lastStreamError ?? budgetExhaustedAfterRetry(lastResult, {
+            reducedThinking,
+            stoppedShort: stoppedBelowBudget(lastResult),
+          })
+        }
       }
     }
 
@@ -1646,7 +2092,8 @@ async function runAnalysis({
           inputRevision,
           now: now(),
           ...(baseSessionRevision === undefined ? {} : { baseSessionRevision }),
-          timing: timingSnapshot(),
+          timing: timingDelta(),
+        ...attemptWindow(),
         })
         return grillSkill && recorded?.grill?.status === 'loaded'
           ? persist(root, { ...recorded, grill: { ...recorded.grill, outcome: 'applied', failureCode: null } })
@@ -2177,10 +2624,34 @@ async function handleAnalyze({ root, body, resolveAiSelection, aiStreamFor, now 
         captured = captureIntentFailureSafe({
           root,
           session: next,
-          error: { code: error.code, message: error.message, status: error.status },
+          error: {
+            code: error.code,
+            message: error.message,
+            status: error.status,
+            // A contract failure carries the raw body excerpt (invalidModelOutput
+            // / invalidAfterRetry / firstBodyFailure); the ledger is where the
+            // next diagnosis starts, so it must travel with the failure.
+            details: isPlainObject(error.details) ? error.details : null,
+          },
           timing: lastRun?.timing ?? null,
           model: lastRun ? { provider: lastRun.provider, model: lastRun.model } : null,
           runId: lastRun?.analysisRunId ?? null,
+          // Token/finish signals travel on the error from the stream boundary;
+          // without them a budget exhaustion looks like a prompt-contract break.
+          signals: {
+            finishKind: error.finishKind ?? null,
+            outputTokens: Number.isFinite(error.outputTokens) ? error.outputTokens : null,
+            reasoningTokens: Number.isFinite(error.reasoningTokens) ? error.reasoningTokens : null,
+            budgetTokens: Number.isFinite(error.budgetTokens) ? error.budgetTokens : null,
+            providerCode: typeof error.providerCode === 'string' ? error.providerCode : null,
+            streamProgress: error.streamProgress && typeof error.streamProgress === 'object'
+              ? {
+                  chunks: Array.isArray(error.streamProgress.chunks) ? error.streamProgress.chunks : [],
+                  contentChars: Number.isFinite(error.streamProgress.contentChars) ? error.streamProgress.contentChars : 0,
+                  reasoningChars: Number.isFinite(error.streamProgress.reasoningChars) ? error.streamProgress.reasoningChars : 0,
+                }
+              : null,
+          },
         })
       } catch { /* a broken ledger must never mask the provider error */ }
       // Close the loop here: a budget this run just proved too small must not
@@ -2227,7 +2698,18 @@ async function handleAnalyze({ root, body, resolveAiSelection, aiStreamFor, now 
       if (creatingSession && !selectedRequirementId) return withIntentSessionLock(root, session.sessionId, async () => {
         const latest = await requireSession(root, session.sessionId)
         assertSameRevision(latest)
-        return withMatchedReq(await localIntentDraft({ root, session: latest, draft: localDraft, structured: false, now, grillOutcome: 'fallback' }))
+        return withMatchedReq(await localIntentDraft({
+          root,
+          session: latest,
+          draft: localDraft,
+          structured: false,
+          now,
+          grillOutcome: 'fallback',
+          failure: { code: error.code, message: error.message },
+          // These codes only exist after a real model call, so the UI can say
+          // "the model ran but the answer was unusable" instead of "no model".
+          aiTried: ['ai-invalid-output', 'ai-output-budget-exhausted', 'ai-call-failed', 'ai-timeout'].includes(error.code),
+        }))
       })
     }
     throw error

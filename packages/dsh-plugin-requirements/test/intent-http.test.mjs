@@ -21,6 +21,7 @@ import RequirementsService from '../index.js'
 import { handleIntentRequest } from '../intent.mjs'
 import { evaluateReadiness, saveSession } from '../../alm-core/src/intent/index.mjs'
 import { INVESTIGATION_SCHEMA, writeInvestigation } from '../investigate.mjs'
+import { writeHealPolicy } from '../self-heal.mjs'
 import { requirements } from '../query.mjs'
 import { runCaptured } from '../../alm-core/src/process-capture.mjs'
 
@@ -60,6 +61,16 @@ function sessionFiles(root) {
 
 function readSession(root, sessionId) {
   return JSON.parse(readFileSync(join(root, '.alm/intents/sessions', `${sessionId}.json`), 'utf8'))
+}
+
+/** The defect ledger: the only place a runtime failure is expected to explain itself. */
+function failureRecords(root) {
+  const dir = join(root, '.alm/failures')
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((name) => /^FAIL-.*\.json$/.test(name))
+    .sort()
+    .map((name) => JSON.parse(readFileSync(join(dir, name), 'utf8')))
 }
 
 function spawnIntentEdit({ root, sessionId, expectedInputRevision, expectedSessionRevision, title }) {
@@ -168,17 +179,58 @@ function createAi(script) {
     return (async function* () {
       const output = typeof entry === 'function' ? await entry(options, state) : entry
       if (output && output.type === 'stream-error') {
-        yield { type: 'finish', reason: { kind: 'error', message: 'upstream provider failure: secret-key-xyz' } }
+        // The host turns an adapter throw into a terminal finish(error) chunk
+        // that carries the provider failure object (dsh-llm adapterFailureChunk).
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'PROVIDER_DOWN', message: 'upstream provider failure: secret-key-xyz', retryable: true } } }
         return
       }
       // A reasoning-only stream: the model thought, wrote nothing, and ended
-      // with an unmapped finish reason — the exact empty-return signature of
-      // RUN-mwlh6nmd (chunks=block-start|reasoning-delta|block-end|usage|finish).
+      // with a kind this host never emits — the branch that stays a contract
+      // error. The real truncation kind is exercised by the two cases below.
+      // The empty-return signature is
+      // chunks=block-start|reasoning-delta|block-end|usage|finish (RUN-mwlh6nmd).
       if (output && output.type === 'empty-stream') {
-        yield { type: 'block-start', kind: 'reasoning' }
-        yield { type: 'reasoning-delta', text: 'let me think about the requirement...' }
-        yield { type: 'block-end' }
+        yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+        yield { type: 'reasoning-delta', index: 0, text: 'let me think about the requirement...' }
+        yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: '' } }
         yield { type: 'finish', reason: { kind: 'unknown' } }
+        return
+      }
+      // Reasoning consumed the whole output allowance and the answer was cut at
+      // the model's token ceiling: empty content, usage at cap, and the host's
+      // real truncation kind (`max-tokens`, from FinishReasonMap).
+      if (output && output.type === 'budget-exhausted') {
+        yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+        yield { type: 'reasoning-delta', index: 0, text: 'thinking about the requirement and the review contract...' }
+        yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: '' } }
+        yield { type: 'usage', usage: { outputTokens: output.outputTokens ?? options?.maxTokens ?? 100000 } }
+        yield { type: 'finish', reason: { kind: 'max-tokens' } }
+        return
+      }
+      // The provider stopped far below the allowance the caller sent: the
+      // model's own ceiling is binding, so a bigger local budget cannot help.
+      if (output && output.type === 'truncated-below-budget') {
+        yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+        yield { type: 'reasoning-delta', index: 0, text: 'thinking, and thinking, and never writing the JSON...' }
+        yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: '' } }
+        yield { type: 'usage', usage: { outputTokens: output.outputTokens ?? 8192 } }
+        yield { type: 'finish', reason: { kind: 'max-tokens' } }
+        return
+      }
+      // A route whose effort ids do not contain the policy clamp rejects the
+      // request before provider I/O, exactly like the host's
+      // UNSUPPORTED_REASONING_EFFORT failure.
+      if (output && output.type === 'reject-effort' && options?.reasoningEffort !== undefined) {
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'UNSUPPORTED_REASONING_EFFORT', message: 'route does not support that effort', retryable: false } } }
+        return
+      }
+      // Raw chunk script: lets a test control both the chunk sequence and its
+      // timing, which is what the first-token watchdog actually measures.
+      if (output && output.type === 'chunks') {
+        for (const step of output.chunks ?? []) {
+          if (Number.isFinite(step?.delayMs) && step.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, step.delayMs))
+          if (step?.chunk) yield step.chunk
+        }
         return
       }
       const text = typeof output === 'string' ? output : JSON.stringify(output)
@@ -470,6 +522,228 @@ test('a reasoning-only empty stream gets exactly one repair retry instead of fai
       assert.equal(stored.convergence?.timing?.retries ?? 0, 1)
     })
     assert.deepEqual(requirementFiles(root), before)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('when the repair dies on transport, the first body diagnosis survives', async () => {
+  const root = tempFixture('alm-intent-repair-transport-')
+  try {
+    const before = requirementFiles(root)
+    // RUN-mwllclq4 signature: the first call wrote real content that broke the
+    // intent-review contract, and the repair retry died on an upstream 502.
+    // Before the fix the transport error erased the only evidence of what the
+    // model actually wrote.
+    const firstBody = '模型写了一半的回答：<html>oops</html>'
+    const ai = createAi([firstBody, streamError])
+    await withServer(root, { ai }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      // A brand-new session falls back to the local draft (200), but it must
+      // carry the "model ran, answer unusable" flag, not "no model at all".
+      assert.equal(status, 200)
+      assert.equal(payload.ok, true)
+      assert.equal(payload.session.ai, 'none')
+      assert.equal(payload.session.aiTried, true, 'the model was called, so the UI must not claim it never ran')
+      assert.ok(payload.session.aiNote.includes('AI 调用失败'), 'the note carries the failure reason')
+      const stored = readSession(root, payload.session.sessionId)
+      const errorRuns = stored.runs.filter((run) => run.status === 'error')
+      assert.ok(errorRuns.length >= 2, 'both attempts are on the ledger')
+      assert.equal(errorRuns[0].errorCode, 'ai-invalid-output')
+      assert.equal(errorRuns[errorRuns.length - 1].errorCode, 'ai-call-failed')
+    })
+    // The failure ledger keeps the excerpt too, so the next diagnosis starts
+    // from what the model wrote instead of an opaque error code.
+    const [record] = failureRecords(root).filter((entry) => entry.step === 'intent-analyze')
+    assert.ok(record, 'the failed clarification is on the defect ledger')
+    assert.ok(record.evidence.snapshot.rawOutputExcerpt?.includes('模型写了一半的回答'), 'the ledger snapshot keeps the raw excerpt')
+    assert.deepEqual(requirementFiles(root), before)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('an exhausted output budget is healed by raising the token cap and retried once', async () => {
+  const root = tempFixture('alm-intent-budget-heal-')
+  try {
+    const ai = createAi([{ type: 'budget-exhausted' }, needsInputAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(status, 200, JSON.stringify(payload))
+      assert.equal(payload.ok, true)
+      assert.equal(ai.state.calls.length, 2, 'one budget retry, not an unbounded loop')
+      assert.equal(ai.state.calls[0].maxTokens, 100000)
+      assert.equal(ai.state.calls[1].maxTokens, 200000, 'the retry uses the healed token budget')
+      const policy = JSON.parse(readFileSync(join(root, '.alm/self-heal/policy.json'), 'utf8'))
+      assert.equal(policy.schema, 'alm.self-heal.policy/v2')
+      assert.equal(policy.maxOutputTokens, 200000)
+      assert.equal(policy.history.at(-1).after.maxOutputTokens, 200000, 'the raise is recorded for rollback')
+      const stored = readSession(root, payload.session.sessionId)
+      assert.equal(stored.runs[0].errorCode, 'ai-output-budget-exhausted', 'budget exhaustion is not reported as bad JSON')
+      assert.equal(stored.runs.filter((run) => run.status === 'success').length, 1)
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a first-token timeout is healed and the same session re-runs to success', async () => {
+  const root = tempFixture('alm-intent-first-token-heal-')
+  try {
+    // The watchdog floor is 5s; a provider that never emits a token must trip
+    // it, and the healed gate (>= 10s) must let the very next attempt answer.
+    writeHealPolicy({ root, patch: { firstTokenMs: 5_000 }, reason: 'test floor' })
+    const ai = createAi([() => new Promise(() => {}), needsInputAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const first = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(first.status, 200, JSON.stringify(first.payload))
+      assert.equal(first.payload.localFallback, true)
+      const sessionId = first.payload.session.sessionId
+      // AC-02: the defect is classified and the self-heal changes only the
+      // policy parameter; the run records the measured interception point.
+      const storedFirst = readSession(root, sessionId)
+      assert.equal(storedFirst.runs[0].errorCode, 'ai-call-failed')
+      assert.equal(storedFirst.runs[0].timing.firstTokenMs, undefined)
+      const healed = JSON.parse(readFileSync(join(root, '.alm/self-heal/policy.json'), 'utf8'))
+      assert.equal(healed.schema, 'alm.self-heal.policy/v2')
+      assert.ok(healed.firstTokenMs >= 10_000, `gate raised above the interception point, got ${healed.firstTokenMs}`)
+      assert.equal(healed.history.at(-1).after.firstTokenMs, healed.firstTokenMs, 'the raise is recorded for rollback')
+      assert.match(String(first.payload.session.aiNote ?? ''), /首 token 预算已自动放宽/)
+      // No model body: no invented problem/acceptance and nothing to confirm.
+      assert.equal(first.payload.session.ai, 'none')
+      assert.equal(first.payload.session.aiTried, true)
+      assert.equal(first.payload.session.items[0].candidate, null)
+
+      const beforeRetry = readSession(root, sessionId)
+      const retry = await post({
+        ...analyzeText('退款进度看不到，用户一直问客服'),
+        sessionId,
+        retryExisting: true,
+        expectedSessionRevision: beforeRetry.sessionRevision,
+      })
+      assert.equal(retry.status, 200, JSON.stringify(retry.payload))
+      assert.equal(retry.payload.ok, true)
+      const stored = readSession(root, sessionId)
+      const success = stored.runs.filter((run) => run.status === 'success').at(-1)
+      assert.ok(success, 'the re-run under the healed policy succeeds')
+      assert.ok(Number.isFinite(success.timing?.firstTokenMs), 'the first token actually arrived')
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a truncation below the sent budget is repaired by lowering thinking, not by a fictional raise', async () => {
+  const root = tempFixture('alm-intent-truncated-clamped-')
+  try {
+    // First call: thinking ate 8192 tokens and the provider stopped there even
+    // though the caller asked for 100000 — the incident's exact shape. Second
+    // call: the repair (thinking off) writes the JSON. The host selection says
+    // `max`, like this profile's deepseek-flash default.
+    const ai = createAi([{ type: 'truncated-below-budget' }, needsInputAnalysis()])
+    const hostSelection = { provider: 'fake', model: 'fake-model', reasoningEffort: 'max' }
+    await withServer(root, { ai, model: false, hostSelection }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(status, 200, JSON.stringify(payload))
+      assert.equal(payload.ok, true)
+      assert.equal(ai.state.calls.length, 2, 'exactly one repair call')
+      // The first call is already bounded: a global "max thinking" default must
+      // not be inherited by a structured extraction call.
+      assert.equal(ai.state.calls[0].reasoningEffort, 'low', 'the intent call is clamped to the policy effort')
+      assert.equal(ai.state.calls[1].reasoningEffort, 'off', 'the repair turns thinking off')
+      assert.equal(ai.state.calls[1].maxTokens, 100000, 'a raise the provider ignores is not attempted')
+      // No policy write: there is no budget to heal, only a thinking budget.
+      assert.equal(existsSync(join(root, '.alm/self-heal/policy.json')), false)
+      // The repair prompt must not replay an empty assistant turn: the provider
+      // drops it, so the retry would be the same question over again.
+      for (const message of ai.state.calls[1].messages) {
+        for (const part of message.content) {
+          if (part?.type === 'text') assert.notEqual(String(part.text).trim(), '', 'no empty text part reaches the model')
+        }
+      }
+
+      const stored = readSession(root, payload.session.sessionId)
+      assert.equal(stored.runs[0].status, 'error')
+      assert.equal(stored.runs[0].errorCode, 'ai-output-budget-exhausted', 'a truncation is not reported as bad JSON')
+      assert.equal(stored.runs.at(-1).status, 'success')
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a truncation that survives the thinking repair names itself in the defect ledger', async () => {
+  const root = tempFixture('alm-intent-truncated-twice-')
+  try {
+    const ai = createAi([{ type: 'truncated-below-budget' }, { type: 'truncated-below-budget' }])
+    const hostSelection = { provider: 'fake', model: 'fake-model', reasoningEffort: 'max' }
+    await withServer(root, { ai, model: false, hostSelection }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(status, 200, JSON.stringify(payload))
+      assert.equal(payload.localFallback, true, 'no model answer means a manual draft, never invented content')
+      assert.equal(ai.state.calls.length, 2)
+      assert.ok(!JSON.stringify(payload).includes('secret'))
+      // The fallback note is where a user finally learns why nothing came back.
+      assert.match(payload.session.aiNote, /思考过程用完了输出预算/)
+
+      const records = failureRecords(root).filter((entry) => entry.step === 'intent-analyze')
+      assert.equal(records.length, 1, 'one deduped clarification failure record')
+      const [record] = records
+      // The whole point: this failure must be filed as the plugin's token-budget
+      // defect, with the measured numbers, not as an unnamed transport fault.
+      assert.equal(record.errorType, 'output-budget-exhausted')
+      assert.equal(record.kind, 'plugin-defect')
+      assert.equal(record.evidence.snapshot.finishKind, 'max-tokens')
+      assert.equal(record.evidence.snapshot.tokens.outputTokens, 8192)
+      assert.match(record.summary, /思考/)
+      assert.ok(record.evidence.logs.some((line) => line.includes('outputTokens=8192')), JSON.stringify(record.evidence.logs))
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a route that rejects the clamped thinking level still answers without it', async () => {
+  const root = tempFixture('alm-intent-effort-rejected-')
+  try {
+    // The host selection declares `max`; the clamp asks for `low`; this route's
+    // effort ids do not include it, so the host rejects before provider I/O.
+    // The call must be retried without the override instead of failing the run.
+    const ai = createAi([{ type: 'reject-effort' }])
+    const hostSelection = { provider: 'fake', model: 'fake-model', reasoningEffort: 'max' }
+    await withServer(root, { ai, model: false, hostSelection }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(status, 200, JSON.stringify(payload))
+      assert.equal(payload.ok, true)
+      assert.equal(ai.state.calls.length, 2, 'one rejected call, one without the effort')
+      assert.equal(ai.state.calls[0].reasoningEffort, 'low')
+      assert.equal(ai.state.calls[1].reasoningEffort, undefined, 'the fallback sends no effort at all')
+      assert.equal(readSession(root, payload.session.sessionId).runs.at(-1).status, 'success')
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('an exhausted budget at the ceiling lowers thinking first, then falls back to the next model', async () => {
+  const root = tempFixture('alm-intent-budget-chain-')
+  try {
+    const policy = writeHealPolicy({ root, patch: { maxOutputTokens: 200000, modelChain: ['fake/backup-model'] } })
+    assert.equal(policy.after.maxOutputTokens, 200000)
+    // At the ceiling there is nothing left to raise, so the two remaining
+    // levers are tried in order: less thinking on the same model, then another
+    // model. The third call is the one that finally answers.
+    const ai = createAi([{ type: 'budget-exhausted' }, { type: 'budget-exhausted' }, needsInputAnalysis()])
+    await withServer(root, { ai }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(status, 200, JSON.stringify(payload))
+      assert.equal(ai.state.calls.length, 3)
+      assert.equal(ai.state.calls[0].model, 'fake-model')
+      assert.equal(ai.state.calls[1].model, 'fake-model', 'the same model is retried with less thinking first')
+      assert.equal(ai.state.calls[1].reasoningEffort, 'off')
+      assert.equal(ai.state.calls[2].model, 'backup-model', 'only then does the chain switch model')
+      assert.equal(payload.model.model, 'backup-model')
+    })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -1849,12 +2123,11 @@ test('investigate returns quote-verified evidence, stores it and exposes it on G
       assert.equal(readSession(root, sessionId).state, 'needs_input')
 
       // The investigate prompt is host-shaped: string system + parts arrays.
-      // investigate keeps its own 8000-token budget; only the clarify path
-      // needed the raise for reasoning headroom.
+      // Its output budget is the shared policy value, not a second 8000.
       const call = ai.state.calls[1]
       assert.equal(typeof call.system, 'string')
       assert.ok(Array.isArray(call.messages[0].content))
-      assert.equal(call.maxTokens, 8000)
+      assert.equal(call.maxTokens, 100000)
 
       const loaded = await get(sessionId)
       assert.equal(loaded.status, 200)
@@ -2561,6 +2834,22 @@ test('successful and failed runs both persist server-measured timing (no fabrica
         }
       }
       assert.equal(stored.runs[1].timing.retries, 1, 'the repair retry is counted once')
+      // Each run describes itself: a retry no longer repeats the first attempt's
+      // cost, so the session total stops double counting (93s for a 46s run).
+      assert.deepEqual(stored.runs.map((run) => run.timing.calls), [1, 1], 'per-run call counts are deltas')
+      assert.equal(stored.convergence.timing.calls, 2, 'the session sums the two attempts exactly once')
+      const summed = stored.runs.reduce((total, run) => total + (run.timing.totalMs ?? 0), 0)
+      assert.ok(Math.abs(stored.convergence.timing.totalMs - summed) <= 2, 'convergence is the sum of the runs')
+      // Runs carry real attempt boundaries instead of one shared instant.
+      for (const run of stored.runs) {
+        assert.ok(Date.parse(run.finishedAt) >= Date.parse(run.startedAt), `${run.analysisRunId} has a real window`)
+      }
+      assert.ok(Date.parse(stored.runs[1].startedAt) >= Date.parse(stored.runs[0].startedAt))
+      // A latency is a measurement: the session keeps the observed value instead of
+      // adding two attempts' first-token latencies together.
+      if (Number.isFinite(stored.runs[0].timing.firstTokenMs)) {
+        assert.equal(stored.convergence.timing.firstTokenMs, stored.runs[0].timing.firstTokenMs)
+      }
     })
   } finally {
     rmSync(failureRoot, { recursive: true, force: true })
@@ -2826,6 +3115,66 @@ test('confirm with a stale docHash returns 409 draft-changed with the latest bin
       assert.equal(details.latest.draftRevision, stored.draftRevision)
       assert.equal(details.expected.docHash, wrongHash)
       assert.equal(details.diff, null)
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a thinking model is not killed by the first-token watchdog', async () => {
+  const root = tempFixture('alm-intent-thinking-')
+  try {
+    // The gate (5s is the policy floor) expires while the model is still thinking;
+    // the answer text only arrives afterwards. Counting reasoning as progress is
+    // what keeps this call alive — the old watchdog aborted it as "stalled" and
+    // the self-heal then raised the gate for a call that was never broken.
+    writeHealPolicy({ root, patch: { firstTokenMs: 5000, outputMs: 30_000 } })
+    const ai = createAi([{
+      type: 'chunks',
+      chunks: [
+        { delayMs: 4500, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } },
+        { delayMs: 100, chunk: { type: 'reasoning-delta', index: 0, text: '先想清楚这条需求的边界。' } },
+        { delayMs: 800, chunk: { type: 'block-end', index: 0, block: { type: 'reasoning', text: '' } } },
+        { chunk: { type: 'text-delta', index: 1, text: JSON.stringify(needsInputAnalysis()) } },
+        { chunk: { type: 'finish', reason: { kind: 'stop' } } },
+      ],
+    }])
+    await withServer(root, { ai }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(status, 200, JSON.stringify(payload))
+      assert.equal(payload.ok, true)
+      assert.equal(ai.state.calls.length, 1, 'a thinking stream must not be retried as if it failed')
+      const stored = readSession(root, payload.session.sessionId)
+      assert.equal(stored.runs[0].status, 'success')
+      // Progress is measured from the first streamed chunk (reasoning included).
+      assert.ok(stored.runs[0].timing.firstTokenMs >= 4000, JSON.stringify(stored.runs[0].timing))
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a provider that sends nothing at all still times out, and says so', async () => {
+  const root = tempFixture('alm-intent-silent-')
+  try {
+    writeHealPolicy({ root, patch: { firstTokenMs: 5000, outputMs: 30_000 } })
+    const ai = createAi([{
+      type: 'chunks',
+      chunks: [
+        { delayMs: 7000, chunk: { type: 'text-delta', index: 0, text: JSON.stringify(needsInputAnalysis()) } },
+        { chunk: { type: 'finish', reason: { kind: 'stop' } } },
+      ],
+    }])
+    await withServer(root, { ai }, async ({ post }) => {
+      const { status, payload } = await post(analyzeText('退款进度看不到，用户一直问客服'))
+      assert.equal(status, 200, JSON.stringify(payload))
+      assert.equal(payload.localFallback, true)
+      const records = failureRecords(root).filter((entry) => entry.step === 'intent-analyze')
+      assert.equal(records.length, 1)
+      assert.equal(records[0].errorType, 'first-token-timeout', 'a silent provider is still a first-token timeout')
+      assert.match(records[0].summary, /AI 调用超时/)
+      assert.match(records[0].summary, /未收到任何分片/, 'the abort must state what arrived, not just that it timed out')
+      assert.ok(records[0].evidence.logs.some((line) => line.includes('chunks=none')), JSON.stringify(records[0].evidence.logs))
     })
   } finally {
     rmSync(root, { recursive: true, force: true })

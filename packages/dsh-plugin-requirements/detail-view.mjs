@@ -84,6 +84,20 @@ const ACTION_BY_KIND = {
   'plan-review': 'approve-plan',
 }
 
+// Stops that a human "恢复推进" click can turn back into an authorized run. When
+// evidence is stale on top of one of these, verification alone cannot help: it
+// refreshes the evidence but leaves the authorization stale, so the page must
+// offer the resume action that rebinds the requirement hash.
+const RESUMABLE_AUTO_STOPS = new Set([
+  'requirement-changed',
+  'environment-blocked',
+  'registered-acceptance-failed',
+  'verification-timeout',
+  'verification-command-unavailable',
+  'verification-config-changed',
+  'auto-facts-changed',
+])
+
 const RUN_REASON_LABELS = {
   'not-authorized': '本轮没有自动续推授权，可继续同一运行。',
   'run-not-active': '本轮已停止，不能继续自动调度。',
@@ -115,10 +129,32 @@ function asArray(value) {
   return Array.isArray(value) ? value : []
 }
 
-function normalizePresentationText(value) {
+function mapOutsideMermaidFences(value, transform) {
+  let fence = false
+  let marker = ''
   return String(value ?? '')
-    .replace(/\$\\(?:right)?arrow\$/g, '→')
-    .replace(/(^|[^-])\s*->\s*/g, '$1 → ')
+    .split(/\r?\n/)
+    .map((line) => {
+      const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line)
+      if (!fence && open) {
+        fence = true
+        marker = open[1]
+        return line
+      }
+      if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) {
+        fence = false
+        return line
+      }
+      if (fence) return line
+      return transform(line)
+    })
+    .join('\n')
+}
+
+function normalizePresentationText(value) {
+  return mapOutsideMermaidFences(value, (line) =>
+    line.replace(/\$\\(?:right)?arrow\$/g, '→').replace(/(^|[^-])\s*->\s*/g, '$1 → '),
+  )
 }
 
 function frozenSnapshotEnd(text, offset) {
@@ -187,9 +223,15 @@ function parseTime(value) {
 
 function peelInlineLabels(text, title) {
   const out = []
+  let fence = false
+  let marker = ''
   String(text ?? '')
     .split(/\r?\n/)
     .forEach((line) => {
+      const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line)
+      if (!fence && open) { fence = true; marker = open[1]; out.push(line); return }
+      if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) { fence = false; out.push(line); return }
+      if (fence) { out.push(line); return }
       const trimmed = line.trim()
       const match = INLINE_LABEL_RE.exec(trimmed)
       if (!match) {
@@ -210,11 +252,30 @@ function rawBriefSections(text) {
   const lines = cleanBriefForPresentation(text).split(/\r?\n/)
   const sections = []
   let current = null
+  let fence = false
+  let marker = ''
   const startSection = (title) => {
     current = { title, body: [] }
     sections.push(current)
   }
   lines.forEach((line) => {
+    const open = /^\s*(```|~~~)\s*mermaid\s*$/i.exec(line)
+    if (!fence && open) {
+      if (!current) startSection('原始诉求')
+      current.body.push(line)
+      fence = true
+      marker = open[1]
+      return
+    }
+    if (fence && new RegExp(`^\\s*${marker}\\s*$`).test(line)) {
+      current.body.push(line)
+      fence = false
+      return
+    }
+    if (fence) {
+      current.body.push(line)
+      return
+    }
     const trimmed = line.trim()
     const heading = /^##\s+(.+)$/.exec(trimmed)
     if (heading) {
@@ -498,8 +559,9 @@ function deriveExecutionDiagnostic(item, summaries) {
   // A live turn is still changing the worktree. A prior failed check cannot
   // diagnose that turn and must never surface a repair action while coding.
   if (isLiveRun(run)) return null
+  const transportFailure = isTransportFailure(run)
   const scope = run.scopeDiagnostic
-  if (scope && (scope.outOfScope.length || scope.risky.length || scope.reason)) {
+  if (!transportFailure && scope && (scope.outOfScope.length || scope.risky.length || scope.reason)) {
     const files = [...new Set([...scope.outOfScope, ...scope.risky])]
     return {
       category: 'scope', title: '🟠 修改范围超出蓝图锁定边界',
@@ -507,7 +569,7 @@ function deriveExecutionDiagnostic(item, summaries) {
       log: files.join('\n'), actionLabel: '批准当前修改范围并重新验证',
     }
   }
-  if (acceptance.diagnostic) return {
+  if (!transportFailure && acceptance.diagnostic) return {
     ...acceptance.diagnostic,
     // A timeout is a command/budget problem, not a code defect. Sending it to
     // "let AI fix the failing item" only repeats the same doomed command.
@@ -515,8 +577,7 @@ function deriveExecutionDiagnostic(item, summaries) {
       : acceptance.diagnostic.category === 'environment' ? '刷新证据并重新验证'
         : '🔧 让 AI 自动修复未通过项',
   }
-  const code = run.failure?.code ?? run.autoAdvance?.reason
-  const normalizedCode = String(code ?? '').toLowerCase() === 'transport' ? 'transport-failed' : code
+  const code = transportFailure ? 'transport-failed' : (run.failure?.code ?? run.autoAdvance?.reason)
   const message = run.failure?.message ?? run.failureDiagnostic?.summary
   const labels = {
     'environment-blocked': '🟠 调查证据过期或环境受阻',
@@ -533,12 +594,13 @@ function deriveExecutionDiagnostic(item, summaries) {
   }
   if (!code && !message) return null
   return {
-    category: run.failureDiagnostic?.category ?? 'run', title: labels[normalizedCode] ?? run.failureDiagnostic?.title ?? '🟠 推进暂停，等待处理',
+    category: transportFailure ? 'run' : (run.failureDiagnostic?.category ?? 'run'),
+    title: labels[code] ?? run.failureDiagnostic?.title ?? '🟠 推进暂停，等待处理',
     summary: message ?? '系统未能继续确认本轮推进条件；请查看诊断详情后恢复推进。',
     log: run.failureDiagnostic?.log ?? '',
-    actionLabel: normalizedCode === 'transport-failed' ? '▶ 从断点恢复推进'
-      : normalizedCode === 'verification-timeout' ? '收窄验收命令并重新验证'
-        : ['environment-blocked', 'verification-context-changed', 'verification-command-unavailable'].includes(normalizedCode) ? '刷新证据并重新验证'
+    actionLabel: code === 'transport-failed' ? '▶ 从断点恢复推进'
+      : code === 'verification-timeout' ? '收窄验收命令并重新验证'
+        : ['environment-blocked', 'verification-context-changed', 'verification-command-unavailable'].includes(code) ? '刷新证据并重新验证'
           : '🔧 让 AI 自动修复未通过项',
   }
 }
@@ -684,7 +746,9 @@ function isLiveRun(run) {
 }
 
 function isTransportFailure(run) {
-  return ['transport-failed', 'transport'].includes(String(run?.failure?.code ?? '').toLowerCase())
+  const code = String(run?.failure?.code ?? '').toLowerCase()
+  return ['transport-failed', 'transport'].includes(code) ||
+    (code === 'pi_ai_error' && /\bupstream response stream was interrupted\b/i.test(run?.failure?.message ?? ''))
 }
 
 function resolveFocus(item, summaries, decision) {
@@ -1021,12 +1085,25 @@ export function primaryActionFor(detail) {
   return { id, label: ACTION_LABELS[id], enabled: availability.enabled, reason: availability.reason, target }
 }
 
-function secondaryActionsFor(detail) {
+function secondaryActionsFor(detail, decision = null) {
   if (!detail?.primaryAction && detail?.context?.kind === 'closed') return []
   const primaryId = detail?.primaryAction?.id ?? null
+  // Declaring the modules a delivery moved is the only action that unblocks a
+  // refused commit; offering it here keeps the human out of the resume loop.
+  const architectureBlocked = (Array.isArray(decision?.gaps) ? decision.gaps : [])
+    .some((gap) => gap?.code === 'architecture-undeclared')
+  // A bound failure is a live problem until a human settles it; the API existed
+  // without a way to reach it from the page.
+  const failureId = textOrNull(detail?.summaries?.run?.failureDiagnostic?.id)
+  const run = detail?.summaries?.run
+  const evidenceStale = decision?.state === 'stale' && run?.exists &&
+    !run.active && !['running', 'queued'].includes(run.status)
+  const transportInterrupted = detail?.context?.kind === 'run-interrupted' && isTransportFailure(run)
   const actions = [
-    ...(detail?.context?.kind === 'run-interrupted' && isTransportFailure(detail?.summaries?.run)
-      ? [{ id: 'run-acceptance', label: ACTION_LABELS['run-acceptance'], enabled: true, reason: null }]
+    ...(architectureBlocked ? [{ id: 'declare-allocation', label: '补架构声明', enabled: true, reason: null }] : []),
+    ...(failureId ? [{ id: 'settle-failure', label: '结算失败记录', enabled: true, reason: null, target: { failureId } }] : []),
+    ...(evidenceStale || transportInterrupted
+      ? [{ id: 'run-acceptance', label: evidenceStale ? '重新验证当前改动' : ACTION_LABELS['run-acceptance'], enabled: true, reason: null }]
       : []),
     { id: 'refresh', label: '刷新', enabled: true, reason: null },
     { id: 'open-record', label: '查看记录', enabled: true, reason: null },
@@ -1274,16 +1351,16 @@ export function currentMatterFor(item, detail) {
   const { run, candidate, delivery } = detail.summaries
   const focus = detail.context.kind
   const auto = run.autoAdvance
+  const resumableStop = run.exists === true && auto?.status === 'stopped' && RESUMABLE_AUTO_STOPS.has(auto.reason)
   let kind = 'unverified'
   let requiresHuman = false
   let headline = detail.context.headline
   let explanation = detail.context.explanation
   let action = detail.primaryAction
-  if (isTransportFailure(run)) {
+  if (focus === 'run-interrupted' && isTransportFailure(run)) {
     kind = 'run-interrupted'
     headline = 'AI 推进因模型连接中断暂停'
-    explanation = run.failure.message ?? 'DeepSeek Messages transport failed；当前工作区改动已保留。'
-    action = primaryActionFor({ ...detail, context: { ...detail.context, kind: 'run-interrupted' } })
+    explanation = run.failure.message ?? '模型连接中断，已保留当前工作区改动。'
   } else if (focus === 'closed' || focus === 'released' || focus === 'accepted') kind = focus
   else if (focus === 'release-authorized' || focus === 'release-failed') kind = 'accepted'
   else if (candidate.current === true && delivery.key === 'awaiting-acceptance' && item?.decision?.state === 'ready-for-human') {
@@ -1308,6 +1385,43 @@ export function currentMatterFor(item, detail) {
     headline = 'AI 正在处理'
     action = primaryActionFor({ ...detail, context: { ...detail.context, kind: 'run-active' } })
     explanation = auto?.authorized === true ? `已获本轮自动推进授权，已调度 ${auto.dispatches ?? 0}/${auto.maxDispatches ?? 3} 次；遇到业务决策会停下来。` : explanation
+  } else if (item?.decision?.state === 'stale' && !['accepted', 'closed'].includes(delivery.key)) {
+    // The delivered content moved on after the last acceptance. Nothing can be
+    // signed from stale evidence, but the correct next action depends on why the
+    // run is idle: a stopped authorization needs the resume click that rebinds
+    // the requirement hash, while a plain stale tree only needs verification.
+    kind = 'evidence-stale'
+    requiresHuman = true
+    const target = {
+      runId: run.id ?? null,
+      decisionRef: null,
+      candidateId: candidate.id ?? null,
+      releaseId: null,
+      requirementRevision: item?.identity?.revision ?? null,
+    }
+    if (resumableStop) {
+      headline = '需求或证据已变化，需要恢复推进'
+      explanation = auto.reason === 'requirement-changed'
+        ? '需求内容已变化，自动推进已暂停；「恢复推进」会按当前需求版本重新授权，再重跑验收。'
+        : '自动推进已暂停；「恢复推进」会重新授权并重跑验收，单独重新验证不会恢复自动推进。'
+      action = {
+        id: 'resume-run',
+        label: '恢复推进并重新授权',
+        enabled: Boolean(run.id),
+        reason: run.id ? null : '未找到可恢复的运行号',
+        target,
+      }
+    } else {
+      headline = '验证结论已过期，需要重新验证'
+      explanation = textOrNull(item?.decision?.topGap?.message) ?? '验收证据与当前交付内容不一致；重新验证后才会产生可签收的候选。'
+      action = {
+        id: 'run-acceptance',
+        label: '重新验证当前改动',
+        enabled: true,
+        reason: null,
+        target,
+      }
+    }
   } else if (auto?.status === 'stopped' || ['run-interrupted', 'blocked', 'acceptance-failed'].includes(focus)) {
     kind = 'technical-block'
     headline = '推进暂时停在技术问题'
@@ -1487,7 +1601,7 @@ export function deriveDetailView(item, options = {}) {
       (summaries.candidate.current !== true || decision.state !== 'ready-for-human' || decision.signoff?.allowed === false)) {
     detail.primaryAction = { ...detail.primaryAction, enabled: false, reason: '需要当前有效的候选及允许人工验收的证据决策' }
   }
-  detail.secondaryActions = secondaryActionsFor(detail)
+  detail.secondaryActions = secondaryActionsFor(detail, decision)
   // Explicit human rejection is separate from signoff and ordinary continuation.
   detail.rejectionReview = source.rejectionReview ?? { allowed: false, binding: null }
   // Rendered by the isolated RejectCandidateControl, not the generic action dispatcher.
@@ -1537,7 +1651,7 @@ export function deriveDetailView(item, options = {}) {
   // autoAdvance.reason still says verification-timeout until the run resumes.
   const timedOut = !verificationCurrent && (executionDiagnostic?.category === 'timeout' ||
     String(detail.summaries.run.autoAdvance?.reason ?? '') === 'verification-timeout')
-  if (timedOut && !detail.summaries.run.active) {
+  if (timedOut && !detail.summaries.run.active && !isTransportFailure(detail.summaries.run)) {
     const narrowed = { id: 'narrow-verification', label: ACTION_LABELS['narrow-verification'],
       enabled: true, reason: null, target: { runId: detail.summaries.run.id ?? null } }
     detail.primaryAction = narrowed

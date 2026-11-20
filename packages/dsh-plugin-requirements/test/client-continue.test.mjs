@@ -12,6 +12,8 @@ function fragment(startMarker, endMarker) {
   return source.slice(start, end)
 }
 
+const declareArchitecture = fragment('    function declareArchitectureIfBlocked(', '\n    let modalSequence')
+
 test('repair start fetches native decision and routes fallback to existing answer UI, otherwise continues same run', async () => {
  for (const pending of [true,false]) {
  const calls=[], answered=[], started=[]
@@ -19,7 +21,7 @@ test('repair start fetches native decision and routes fallback to existing answe
  const context=vm.createContext({data:{root:'D:/root'},root:'D:/fallback',
  writeJson:async(action,body)=>{calls.push(body);return body.mode==='decision'?{exists:true,decision:pending?'.alm/runs/RUN-012-decision.md':null}:{resumed:true}},
  setAnswerItem:entry=>answered.push(entry),setStartItem:entry=>started.push(entry),reload:()=>{reloads++},window:{alert:assert.fail}})
- vm.runInContext('this.cb=({' + fragment('              onStart: async (entry, options) => {','\n              onAcceptance:') + '})',context)
+ vm.runInContext(declareArchitecture + '\nthis.cb=({' + fragment('              onStart: async (entry, options) => {','\n              onAcceptance:') + '})',context)
  await context.cb.onStart({id:'REQ-1'})
  assert.deepEqual(calls.map(x=>x.mode),pending?['decision']:['decision','continue'])
  assert.equal(answered.length,pending?1:0);assert.equal(started.length,0);assert.equal(reloads,pending?0:1)
@@ -65,19 +67,20 @@ test('resume-run reports a pending label before the restart request resolves', a
   assert.match(pendings[0].text, /恢复推进/)
 })
 
-function callbackHarness({ data = { root: 'D:/payload' }, root = 'D:/fallback', reject = false, result = { resumed: true } } = {}) {
+function callbackHarness({ data = { root: 'D:/payload' }, root = 'D:/fallback', reject = false, result = { resumed: true }, request } = {}) {
   const calls = [], alerts = []
   let reloads = 0
   const context = vm.createContext({ data, root,
     writeJson(action, body, requestRoot) {
       calls.push({ action, body: JSON.parse(JSON.stringify(body)), root: requestRoot })
+      if (request) return request(action)
       return reject ? Promise.reject(new Error('blocked by fresh server state')) : Promise.resolve(result)
     },
     reload: () => { reloads++ },
     window: { alert: message => alerts.push(message) },
   })
   const callback = fragment('              onContinueRun: (entry) => {', '\n              onResumeRun:')
-  vm.runInContext('this.callbacks = ({' + callback + '})', context)
+  vm.runInContext(declareArchitecture + '\nthis.callbacks = ({' + callback + '})', context)
   return { invoke: context.callbacks.onContinueRun, calls, alerts, reloads: () => reloads }
 }
 const flush = () => new Promise(resolve => setImmediate(resolve))
@@ -172,4 +175,23 @@ test('continue failure is surfaced and never reloads as success or retries a sta
   assert.equal(harness.calls.length, 1)
   assert.equal(harness.reloads(), 0)
   assert.deepEqual(harness.alerts, ['继续失败：blocked by fresh server state'])
+})
+
+test('continue stays pending through architecture declaration and run resumption', async () => {
+  let finishDeclaration
+  let finishResume
+  const declaration = new Promise(resolve => { finishDeclaration = resolve })
+  const resume = new Promise(resolve => { finishResume = resolve })
+  const harness = callbackHarness({ request: action => action === 'architecture' ? declaration : resume })
+
+  const pending = harness.invoke({ id: 'REQ-CONTINUE', decision: { gaps: [{ code: 'architecture-undeclared', modules: ['MOD-A'] }] } })
+  assert.equal(typeof pending?.then, 'function')
+  assert.deepEqual(harness.calls.map(call => call.action), ['architecture'])
+  finishDeclaration({ ok: true })
+  await flush()
+  assert.deepEqual(harness.calls.map(call => call.action), ['architecture', 'run'])
+  assert.equal(harness.reloads(), 0)
+  finishResume({ resumed: true })
+  await pending
+  assert.equal(harness.reloads(), 1)
 })

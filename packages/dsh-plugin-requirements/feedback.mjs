@@ -29,7 +29,6 @@ import { requirements as listRequirements } from './query.mjs'
 import { feedbackBuildInfo } from './build-info.mjs'
 
 const GET_ACTIONS = new Set(['inbox', 'record', 'settings', 'diagnostics', 'proposal', 'requirement-ref', 'attachment'])
-const POST_ACTIONS = new Set(['save', 'generate', 'settings', 'retry', 'category', 'supplement', 'link', 'disposition', 'resolve', 'reopen', 'process', 'proposal-confirm'])
 const FALLBACK_CATEGORIES = ['undetermined', 'defect', 'experience', 'capability']
 const CATEGORY_ALIASES = new Map([
   ['待判断', 'undetermined'],

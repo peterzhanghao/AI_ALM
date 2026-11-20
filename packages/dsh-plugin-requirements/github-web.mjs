@@ -23,7 +23,7 @@ function gitHubPath(remoteUrl) {
 }
 
 export function githubWebUrl(remoteUrl) {
-  const path = gitHubPath(remoteUrl)?.replace(/\.git$/i, '').replace(/\/+$/, '')
+  const path = gitHubPath(remoteUrl)?.replace(/\/+$/, '').replace(/\.git$/i, '')
   if (!path || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(path)) return null
   return `https://github.com/${path}`
 }

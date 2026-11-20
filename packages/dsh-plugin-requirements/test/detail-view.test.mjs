@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import vm from 'node:vm'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
   DETAIL_VIEW_SCHEMA,
@@ -1599,3 +1602,295 @@ test('settled delivery marks every AC accepted in natural order and suppresses o
   assert.match(view.context.explanation, /代码与架构档案已合入 GitHub main 分支/)
 })
 
+
+test('stale evidence offers re-running verification instead of another AI round', () => {
+  const view = deriveDetailView(baseItem({
+    acceptance: { registered: true, latest: { result: 'pass', current: false, complete: true, staleReason: 'worktree' } },
+    decision: baseDecision({
+      state: 'stale',
+      label: '证据过期',
+      tone: 'warn',
+      topGap: { code: 'evidence-stale', message: '验收证据已过期：实现提交已变化', severity: 'warn' },
+      nextStep: { label: '重新执行验收', action: 'run-acceptance' },
+    }),
+    run: { exists: true, id: 'RUN-009', status: 'waiting-input', active: false, idleHandback: true },
+  }))
+  assert.equal(view.currentMatter.kind, 'evidence-stale')
+  assert.equal(view.currentMatter.requiresHuman, true)
+  assert.equal(view.primaryAction.id, 'run-acceptance', 'the page must offer verification, not another turn')
+  assert.equal(view.primaryAction.label, '重新验证当前改动')
+  assert.equal(view.primaryAction.enabled, true)
+  assert.match(view.currentMatter.headline, /验证结论已过期/)
+})
+
+test('stale evidence on an authorization-stopped run offers resume before verification', () => {
+  const view = deriveDetailView(baseItem({
+    acceptance: { registered: true, latest: { result: 'fail', current: false, complete: true, staleReason: 'worktree' } },
+    decision: baseDecision({
+      state: 'stale',
+      topGap: { code: 'evidence-stale', message: '验收证据已过期：实现提交已变化', severity: 'warn' },
+      nextStep: { label: '重新执行验收', action: 'run-acceptance' },
+    }),
+    run: {
+      exists: true,
+      id: 'RUN-009',
+      status: 'waiting-input',
+      active: false,
+      idleHandback: true,
+      autoAdvance: { authorized: true, status: 'stopped', reason: 'requirement-changed', dispatches: 0, maxDispatches: 3 },
+    },
+  }))
+  assert.equal(view.currentMatter.kind, 'evidence-stale')
+  // Re-running verification alone leaves the authorization pinned to the old
+  // requirement; the page must offer the resume click that rebinds it first.
+  assert.equal(view.primaryAction.id, 'resume-run')
+  assert.equal(view.primaryAction.label, '恢复推进并重新授权')
+  assert.match(view.currentMatter.explanation, /重新授权/)
+  assert.ok(view.secondaryActions.some(entry => entry.id === 'run-acceptance'))
+})
+
+test('a live automatic run is not interrupted by a stale decision', () => {
+  const view = deriveDetailView(baseItem({
+    acceptance: { registered: true, latest: { result: 'pass', current: false, complete: true } },
+    decision: baseDecision({ state: 'stale', topGap: { code: 'evidence-stale', message: 'x' } }),
+    run: { exists: true, id: 'RUN-1', status: 'running', active: true, idleHandback: false, autoAdvance: { authorized: true, status: 'running', dispatches: 1, maxDispatches: 3 } },
+  }))
+  assert.equal(view.currentMatter.kind, 'automatic')
+  assert.equal(view.primaryAction.id, 'watch-run')
+})
+
+test('an upstream stream interruption offers one recovery action alongside stale evidence', () => {
+  const view = deriveDetailView(baseItem({
+    decision: baseDecision({ state: 'stale', topGap: { code: 'evidence-stale', message: '验收证据已过期' } }),
+    run: {
+      exists: true,
+      id: 'RUN-010',
+      status: 'failed',
+      phase: 'interrupted',
+      active: false,
+      failure: { code: 'PI_AI_ERROR', message: 'Upstream response stream was interrupted' },
+      autoAdvance: { status: 'running', reason: 'work-remains', dispatches: 2, maxDispatches: 3 },
+    },
+  }))
+
+  assert.equal(view.currentMatter.headline, 'AI 推进因模型连接中断暂停')
+  assert.equal(view.primaryAction.id, 'resume-run')
+  assert.equal(view.executionDiagnostic.actionLabel, '▶ 从断点恢复推进')
+  assert.equal(view.secondaryActions.filter(action => action.id === 'run-acceptance').length, 1)
+})
+
+test('a bound failure offers a settlement action on the page', () => {
+  const withFailure = deriveDetailView(baseItem({
+    decision: baseDecision({ state: 'stale' }),
+    run: { exists: true, id: 'RUN-9', status: 'waiting-input', active: false, idleHandback: true, failureDiagnostic: { id: 'FAIL-ALM-031', summary: 'AI 调用超时', stage: 'clarify', step: 'intent-analyze', title: 'AI 自检发现未完成项' } },
+  }))
+  const action = withFailure.secondaryActions.find(entry => entry.id === 'settle-failure')
+  assert.ok(action, 'the settlement API must be reachable from the page')
+  assert.equal(action.target.failureId, 'FAIL-ALM-031')
+
+  const withoutFailure = deriveDetailView(baseItem({ decision: baseDecision({ state: 'unchecked' }) }))
+  assert.equal(withoutFailure.secondaryActions.some(entry => entry.id === 'settle-failure'), false)
+})
+
+// --- Mermaid rendering (REQ-ALM-016) ---------------------------------------
+// The requirements page is a browser bundle without a module export. The tests
+// below evaluate the same source in a VM and render the real components with
+// react-dom/server, so the assertions cover exactly what the page draws.
+
+const FENCE = String.fromCharCode(96, 96, 96)
+const mermaidBlock = (source) => `${FENCE}mermaid\n${source}\n${FENCE}`
+let cachedClientHooks = null
+
+function clientHooks() {
+  if (cachedClientHooks) return cachedClientHooks
+  const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+  const marker = '    return {\n      inject:'
+  assert.ok(source.includes(marker), 'client entry marker is required by the render harness')
+  const patched = source.replace(marker, `    globalThis.__MermaidHooks = { MermaidDiagram, renderRich, buildMermaidDiagram, extractMermaidBlocks, requirementBodyHtml, buildRequirementExportHtml, RequirementRow }\n${marker}`)
+  const sandbox = {
+    window: {
+      __ModuleLoader__: { load({ factory }) { sandbox.__factory = factory } },
+      matchMedia: () => ({ matches: false }),
+      setTimeout: () => 0,
+      clearTimeout: () => {},
+    },
+    document: {
+      addEventListener() {},
+      removeEventListener() {},
+      querySelector() { return null },
+      querySelectorAll() { return [] },
+      createElement() { return { style: {}, setAttribute() {}, appendChild() {}, remove() {}, click() {}, focus() {} } },
+      body: { appendChild() {}, removeChild() {} },
+    },
+    navigator: {},
+    URL,
+    Blob: class {},
+    console,
+    setTimeout,
+    clearTimeout,
+    React,
+  }
+  vm.createContext(sandbox)
+  vm.runInContext(patched, sandbox, { filename: 'client-source.js' })
+  sandbox.__factory((id) => (id === 'react' ? React : {}))
+  assert.ok(sandbox.__MermaidHooks, 'the client factory must expose the Mermaid hooks')
+  cachedClientHooks = sandbox.__MermaidHooks
+  return cachedClientHooks
+}
+
+test('requirement body renders Mermaid ER and use-case diagrams instead of raw syntax', () => {
+  const { renderRich } = clientHooks()
+  const html = renderToStaticMarkup(React.createElement('div', null, renderRich([
+    '## 目标',
+    '',
+    mermaidBlock('erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  CUSTOMER {\n    string name PK\n  }'),
+    '',
+    '说明段落。',
+    '',
+    mermaidBlock('flowchart LR\n  actor([用户])\n  login([登录])\n  actor --> login'),
+  ].join('\n'))))
+  assert.match(html, /data-mermaid-diagram="true"/)
+  assert.match(html, /data-mermaid-type="er"/)
+  assert.match(html, /data-mermaid-type="flow"/)
+  assert.match(html, /role="img"/)
+  assert.match(html, /说明段落/)
+  // The raw source is a closed disclosure, never the rendered body: the reader
+  // sees the diagram where the fence was, not the syntax.
+  assert.equal(html.includes('erDiagram'), false)
+  assert.equal(html.includes('flowchart'), false)
+})
+
+test('unsupported or broken Mermaid keeps the source in place with a clear error', () => {
+  const { renderRich } = clientHooks()
+  const html = renderToStaticMarkup(React.createElement('div', null, renderRich(`前文\n\n${mermaidBlock('flowchart LR\n  %% no nodes')}\n\n后文`)))
+  assert.match(html, /data-mermaid-error="true"/)
+  assert.match(html, /role="alert"/)
+  assert.match(html, /无法渲染 Mermaid 图/)
+  assert.match(html, /流程图缺少节点定义/)
+  assert.match(html, /flowchart LR/)
+  assert.match(html, /前文/)
+  assert.match(html, /后文/)
+
+  const unknown = renderToStaticMarkup(React.createElement('div', null, renderRich(mermaidBlock('whateverDiagram\n  A --> B'))))
+  assert.match(unknown, /data-mermaid-error="true"/)
+  assert.match(unknown, /暂不支持该 Mermaid 图类型/)
+  assert.match(unknown, /whateverDiagram/)
+
+  const unclosed = renderToStaticMarkup(React.createElement('div', null, renderRich(`前文\n\n${FENCE}mermaid\nerDiagram\n  A ||--|| B : has`)))
+  assert.match(unclosed, /data-mermaid-error="true"/)
+  assert.match(unclosed, /未闭合/)
+  assert.match(unclosed, /erDiagram/)
+  assert.match(unclosed, /前文/)
+
+  // A leading Mermaid init directive must not become the diagram's first line.
+  const withInit = renderToStaticMarkup(React.createElement('div', null, renderRich(['', '%%{init: {"theme": "dark"}}%%', mermaidBlock('flowchart LR\n  A --> B')].join('\n'))))
+  assert.match(withInit, /data-mermaid-diagram="true"/)
+  assert.equal(withInit.includes('data-mermaid-error'), false)
+})
+
+test('every Mermaid diagram family renders a diagram, never an error', () => {
+  const { MermaidDiagram, buildMermaidDiagram } = clientHooks()
+  const samples = {
+    er: 'erDiagram\n  A ||--o{ B : has',
+    flow: 'flowchart LR\n  a([用户])\n  b([登录])\n  a --> b',
+    usecase: 'usecaseDiagram\n  User((用户))\n  Login([登录])\n  User --> Login',
+    sequence: 'sequenceDiagram\n  A->>B: 请求\n  B-->>A: 返回',
+    class: 'classDiagram\n  class A {\n    +String name\n  }\n  A <|-- B',
+    state: 'stateDiagram-v2\n  [*] --> Idle\n  Idle --> Run : start',
+    pie: 'pie title 占比\n  "A" : 40\n  "B" : 60',
+    gantt: 'gantt\n  title 计划\n  section 设计\n  需求 :a1, 2024-01-01, 3d',
+    journey: 'journey\n  title 旅程\n  section 购买\n  浏览: 5: 用户',
+    timeline: 'timeline\n  title 里程碑\n  2024-01 : 立项',
+    mindmap: 'mindmap\n  root((需求))\n    目标\n    验收',
+    git: 'gitGraph\n  commit id: "a1"\n  branch dev\n  commit id: "b1"',
+    requirement: 'requirementDiagram\n  requirement R1 {\n    id: 1\n    text: 下单\n  }',
+    c4: 'C4Context\n  Person(user, "用户", "下单")\n  System(sys, "系统", "处理")\n  Rel(user, sys, "使用")',
+    quadrant: 'quadrantChart\n  title 优先级\n  A: [0.3, 0.6]',
+    xychart: 'xychart-beta\n  title 销量\n  x-axis [一月, 二月]\n  bar [30, 60]',
+    sankey: 'sankey-beta\n  A,B,10\n  A,C,20',
+    packet: 'packet-beta\n  title TCP\n  0-15: "源端口"',
+    block: 'block-beta\n  columns 2\n  a["前端"]\n  b["服务"]\n  a --> b',
+    architecture: 'architecture-beta\n  service api(server)[API]\n  service db(database)[DB]\n  api:R --> L:db',
+    kanban: 'kanban\n  column todo["待办"]\n    t1["任务"]',
+    radar: 'radar-beta\n  axis a["性能"]\n  axis b["安全"]\n  curve one["当前"]{4,3}',
+    treemap: 'treemap-beta\n  "前端": 40\n  "后端": 60',
+    zenuml: 'zenuml\n  A->B: 请求\n  B-->A: 返回',
+  }
+  for (const [name, source] of Object.entries(samples)) {
+    const model = buildMermaidDiagram(source)
+    assert.equal(model.ok, true, `${name} should parse: ${model.error ?? ''}`)
+    const html = renderToStaticMarkup(React.createElement(MermaidDiagram, { source }))
+    assert.match(html, /data-mermaid-diagram="true"/, `${name} should render a diagram`)
+    assert.equal(html.includes('data-mermaid-error'), false, `${name} should not fall back to an error`)
+    assert.equal(/NaN|undefined/.test(html), false, `${name} should not leak invalid coordinates`)
+  }
+})
+
+test('list preview and HTML export draw the same diagrams without scripts', () => {
+  const { RequirementRow, buildRequirementExportHtml } = clientHooks()
+  const item = {
+    id: 'REQ-MERMAID-001',
+    title: '图渲染',
+    revision: 1,
+    sources: ['chat'],
+    defect: { exists: false },
+    delivery: { key: 'pending', label: '待推进' },
+    detailView: { content: { doc: { acceptance: [] } } },
+    briefText: mermaidBlock('erDiagram\n  A ||--|| B : has'),
+  }
+  const row = renderToStaticMarkup(React.createElement(RequirementRow, {
+    item, narrow: false, mobile: false, showProject: false, duplicateCounts: {},
+    actionHandlers: { onOpen() {}, onArchive() {}, onRemove() {} },
+  }))
+  assert.match(row, /data-list-preview="true"/)
+  assert.match(row, /预览正文图表（1）/)
+  assert.match(row, /data-mermaid-diagram="true"/)
+
+  const tilde = '~'.repeat(3)
+  const tildeItem = { ...item, briefText: `${tilde}mermaid\nflowchart LR\n  A --> B\n${tilde}` }
+  const tildeRow = renderToStaticMarkup(React.createElement(RequirementRow, {
+    item: tildeItem, narrow: false, mobile: false, showProject: false, duplicateCounts: {},
+    actionHandlers: { onOpen() {}, onArchive() {}, onRemove() {} },
+  }))
+  assert.match(tildeRow, /data-mermaid-diagram="true"/, 'tilde fences render in list previews too')
+
+  const html = buildRequirementExportHtml({ item, detail: {} })
+  assert.match(html, /^<!doctype html>/)
+  assert.match(html, /data-mermaid-diagram="true"/)
+  assert.match(html, /<svg /)
+  assert.match(html, /@media print/)
+  assert.equal(/<script/i.test(html), false)
+  assert.equal(/<a\s[^>]*href=/i.test(html), false)
+  assert.match(html, /erDiagram/, 'export keeps the raw syntax alongside the rendered diagram')
+})
+
+test('the requirements projection preserves Mermaid fences and arrows', () => {
+  const withMindmap = parseBodySections([
+    '## 目标',
+    mermaidBlock('mindmap\n  root((需求))\n    目标\n    验收'),
+    '',
+    '## 范围',
+    '- 仅正文',
+  ].join('\n'))
+  assert.equal(withMindmap.length, 2)
+  assert.equal(withMindmap[0].title, '目标')
+  assert.match(withMindmap[0].text, /mindmap/)
+  assert.match(withMindmap[0].text, /验收/)
+  assert.equal(withMindmap[1].title, '范围')
+
+  const withArrow = parseBodySections(`## 目标\n${mermaidBlock('sequenceDiagram\n  A->>B: 请求')}`)
+  assert.match(withArrow[0].text, /A->>B: 请求/)
+  assert.equal(withArrow[0].text.includes('→>'), false)
+
+  const view = deriveDetailView(baseItem({
+    briefText: `# REQ-TEST-001 图渲染\n${['## 目标', mermaidBlock('erDiagram\n  A ||--|| B : has'), '', '## 范围', '- 仅正文'].join('\n')}`,
+  }))
+  assert.match(view.content.doc.goal, /erDiagram/)
+  assert.match(view.content.sections.find((section) => section.title === '目标').text, /A \|\|--\|\| B : has/)
+})
+
+test('the detail page declares print rules for diagrams', () => {
+  const source = readFileSync(new URL('../client-source.js', import.meta.url), 'utf8')
+  assert.match(source, /@media print\{/)
+  assert.match(source, /\[data-mermaid-diagram\]\{break-inside:avoid/)
+})
