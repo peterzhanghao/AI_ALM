@@ -14,3 +14,19 @@ CATEGORY: functional
 REVISION: 1
 BRIEF: requirements/briefs/REQ-ALM-014.md
 SOURCE: chat
+
+[RELATION]
+Type: allocated_to
+Value: MOD-ALM-REQUIREMENTS
+
+[RELATION]
+Type: allocated_to
+Value: MOD-DSH-REQUIREMENTS
+
+[RELATION]
+Type: allocated_to
+Value: MOD-ALM-INTENT
+
+[RELATION]
+Type: allocated_to
+Value: MOD-ALM-ASSET-MODEL
