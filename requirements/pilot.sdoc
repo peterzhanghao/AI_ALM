@@ -1,0 +1,12 @@
+[DOCUMENT]
+TITLE: Autonomous delivery pilot
+
+[REQUIREMENT]
+UID: REQ-PILOT-001
+TITLE: Purchase list pagination
+OWNER: pilot
+STATUS: proposed
+PRIORITY: P2
+CATEGORY: functional
+REVISION: 1
+BRIEF: requirements/briefs/REQ-PILOT-001.md
