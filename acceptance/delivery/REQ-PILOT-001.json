@@ -1,0 +1,50 @@
+{
+  "checks": [
+    {
+      "id": "page-sizes",
+      "method": "node-test",
+      "criteria": ["AC-01"],
+      "file": "tests/delivery/REQ-PILOT-001/pagination.test.mjs",
+      "fileHash": "9b8bc67fe2824bd50792b06a52da460b0311013ef3dcbd5f2f840babe08bc6b7",
+      "testName": "45 items span three pages of 20, 20 and 5"
+    },
+    {
+      "id": "page-order",
+      "method": "node-test",
+      "criteria": ["AC-02"],
+      "file": "tests/delivery/REQ-PILOT-001/pagination.test.mjs",
+      "fileHash": "9b8bc67fe2824bd50792b06a52da460b0311013ef3dcbd5f2f840babe08bc6b7",
+      "testName": "pagination preserves every item exactly once in source order"
+    },
+    {
+      "id": "filter-reset",
+      "method": "node-test",
+      "criteria": ["AC-03"],
+      "file": "tests/delivery/REQ-PILOT-001/pagination.test.mjs",
+      "fileHash": "9b8bc67fe2824bd50792b06a52da460b0311013ef3dcbd5f2f840babe08bc6b7",
+      "testName": "changing a filter resets the selected page to one"
+    },
+    {
+      "id": "navigation-state",
+      "method": "node-test",
+      "criteria": ["AC-04"],
+      "file": "tests/delivery/REQ-PILOT-001/pagination.test.mjs",
+      "fileHash": "9b8bc67fe2824bd50792b06a52da460b0311013ef3dcbd5f2f840babe08bc6b7",
+      "testName": "empty and last pages expose the correct navigation state"
+    }
+  ],
+  "target": { "kind": "integration", "name": "codex/autonomous-pilot-target" },
+  "policy": {
+    "actions": ["verify", "repair", "prepare-pr", "integrate"],
+    "allowedPaths": [
+      "src/pilot/",
+      "tests/delivery/REQ-PILOT-001/",
+      "requirements/pilot.sdoc",
+      "requirements/briefs/REQ-PILOT-001.md",
+      "acceptance/delivery/REQ-PILOT-001.json"
+    ],
+    "expiresAt": "2026-11-27T00:00:00Z",
+    "maxAttempts": 4,
+    "maxDurationMs": 86400000
+  }
+}
